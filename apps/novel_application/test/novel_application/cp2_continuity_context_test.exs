@@ -94,7 +94,7 @@ defmodule NovelApplication.CP2ContinuityContextTest do
       plan: plan(opts[:action] || %{}),
       decision: allow_decision(),
       context: %DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         current_chapters: opts[:chapters] || ["第一章"],
         assembly_policy: opts[:assembly_policy] || AssemblyPolicy.for_tier(:floor)
       },

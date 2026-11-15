@@ -17,6 +17,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelApplication.AgentRunService
   alias NovelApplication.AgentRunStartup
   alias NovelApplication.AuthorActionAdmission
+  alias NovelApplication.AuthorContentRegistration
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.CompactionRecord
   alias NovelApplication.ContextPressure
@@ -1506,7 +1507,7 @@ defmodule NovelApplication.AgentRunServer do
        do: "模型返回的操作或来源没有通过校验，纠正后仍不符合约束。原请求已保留；没有生成候选或写入作品事实，可以调整请求后重试。"
 
   defp failure_fallback_message({:author_content_registration_invalid, reason}),
-    do: TurnInteractionService.author_registration_failure_message(reason)
+    do: AuthorContentRegistration.author_registration_failure_message(reason)
 
   defp failure_fallback_message({:judgment_output_conflict, _}),
     do: "模型回复与本轮要求不一致，纠正后仍未通过校验。你的输入已保留；没有生成候选或写入作品事实，可以继续对话。"

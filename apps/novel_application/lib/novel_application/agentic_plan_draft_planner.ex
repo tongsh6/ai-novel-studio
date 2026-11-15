@@ -13,7 +13,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   alias NovelAgent.Provider.{Execution, NativeToolExchange}
   alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
-  alias NovelDomain.{AgentObservation, AgentPlan, AgentRun}
+  alias NovelDomain.{AgentPlan, AgentRun}
 
   @draft_tool_name "agent_plan_draft"
   @revision_tool_name "agent_plan_revision"
@@ -57,86 +57,44 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     )
   end
 
-  # 规划期机械准备（ADR-0025）：作品章节索引由应用层确定性读取后注入 prompt，
-  # 不问模型。B24 CP2（I-EXPLORE-READ-9）：索引同时给出 chapter_ref（chapter_read
-  # 唯一寻址）、seq 与 title（target_chapter 仍精确复制标题；作者面只用 seq+title）。
-  # 读取失败按无章节处理——缺席时点名章的正文请求会被缺失策略误判为"点名了不存在的章"。
+  # 章节索引来自应用实际读取。读取失败不可冒充“作品没有章节”，
+  # 标题不是可寻址身份；不从标题合成 chapter_ref 或已写状态。
   defp chapter_index_payload(%AgentRun{} = run, opts) do
-    entries = chapter_entries(run, opts)
-    %{titles: Enum.map(entries, & &1.title), entries: entries}
+    reader =
+      Keyword.get(opts, :chapter_index_reader) ||
+        NovelApplication.persistence_chapter_index_reader()
+
+    reader
+    |> read_chapter_entries(run.work_id)
+    |> normalize_chapter_entries()
   end
 
-  defp chapter_entries(%AgentRun{} = run, opts) do
-    cond do
-      is_function(Keyword.get(opts, :chapter_index_reader), 1) ->
-        normalize_chapter_entries(
-          safe_reader(Keyword.get(opts, :chapter_index_reader), run.workspace_id)
-        )
-
-      is_function(Keyword.get(opts, :chapter_titles_reader), 1) ->
-        titles_to_chapter_entries(
-          safe_reader(Keyword.get(opts, :chapter_titles_reader), run.workspace_id)
-        )
-
-      true ->
-        case NovelApplication.persistence_chapter_index_reader() do
-          reader when is_function(reader, 1) ->
-            normalize_chapter_entries(safe_reader(reader, run.workspace_id))
-
-          _ ->
-            titles_to_chapter_entries(
-              safe_reader(NovelApplication.persistence_chapter_titles_reader(), run.workspace_id)
-            )
-        end
-    end
-  end
-
-  defp safe_reader(reader, workspace_id) when is_function(reader, 1) do
-    reader.(workspace_id)
+  defp read_chapter_entries(reader, work_id) when is_function(reader, 1) and is_binary(work_id) do
+    reader.(work_id)
   rescue
-    _error -> []
+    _error -> :unavailable
   end
 
-  defp safe_reader(_reader, _workspace_id), do: []
+  defp read_chapter_entries(_reader, _work_id), do: :unavailable
 
   defp normalize_chapter_entries(entries) when is_list(entries) do
-    entries
-    |> Enum.map(&normalize_chapter_entry/1)
-    |> Enum.reject(&is_nil/1)
+    normalized = Enum.map(entries, &normalize_chapter_entry/1)
+
+    if Enum.any?(normalized, &is_nil/1),
+      do: %{status: :unavailable},
+      else: %{status: :complete, entries: normalized}
   end
 
-  defp normalize_chapter_entries(_entries), do: []
+  defp normalize_chapter_entries(_entries), do: %{status: :unavailable}
 
-  defp normalize_chapter_entry(entry) when is_map(entry) do
-    case Map.get(entry, :title) do
-      title when is_binary(title) ->
-        case String.trim(title) do
-          "" ->
-            nil
-
-          trimmed ->
-            %{
-              title: trimmed,
-              seq: Map.get(entry, :seq),
-              id: Map.get(entry, :id),
-              has_prose: Map.get(entry, :has_prose, true)
-            }
-        end
-
-      _ ->
-        nil
-    end
+  defp normalize_chapter_entry(%{id: id, title: title} = entry)
+       when is_binary(id) and is_binary(title) do
+    if String.trim(id) != "" and String.trim(title) != "",
+      do: Map.take(entry, [:id, :title, :seq, :has_prose]),
+      else: nil
   end
 
   defp normalize_chapter_entry(_entry), do: nil
-
-  defp titles_to_chapter_entries(titles) when is_list(titles) do
-    titles
-    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-    |> Enum.map(&%{title: String.trim(&1), seq: nil, id: nil, has_prose: true})
-  end
-
-  defp titles_to_chapter_entries(_titles), do: []
 
   defp request_plan_with_meta(run, provider_execution, snapshot, spec, tool_name, meta_fun) do
     case AuthoringOperation.prepare(run, snapshot, spec) do
@@ -653,135 +611,103 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp plan_step_targets(_profile_ref), do: nil
 
-  @doc false
-  @spec draft_context_block(AgentRun.t(), map(), map() | [String.t()]) :: String.t()
-  def draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
-    scope_sections(run, snapshot, chapter_titles)
-    |> Enum.join("\n\n")
+  defp planner_scope(run, snapshot, chapters) do
+    {facts, coverage, omissions} = chapter_scope(chapters, run)
+
+    %{
+      goal: run.goal,
+      facts: facts,
+      operation: %{
+        profile_ref: run.profile_ref,
+        plan_step_targets: allowed_targets(run),
+        internal_observation_steps: internal_observation_steps(run.profile_ref),
+        current_plan_version: run.plan_version,
+        next_plan_version: next_plan_version(run),
+        stage_state_keys: stage_state_keys(snapshot)
+      },
+      coverage: coverage,
+      omissions: omissions
+    }
   end
 
-  defp scope_sections(run, snapshot, chapter_titles) do
-    [
-      """
-      ## 调用点参数
-      - profile_ref: #{run.profile_ref}
-      - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
-      - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
+  defp chapter_scope(%{status: :complete, entries: entries}, run) do
+    {listed, omitted} = NovelApplication.ChapterListBudget.project_entries(entries, run.goal.text)
 
-      ## 可用能力说明
-      #{step_catalog(run.profile_ref)}
-      """,
-      String.trim(accepted_chapters_section(chapter_titles, run.goal.text)),
-      """
-      ## 本轮目标
-      - author_goal: #{run.goal.text}
-      - goal_version: #{run.goal.version}
-      - current_plan_version: #{run.plan_version || 1}
-      - next_plan_version: #{next_plan_version(run)}
-      - stage_state_keys: #{stage_state_keys(snapshot)}
-      - run_id: #{run.run_id}
-      """,
-      plan_arguments_contract(allowed_targets(run))
-    ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map(&String.trim/1)
+    chapters =
+      Enum.map(listed, fn entry ->
+        Map.merge(entry, %{ref: "chapter:" <> entry.id, work_id: run.work_id})
+      end)
+
+    coverage = %{
+      chapters: %{
+        status: if(omitted == 0, do: "complete", else: "partial"),
+        returned: length(listed),
+        total: length(entries)
+      }
+    }
+
+    omissions =
+      if omitted == 0,
+        do: [],
+        else: [%{source: "chapters", reason: "budget_limited", count: omitted}]
+
+    {%{chapters: chapters}, coverage, omissions}
   end
 
-  # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 精确复制标题；
-  # B24 CP2：chapter_read 的 exploration_query 优先复制索引里的 chapter_ref。
-  # T2a：有界投影（作者点名章恒在列——精确复制契约的依赖项由 ChapterListBudget 保证）。
-  defp accepted_chapters_section(chapters, author_text) do
-    payload = chapters_payload(chapters)
+  defp chapter_scope(%{status: :unavailable}, _run),
+    do: {%{}, %{chapters: %{status: "unavailable"}}, []}
 
-    case payload.entries do
-      [] ->
-        ""
+  defp revision_scope(scope, run, snapshot, reason) do
+    {context, coverage, omissions} = observation_context(snapshot)
 
-      entries ->
-        {listed, omitted} =
-          NovelApplication.ChapterListBudget.project_entries(entries, author_text)
-
-        "\n## 作品章节（target_chapter 精确复制标题；chapter_read 优先复制 chapter_ref；含已规划但还没写正文的章）\n" <>
-          NovelApplication.ChapterListBudget.render_entry_lines(
-            listed,
-            omitted,
-            length(entries)
-          ) <>
-          "\n"
-    end
-  end
-
-  # 公开 prompt 构造器兼容两种入参：索引 payload（生产）或章节标题列表（既有测试/调用）。
-  defp chapters_payload(%{titles: _titles, entries: entries} = payload) when is_list(entries),
-    do: payload
-
-  defp chapters_payload(titles) when is_list(titles) do
-    entries = titles_to_chapter_entries(titles)
-    %{titles: Enum.map(entries, & &1.title), entries: entries}
-  end
-
-  defp chapters_payload(_other), do: %{titles: [], entries: []}
-
-  @doc false
-  @spec revision_context_block(AgentRun.t(), map(), map() | [String.t()], String.t()) ::
-          String.t()
-  def revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    (scope_sections(run, snapshot, chapter_titles) ++
-       [
-         "## 修订触发原因\n#{revision_reason}",
-         "## 当前计划\n#{current_plan_json(run)}",
-         "## 最近观察\n#{observation_lines(snapshot)}"
-       ])
-    |> Enum.join("\n\n")
+    scope
+    |> Map.put(:context, context)
+    |> Map.update!(
+      :operation,
+      &Map.merge(&1, %{revision_reason: reason, current_plan: current_plan(run)})
+    )
+    |> Map.update!(:coverage, &Map.merge(&1, coverage))
+    |> Map.update!(:omissions, &(&1 ++ omissions))
   end
 
   defp operation_spec(run, snapshot, chapters, kind, revision_reason, opts) do
     tool_name = if kind == :draft, do: @draft_tool_name, else: @revision_tool_name
+    scope = planner_scope(run, snapshot, chapters)
 
     scope =
-      if kind == :draft,
-        do: draft_context_block(run, snapshot, chapters),
-        else: revision_context_block(run, snapshot, chapters, revision_reason)
+      if kind == :revision, do: revision_scope(scope, run, snapshot, revision_reason), else: scope
+
+    base_refs =
+      Enum.map(Map.get(scope.facts, :chapters, []), &Map.take(&1, [:ref, :version]))
 
     %{
       role: tool_name,
-      instructions: planner_instructions(kind, tool_name),
+      instructions: planner_instructions(kind, tool_name, run),
       scope: scope,
       tool: plan_tool(tool_name),
-      source_refs: planner_source_refs(run, chapters, snapshot),
-      versions: %{"goal_version" => run.goal.version, "plan_version" => run.plan_version || 1},
+      source_refs: planner_source_refs(scope, base_refs),
+      base_refs: base_refs,
+      versions: %{"goal_version" => run.goal.version, "plan_version" => run.plan_version},
       # VS-00L §3.2（裁决 A）：版本引用进入 canonical system 前缀。
       system_versions: %{
         constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
         output_protocol_version: NovelApplication.JudgmentToolContract.version()
       },
-      author_text: Keyword.get(opts, :author_text)
+      author_text: Keyword.get(opts, :author_text),
+      source_input_ref: Keyword.get(opts, :source_input_ref)
     }
   end
 
-  defp planner_source_refs(run, chapters, snapshot) do
-    {listed, _omitted} =
-      NovelApplication.ChapterListBudget.project_entries(
-        chapters_payload(chapters).entries,
-        run.goal.text
-      )
-
-    chapter_refs =
-      for entry <- listed,
-          id = Map.get(entry, :id),
-          is_binary(id),
-          do: "chapter:" <> id
-
+  defp planner_source_refs(scope, base_refs) do
     observation_refs =
-      for observation <- snapshot |> map_get(:observations) |> List.wrap() |> Enum.take(-8),
-          ref <- List.wrap(map_get(observation, :evidence_refs)),
-          is_binary(ref),
-          do: ref
+      for observation <- get_in(scope, [:context, :observations]) || [],
+          ref <- observation.evidence_refs,
+          do: %{ref: ref}
 
-    (chapter_refs ++ observation_refs) |> Enum.uniq() |> Enum.map(&%{ref: &1})
+    Enum.uniq(base_refs ++ observation_refs)
   end
 
-  defp planner_instructions(kind, tool_name) do
+  defp planner_instructions(kind, tool_name, run) do
     role = if kind == :draft, do: "AgentRun 计划起草器", else: "AgentRun 计划修订器"
     heading = if kind == :draft, do: "计划要求", else: "修订要求"
 
@@ -790,11 +716,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
     #{NovelApplication.AuthoringTaskPolicy.rules()}
 
+    ## 可用能力说明
+    #{step_catalog(run.profile_ref)}
+
     ## #{heading}
     #{plan_requirements(kind)}
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自本轮 plan_step_targets；不在该列表中的能力不能作为独立步骤。
     - 能力目录中的「依赖」声明是硬约束：依赖步骤必须在使用它的步骤之前，不可省略。
-    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名章按作品章节列表精确复制全名，并逐字复制该条索引里的 chapter_ref。无法确定时填 null。
+    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名章按 facts.chapters 精确复制 title，并逐字复制该条索引里的 ref。无法确定时填 null。
     - authoring_intent 只能取 continuation / rewrite / null（枚举，非描述文字）；作者要求接着写、继续写、往下写时必须填 continuation。
     - 作者明确篇幅诉求时 prose_writing 步携带 target_word_count 整数估计；没有诉求填 null。
     - 不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
@@ -803,6 +732,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     调用 #{tool_name} 给出完整计划；content 可同时说明事实、理由和影响范围。
     author_reasoning 保留作者可见说明原话，空 content 时从该字段展示。
     #{plan_argument_rules()}
+    #{plan_arguments_contract(allowed_targets(run))}
     """
     |> String.trim()
   end
@@ -1115,39 +1045,24 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  defp stage_state_keys(snapshot) when is_map(snapshot) do
-    snapshot
-    |> Map.get(:stage_state, %{})
-    |> case do
+  defp stage_state_keys(snapshot) do
+    case map_get(snapshot, :stage_state) do
       stage_state when is_map(stage_state) ->
-        stage_state
-        |> Map.keys()
-        |> Enum.map(&to_string/1)
-        |> Enum.sort()
-        |> Enum.join(", ")
-        |> case do
-          "" -> "none"
-          keys -> keys
-        end
+        stage_state |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
 
       _ ->
-        "none"
+        nil
     end
   end
 
-  defp stage_state_keys(_snapshot), do: "none"
+  defp current_plan(%AgentRun{plan: nil}), do: nil
 
-  defp current_plan_json(%AgentRun{} = run) do
+  defp current_plan(%AgentRun{} = run) do
     %{
       plan_ref: run.plan_ref || map_get(run.plan, :plan_id),
       plan_version: run.plan_version || map_get(run.plan, :version),
-      steps: Enum.map(plan_steps(run.plan || %{}), &plan_step_summary/1)
+      steps: Enum.map(plan_steps(run.plan), &plan_step_summary/1)
     }
-    |> Jason.encode()
-    |> case do
-      {:ok, json} -> json
-      {:error, _reason} -> "none"
-    end
   end
 
   defp plan_step_summary(step) when is_map(step) do
@@ -1161,7 +1076,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       target_tool_ref: map_get(step, :target_tool_ref),
       write_intent: step |> map_get(:write_intent) |> atom_string(),
       risk_hint: step |> map_get(:risk_hint) |> atom_string(),
-      authoring_intent: map_get(step, :authoring_intent),
+      authoring_intent: step |> map_get(:authoring_intent) |> atom_string(),
       target_chapter: map_get(step, :target_chapter),
       requested_chapter_raw: map_get(step, :requested_chapter_raw)
     }
@@ -1169,62 +1084,88 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> Map.new()
   end
 
-  defp observation_lines(%{observations: observations}) when is_list(observations) do
-    observations
-    |> Enum.take(-8)
-    |> Enum.map_join("\n", &observation_line/1)
-    |> case do
-      "" -> "none"
-      lines -> lines
-    end
+  # 保留既有最近 8 条观察、每条 5 个 finding / 240 字 summary 的边界；
+  # 结构字段与明确省略进入 Scope，不能以摘要或“none”冒充完整读取。
+  defp observation_context(%{observations: observations}) when is_list(observations) do
+    listed = Enum.take(observations, -8)
+    {projected, finding_omissions} = Enum.map_reduce(listed, [], &observation_scope/2)
+    omitted = length(observations) - length(listed)
+
+    coverage = %{
+      observations: %{
+        status: if(omitted == 0, do: "complete", else: "partial"),
+        returned: length(listed),
+        total: length(observations)
+      }
+    }
+
+    omissions =
+      if omitted == 0,
+        do: finding_omissions,
+        else: [
+          %{source: "observations", reason: "budget_limited", count: omitted} | finding_omissions
+        ]
+
+    {%{observations: projected}, coverage, omissions}
   end
 
-  defp observation_lines(_snapshot), do: "none"
+  defp observation_context(_snapshot),
+    do: {%{}, %{observations: %{status: "not_read"}}, []}
 
-  defp observation_line(%AgentObservation{} = observation) do
-    observation
-    |> base_observation_line()
-    |> append_finding_lines(observation.structured_payload)
+  defp observation_scope(observation, omissions) do
+    observation_id = map_get(observation, :observation_id)
+    findings = observation |> map_get(:structured_payload) |> map_get(:findings) |> List.wrap()
+    shown = Enum.take(findings, 5)
+    {projected, truncated} = shown |> Enum.with_index(1) |> Enum.map_reduce([], &finding_scope/2)
+    omitted = length(findings) - length(shown)
+
+    detail = %{
+      observation_id: observation_id,
+      observation_type: observation |> map_get(:observation_type) |> atom_string(),
+      summary: map_get(observation, :summary),
+      evidence_refs: observation |> map_get(:evidence_refs) |> string_list(),
+      findings: projected
+    }
+
+    finding_omissions =
+      if omitted == 0,
+        do: truncated,
+        else: [%{source: "findings", reason: "budget_limited", count: omitted} | truncated]
+
+    finding_omissions =
+      Enum.map(finding_omissions, fn omission ->
+        Map.update!(omission, :source, &"observation:#{observation_id}:#{&1}")
+      end)
+
+    {detail, omissions ++ finding_omissions}
   end
 
-  defp observation_line(observation) when is_map(observation) do
-    observation
-    |> base_observation_line()
-    |> append_finding_lines(map_get(observation, :structured_payload))
+  defp finding_scope({finding, index}, omissions) do
+    summary = map_get(finding, :summary)
+    truncated? = is_binary(summary) and String.length(summary) > 240
+
+    fields = %{
+      quality_gate_ref: map_get(finding, :quality_gate_ref),
+      gate: map_get(finding, :gate),
+      severity: finding |> map_get(:severity) |> atom_string(),
+      summary: if(truncated?, do: String.slice(summary, 0, 240), else: summary)
+    }
+
+    omissions =
+      if truncated?,
+        do: [
+          %{
+            source: "finding:#{index}:summary",
+            reason: "budget_limited",
+            returned: 240,
+            total: String.length(summary)
+          }
+          | omissions
+        ],
+        else: omissions
+
+    {Map.reject(fields, fn {_key, value} -> is_nil(value) end), omissions}
   end
-
-  defp observation_line(observation), do: "- #{inspect(observation)}"
-
-  defp base_observation_line(observation) do
-    "- #{map_get(observation, :observation_id)} / #{map_get(observation, :observation_type)}: #{map_get(observation, :summary)}"
-  end
-
-  # T4（UA01 T3-T5）：finding 的结构字段必须进入修订观察，不能被 summary 摘要冒充。
-  # 上限 5 条、每条 summary 240 字；超出部分显式标 …(+N)，不伪造完整观察。
-  defp append_finding_lines(line, %{} = payload) do
-    findings = map_get(payload, :findings) |> List.wrap()
-
-    if findings == [] do
-      line
-    else
-      shown = Enum.take(findings, 5)
-      hidden = max(length(findings) - length(shown), 0)
-
-      finding_lines =
-        Enum.map(shown, fn finding ->
-          gate = map_get(finding, :quality_gate_ref) || map_get(finding, :gate) || "unknown_gate"
-          severity = map_get(finding, :severity) || "unknown"
-          summary = map_get(finding, :summary) || ""
-          summary = String.slice(to_string(summary), 0, 240)
-          "  · finding [#{gate}, severity=#{severity}] #{summary}"
-        end)
-
-      tail = if hidden > 0, do: ["  · finding …(+#{hidden})"], else: []
-      Enum.join([line | finding_lines ++ tail], "\n")
-    end
-  end
-
-  defp append_finding_lines(line, _payload), do: line
 
   defp next_plan_version(%AgentRun{} = run) do
     case run.plan_version || map_get(run.plan, :version) do
@@ -1233,6 +1174,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
+  defp atom_string(nil), do: nil
   defp atom_string(value) when is_atom(value), do: Atom.to_string(value)
   defp atom_string(value) when is_binary(value), do: value
   defp atom_string(_value), do: nil

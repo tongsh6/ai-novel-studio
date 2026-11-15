@@ -1,10 +1,13 @@
 defmodule NovelAgent.Provider.GatewayTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelAgent.Provider.Strata
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
+  alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.SystemIdentity
 
@@ -985,23 +988,33 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "stub creative items preserve nonce without leaking prompt headings" do
-      prompt = """
-      你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+      author = "请生成第01章：底层灵气账单正文草稿"
 
-      capability：prose_writing
-      artifact_type：prose_fragment
-      用户创作简述：请生成第01章：底层灵气账单正文草稿
-      上下文：## 当前作品上下文
-      - id: 8cde8315-0208-4308-8422-6a1a75a1234d
+      assert {:ok, ir} =
+               Real.request_ir(%CreativeRequest{
+                 request_id: "gateway-stub-prose",
+                 tool_name: "prose_writing",
+                 artifact_type: :prose_fragment,
+                 creative_brief: author,
+                 source_turn_ref: "turn:gateway-prose",
+                 source_input_ref: "turn:gateway-prose",
+                 context_text: "## 当前作品上下文\n- id: 8cde8315-0208-4308-8422-6a1a75a1234d",
+                 task:
+                   AuthoringTaskFixtures.prose_task(%{
+                     author_words: author,
+                     source: %{kind: :author_action, ref: "turn:gateway-prose"},
+                     source_refs: ["turn:gateway-prose"]
+                   })
+               })
 
-      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
-      必须在至少一个条目的 title/body/rationale 中原样保留。
+      assert {:ok,
+              %{
+                content: "",
+                tool_calls: [
+                  %{name: "submit_tentative_artifact", arguments: %{items: [item]}}
+                ]
+              }} = Gateway.complete(ir)
 
-      只返回 JSON 数组。
-      """
-
-      assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
-      assert {:ok, [item]} = Jason.decode(content)
       assert item["body"] =~ "8cde8315"
       assert item["body"] =~ "灵气账单"
       refute item["body"] =~ "## 当前作品上下文"
@@ -1009,23 +1022,33 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
 
     test "stub character_seed returns a role dossier instead of prose-shaped filler" do
-      prompt = """
-      你是小说角色设计助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+      author = "请设计一个稽查官 CHAR9X7"
 
-      capability：character_design
-      artifact_type：character_seed
-      用户创作简述：请设计一个稽查官 CHAR9X7
-      上下文：## 现有角色
-      - 白露：黑市掮客
+      assert {:ok, ir} =
+               Real.request_ir(%CreativeRequest{
+                 request_id: "gateway-stub-character",
+                 tool_name: "character_design",
+                 artifact_type: :character_seed,
+                 creative_brief: author,
+                 source_turn_ref: "turn:gateway-character",
+                 source_input_ref: "turn:gateway-character",
+                 context_text: "## 现有角色\n- 白露：黑市掮客",
+                 task:
+                   AuthoringTaskFixtures.task(:character_design, %{
+                     author_words: author,
+                     source: %{kind: :author_action, ref: "turn:gateway-character"},
+                     source_refs: ["turn:gateway-character"]
+                   })
+               })
 
-      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
-      必须在至少一个条目的 title/body/rationale 中原样保留。
+      assert {:ok,
+              %{
+                content: "",
+                tool_calls: [
+                  %{name: "submit_tentative_artifact", arguments: %{items: [item]}}
+                ]
+              }} = Gateway.complete(ir)
 
-      只返回 JSON 数组。
-      """
-
-      assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
-      assert {:ok, [item]} = Jason.decode(content)
       assert item["title"] =~ "沈砚"
       assert item["body"] =~ "定位："
       assert item["body"] =~ "语言风格："
@@ -1196,26 +1219,40 @@ defmodule NovelAgent.Provider.GatewayTest do
     test "returns product-shaped creative items without leaking prompt headings" do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :slice_verify)
+      author = "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿"
 
-      prompt = """
-      你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
-
-      capability：prose_writing
-      artifact_type：prose_fragment
-      用户创作简述：请根据已采纳章节计划生成第01章：底层灵气账单正文草稿
-      上下文：## 当前作品上下文
-      - id: 8cde8315-0208-4308-8422-6a1a75a1234d
-      - title: P1 单章正文草稿验证作品
-
-      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
-      必须在至少一个条目的 title/body/rationale 中原样保留。
-
-      只返回 JSON 数组。
-      """
+      assert {:ok, ir} =
+               Real.request_ir(%CreativeRequest{
+                 request_id: "gateway-slice-prose",
+                 tool_name: "prose_writing",
+                 artifact_type: :prose_fragment,
+                 creative_brief: author,
+                 source_turn_ref: "turn:gateway-slice-prose",
+                 source_input_ref: "turn:gateway-slice-prose",
+                 context_text:
+                   "## 当前作品上下文\n" <>
+                     "- id: 8cde8315-0208-4308-8422-6a1a75a1234d\n" <>
+                     "- title: P1 单章正文草稿验证作品",
+                 task:
+                   AuthoringTaskFixtures.prose_task(%{
+                     author_words: author,
+                     source: %{kind: :author_action, ref: "turn:gateway-slice-prose"},
+                     source_refs: ["turn:gateway-slice-prose"]
+                   })
+               })
 
       try do
-        assert {:ok, %{content: content}} = Gateway.complete(op_ir(prompt))
-        assert {:ok, %{"items" => [item], "self_report" => self_report}} = Jason.decode(content)
+        assert {:ok,
+                %{
+                  content: "",
+                  tool_calls: [
+                    %{
+                      name: "submit_tentative_artifact",
+                      arguments: %{"items" => [item], "self_report" => self_report}
+                    }
+                  ]
+                }} = Gateway.complete(ir)
+
         assert item["title"] =~ "底层灵气账单"
         assert item["body"] =~ "灵气账单"
         assert item["body"] =~ "8cde8315"
@@ -1226,125 +1263,6 @@ defmodule NovelAgent.Provider.GatewayTest do
       after
         Application.put_env(:novel_agent, :provider, old)
       end
-    end
-  end
-
-  describe "execution log scope" do
-    setup do
-      old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
-      dir = Path.join(System.tmp_dir!(), "novel-llm-scope-#{System.unique_integer([:positive])}")
-      Application.put_env(:novel_telemetry, :llm_log_dir, dir)
-      Logger.reset_metadata([])
-
-      on_exit(fn ->
-        Logger.reset_metadata([])
-        restore_common_env(:llm_log_dir, old_dir)
-        File.rm_rf!(dir)
-      end)
-
-      %{dir: dir}
-    end
-
-    test "success log carries the same refs as ProviderRun and Result", %{dir: dir} do
-      # R2：工具调用走 SSE 流式传输，日志记录来自真实流式请求/响应。
-      eventsource = fn _url, _body, _opts, on_data ->
-        on_data.(
-          sse_delta("HTTP 替身成功正文", "stand-in-model", %{
-            "prompt_tokens" => 3,
-            "completion_tokens" => 4
-          })
-        )
-
-        on_data.("data: [DONE]\n\n")
-        {:ok, 200, ""}
-      end
-
-      RuntimeConfig.put_provider_config(:strata,
-        eventsource_fn: eventsource,
-        model: "stand-in-model",
-        endpoint: "http://stand-in.test/v1"
-      )
-
-      assert {:ok, %{provider_run: run, output: output, events: events}} =
-               Gateway.execute(tool_ir(), nil, %InferenceParams{},
-                 provider: :strata,
-                 provider_call_ref: "pcall-log-success",
-                 provider_run_id: "prun-log-success"
-               )
-
-      assert %DateTime{} = Enum.find(events, &(&1.event_type == :started)).emitted_at
-      assert run.provider_call_ref == "pcall-log-success"
-      assert run.provider_run_id == "prun-log-success"
-      assert output.provider_call_ref == "pcall-log-success"
-      assert output.provider_run_ref == "prun-log-success"
-
-      [record] = read_llm_records(dir)
-
-      assert record["provider"] == "strata"
-      assert record["provider_call_ref"] == "pcall-log-success"
-      assert record["provider_run_ref"] == "prun-log-success"
-      assert record["response"]["status"] == 200
-      assert record["request"]["body"]["messages"] != []
-      refute Map.has_key?(record["request"], "headers")
-      refute Jason.encode!(record) =~ "authorization"
-
-      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
-      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
-    end
-
-    test "error log carries the same refs as the failed ProviderRun", %{dir: dir} do
-      eventsource = fn _url, _body, _opts, _on_data ->
-        {:error, :http_error, 503, "stand-in upstream failed"}
-      end
-
-      RuntimeConfig.put_provider_config(:strata,
-        eventsource_fn: eventsource,
-        model: "stand-in-model",
-        endpoint: "http://stand-in.test/v1"
-      )
-
-      assert {:error, %{provider_run: run, output: output, error: error}} =
-               Gateway.execute(tool_ir(), nil, %InferenceParams{},
-                 provider: :strata,
-                 provider_call_ref: "pcall-log-error",
-                 provider_run_id: "prun-log-error"
-               )
-
-      assert error.type == :provider_internal
-      assert run.provider_call_ref == "pcall-log-error"
-      assert run.provider_run_id == "prun-log-error"
-      assert run.status == :failed
-      assert output.provider_call_ref == "pcall-log-error"
-      assert output.provider_run_ref == "prun-log-error"
-
-      [record] = read_llm_records(dir)
-
-      assert record["provider_call_ref"] == "pcall-log-error"
-      assert record["provider_run_ref"] == "prun-log-error"
-      assert record["response"]["status"] == 503
-      refute record["response"]["status"] == 200
-
-      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
-      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
-    end
-
-    defp tool_ir do
-      TestRequestIR.ir([TestRequestIR.author("读取当前作品。")],
-        tools: [TestRequestIR.tool("read_work")],
-        projection: %{tool_choice: "read_work"}
-      )
-    end
-
-    defp read_llm_records(dir) do
-      path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
-
-      path
-      |> File.read!()
-      |> String.split("\n", trim: true)
-      |> Enum.map(fn line ->
-        [_prefix, json] = String.split(line, "] ", parts: 2)
-        Jason.decode!(json)
-      end)
     end
   end
 

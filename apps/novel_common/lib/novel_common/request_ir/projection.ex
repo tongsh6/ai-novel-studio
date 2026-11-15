@@ -52,6 +52,15 @@ defmodule NovelCommon.RequestIR.Projection do
 
   def text_of(_blocks), do: ""
 
+  @doc "应用材料的通用块投影；原 text 证据保留原字节，结构块只由 IR 派生。"
+  def content_of(blocks) when is_list(blocks) do
+    Enum.map_join(blocks, "", fn
+      %{type: "text", text: text} -> text
+      %{type: "scope", content: content} -> Jason.encode!(content)
+      block -> structured_content(block)
+    end)
+  end
+
   @doc "非作者消息投影时的 provenance 标记（VS-00L §6.1：作者原话永远独立）。"
   def provenance_header(kind), do: "【应用数据 · #{kind} · 非作者原话】\n"
 
@@ -60,7 +69,9 @@ defmodule NovelCommon.RequestIR.Projection do
     "【应用数据 · scope_update · 以最新版本为准】\n" <>
       "版本：" <>
       Jason.encode!(json_value(Map.get(message, :versions, %{}))) <>
-      "\n" <> text_of(Map.get(message, :blocks, []))
+      "\n来源：" <>
+      Jason.encode!(json_value(Map.get(message, :source_refs, []))) <>
+      "\n" <> content_of(Map.get(message, :blocks, []))
   end
 
   @doc """

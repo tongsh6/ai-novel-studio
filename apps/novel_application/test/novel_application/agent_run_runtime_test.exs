@@ -22,6 +22,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   alias NovelPersistence.LongRunTaskLog
   alias NovelPersistence.Repo
 
+  @author_text "先看角色阵容，再设计反派"
+
   setup do
     :ok = Sandbox.checkout(Repo)
     Sandbox.mode(Repo, {:shared, self()})
@@ -52,7 +54,10 @@ defmodule NovelApplication.AgentRunRuntimeTest do
        }}
     end
 
-    opts = [next_step_planner: sequential_steps([step])]
+    opts = [
+      next_step_planner: sequential_steps([step]),
+      interaction_input: %{text: @author_text}
+    ]
 
     NovelApplication.TestAgentEventRelay.subscribe(
       attrs.work_id,
@@ -111,7 +116,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
              AgentRunService.start_bounded(
                attrs,
                Keyword.put(opts, :interaction_input, %{
-                 text: attrs.goal.text,
+                 text: @author_text,
                  generate_micro_plan: true
                })
              )
@@ -127,6 +132,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       AuthoringTranscript.new(
         transcript_identity(run_id),
         base_text: "仅生成待作者审阅的候选",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "先看角色阵容，再设计反派"
       )
 
@@ -196,6 +202,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     planned =
       AuthoringTranscript.new(transcript_identity(run_id),
         base_text: "计划只作建议",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "  作者原话\n"
       )
 
@@ -246,6 +253,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       transcript =
         AuthoringTranscript.new(transcript_identity(run_id),
           base_text: "计划只作建议",
+          author_turn_ref: "input:runtime:#{run_id}",
           author_text: "作者目标"
         )
 
@@ -294,6 +302,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       AuthoringTranscript.new(
         transcript_identity(run_id),
         base_text: "仅生成待作者审阅的候选",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "先看角色阵容，再设计反派"
       )
       |> AuthoringTranscript.append_assistant("", [
@@ -370,6 +379,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       transcript =
         AuthoringTranscript.new(transcript_identity(run_id),
           base_text: "作者保留最终裁决",
+          author_turn_ref: "input:runtime:#{run_id}",
           author_text: "核对角色"
         )
         |> AuthoringTranscript.append_assistant("", [
@@ -453,7 +463,10 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         {:error, :delivery_test_failure}
       end
 
-      opts = [next_step_planner: sequential_steps([step])]
+      opts = [
+        next_step_planner: sequential_steps([step]),
+        interaction_input: %{text: @author_text}
+      ]
 
       assert {:ok, id} =
                AgentRunService.start_bounded(
@@ -506,7 +519,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end
     end
 
-    {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    {:ok, id} =
+      AgentRunService.start_bounded(attrs,
+        next_step_planner: sequential_steps([step]),
+        interaction_input: %{text: @author_text}
+      )
+
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
     assert_receive {:steer_delivery_waiting, _}
 
@@ -553,7 +571,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end
     end
 
-    {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    {:ok, id} =
+      AgentRunService.start_bounded(attrs,
+        next_step_planner: sequential_steps([step]),
+        interaction_input: %{text: @author_text}
+      )
+
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(id)
     assert_receive :steer_version_waiting
 
@@ -925,7 +948,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_full(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -1017,7 +1041,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_full(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -1077,7 +1102,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_full(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -1112,7 +1138,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  attrs,
                  event_forward_with_payload(parent)
                ),
-               next_step_planner: sequential_steps([step])
+               next_step_planner: sequential_steps([step]),
+               interaction_input: %{text: @author_text}
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -1469,12 +1496,21 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       AuthoringTranscript.new(
         transcript_identity(run_id),
         base_text: "稳定创作协议",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "读取事实后停止探索",
         tools: []
       )
-      |> AuthoringTranscript.append_scope_update("探索开放", %{
-        "scope_revision" => 1
-      })
+      |> AuthoringTranscript.append_scope_update(
+        %{
+          work_id: transcript_identity(run_id).work_id,
+          operation: %{exploration: %{allowed: true}}
+        },
+        %{
+          "scope_revision" => 1
+        },
+        [],
+        []
+      )
       |> AuthoringTranscript.append_provider_result(%{
         content: "先读取。",
         tool_calls: [%{id: "call-1", name: "chapter_read", arguments: %{"offset" => 0}}]
@@ -1484,9 +1520,17 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         source_refs: [%{ref: "chapter:1", version: 2}],
         content: %{summary: "第一页"}
       })
-      |> AuthoringTranscript.append_scope_update("探索预算关闭", %{
-        "scope_revision" => 2
-      })
+      |> AuthoringTranscript.append_scope_update(
+        %{
+          work_id: transcript_identity(run_id).work_id,
+          operation: %{exploration: %{allowed: false}}
+        },
+        %{
+          "scope_revision" => 2
+        },
+        [],
+        []
+      )
 
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
     assert {:ok, original_body} = Projection.project(ir, "chat_completions")
@@ -1553,8 +1597,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert Projection.project(restored_ir, "chat_completions") ==
              {:ok, original_body}
 
-    assert AuthoringTranscript.current_scope(recovered.authoring_transcript).text ==
-             "探索预算关闭"
+    assert %{
+             content: %{
+               "work_id" => "work_1",
+               "operation" => %{"exploration" => %{"allowed" => false}}
+             },
+             versions: %{"scope_revision" => 2},
+             source_refs: []
+           } = AuthoringTranscript.current_scope(recovered.authoring_transcript)
 
     checkpoint = LongRunTaskLog.get(task_ref).checkpoint_data
     refute inspect(checkpoint) =~ "prompt_override"
@@ -1577,6 +1627,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           parent_turn_ref: "turn_private_checkpoint_#{run_id}"
         },
         base_text: "稳定创作协议",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "读取事实后继续",
         tools: []
       )
@@ -2562,7 +2613,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_with_payload(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -2623,7 +2675,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_full(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -2695,7 +2748,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -2734,7 +2788,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward_full(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -2823,7 +2878,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                  spec.run_attrs,
                  event_forward(parent)
                ),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -2848,6 +2904,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     transcript =
       AuthoringTranscript.new(transcript_identity(run_id),
         base_text: "bounded 仅生成待审阅候选",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "保留这段真实历史"
       )
       |> AuthoringTranscript.append_provider_result(%{
@@ -2899,6 +2956,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     transcript =
       AuthoringTranscript.new(transcript_identity(run_id),
         base_text: "bounded 压缩边界",
+        author_turn_ref: "input:runtime:#{run_id}",
         author_text: "核对角色"
       )
       |> AuthoringTranscript.append_assistant("", [
@@ -3007,6 +3065,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             parent_turn_ref: parent_turn_ref
           },
           base_text: "旧副本诱饵",
+          author_turn_ref: "input:runtime:#{run_id}",
           author_text: "不应回退"
         )
       )
@@ -3056,6 +3115,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       AuthoringCheckpoint.checkpoint(
         AuthoringTranscript.new(%{run_id: run_id, work_id: work_id},
           base_text: "旧格式只有部分身份",
+          author_turn_ref: "input:runtime:#{run_id}",
           author_text: "不应补造来源"
         )
       )
@@ -3112,7 +3172,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       parent_turn_ref: "turn_1",
       origin_frame_ref: "frame_1",
       profile_ref: "character_design_with_context_v1",
-      goal: %{text: "先看角色阵容，再设计反派", version: 1},
+      goal: %{text: @author_text, version: 1},
       authority_scope: %{
         production_write: false,
         allowed_tools: ["character_roster", "character_design"]

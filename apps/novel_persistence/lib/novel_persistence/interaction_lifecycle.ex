@@ -17,6 +17,24 @@ defmodule NovelPersistence.InteractionLifecycle do
   def call(:question_delivery, attrs), do: NovelPersistence.AuthorQuestionRepo.publish(attrs)
   def call(:question_answer, attrs), do: NovelPersistence.AuthorQuestionRepo.answer(attrs)
 
+  def call(:input, attrs) do
+    rows =
+      attrs.workspace_id
+      |> receipt_rows(attrs.session_id, attrs.run_id, "user")
+      |> Enum.filter(&(&1.turn_id == attrs.turn_id))
+
+    case rows do
+      [%Interaction{turn_id: ref, content: %{"text" => text}}] when is_binary(text) ->
+        {:ok, %{turn_id: ref, text: text}}
+
+      [] ->
+        {:error, :received_input_not_found}
+
+      _ ->
+        {:error, :received_input_conflict}
+    end
+  end
+
   def call(:receive, attrs) do
     Repo.transaction(fn -> receive_input(attrs) end)
   end

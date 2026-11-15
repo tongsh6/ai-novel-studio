@@ -102,7 +102,7 @@ defmodule NovelAgent.Provider.Stub do
 
     native_stage_result(
       WireToolFacts.active_tool_name(prompt),
-      TestProviderPrompt.operation_text(prompt)
+      prompt
     ) || judgment_family_result(prompt, text) ||
       infer_non_judgment_result(prompt, text)
   end
@@ -188,9 +188,13 @@ defmodule NovelAgent.Provider.Stub do
 
   defp chapter_mission_result(tool, text) do
     refs =
-      ~r/\[([a-z_]+:[^\]\s]+)\]/u
-      |> Regex.scan(text)
-      |> Enum.map(fn [_, ref] -> ref end)
+      (get_in(TestProviderPrompt.scope_content(text) || %{}, [
+         "operation",
+         "mission_inputs",
+         "items"
+       ]) || [])
+      |> Enum.map(& &1["ref"])
+      |> Enum.filter(&is_binary/1)
       |> Enum.uniq()
 
     foreshadow = Enum.find(refs, &String.contains?(&1, ":foreshadow_"))
@@ -716,7 +720,6 @@ defmodule NovelAgent.Provider.Stub do
 
   defp agent_plan_revision_response(prompt_text) do
     prompt_text
-    |> String.replace("UA01D6REPLAN", "")
     |> agent_plan_draft_response()
     |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
     |> Map.update!(:reason_codes, fn codes ->
@@ -731,11 +734,8 @@ defmodule NovelAgent.Provider.Stub do
     |> agent_plan_draft_response_for_profile(prompt_text)
   end
 
-  defp agent_plan_profile_ref(prompt_text) do
-    case Regex.run(~r/profile_ref:\s*([a-z0-9_]+)/, prompt_text, capture: :all_but_first) do
-      [profile_ref] -> profile_ref
-      _ -> nil
-    end
+  defp agent_plan_profile_ref(prompt) do
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["operation", "profile_ref"])
   end
 
   defp agent_plan_draft_response_for_profile("prose_drafting_with_quality_v1", prompt_text) do
@@ -929,25 +929,15 @@ defmodule NovelAgent.Provider.Stub do
   # 精确复制全名；列表缺席或没有对应章时填 null。
   defp listed_chapter_title(_prompt_text, nil), do: nil
 
-  defp listed_chapter_title(prompt_text, requested_chapter_raw) do
-    case Regex.run(~r/## 作品章节.*?\n((?:- .+\n?)+)/su, prompt_text, capture: :all_but_first) do
-      [listed] ->
-        listed
-        |> String.split("\n")
-        |> Enum.map(&String.trim_leading(&1, "- "))
-        |> Enum.map(&String.trim/1)
-        |> Enum.find(&String.contains?(&1, requested_chapter_raw))
-
-      _ ->
-        nil
-    end
+  defp listed_chapter_title(prompt, requested_chapter_raw) do
+    (get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "chapters"]) || [])
+    |> Enum.find_value(fn chapter ->
+      if String.contains?(chapter["title"], requested_chapter_raw), do: chapter["title"]
+    end)
   end
 
-  defp agent_plan_author_goal(prompt_text) do
-    case Regex.run(~r/- author_goal:\s*(.*?)\n\s*-/su, prompt_text, capture: :all_but_first) do
-      [text] -> String.trim(text)
-      _ -> extract_user_text(prompt_text)
-    end
+  defp agent_plan_author_goal(prompt) do
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["goal", "text"]) || ""
   end
 
   defp prose_authoring_coordinate(author_goal) do
@@ -1252,55 +1242,27 @@ defmodule NovelAgent.Provider.Stub do
       not String.contains?(prompt_text, "（无——这是新对话或尚未创建作品）")
   end
 
-  # 从 normalized prompt 中提取 user role 部分（含 nonce 等用户随机内容）
-  # B27 CP3d：creative prompt 先按稳定段标记识别（SharedRules/任务语义），
-  # 再取 brief/context；anchor 文本保留，但不再要求旧模板的固定位置。
-  defp task_aware_creative_prompt?(text), do: String.contains?(text, "## 创作协作共同规则")
+  defp extract_user_text(prompt) do
+    case get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["operation"]) do
+      %{"creative_brief" => brief, "context_text" => context} ->
+        [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
 
-  defp extract_user_text(prompt_text) do
-    case creative_anchor_parts(prompt_text) do
-      {brief, context} ->
-        [brief, context]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-
-      nil ->
-        extract_role_user_text(prompt_text)
+      _ ->
+        extract_role_user_text(prompt_text(prompt))
     end
   end
 
-  defp extract_creative_parts(prompt_text) do
-    case creative_anchor_parts(prompt_text) do
-      {brief, context} -> {brief, context}
-      nil -> {extract_role_user_text(prompt_text), ""}
-    end
+  defp extract_creative_parts(prompt) do
+    operation = get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["operation"]) || %{}
+
+    {Map.get(operation, "creative_brief", TestProviderPrompt.author_text(prompt)),
+     Map.get(operation, "context_text", "")}
   end
 
-  defp creative_anchor_parts(prompt) when is_map(prompt) or is_list(prompt) do
-    prompt
-    |> TestProviderPrompt.latest_scope()
-    |> case do
-      text when is_binary(text) -> creative_parts_from_text(text)
-      _ -> nil
-    end
-  end
-
-  defp creative_anchor_parts(prompt_text) do
-    if task_aware_creative_prompt?(prompt_text) or
-         String.contains?(prompt_text, "用户创作简述：") do
-      creative_parts_from_text(prompt_text)
-    end
-  end
-
-  defp creative_parts_from_text(text) do
-    case Regex.run(~r/用户创作简述：(.*?)\n\s*上下文：(.*?)\n\s*重要：/su, text) do
-      [_, brief, context] -> {String.trim(brief), String.trim(context)}
-      _ -> nil
-    end
-  end
-
-  defp character_seed_prompt?(prompt_text),
-    do: String.contains?(prompt_text, "artifact_type：character_seed")
+  defp character_seed_prompt?(prompt),
+    do:
+      get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["operation", "artifact_type"]) ==
+        "character_seed"
 
   defp stub_creative_title(prompt_text, brief, fp) do
     if character_seed_prompt?(prompt_text) do

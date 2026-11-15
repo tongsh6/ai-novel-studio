@@ -38,33 +38,39 @@ defmodule NovelAgent.ProseQualityEvaluator do
       [
         "本次你承担小说正文质量评审助手的角色。只读评审，不重写正文，不修改作品事实。",
         AuthoringSemantics.static_block(task),
+        review_tasks(),
         findings_contract()
       ]
       |> Enum.join("\n\n")
 
-    scope =
-      [
-        material_coverage_statement(task),
-        AuthoringSemantics.dynamic_block(task),
-        review_tasks(request),
-        brief_section(request),
-        scene_units_section(request),
-        facts_section(request),
-        "待评审正文：\n#{request.prose_text}"
-      ]
-      |> Enum.reject(&(&1 in [nil, ""]))
-      |> Enum.join("\n")
+    scope = %{
+      authoring_task: task |> AuthoringTask.to_map() |> Map.delete("author_words"),
+      operation: %{
+        role: "quality_evaluation",
+        prose_text: request.prose_text,
+        execution_brief: request.execution_brief,
+        scene_units: request.scene_units,
+        facts_context: request.facts_context,
+        form_candidates: request.form_candidates,
+        pacing_context: request.pacing_context
+      }
+    }
+
+    scope = scope |> Jason.encode!() |> Jason.decode!()
 
     {run, projection} = operation_context(request)
+    material_refs = AuthoringTask.material_refs(task)
 
     Operation.prepare(request.request_ir, run, %{
       role: "quality_evaluation",
       instructions: instructions,
       scope: scope,
       tool: quality_findings_tool(),
-      source_refs: quality_source_refs(request),
+      source_refs: quality_source_refs(request, material_refs),
+      base_refs: material_refs,
       versions: %{},
       author_text: task.author_words,
+      source_input_ref: AuthoringTask.author_source_ref(task),
       projection: projection
     })
   end
@@ -114,11 +120,14 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp operation_context(request), do: {request.run, %{}}
 
-  defp quality_source_refs(request) do
-    [request.source_turn_ref, request.source_ref | List.wrap(request.task.source_refs)]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.uniq()
-    |> Enum.map(&%{ref: &1})
+  defp quality_source_refs(request, material_refs) do
+    sources =
+      [request.source_turn_ref, request.source_ref | List.wrap(request.task.source_refs)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.map(&%{ref: &1})
+
+    Enum.uniq_by(material_refs ++ sources, & &1.ref)
   end
 
   defp quality_findings_tool do
@@ -288,23 +297,11 @@ defmodule NovelAgent.ProseQualityEvaluator do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref")
   end
 
-  defp material_coverage_statement(%AuthoringTask{scope: scope}) do
-    coverage = Map.get(scope || %{}, :coverage, :single)
-
-    case coverage do
-      :chapter ->
-        "评审范围：整章材料（可给出章级结论；仍须以正文原句为证据）。"
-
-      _ ->
-        "评审范围：单对象/片段（只评审给定材料；不得据此声称整章或全书结论，证据不足时明确范围限制）。"
-    end
-  end
-
   # 评审角色专属任务说明（形式候选 + 章级节奏 + 其他维度）；两种渲染共用。
-  defp review_tasks(request) do
+  defp review_tasks do
     """
     任务 A：局部形式候选的语义判定。
-    #{form_candidates_section(request)}
+    operation.form_candidates 是待判定形式候选，空集合表示本次没有形式命中；不要自行虚构。
     形式候选只是召回信号，不是问题结论。这里必须区分机械重复与刻意排比、回环、咒语感、
     仪式感或情绪升级。只要原句在强度、意义、视角、动作后果或情绪上形成清晰递进，就不要
     输出 finding。只有重复没有形成上述递进、读感近似模板填充时，才输出
@@ -312,7 +309,10 @@ defmodule NovelAgent.ProseQualityEvaluator do
     位置和原句证据。禁止把此类形式问题命名为“章节节奏”。
 
     任务 B：章节级叙事节奏独立评审。
-    #{pacing_context_section(request)}
+    operation.pacing_context 是章节结构参照；未供应时不得输出 narrative_pacing_fit finding。
+    authoring_task.scope.coverage 只有 chapter 才允许给章级结论；single 仅评审给定片段。
+    operation.scene_units 是合法场次清单，finding 的 brief_field_refs 只能使用其中的 unit_id。
+    operation.facts_context 是已供应的作品事实基线；没有该材料时不虚构设定约束。
     节奏是“实际叙事密度是否匹配本章结构功能”的相对判断，不是句长、句数、段落长度或对白
     数量统计。请对照章功能、情节推进、人物变化、信息释放、情绪目标和 hook，判断正文的
     事件密度、张力轨迹以及细写/概述选择是否匹配。只有存在具体错配且能引用正文原句时，
@@ -347,51 +347,4 @@ defmodule NovelAgent.ProseQualityEvaluator do
     """
     |> String.trim()
   end
-
-  defp brief_section(%QualityEvaluationRequest{execution_brief: brief})
-       when is_binary(brief) and brief != "" do
-    "本章执行简述（评审对照）：\n#{brief}\n\n"
-  end
-
-  defp brief_section(_request), do: ""
-
-  # B11D（质量场粒度）：把合法场次清单给 evaluator；finding 指向具体场时，必须在
-  # brief_field_refs 使用这里的 unit_id 前缀（服务端按该白名单归因，不采信自造场 id）。
-  defp scene_units_section(%QualityEvaluationRequest{scene_units: units})
-       when is_list(units) and units != [] do
-    lines =
-      Enum.map_join(units, "\n", fn unit ->
-        unit_id = Map.get(unit, "unit_id") || Map.get(unit, :unit_id)
-        title = Map.get(unit, "scene_title") || Map.get(unit, :scene_title)
-        "- #{unit_id}（#{title}）"
-      end)
-
-    "本章计划场次（finding 若指向某一具体场，必须在 brief_field_refs 中使用下列 unit_id 前缀，例如 scene_2.emotion_transition；禁止发明不存在的场 id）：\n#{lines}\n\n"
-  end
-
-  defp scene_units_section(_request), do: ""
-
-  # CA02（31 §6.12 🟡 门补输入）：作品事实基线——knowledge_boundary/character_logic/
-  # power_scaling 类判断据此比对，而非仅凭正文自评。缺席诚实缺席（不伪造基线）。
-  defp facts_section(%QualityEvaluationRequest{facts_context: facts})
-       when is_binary(facts) and facts != "" do
-    "作品事实基线（作者已确认的设定/伏笔/状态/风格，评审对照；正文与之冲突属高置信问题）：\n#{facts}\n\n"
-  end
-
-  defp facts_section(_request), do: ""
-
-  defp form_candidates_section(%QualityEvaluationRequest{form_candidates: candidates})
-       when is_list(candidates) and candidates != [] do
-    "待判定形式候选（JSON）：\n#{Jason.encode!(candidates)}"
-  end
-
-  defp form_candidates_section(_request), do: "本次没有形式候选；不要自行虚构形式命中。"
-
-  defp pacing_context_section(%QualityEvaluationRequest{pacing_context: context})
-       when is_map(context) and map_size(context) > 0 do
-    "章节结构参照（JSON）：\n#{Jason.encode!(context)}"
-  end
-
-  defp pacing_context_section(_request),
-    do: "本次缺少章节结构参照；不得输出 narrative_pacing_fit finding。"
 end

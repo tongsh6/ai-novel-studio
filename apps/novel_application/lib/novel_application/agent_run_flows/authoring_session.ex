@@ -78,6 +78,30 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
     end
   end
 
+  @doc "在现有 canonical 会话中记录已核对的作者输入；原字节和 turn_id 必须来自同一次选择。"
+  @spec record_author_input(RequestIR.t() | nil, map() | nil, map() | nil) ::
+          {:ok, RequestIR.t() | nil} | {:error, term()}
+  def record_author_input(nil, _input, _origin), do: {:ok, nil}
+  def record_author_input(ir, nil, _origin), do: {:ok, ir}
+
+  def record_author_input(%RequestIR{} = ir, %{turn_id: ref, text: text}, origin)
+      when is_binary(ref) and ref != "" and is_binary(text) do
+    with {:ok, transcript} <- AuthoringTranscript.from_request_ir(ir) do
+      transcript
+      |> AuthoringTranscript.append_author_turn(text, ref, author_turn: origin)
+      |> AuthoringTranscript.to_request_ir()
+    end
+  rescue
+    error in ArgumentError ->
+      case error.message do
+        "author_input_conflict" -> {:error, :author_input_conflict}
+        "invalid_author_input" -> {:error, :invalid_author_input}
+        _ -> reraise(error, __STACKTRACE__)
+      end
+  end
+
+  def record_author_input(_ir, _input, _origin), do: {:error, :author_input_unavailable}
+
   @spec compact(AuthoringTranscript.t() | nil, map()) ::
           {:ok, AuthoringTranscript.t()} | {:error, term()}
   def compact(nil, _attrs), do: {:error, :transcript_not_found}
@@ -182,17 +206,31 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   @doc """
   把真实 AgentRun 与快照派生的 Request IR 绑定进既有 ToolRequest input。
 
-  决策、框架、授权、幂等与业务材料原样保留；不新增作者消息，不把整个快照或函数
-  放进 input，也不复用源候选项的旧 run。
+  决策、框架、授权、幂等与业务材料原样保留。显式作者输入先经 canonical 边界
+  核对并记录；未提供作者输入时只绑定已有会话，不从目标合成作者消息。
   """
-  @spec bind_tool_request(ToolRequest.t(), map(), map()) :: ToolRequest.t()
-  def bind_tool_request(%ToolRequest{} = request, run, snapshot) do
-    input =
-      request.input
-      |> Map.put("agent_run", run)
-      |> Map.put("request_ir", request_ir(snapshot))
+  @spec bind_tool_request(ToolRequest.t(), map(), map(), map() | nil) :: ToolRequest.t()
+  def bind_tool_request(%ToolRequest{} = request, run, snapshot, author_input \\ nil) do
+    case record_author_input(request_ir(snapshot), author_input, Map.get(run, :author_turn)) do
+      {:ok, ir} ->
+        input =
+          request.input
+          |> Map.put("agent_run", run)
+          |> Map.put("request_ir", ir)
 
-    %{request | input: input}
+        input =
+          if author_input,
+            do: Map.put(input, "source_input_ref", author_input.turn_id),
+            else: input
+
+        %{request | input: input}
+
+      {:error, reason} when reason in [:author_input_conflict, :author_input_unavailable] ->
+        raise ArgumentError, to_string(reason)
+
+      {:error, _reason} ->
+        invalid_request_ir!()
+    end
   end
 
   @doc """

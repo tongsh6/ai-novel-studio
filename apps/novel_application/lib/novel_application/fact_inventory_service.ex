@@ -20,7 +20,7 @@ defmodule NovelApplication.FactInventoryService do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
-  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
   alias NovelDomain.TentativeArtifactSet
   alias NovelFoundation.Enums.NarrativeRole
 
@@ -264,7 +264,7 @@ defmodule NovelApplication.FactInventoryService do
   # application_base 进入统一投影；不伪造 run/session 或作者消息。
   defp invoke(text, result_fn) do
     result_fn.(
-      RequestIR.text_operation(%{
+      Operation.text_operation(%{
         profile_ref: "fact_inventory",
         text: text,
         system: [run_role: "fact_inventory"]

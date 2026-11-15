@@ -172,6 +172,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       creative_brief: Map.get(req.input, "creative_brief") || Map.get(req.input, "text", ""),
       context_text: Map.get(req.input, "context_text", ""),
       source_turn_ref: req.turn_id,
+      source_input_ref: Map.get(req.input, "source_input_ref"),
       # VS-00E：application 把已渲染的场级执行简述文本放入 input["execution_brief"]，
       # 透传给 provider；缺省 nil 时 provider message 不变（兼容三锚点）。
       execution_brief: optional_text(Map.get(req.input, "execution_brief")),

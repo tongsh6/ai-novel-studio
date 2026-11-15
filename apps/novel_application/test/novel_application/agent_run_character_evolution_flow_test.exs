@@ -77,6 +77,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -208,7 +209,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: [],
       structured_chapters: [
         %{

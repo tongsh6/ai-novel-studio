@@ -60,19 +60,13 @@ defmodule NovelCommon.RequestIR.Projection.ResponsesAPI do
   end
 
   defp project_message(%{role: "scope_update"} = message) do
-    case Projection.text_of(message.blocks) do
-      "" ->
-        []
-
-      _text ->
-        [
-          %{
-            type: "message",
-            role: "user",
-            content: [%{type: "input_text", text: Projection.scope_update_text(message)}]
-          }
-        ]
-    end
+    [
+      %{
+        type: "message",
+        role: "user",
+        content: [%{type: "input_text", text: Projection.scope_update_text(message)}]
+      }
+    ]
   end
 
   defp project_message(%{role: "user"} = message), do: message_item("user", message.blocks, nil)

@@ -79,7 +79,7 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
 
   defp context(structured_chapters, snapshot \\ nil) do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_work_snapshot: snapshot,
       current_chapters: Enum.map(structured_chapters, & &1.title),
       structured_chapters: structured_chapters,
@@ -91,8 +91,25 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
 
   describe "ContextAssembler 卷字段透传 (B11A CP4)" do
     test "structured chapter 的 volume_id/volume_seq/volume_title/volume_blueprint 原样保留" do
-      fetcher = fn _workspace_id ->
-        {:ok, nil, nil, nil, nil, ["第03章：转"], [Enum.at(structured_chapters(), 2)]}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [Enum.at(structured_chapters(), 2)],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :ok,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble(@work, fetcher)
@@ -113,10 +130,26 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
              ] = ctx.structured_chapters
     end
 
-    test "旧 fetcher（无卷键）→ 卷字段归一为 nil，既有字段不变（additive 兼容）" do
-      fetcher = fn _workspace_id ->
-        {:ok, nil, nil, nil, nil, ["第01章：起点"],
-         [%{title: "第01章：起点", seq: 1, summary: "甲", has_prose: false}]}
+    test "明确来源没有卷字段时保留其缺席" do
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [%{title: "第01章：起点", seq: 1, summary: "甲", has_prose: false}],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :ok,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble(@work, fetcher)
@@ -137,18 +170,34 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
     end
 
     test "字符串键 fetcher 的卷字段同样归一，空值/非法蓝图 → nil" do
-      fetcher = fn _workspace_id ->
-        {:ok, nil, nil, nil, nil, ["第02章"],
-         [
-           %{
-             "title" => "第02章",
-             "seq" => 2,
-             "volume_id" => "vol-9",
-             "volume_seq" => "3",
-             "volume_title" => "  第三卷  ",
-             "volume_blueprint" => %{"goal_conflict" => " 夺回矿脉 ", "unknown" => "x"}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [
+             %{
+               "title" => "第02章",
+               "seq" => 2,
+               "volume_id" => "vol-9",
+               "volume_seq" => "3",
+               "volume_title" => "  第三卷  ",
+               "volume_blueprint" => %{"goal_conflict" => " 夺回矿脉 ", "unknown" => "x"}
+             }
+           ],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :ok,
+             interaction: :empty
            }
-         ]}
+         }}
       end
 
       ctx = ContextAssembler.assemble(@work, fetcher)
@@ -157,7 +206,7 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
                %{
                  volume_id: "vol-9",
                  volume_seq: 3,
-                 volume_title: "第三卷",
+                 volume_title: "  第三卷  ",
                  volume_blueprint: %{"goal_conflict" => "夺回矿脉"}
                }
              ] = ctx.structured_chapters
@@ -272,9 +321,25 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
   describe "写前推理使命材料 (B11A CP4)" do
     test "prose：assembler 透传后的目标章条目自动带出当前卷蓝图 item" do
       ctx =
-        ContextAssembler.assemble(@work, fn _workspace_id ->
-          {:ok, nil, nil, nil, nil, Enum.map(structured_chapters(), & &1.title),
-           structured_chapters()}
+        ContextAssembler.assemble(@work, fn workspace_id, _author_text, _session_id ->
+          {:ok,
+           %NovelDomain.DialogueContext{
+             work_id: workspace_id,
+             current_work_snapshot: nil,
+             conversation_summary: nil,
+             memory_summary: nil,
+             open_behavior_summary: nil,
+             structured_chapters: structured_chapters(),
+             interaction_state: %{},
+             source_status: %{
+               work: :empty,
+               conversation: :empty,
+               memory: :empty,
+               behavior: :empty,
+               chapters: :ok,
+               interaction: :empty
+             }
+           }}
         end)
 
       chapter = Enum.find(ctx.structured_chapters, &(&1.title == "第03章：转"))
@@ -291,9 +356,25 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
 
     test "planning：assembler 透传后的未写章条目 → 取章序最大者的卷蓝图 item" do
       ctx =
-        ContextAssembler.assemble(@work, fn _workspace_id ->
-          {:ok, nil, nil, nil, nil, Enum.map(structured_chapters(), & &1.title),
-           structured_chapters()}
+        ContextAssembler.assemble(@work, fn workspace_id, _author_text, _session_id ->
+          {:ok,
+           %NovelDomain.DialogueContext{
+             work_id: workspace_id,
+             current_work_snapshot: nil,
+             conversation_summary: nil,
+             memory_summary: nil,
+             open_behavior_summary: nil,
+             structured_chapters: structured_chapters(),
+             interaction_state: %{},
+             source_status: %{
+               work: :empty,
+               conversation: :empty,
+               memory: :empty,
+               behavior: :empty,
+               chapters: :ok,
+               interaction: :empty
+             }
+           }}
         end)
 
       planned = Enum.reject(ctx.structured_chapters, & &1.has_prose)
@@ -415,7 +496,12 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
 
     agent
     |> Agent.get(& &1)
-    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
+    |> Enum.map_join("\n\n", fn ir ->
+      ir
+      |> NovelTest.TestProviderPrompt.scope_content()
+      |> get_in(["operation", "context_text"])
+      |> Kernel.||("")
+    end)
   end
 
   # 卷蓝图近收束结构：第二卷 5 章 4 章已有正文（4/5 = 80%）。

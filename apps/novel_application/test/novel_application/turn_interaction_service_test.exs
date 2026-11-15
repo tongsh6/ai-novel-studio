@@ -6,6 +6,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
   alias NovelApplication.{
     AgentRunServer,
     ArtifactAssembler,
+    AuthorContentRegistration,
     AuthorQuestion,
     TraceReplayService,
     TurnInteractionService,
@@ -63,6 +64,100 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     %{attrs: attrs, store: &InteractionLifecycle.call/2}
   end
 
+  test "当前作者输入缺失或空白时拒绝，不用应用 goal 合成作者消息", %{attrs: attrs, store: store} do
+    {:ok, run} = NovelDomain.AgentRun.new(attrs)
+
+    for input <- [%{}, %{text: nil}, %{text: " \n\t"}] do
+      assert {:error, :author_input_unavailable} =
+               TurnInteractionService.receive_input(run, store, input)
+    end
+
+    assert MemoryLog.transcript(attrs.session_id) == []
+  end
+
+  test "steer 使用当前 receipt 原字节，旧 context 与 planner 闭包不能覆盖来源", %{attrs: attrs, store: store} do
+    old_persistence = Application.get_env(:novel_web, :persistence, [])
+
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(old_persistence, :inject_real_persistence, true)
+    )
+
+    on_exit(fn -> Application.put_env(:novel_web, :persistence, old_persistence) end)
+    raw_initial = "  初始作者原文 Ω\n第二行  "
+    raw_steer = "\t 改为只讨论 é 与雪。\n 保留空白。  "
+    {:ok, run} = NovelDomain.AgentRun.new(%{attrs | profile_ref: "judgment_loop_v1"})
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, %{text: raw_initial})
+    next = %{run | goal: %{text: "应用归纳目标（不是作者原文）", version: 2}}
+
+    stale = %DialogueContext{
+      work_id: attrs.work_id,
+      interaction_state: %{author_inputs: [%{turn_ref: run.parent_turn_ref, text: raw_initial}]}
+    }
+
+    assert_raise ArgumentError, "author_input_unavailable", fn ->
+      NovelApplication.DialoguePlanningService.judgment_protocol_input_for_test(
+        %{text: raw_initial},
+        next,
+        stale,
+        []
+      )
+    end
+
+    assert {:ok, _} = TurnInteractionService.record_steer(next, raw_steer, store, "unicode-steer")
+    expected_ref = "#{run.parent_turn_ref}:steer:2"
+
+    assert {:ok, %{turn_id: ^expected_ref, text: ^raw_steer}} =
+             TurnInteractionService.current_input(next)
+
+    input =
+      NovelApplication.DialoguePlanningService.judgment_protocol_input_for_test(
+        %{text: raw_initial},
+        next,
+        stale,
+        []
+      )
+
+    assert input.author_text == raw_steer
+    assert input.source_input_ref == "#{run.parent_turn_ref}:steer:2"
+    request = NovelApplication.JudgmentProtocol.request_for_production(input)
+
+    assert [%{blocks: [%{type: "text", text: ^raw_steer}]}] =
+             Enum.filter(request.messages, &(&1.role == "user" and &1.provenance == "author"))
+
+    assert NovelTest.TestProviderPrompt.scope_content(request)["goal"]["text"] == next.goal.text
+  end
+
+  test "专业调用从同一输入选择原文和身份，不使用规范化目标", %{attrs: attrs} do
+    raw = "  原始作者 Ω\né 与雪。\t "
+    {:ok, run} = NovelDomain.AgentRun.new(attrs)
+
+    assert TurnInteractionService.author_input(%{text: raw}, run) ==
+             %{turn_id: run.parent_turn_ref, text: raw}
+
+    for input <- [nil, %{}, %{text: " \n\t"}] do
+      assert_raise ArgumentError, "author_input_unavailable", fn ->
+        TurnInteractionService.author_input(input, run)
+      end
+    end
+
+    next = %{run | goal: %{text: "应用推导目标", version: 2}}
+    ref = "#{run.parent_turn_ref}:steer:2"
+    parent = self()
+
+    store = fn :input, scope ->
+      send(parent, {:receipt_read, scope.turn_id})
+      {:ok, %{turn_id: ref, text: raw}}
+    end
+
+    assert TurnInteractionService.author_input(%{text: "旧闭包", interaction_store: store}, next) ==
+             %{turn_id: ref, text: raw}
+
+    assert_receive {:receipt_read, ^ref}
+    refute_receive {:receipt_read, _}
+  end
+
   test "输入保存失败不启动运行", %{attrs: attrs} do
     parent = self()
     planner = fn _run, _seq, _snapshot -> send(parent, :unexpected_execution) end
@@ -70,7 +165,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert {:error, :disk_full} =
              AgentRunService.start_bounded(attrs,
                next_step_planner: planner,
-               interaction_store: fn :receive, _ -> {:error, :disk_full} end
+               interaction_store: fn :receive, _ -> {:error, :disk_full} end,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     assert {:error, :not_found} = AgentRunService.state(attrs.run_id)
@@ -144,7 +240,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                  send(parent, {:relay_pid, self()})
                end),
                next_step_planner: blocking_planner,
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     on_exit(fn ->
@@ -184,7 +281,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(%{attrs | run_id: run_id <> "-replay"},
                next_step_planner: blocking_planner,
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     refute_receive {:executed, _}, 25
@@ -193,7 +291,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
   test "普通结果写入后输入状态更新失败，真实事务回滚结果和候选投影", %{attrs: attrs, store: store} do
     {:ok, run} = NovelDomain.AgentRun.new(attrs)
-    assert {:ok, _} = TurnInteractionService.receive_input(run, store)
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, %{text: "查看作品档案"})
     {:ok, output} = result(run, 1, :success)
 
     {:ok, artifact} =
@@ -237,7 +335,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
   test "结果与 trace 同事务提交，trace 保存失败不会留下候选或完成输入", %{attrs: attrs, store: store} do
     {:ok, run} = NovelDomain.AgentRun.new(attrs)
-    assert {:ok, _} = TurnInteractionService.receive_input(run, store)
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, %{text: "查看作品档案"})
     {:ok, output} = result(run, 1, :success)
 
     {:ok, artifact} =
@@ -271,7 +369,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
   test "回放保留普通回复来源与未提供认知，不把展示默认升级成模型判断", %{attrs: attrs, store: store} do
     {:ok, run} = NovelDomain.AgentRun.new(attrs)
-    assert {:ok, _} = TurnInteractionService.receive_input(run, store)
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, %{text: "查看作品档案"})
 
     trace = %DecisionTrace{
       trace_id: "trace_provenance",
@@ -347,7 +445,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                  send(parent, {:event, event.event_type, event.payload})
                end),
                next_step_planner: planner(parent, :success),
-               interaction_store: failing_store
+               interaction_store: failing_store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     # 失败 TurnResult 无法持久时，安全失败通知不得携带未提交结果。
@@ -369,7 +468,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                  send(parent, {:event, event.event_type})
                end),
                next_step_planner: planner(parent, :failure),
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     assert_receive {:event, :run_failed}, 2000
@@ -383,7 +483,7 @@ defmodule NovelApplication.TurnInteractionServiceTest do
 
   test "作者动作结果不伪造输入，steer 作为独立来源保留", %{attrs: attrs, store: store} do
     {:ok, run} = NovelDomain.AgentRun.new(%{attrs | trigger: %{kind: "author_action"}})
-    assert {:ok, _} = TurnInteractionService.receive_input(run, store)
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, %{text: "查看作品档案"})
     assert MemoryLog.transcript(attrs.session_id) == []
     run = %{run | goal: %{text: "新方向", version: 2}}
     assert {:ok, _} = TurnInteractionService.record_steer(run, "新方向", store)
@@ -391,87 +491,6 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert [entry] = MemoryLog.transcript(attrs.session_id)
     assert entry.turn_id == "#{attrs.parent_turn_ref}:steer:2"
     assert entry.content["agent_run_id"] == run.run_id
-  end
-
-  test "只有明确原文登记操作消费来源，不再使用旧布尔联合条件" do
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               %{action: "reply", author_content_registration: "true"},
-               []
-             )
-
-    assert {:error, {:author_content_registration_invalid, :source_required}} =
-             TurnInteractionService.validate_author_registration(
-               %{action: "author_content_registration"},
-               []
-             )
-
-    assert {:error, {:author_content_registration_invalid, :source_not_available}} =
-             TurnInteractionService.validate_author_registration(
-               %{action: "author_content_registration", author_content_source_ref: "foreign"},
-               []
-             )
-
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               %{action: "author_content_registration", author_content_source_ref: "current"},
-               []
-             )
-  end
-
-  test "M18：current 只适用于本条消息本身即原文；指代过去资料且无显式原文时机械拒绝" do
-    registration = %{action: "author_content_registration", author_content_source_ref: "current"}
-
-    # 典型指代历史原文的保存指令：current 不成立
-    assert {:error,
-            {:author_content_registration_invalid,
-             :anaphoric_current_source_requires_explicit_text}} =
-             TurnInteractionService.validate_author_registration(
-               registration,
-               [],
-               "把之前那段灯油配方的资料存进设定"
-             )
-
-    # 无指代的普通保存请求：current 合法（不误拒）
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               registration,
-               [],
-               "把这段灯油配方存进设定"
-             )
-
-    # 指代但本条消息显式给出原文（引号/冒号后的实质内容）：current 合法
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               registration,
-               [],
-               "把之前那句存进设定：“灯油用鲸脂，松脂少许”"
-             )
-
-    # 指代 + 本条消息本身是足够长的原文材料：current 合法
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               registration,
-               [],
-               "之前的灯油配方是：" <>
-                 "鲸脂三份、松脂一份、灯芯草灰少许，混匀后静置三日再点火。"
-             )
-  end
-
-  test "M18：历史来源（非 current）的机械校验不越权，由判断 prompt 约束对象匹配" do
-    registration = %{
-      action: "author_content_registration",
-      author_content_source_ref: "turn_prev"
-    }
-
-    # current 语义之外的来源不在本机械规则里误杀：是否“来源原文就是被指代资料”
-    # 由判断 prompt 规则与模型取证负责（应用侧仍按来源字节保真复制）。
-    assert :ok =
-             TurnInteractionService.validate_author_registration(
-               registration,
-               ["turn_prev"],
-               "把之前那段灯油配方的资料存进设定"
-             )
   end
 
   test "先前已提交候选后运行失败，保留原记录且不谎称零产出", %{attrs: attrs, store: store} do
@@ -491,7 +510,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                  send(parent, {:prior_event, event})
                end),
                next_step_planner: plan,
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     assert_receive {:prior_event, %{event_type: :run_failed, payload: %{turn_result: failure}}},
@@ -520,7 +540,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
                  send(parent, {:gap_event, event})
                end),
                next_step_planner: planner,
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     assert_receive {:gap_event, %{event_type: :run_completed}}, 2000
@@ -649,52 +670,15 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert hd(next["payload"]["items"])["body"] == raw
   end
 
-  test "历史来源只从上下文白名单读取，物化不改原文字节" do
-    raw = "  原文\n第二行  "
-
-    context = %DialogueContext{
-      workspace_id: "w",
-      interaction_state: %{
-        author_inputs: [%{turn_ref: "source-1", text: raw}]
-      }
-    }
-
-    assert TurnInteractionService.current_text(context, "source-1", "已裁剪") == raw
-
-    assert TurnInteractionService.current_text(
-             %DialogueContext{workspace_id: "w"},
-             "current-2",
-             raw
-           ) == raw
-
-    assert {:ok, "source-1", ^raw} =
-             TurnInteractionService.source_text("source-1", "请存档", context, "current-2")
-
-    assert {:error, {:author_content_registration_invalid, :source_not_available}} =
-             TurnInteractionService.source_text("foreign-source", "请存档", context, "current-2")
-
-    assert {:error, {:author_content_registration_invalid, :source_required}} =
-             TurnInteractionService.source_text(nil, "把上一条原文存档", context, "current-2")
-
-    assert {:ok, "current-2", ^raw} =
-             TurnInteractionService.source_text("current", raw, context, "current-2")
-
-    assert {:ok, artifact} = ArtifactAssembler.assemble_author_content("source-1", raw)
-    assert hd(artifact.items).body == raw
-    assert artifact.source_tool_result_ref == "author_input:source-1"
-
-    assert {:ok, linked} =
-             ArtifactAssembler.assemble_author_content("save-request-2", raw, "source-1")
-
-    assert linked.source_turn_ref == "save-request-2"
-    assert linked.source_tool_result_ref == "author_input:source-1"
-    assert hd(linked.items).provider_call_ref == "author_input:source-1"
-    assert hd(linked.items).body == raw
-  end
-
   test "durable 消息重传不重复创建长任务", %{attrs: attrs, store: store} do
     parent = self()
-    opts = [next_step_planner: planner(parent, :success), interaction_store: store]
+
+    opts = [
+      next_step_planner: planner(parent, :success),
+      interaction_store: store,
+      interaction_input: %{text: "查看作品档案"}
+    ]
+
     assert {:ok, run_id} = AgentRunService.start_durable(attrs, opts)
     assert_receive {:executed, ^run_id}, 2000
 
@@ -720,7 +704,8 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert {:ok, run_id} =
              AgentRunService.start_bounded(attrs,
                next_step_planner: waiting,
-               interaction_store: store
+               interaction_store: store,
+               interaction_input: %{text: "查看作品档案"}
              )
 
     assert_receive {:waiting_step, pid}, 2000
@@ -757,21 +742,21 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     }
 
     context = %DialogueContext{
-      workspace_id: "w",
+      work_id: "w",
       interaction_state: %{pending_adoptions: [pending]}
     }
 
-    assert TurnInteractionService.materialized_source?(context, "source-1")
+    assert AuthorContentRegistration.materialized_source?(context, "source-1")
     resolved = %{artifact_id: "a1", adoption_status: "ACCEPTED", payload: %{items: [item]}}
     context = %{context | interaction_state: %{resolved_adoptions: [resolved]}}
-    assert TurnInteractionService.materialized_source?(context, "source-1")
+    assert AuthorContentRegistration.materialized_source?(context, "source-1")
 
     context = %{
       context
       | interaction_state: %{resolved_adoptions: [%{resolved | adoption_status: "DISCARDED"}]}
     }
 
-    refute TurnInteractionService.materialized_source?(context, "source-1")
+    refute AuthorContentRegistration.materialized_source?(context, "source-1")
   end
 
   test "登记计数沿版本来源汇总，已编辑正文与原文来源分别保留" do
@@ -807,18 +792,17 @@ defmodule NovelApplication.TurnInteractionServiceTest do
       resolved_adoptions: [original, edited]
     }
 
-    section = TurnInteractionService.context_section(state)
-    facts = section |> String.split("\n", trim: true) |> List.last() |> Jason.decode!()
+    facts = TurnInteractionService.context_payload(state)
 
-    assert hd(facts["author_inputs"])["registration"] == %{
-             "pending_count" => 1,
-             "accepted_count" => 1,
-             "discarded_count" => 1
+    assert hd(facts.author_inputs).registration == %{
+             pending_count: 1,
+             accepted_count: 1,
+             discarded_count: 1
            }
 
     assert TurnInteractionService.artifact_body(edited) == "作者最终编辑"
-    assert TurnInteractionService.author_source_ref(revision) == "author_input:source"
-    assert TurnInteractionService.registered_sources(%{interaction_state: state}) == ["source"]
+    assert AuthorContentRegistration.author_source_ref(revision) == "author_input:source"
+    assert AuthorContentRegistration.registered_sources(%{interaction_state: state}) == ["source"]
   end
 
   defp planner(parent, outcome) do

@@ -7,11 +7,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   alias NovelApplication.{DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AgentRun
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+  alias NovelTest.TestProviderPrompt
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -68,11 +68,15 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert [ref | _] = observation.refs
     assert ref =~ "chapter:"
 
-    # 第一轮判断 prompt 开放探索：目录段在场
-    assert_received {:prompt, first_prompt}
-    assert first_prompt =~ "## 探索目录"
-    assert first_prompt =~ "只读探索当前允许：true"
+    # 第一轮当前 Scope 明确开放探索；工具目录来自同一结构。
     [first_prompt_map] = drain_prompt_maps([])
+
+    first_exploration =
+      TestProviderPrompt.scope_content(first_prompt_map)["operation"]["exploration"]
+
+    assert first_exploration["allowed"] == true
+    assert "prose_search" in first_exploration["tools"]
+    assert Enum.any?(first_exploration["catalog"], &(&1["tool"] == "prose_search"))
 
     # exploration_observed 阶段事件已发
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
@@ -128,53 +132,61 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert meta.provider_call_count == 0
   end
 
-  test "探索回合硬上限：已达上限后判断 prompt 不再开放探索（四选一收束）" do
+  test "探索回合硬上限：真实两次检索后当前 Scope 关闭工具，观察仍可用于收束" do
     work_id = seed_work_with_prose()
     test_pid = self()
 
-    provider_execution = explore_then_reply_execution(test_pid)
+    execution =
+      scripted_judgment_execution(fn prompt, _text ->
+        send(test_pid, {:prompt_map, prompt})
+
+        if TestProviderPrompt.scope_content(prompt)["operation"]["exploration"]["allowed"] do
+          {:decision,
+           %{
+             "action" => "explore",
+             "reason" => "verify_source",
+             "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+           }}
+        else
+          {:narrative, "依据已读正文：\n" <> native_cited_observation(prompt)}
+        end
+      end)
 
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
                %{
-                 text: "查一下正文里「灵气账单」是怎么写的",
+                 text: "核对灵气账单",
                  workspace_id: work_id,
                  work_id: work_id,
                  session_id: "session-cap",
                  turn_id: "turn-cap"
                },
                nil,
-               provider_execution
+               execution
              )
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
-    sink = fn _event -> :ok end
+    empty = %{stage_state: %{}, observations: [], events: [], stage_sink: fn _ -> :ok end}
+    assert {:execute, context_step, _, _} = spec.next_step_planner.(run, 1, empty)
+    assert {:ok, context_result} = context_step.(run, 1, empty)
 
-    exhausted = [
-      %{tool: "prose_search", query: "灵气账单", summary: "观察一", refs: []},
-      %{tool: "chapter_read", query: "第01章", summary: "观察二", refs: []}
-    ]
+    {result, _snapshot} =
+      Enum.reduce(2..4, {nil, %{empty | stage_state: context_result.stage_state}}, fn sequence,
+                                                                                      {_prior,
+                                                                                       snapshot} ->
+        assert {:execute, step, _, _} = spec.next_step_planner.(run, sequence, snapshot)
+        assert {:ok, result} = step.(run, sequence, snapshot)
+        {result, %{snapshot | stage_state: Map.merge(snapshot.stage_state, result.stage_state)}}
+      end)
 
-    snapshot = %{
-      stage_state: %{
-        judgment_context: %NovelDomain.DialogueContext{workspace_id: work_id},
-        judgment_explorations: exhausted
-      },
-      observations: [],
-      events: [],
-      stage_sink: sink
-    }
-
-    assert {:execute, judgment_step, _d, _m} = spec.next_step_planner.(run, 2, snapshot)
-    assert {:ok, result} = judgment_step.(run, 2, snapshot)
-
-    assert_received {:prompt, prompt}
-    refute prompt =~ "## 探索目录"
-    assert prompt =~ "只读探索当前允许：false"
-    # 观察仍在上下文（已检索到的事实不丢）
-    assert prompt =~ "## 探索观察"
-    assert prompt =~ "观察二"
-    # 桩在无探索选项时按观察回复收束
+    [_, _, prompt] = drain_prompt_maps([])
+    exploration = TestProviderPrompt.scope_content(prompt)["operation"]["exploration"]
+    assert exploration["allowed"] == false
+    assert exploration["tools"] == []
+    assert exploration["catalog"] == []
+    assert exploration["budget"]["total"] == 2
+    assert length(observation_blocks(prompt)) == 2
+    assert native_cited_observation(prompt) =~ "灵气账单"
     assert result.stage_state.judgment_settled == "completed"
   end
 
@@ -225,9 +237,27 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     # 判断章节索引真源：context fetcher 提供 structured_chapters（含 id/seq），
     # 生产路径由 persistence reader 注入；这里用确定性夹具证明 I-READ-9 双面身份。
-    context_fetcher = fn _workspace_id ->
-      {:ok, %{"title" => "全章审核验证作品"}, nil, nil, nil, [@full_read_title],
-       [%{id: chapter_id, seq: 1, title: @full_read_title, has_prose: true}]}
+    context_fetcher = fn workspace_id, _author_text, _session_id ->
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: %{"title" => "全章审核验证作品"},
+         conversation_summary: nil,
+         memory_summary: nil,
+         open_behavior_summary: nil,
+         structured_chapters: [
+           %{id: chapter_id, seq: 1, title: @full_read_title, has_prose: true}
+         ],
+         interaction_state: %{},
+         source_status: %{
+           work: :ok,
+           conversation: :empty,
+           memory: :empty,
+           behavior: :empty,
+           chapters: :ok,
+           interaction: :empty
+         }
+       }}
     end
 
     assert {:ok, spec} =
@@ -329,12 +359,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     refute event2.summary =~ "chapter_read"
     refute event2.summary =~ "{"
 
-    # 两个观察同时进后续判断 prompt；探索回合耗尽后目录关闭（@max_explore_rounds 2 不变）
-    prompts = drain_prompts([])
-    second_prompt = Enum.find(prompts, &String.contains?(&1, "## 探索观察"))
-    assert second_prompt
-    assert second_prompt =~ "【续读】"
-
+    # 观察以 call-bound block 回流；续读输入直接来自 next_offset 与 coverage。
     prompt_maps = drain_prompt_maps([])
 
     second_prompt_map =
@@ -361,10 +386,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert reply_result.stage_state.judgment_settled == "completed"
 
     # 第三轮：历史 body 完整保留；最新 scope 关闭探索，旧目录只作证据不再生效。
-    third_prompts = drain_prompts([])
-    third_prompt = Enum.find(third_prompts, &String.contains?(&1, @last_page_anchor))
-    assert third_prompt
     [third_prompt_map] = drain_prompt_maps([])
+
+    assert Enum.any?(
+             observation_blocks(third_prompt_map),
+             &String.contains?(&1.content["summary"], @last_page_anchor)
+           )
 
     third_observations =
       for %{role: "tool", blocks: blocks} <- third_prompt_map.messages,
@@ -390,25 +417,21 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     assert latest_scope
 
-    # 版本是 canonical scope 的结构化事实；文本断言读 provider 实际可读的投影文本
-    # （含版本头 + scope 正文），而不是只看消息文本块。
     assert latest_scope.versions["scope_revision"] == 3
 
-    latest_scope_text =
-      Projection.scope_update_text(latest_scope)
+    latest_content = TestProviderPrompt.scope_content(third_prompt_map)
+    exploration = latest_content["operation"]["exploration"]
+    assert exploration["allowed"] == false
+    assert exploration["tools"] == []
+    assert exploration["catalog"] == []
+    assert exploration["budget"]["total"] == 2
+    assert exploration["budget"]["normal_open?"] == false
+    assert exploration["budget"]["continuation_open?"] == false
+    assert Enum.all?(third_observations, &(&1.content["tool"] == "chapter_read"))
 
-    refute latest_scope_text =~ "## 探索目录"
-    assert latest_scope_text =~ "只读探索当前允许：false"
-    assert latest_scope_text =~ ~s("scope_revision":3)
-
-    # B27 CP4 retest5 M18：预算关闭时如实投影「已执行来源/预算已用尽/不是能力缺失」
-    assert latest_scope_text =~ "## 探索预算状态（机械事实）"
-    assert latest_scope_text =~ "只读探索预算已用尽"
-    assert latest_scope_text =~ "不是系统没有探索能力"
-    assert latest_scope_text =~ "已执行来源：chapter_read"
-    # I-READ-9：模型可见章节索引同时给出 chapter_ref 与 seq/title。
-    assert third_prompt =~ "[chapter_ref=#{chapter_ref}]"
-    assert third_prompt =~ "第 1 章「#{@full_read_title}」"
+    # I-READ-9：当前事实同时绑定真实 chapter ref 与 seq/title。
+    assert [%{"ref" => ^chapter_ref, "seq" => 1, "title" => @full_read_title}] =
+             latest_content["facts"]["chapters"]
 
     snapshot4 = %{empty | stage_state: Map.merge(snapshot3.stage_state, reply_result.stage_state)}
     assert {:complete, _decision, _meta} = spec.next_step_planner.(run, 5, snapshot4)
@@ -516,7 +539,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
                  Agent.update(events, &[event | &1])
                  send(test_pid, {:missing_target_event, event.event_type})
                end),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -561,17 +585,34 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert Repo.aggregate(NovelPersistence.Schemas.Draft, :count, :id) == 0
   end
 
-  # 判断循环替身：首轮按作者 request 点名探索；观察页带【续读】footer 时**逐字抄
-  # footer 的 JSON** 续读；两页观察都在时 reply 字节引用末页独有锚点（N-NARR）。
+  # 判断循环替身：首轮复制当前 Scope 的章节 ref，后续直接读取原生观察的续读坐标。
   defp full_read_execution(test_pid) do
-    scripted_judgment_execution(fn prompt, text ->
-      send(test_pid, {:prompt, text})
+    scripted_judgment_execution(fn prompt, _text ->
       send(test_pid, {:prompt_map, prompt})
 
-      case observed_pages(text) do
-        0 -> explore_chapter_decision("need_full_chapter", explore_ref_query(text))
-        1 -> explore_chapter_decision("need_remaining_pages", footer_query(text))
-        _ -> {:narrative, "我把全章两页都读完了，依据如下：\n\n" <> @last_page_anchor}
+      case observation_blocks(prompt) do
+        [] ->
+          [%{"ref" => ref}] = TestProviderPrompt.scope_content(prompt)["facts"]["chapters"]
+
+          explore_chapter_decision(
+            "need_full_chapter",
+            Jason.encode!(%{chapter_ref: ref, offset: 0})
+          )
+
+        [page] ->
+          assert is_integer(page.next_offset)
+
+          query =
+            Jason.encode!(%{
+              chapter_ref: Map.fetch!(page.coverage, "chapter_ref"),
+              offset: page.next_offset
+            })
+
+          explore_chapter_decision("need_remaining_pages", query)
+
+        pages ->
+          assert Enum.any?(pages, &String.contains?(&1.content["summary"], @last_page_anchor))
+          {:narrative, "我把全章两页都读完了，依据如下：\n\n" <> @last_page_anchor}
       end
     end)
   end
@@ -585,21 +626,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
      }}
   end
 
-  defp observed_pages(prompt_text), do: length(String.split(prompt_text, "### 观察 ")) - 1
-
-  defp footer_query(prompt_text) do
-    case Regex.run(~r/【续读】剩余 \d+ 字符；用 (\{"chapter_ref".*?\}) 继续。/u, prompt_text) do
-      [_, query] -> query
-      _ -> Jason.encode!(%{chapter_seq: 1, offset: 0})
-    end
-  end
-
-  # 模型行为：从判断 prompt 的章节索引逐字复制 chapter_ref（I-READ-9 模型面）。
-  defp explore_ref_query(prompt_text) do
-    case Regex.run(~r/\[chapter_ref=(chapter:[0-9a-fA-F-]{36})\]/u, prompt_text) do
-      [_, ref] -> Jason.encode!(%{"chapter_ref" => ref, "offset" => 0})
-      _ -> Jason.encode!(%{"chapter_seq" => 1, "offset" => 0})
-    end
+  defp observation_blocks(%RequestIR{messages: messages}) do
+    for %{role: "tool", blocks: blocks} <- messages,
+        %{type: "observation"} = block <- blocks,
+        do: block
   end
 
   defp repeat_explore_execution(tool, query) do
@@ -626,39 +656,23 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   # ── 脚本执行 ──
 
-  # 单调用判断循环脚本：首轮判断 explore（explore_request 点名 prose_search「灵气账单」）；
-  # prompt 带「探索观察」段或原生 tool observation 后以整段 content 回复。
+  # 单调用判断循环脚本：首轮检索，原生 tool observation 回流后用实际观察收束。
   defp explore_then_reply_execution(test_pid) do
-    scripted_judgment_execution(fn prompt, text ->
-      send(test_pid, {:prompt, text})
+    scripted_judgment_execution(fn prompt, _text ->
       send(test_pid, {:prompt_map, prompt})
 
-      cond do
-        native_observation_prompt?(prompt) ->
-          {:narrative, "我检索了正文，依据如下：\n\n#{native_cited_observation(prompt)}"}
-
-        String.contains?(text, "## 探索观察") ->
-          {:narrative, "我检索了正文，依据如下：\n\n#{cited_observation(text)}"}
-
-        true ->
-          {:decision,
-           %{
-             "action" => "explore",
-             "reason" => "missing_work_facts_require_retrieval",
-             "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
-           }}
+      if observation_blocks(prompt) != [] do
+        {:narrative, "我检索了正文，依据如下：\n\n#{native_cited_observation(prompt)}"}
+      else
+        {:decision,
+         %{
+           "action" => "explore",
+           "reason" => "missing_work_facts_require_retrieval",
+           "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+         }}
       end
     end)
   end
-
-  defp native_observation_prompt?(%RequestIR{messages: messages}) do
-    Enum.any?(messages, fn message ->
-      message.role == "tool" and
-        Enum.any?(message.blocks, &(&1.type == "observation"))
-    end)
-  end
-
-  defp native_observation_prompt?(_prompt), do: false
 
   defp native_cited_observation(%{messages: messages}) do
     Enum.find_value(messages, "", &native_observation_summary/1)
@@ -672,16 +686,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   defp native_observation_summary(_message), do: nil
-
-  defp cited_observation(prompt_text) do
-    prompt_text
-    |> String.split("## 探索观察", parts: 2)
-    |> List.last()
-    |> String.split("\n")
-    |> Enum.find(&String.contains?(&1, "灵气账单"))
-    |> Kernel.||("")
-    |> String.trim()
-  end
 
   defp scripted_judgment_execution(script) do
     %Execution{
@@ -724,8 +728,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   defp prompt_to_text(%RequestIR{messages: _messages} = prompt),
     do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
-  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
-
   defp provider_output(call_ref, content) do
     {:ok, output} =
       ProviderOutput.new(%{
@@ -738,14 +740,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       })
 
     output
-  end
-
-  defp drain_prompts(acc) do
-    receive do
-      {:prompt, prompt} -> drain_prompts(acc ++ [prompt])
-    after
-      0 -> acc
-    end
   end
 
   defp drain_prompt_maps(acc) do

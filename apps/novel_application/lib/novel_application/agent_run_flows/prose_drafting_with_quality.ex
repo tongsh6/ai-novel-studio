@@ -20,6 +20,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
@@ -144,11 +145,15 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     if model_plan_ready?(run.plan) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
+      author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
       with {:ok, plan, meta} <-
              AgenticPlanDraftPlanner.draft_plan_with_meta(
                run,
                planner_provider_execution(spec),
-               snapshot
+               snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id
              ) do
         {:ok, plan, Map.put(meta, :agent_plan, plan)}
       end
@@ -259,13 +264,18 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   end
 
   defp continuation_judgment(run, sequence, snapshot, spec, deviation, continue_mode) do
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     input = %{
       transcript: Map.get(stage_state(snapshot), :judgment_transcript),
+      author_text: author_input && author_input.text,
+      author_turn: Map.get(run, :author_turn),
       goal_text: run.goal.text,
       deviation_summary: AgenticDeviationSignal.revision_reason(deviation),
       observation_block: continuation_observation_block(snapshot),
-      source_input_ref: NovelApplication.TurnInteractionService.input_ref(run),
-      supplied_context_refs: continuation_source_refs(run, snapshot),
+      source_input_ref: author_input && author_input.turn_id,
+      scope_source_refs: continuation_source_refs(run, snapshot),
+      supplied_context_refs: [],
       scope_change_reason: "continuation",
       options: [plan_run: run]
     }
@@ -865,9 +875,13 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           |> Execution.with_purpose(:planner)
           |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
 
+        author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
         case ChapterMissionService.derive(inputs, provider_execution,
                run: run,
-               snapshot: snapshot
+               snapshot: snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id
              ) do
           {:ok, mission, meta} ->
             persisted = persist_tentative_mission(spec, run, chapter, mission)
@@ -899,7 +913,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       )
 
     if is_function(writer, 3) do
-      case writer.(run.work_id || run.workspace_id, seq, ChapterMission.persisted_map(mission)) do
+      case writer.(run.work_id, seq, ChapterMission.persisted_map(mission)) do
         {:ok, outcome, _mission} -> to_string(outcome)
         {:error, reason} -> "failed:#{inspect(reason)}"
       end
@@ -967,7 +981,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   end
 
   defp mission_inputs(run, spec, context, chapter, observations) do
-    work_id = run.work_id || run.workspace_id
+    work_id = run.work_id
 
     ChapterMissionInputs.build(%{
       chapter: chapter,
@@ -1020,7 +1034,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         &NovelApplication.persistence_chapter_prose_reader/0
       )
 
-    work_id = run.work_id || run.workspace_id
+    work_id = run.work_id
 
     index_reader =
       reader_dep(
@@ -1389,6 +1403,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       }
     )
 
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
@@ -1400,9 +1416,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         context: execution_context,
         chapter_mission: Map.get(stage_state(snapshot), :chapter_mission),
         author_input: %{
-          text: author_input_text(run, plan, observations, guidance),
+          text: author_input && author_input.text,
+          turn_id: author_input && author_input.turn_id,
           author_goal_text: run.goal.text
         },
+        creative_brief: creative_brief_text(run, plan, observations, guidance),
         observations: observations,
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
@@ -1673,12 +1691,12 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp context_for_run(%{context: %DialogueContext{} = context}, _run, _turn_id), do: context
 
   defp context_for_run(spec, run, turn_id) do
-    fetcher = Map.get(spec, :context_fetcher) || fn _ -> {:ok, nil, nil, nil, nil} end
+    fetcher = Map.get(spec, :context_fetcher)
 
     LogContext.put_turn(run.workspace_id, run.work_id, turn_id, run.session_id)
 
     ContextAssembler.assemble_for_input(
-      run.workspace_id,
+      run.work_id,
       run.goal.text,
       fetcher,
       session_id: run.session_id,
@@ -1686,7 +1704,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     )
   end
 
-  defp author_input_text(run, plan, observations, guidance) do
+  defp creative_brief_text(run, plan, observations, guidance) do
     observation_text =
       observations
       |> Enum.map(&observation_line/1)

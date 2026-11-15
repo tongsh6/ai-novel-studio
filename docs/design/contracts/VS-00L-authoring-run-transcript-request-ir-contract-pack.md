@@ -688,8 +688,12 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 19.2 初始快照与追加历史的职责（R1 真实前缀反例）
 
 - 真实判断入口的首次构造曾先记录作者消息，再追加包含作品半稳定上下文的初始 scope；旧 I-CACHE 读取退役的 giant prompt helper，未覆盖这一顺序。两个独立输入的真实请求测得共享前缀 16332 字节、边界 18379 字节，不满足既有门禁；不得给第二个样本拼接第一轮历史规避失败。
-- 新判断 run 在构造初始快照时一次建立 `application_base → initial scope_update → user`；`AuthoringTranscript.new` 的 `initial_scope` 消费当前实际 scope 文本、版本与来源，作者仍是独立 user/provenance=author，原文字节与 author_turn 来源不变。只调整首次构造的责任，不在 projector 中排序，不移动或重写已记录消息；旧 transcript 与恢复后的继续执行仍按原追加规则处理。
-- scope 文本由判断入口生成一次，初始构造和后续更新消费同一事实。不能拆出重复固定 packet、复制作者文字、改 scope 授权或改变模型请求材料集合来改善前缀。初始快照一经建立即受 I-ART-10/13 保护；缓存不能改写它。
+- 新判断 run 在构造初始快照时一次建立 `application_base → initial scope_update → user`；`AuthoringTranscript.new` 的 `initial_scope` 消费当前实际 Scope 结构值、版本与来源（B87 R02 字段见 VS-00M §5.2.1），作者仍是独立 user/provenance=author，原文字节与 author_turn 来源不变。只调整首次构造的责任，不在 projector 中排序，不移动或重写已记录消息；旧 transcript 与恢复后的继续执行仍按原追加规则处理。
+- Scope 结构值由当前事实入口生成一次，初始构造和后续更新消费同一事实，三 wire 共用唯一 renderer。历史 text block 保持原始证据，不重写或静默过滤；不再生产旧字符串 Scope。不能拆出重复固定 packet、复制作者文字、改 scope 授权或改变模型请求材料集合来改善前缀。初始快照一经建立即受 I-ART-10/13 保护；缓存不能改写它。
+- B87 R02 的专业首阶段与续行同样遵循来源契约：TurnInteractionService 从同一真实命令/receipt 选择 `turn_id/text`，调用方不得从 normalized goal、旧闭包或裁剪预览回填原文。Operation 的显式 `source_input_ref` 与 `author_text` 来自该次选择；continued 先由 AuthoringSession/AuthoringTranscript 记录作者输入。相同来源与相同字节在整个消息序列内幂等，来源相同但字节冲突必须拒绝；新来源只按原顺序追加，不重排 system/Scope/历史。应用 continuation 未携作者输入时不合成 user 消息。
+- 新作者消息统一经过既有 RequestIR.author_input_messages 的完整配对校验；Judgment/Transcript 不从 parent_turn_ref、占位 ref 或合成 run_id 建立新来源，Judgment 使用调用方实际运行上下文，恢复段保留其原运行身份。Scope 刷新必须明确区分普通 source_refs 和实际供应的 base_refs，唯一追加接口为 append_scope_update/5；来源关联不会获得材料使用权限，相同 Scope 新供应材料仍需登记。续行摘要的计划/观察/evidence 关联仅为来源，不冒充完整材料；原 Base 和真实 Observation 继续保留。
+- 同批辅助结果叙述沿既有 Planner/AuxTaskBuilder/text_operation 分层：静态任务规则进入 system，动态目标/结果材料保留 application_base，真实作者原文通过同一输入的 turn_id/text 独立 user。text_operation 只消费显式配对，不猜作者来源；无作者输入的内部文本操作不合成 user。该修正不建立额外消息模型、不伪造工具、不承担 R05 材料压缩。
+- 2026-11-15 职责复核：Scope 的构造/校验/绑定/revision/append 归唯一纯值子模块 RequestIR.Scope，RequestIR 组合使用；独立文本构造直接迁已有 RequestIR.Operation.text_operation 并删除旧 parent 入口。作者消息仍复用 RequestIR.author_input_messages，三 wire/codec 仍消费同一 IR；存在性审计、迁移边界及测试责任见 B87 §13.2。历史 R1 记录保留当时名称，不表示继续支持旧 API。
 - 此设计结合 [OpenAI 前缀缓存指南](https://developers.openai.com/api/docs/guides/prompt-caching) 的稳定内容前置和历史追加原则；共享字节通过不等于真实缓存命中。当前只冻结来源与构造职责；实现已落地（已提交并通过确定性门禁，2026-11-04/05），实际模型语义与页面验收仍归 B71。
 
 ### 18.8 2026-11-08 ADR-0035 作用域修订（Accepted）

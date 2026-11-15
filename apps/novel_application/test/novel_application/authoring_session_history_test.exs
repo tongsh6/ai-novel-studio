@@ -51,6 +51,7 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     AuthoringTranscript.new(identity(run_id),
       base_text: "会话历史测试 Base",
       author_text: Keyword.get(opts, :author_text, "作者原话 #{run_id}"),
+      author_turn_ref: identity(run_id).parent_turn_ref,
       base_refs: Keyword.get(opts, :base_refs, [])
     )
   end
@@ -164,9 +165,10 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     segment =
       AuthoringTranscript.new(identity("run-compose"),
         base_text: "base",
-        author_text: "初始作者"
+        author_text: "初始作者",
+        author_turn_ref: "turn-run-compose"
       )
-      |> AuthoringTranscript.append_author_turn("当前作者", "author_turn:current")
+      |> AuthoringTranscript.append_author_turn("当前作者", "turn-current-followup")
 
     view = AuthoringSessionHistory.compose(segment, history)
 
@@ -174,6 +176,7 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
     assert base == hd(segment.messages)
 
     assert List.last(view.messages).blocks |> hd() |> Map.get(:text) == "当前作者"
+    assert List.last(view.messages).source_refs == [%{ref: "turn-current-followup"}]
 
     history_message = Enum.find(view.messages, &(message_text(&1) == "历史作者"))
     assert history_message.session_history_run_id == "run-history-other"
@@ -186,7 +189,7 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
   test "strip_request_history 按归属剥离外 run 行，恢复当前 run 段" do
     segment =
       transcript("run-strip")
-      |> AuthoringTranscript.append_author_turn("当前作者", "author_turn:current")
+      |> AuthoringTranscript.append_author_turn("当前作者", "turn-current-followup")
 
     history =
       history("run-history-other", [

@@ -15,9 +15,10 @@ defmodule NovelApplication.AuthoringOperationTest do
     %{
       role: "planning",
       instructions: "只提计划，执行仍需逐步授权。",
-      scope: "检查本章尚缺的环节。",
+      scope: %{goal: %{text: "检查本章尚缺的环节。"}},
       tool: @tool,
       source_refs: [%{ref: "chapter:one"}],
+      base_refs: [%{ref: "chapter:one"}],
       versions: %{"chapter:one" => 3}
     }
   end
@@ -36,16 +37,19 @@ defmodule NovelApplication.AuthoringOperationTest do
   defp max_provider_calls(options) when is_map(options),
     do: Map.fetch!(options, :max_provider_calls)
 
-  test "已有会话切换角色仅追加 scope，后续请求保留作者与前序交换" do
+  test "已有会话切换角色追加应用规则与 scope，后续请求保留作者与前序交换" do
     previous =
       AuthoringTranscript.new(@run,
         base_text: "作者主权",
-        author_text: "  原始输入\n"
+        author_text: "  原始输入\n",
+        author_turn_ref: "input:original-operation"
       )
 
     snapshot = %{stage_state: %{judgment_transcript: previous}}
 
-    assert {:ok, ir} =
+    assert {:ok, ir} = AuthoringOperation.prepare(@run, snapshot, spec())
+
+    assert {:error, :invalid_author_input} =
              AuthoringOperation.prepare(@run, snapshot, Map.put(spec(), :author_text, "应用改写目标"))
 
     assert Enum.take(ir.messages, length(previous.messages)) == previous.messages
@@ -54,6 +58,45 @@ defmodule NovelApplication.AuthoringOperationTest do
     assert List.last(ir.messages).versions["change_reason"] == "planning"
     assert List.last(ir.messages).source_refs == [%{ref: "chapter:one"}]
     assert {:ok, _prepared} = RequestIR.prepare_request(ir, tool_names: ["plan"])
+  end
+
+  test "真实输入 pair 在应用会话中幂等记录，续阶段保留原字节并拒绝同 ref 冲突" do
+    first_spec =
+      Map.merge(spec(), %{
+        author_text: "  第一条\n",
+        source_input_ref: "input:first",
+        source_refs: [%{ref: "chapter:one"}, %{ref: "input:first"}]
+      })
+
+    assert {:ok, first} = AuthoringOperation.prepare(@run, %{}, first_spec)
+    assert first.refs.base_refs == [%{ref: "chapter:one"}]
+    assert first.refs.observation_refs == []
+    assert List.last(first.messages).source_refs == first_spec.source_refs
+    assert {:ok, transcript} = AuthoringTranscript.from_request_ir(first)
+    snapshot = %{stage_state: %{judgment_transcript: transcript}}
+
+    assert {:ok, repeated} = AuthoringOperation.prepare(@run, snapshot, first_spec)
+    assert Enum.count(repeated.messages, &(&1.role == "user")) == 1
+
+    next_spec =
+      Map.merge(spec(), %{
+        author_text: "  第二条\n",
+        source_input_ref: "input:second",
+        source_refs: [%{ref: "chapter:one"}, %{ref: "input:second"}]
+      })
+
+    assert {:ok, continued} = AuthoringOperation.prepare(@run, snapshot, next_spec)
+    assert Enum.take(continued.messages, length(first.messages)) == first.messages
+    assert continued.refs.base_refs == [%{ref: "chapter:one"}]
+    assert continued.refs.observation_refs == []
+    assert List.last(continued.messages).source_refs == next_spec.source_refs
+
+    assert Enum.map(Enum.filter(continued.messages, &(&1.role == "user")), fn message ->
+             {hd(message.source_refs).ref, hd(message.blocks).text}
+           end) == [{"input:first", "  第一条\n"}, {"input:second", "  第二条\n"}]
+
+    assert {:error, :author_input_conflict} =
+             AuthoringOperation.prepare(@run, snapshot, %{first_spec | author_text: "改写旧输入"})
   end
 
   test "没有明确作者原话时只传应用目标，不伪造 user" do
@@ -72,11 +115,15 @@ defmodule NovelApplication.AuthoringOperationTest do
       })
 
     assert {:ok, ir} = AuthoringOperation.prepare(run, %{}, spec())
-    [%{text: scope}] = List.last(ir.messages).blocks
-    assert scope =~ ~s("allowed_tools":[])
-    assert scope =~ ~s("production_write":false)
-    assert scope =~ ~s("max_provider_calls":2)
-    assert scope =~ ~s("provider_calls":2)
+    [%{type: "scope", content: scope}] = List.last(ir.messages).blocks
+
+    assert scope["operation"]["runtime"] == %{
+             "authority_scope" => %{"allowed_tools" => [], "production_write" => false},
+             "budget" => %{"max_provider_calls" => 2},
+             "consumed_budget" => %{"provider_calls" => 2}
+           }
+
+    assert scope["goal"] == %{"text" => "检查本章尚缺的环节。"}
   end
 
   test "应用校验闭合后返回可恢复会话，未调用的错误保留零计数" do

@@ -114,7 +114,7 @@ defmodule NovelApplication.AuthoringTaskBuilderProseTest do
         turn_id: "turn_1",
         resolved_chapter: "第01章：灯楼夜雨",
         resolved_chapter_ref: "chapter:one",
-        author_input: %{text: "应用拼接", author_goal_text: "把第一章写出来"},
+        author_words: "把第一章写出来",
         author_goal: "写第 01 章首稿",
         prior_prose: "",
         omission_notes: [],
@@ -146,6 +146,24 @@ defmodule NovelApplication.AuthoringTaskBuilderProseTest do
     # intent 缺失但目标章已有已采纳前文（产品事实）按续写渲染
     assert {:ok, %{kind: :continuation}} =
              AuthoringTaskBuilder.for_prose_writing(writer_attrs(%{prior_prose: "前文正文"}))
+  end
+
+  test "作者原文保留字节，应用目标和合成输入不能补成作者来源" do
+    raw = "  原话 Ω\né 与雪。\t "
+
+    assert {:ok, task} =
+             AuthoringTaskBuilder.for_prose_writing(writer_attrs(%{author_words: raw}))
+
+    assert task.author_words == raw
+
+    attrs =
+      writer_attrs()
+      |> Map.delete(:author_words)
+      |> Map.put(:author_input, %{text: "应用拼接", author_goal_text: "规范化目标"})
+
+    assert {:ok, task} = AuthoringTaskBuilder.for_prose_writing(attrs)
+    assert task.author_words == nil
+    assert task.author_goal == "写第 01 章首稿"
   end
 
   test "rewrite requires a real base_ref and explicit preserve" do
@@ -269,7 +287,7 @@ defmodule NovelApplication.AuthoringTaskBuilderCreativeRolesTest do
         action: %{summary: "按作者请求生成候选"},
         turn_id: "turn_1",
         workspace_id: "work_1",
-        author_input: %{author_goal_text: "作者原话 NONCE1"},
+        author_words: "作者原话 NONCE1",
         author_goal: "按作者请求生成候选",
         sections: sections(),
         source_refs: ["turn:turn_1"]
@@ -315,7 +333,7 @@ defmodule NovelApplication.AuthoringTaskBuilderCreativeRolesTest do
     for {words, artifact_type} <- cases do
       {:ok, task} =
         AuthoringTaskBuilder.for_world_building(
-          attrs(%{author_input: %{author_goal_text: words}, author_goal: "生成世界设定草稿"})
+          attrs(%{author_words: words, author_goal: "生成世界设定草稿"})
         )
 
       assert task.output_contract.artifact_type == artifact_type

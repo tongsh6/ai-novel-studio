@@ -2,28 +2,39 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
   # 真实 Gateway 捕获需要注入测试 provider，不能与其它 async 用例并行改全局配置。
   use ExUnit.Case, async: false
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.JudgmentProtocol
+  alias NovelApplication.JudgmentToolContract
+  alias NovelApplication.TestAgenticLoopFixtures
+  alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
+  alias NovelDomain.AgentRun
 
   @author_a "接着第02章往下写一段正文"
   @author_b "把第02章写得更紧凑些"
   @projection_targets ["chat_completions", "anthropic_messages", "responses_api"]
 
-  @context_block """
-  ## 作品与章节事实
-  作品名：前缀度量样书；当前 revision=3。
-  第01章：底层灵气账单（已写）
-  第02章：旧服务器里的残诀（已写）
-  （回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。）
-
-  ## 会话摘要
-  上一轮采纳了第01章草稿，作者准备继续推进正文。
-  """
+  @scope %{
+    work_id: "work-1",
+    facts: %{
+      work: %{ref: "work:work-1", work_id: "work-1", title: "前缀度量样书", version: 3},
+      chapters: [
+        %{ref: "chapter:one", work_id: "work-1", title: "第01章：底层灵气账单", seq: 1, has_prose: true}
+      ]
+    },
+    context: %{open_behavior_summary: "上一轮采纳了第01章草稿，作者准备继续推进正文。"},
+    coverage: %{
+      work: %{status: "complete"},
+      chapters: %{status: "complete", returned: 1, total: 1}
+    }
+  }
+  @refs [%{ref: "work:work-1"}, %{ref: "chapter:one"}]
 
   defmodule CaptureProvider do
     @behaviour NovelAgent.Provider
@@ -92,9 +103,9 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
         author_turn_ref: "author-turn-a",
         author_turn: %{origin: "author_choice", question_ref: "question-1"},
         initial_scope: %{
-          text: @context_block,
-          versions: %{"scope_revision" => 1, "change_reason" => "initial_scope"},
-          source_refs: [%{ref: "author-turn-a"}, %{ref: "chapter:one"}]
+          content: @scope,
+          versions: %{"scope_revision" => 1, "work" => 3, "change_reason" => "initial_scope"},
+          source_refs: @refs
         }
       )
 
@@ -105,9 +116,16 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     assert scope.role == "scope_update"
     assert scope.provenance == "application"
-    assert Projection.text_of(scope.blocks) == @context_block
-    assert scope.versions == %{"scope_revision" => 1, "change_reason" => "initial_scope"}
-    assert scope.source_refs == [%{ref: "author-turn-a"}, %{ref: "chapter:one"}]
+    assert [%{type: "scope", content: content}] = scope.blocks
+    assert content == RequestIR.json_value(@scope)
+
+    assert scope.versions == %{
+             "scope_revision" => 1,
+             "work" => 3,
+             "change_reason" => "initial_scope"
+           }
+
+    assert scope.source_refs == @refs
 
     assert author.role == "user"
     assert author.provenance == "author"
@@ -132,10 +150,11 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert base.role == "application_base"
     assert scope.role == "scope_update"
     assert scope.provenance == "application"
-    assert Projection.text_of(scope.blocks) =~ @context_block
+    assert [%{type: "scope", content: content}] = scope.blocks
+    assert content["facts"] == RequestIR.json_value(@scope.facts)
     assert scope.versions["scope_revision"] == 1
     assert scope.versions["change_reason"] == "initial_scope"
-    assert scope.source_refs == [%{ref: "author-turn-a"}, %{ref: "chapter:one"}]
+    assert scope.source_refs == @refs
     assert author.role == "user"
     assert author.provenance == "author"
     assert Projection.text_of(author.blocks) == @author_a
@@ -153,13 +172,13 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert Enum.count(body.messages, &(&1.role == "user" and &1.content == @author_a)) == 1
   end
 
-  test "两个独立作者输入的同半稳定上下文共享前缀覆盖原 scope 会话摘要边界" do
+  test "两个独立作者输入的同半稳定上下文共享前缀覆盖结构化 Scope 事实边界" do
     first_request = JudgmentProtocol.request_for_production(input(@author_a, "author-turn-a"))
     second_request = JudgmentProtocol.request_for_production(input(@author_b, "author-turn-b"))
 
     first = capture(first_request) |> serialize()
     second = capture(second_request) |> serialize()
-    boundary = marker_offset!(first, "## 会话摘要")
+    boundary = marker_offset!(first, "前缀度量样书")
     shared = shared_prefix_bytes(first, second)
 
     assert shared >= boundary,
@@ -175,7 +194,11 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     {first_request, first_transcript} = production_request(input(@author_a, "author-turn-a"))
 
     next_input =
-      input(@author_b, "author-turn-b", @context_block <> "\n新增事实：第02章需要压缩。")
+      input(
+        @author_b,
+        "author-turn-b",
+        put_in(@scope, [:context, :open_behavior_summary], "第02章需要压缩。")
+      )
       |> Map.put(:transcript, first_transcript)
       |> Map.put(:scope_change_reason, "run_scope_changed")
 
@@ -197,7 +220,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     scope = AuthoringTranscript.current_scope(next_transcript)
     assert scope.versions["scope_revision"] == 2
     assert scope.versions["change_reason"] == "run_scope_changed"
-    assert Enum.map(scope.source_refs, & &1.ref) == ["author-turn-b", "chapter:one"]
+    assert scope.source_refs == @refs
 
     assert {:ok, restored} = restore(next_transcript)
 
@@ -213,19 +236,350 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     end)
   end
 
-  defp input(author_text, source_ref, context_block \\ @context_block) do
+  test "同内容的来源集合或业务 plan 版本变化必须追加 Scope，重复读取幂等" do
+    initial = input(@author_a, "author-turn-a")
+    {_request, first} = production_request(initial)
+
+    changed =
+      initial
+      |> Map.put(:transcript, first)
+      |> Map.put(:options,
+        plan_run: Map.put(Keyword.fetch!(initial.options, :plan_run), :plan_version, 2)
+      )
+
+    {_request, second} = production_request(changed)
+    assert length(second.messages) == length(first.messages) + 1
+    assert AuthoringTranscript.current_scope(second).versions["plan"] == 2
+
+    changed_refs =
+      changed
+      |> Map.put(:transcript, second)
+      |> Map.put(:supplied_context_refs, ["work:work-1", "chapter:one", "context:read-2"])
+
+    {_request, third} = production_request(changed_refs)
+    assert length(third.messages) == length(second.messages) + 1
+
+    assert List.last(AuthoringTranscript.current_scope(third).source_refs) == %{
+             ref: "context:read-2"
+           }
+
+    {_request, repeated} = production_request(Map.put(changed_refs, :transcript, third))
+    assert repeated.messages == third.messages
+  end
+
+  describe "B71：judgment Request IR" do
+    test "判断请求产出 canonical IR：工具目录稳定、application_base 与作者原话分离" do
+      input = input(capabilities: ["prose_writing"], explore: true)
+      {ir, transcript} = production_request(input)
+
+      assert %RequestIR{} = ir
+      assert ir.ir_version == RequestIR.ir_version()
+      assert :ok = RequestIR.validate(ir)
+
+      # 工具目录来自固定 profile contract（name 顺序一致）。
+      assert Enum.map(ir.tools, & &1.name) ==
+               Enum.map(JudgmentToolContract.tools(:judgment), & &1.name)
+
+      assert RequestIR.Tools.tool_choice(ir) == "auto"
+      assert [%{role: "application_base"} | rest] = ir.messages
+
+      author = Enum.find(ir.messages, &(&1.role == "user" and &1.provenance == "author"))
+      assert author
+      assert TestAgenticLoopFixtures.message_text(author) == input.author_text
+
+      application_base = Enum.find(ir.messages, &(&1.role == "application_base"))
+      assert application_base
+      assert application_base.provenance == "application"
+
+      # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀，application_base
+      # 只声明应用数据职责与来源边界。
+      system_text = Projection.system_text(ir.system)
+      assert system_text =~ "## 决策与输出契约"
+      assert system_text =~ "本次你承担创作判断器的角色"
+      assert TestAgenticLoopFixtures.message_text(application_base) =~ "应用数据"
+      refute TestAgenticLoopFixtures.message_text(application_base) =~ "## 决策与输出契约"
+      refute Enum.any?(application_base.blocks, &(&1.type == "scope"))
+      refute TestAgenticLoopFixtures.message_text(application_base) =~ "只读探索当前允许："
+
+      scope_update = Enum.find(ir.messages, &(&1.role == "scope_update"))
+      assert scope_update
+      assert scope_update.provenance == "application"
+      assert [%{type: "scope", content: scope_content}] = scope_update.blocks
+      assert scope_content["facts"] == RequestIR.json_value(input.scope.facts)
+      assert scope_content["operation"]["exploration"]["allowed"] == true
+
+      refute TestAgenticLoopFixtures.message_text(scope_update) =~
+               "## 作者输入\n" <> input.author_text
+
+      assert length(rest) >= 2
+
+      assert AuthoringTranscript.current_scope(transcript).content == scope_content
+    end
+
+    test "作者新输入只追加新的 turn 与 scope，不重写既有请求" do
+      first_input = input(explore: true)
+      {first, transcript} = production_request(first_input)
+
+      next_input =
+        first_input
+        |> Map.put(:author_text, "基于已读事实，改为只比较两个方向")
+        |> Map.put(:source_input_ref, "author-turn-2")
+        |> Map.put(:scope, %{
+          work_id: first_input.scope.work_id,
+          facts: %{},
+          context: %{open_behavior_summary: "已有事实已刷新"}
+        })
+        |> Map.put(:transcript, transcript)
+        |> Map.put(:options,
+          plan_run: %{
+            first_input.options[:plan_run]
+            | goal: %{text: "只比较两个方向", version: 2}
+          }
+        )
+
+      {second, next} = production_request(next_input)
+      assert Enum.take(second.messages, length(first.messages)) == first.messages
+
+      assert Enum.any?(
+               second.messages,
+               &(&1.role == "user" and &1.provenance == "author" and
+                   TestAgenticLoopFixtures.message_text(&1) == next_input.author_text)
+             )
+
+      scope = NovelApplication.AuthoringTranscript.current_scope(next)
+      assert scope.content["context"]["open_behavior_summary"] == "已有事实已刷新"
+      assert scope.versions["change_reason"] == "run_scope_changed"
+      assert scope.content["goal"]["source_input_ref"] == "author-turn-2"
+      assert scope.source_refs == [%{ref: "chapter:one"}]
+    end
+
+    test "continuation profile 同样直接产出 canonical IR" do
+      input =
+        input(capabilities: ["ask_author"])
+        |> Map.put(:goal_text, "继续当前任务")
+        |> Map.put(:deviation_summary, "偏离事实摘要")
+
+      {ir, _transcript} = production_request(input, :continuation)
+
+      assert Enum.any?(
+               ir.messages,
+               &(&1.role == "user" and &1.provenance == "author" and
+                   TestAgenticLoopFixtures.message_text(&1) == input.author_text)
+             )
+
+      assert ir.tools != []
+    end
+
+    test "continuation 没有作者消息时保留 application goal，不伪造 user" do
+      input =
+        input(capabilities: ["ask_author"])
+        |> Map.delete(:author_text)
+        |> Map.delete(:source_input_ref)
+        |> Map.put(:goal_text, "继续当前任务")
+        |> Map.put(:deviation_summary, "偏离事实摘要")
+
+      {ir, _transcript} = production_request(input, :continuation)
+
+      refute Enum.any?(
+               ir.messages,
+               &(&1.role == "user" and TestAgenticLoopFixtures.message_text(&1) == input.goal_text)
+             )
+
+      assert NovelTest.TestProviderPrompt.scope_content(ir)["goal"]["text"] == input.goal_text
+    end
+
+    test "新建与刷新均只登记显式供应材料，不提升普通 Scope 来源" do
+      for profile <- [:judgment, :continuation] do
+        initial_input =
+          input()
+          |> Map.put(:goal_text, "继续当前应用目标")
+          |> Map.put(:deviation_summary, "按已读材料继续")
+          |> Map.put(:scope_source_refs, ["plan:unread", "evidence:unread"])
+
+        {initial, transcript} = production_request(initial_input, profile)
+        assert initial.refs.base_refs == [%{ref: "chapter:one"}]
+
+        assert AuthoringTranscript.current_scope(transcript).source_refs == [
+                 %{ref: "chapter:one"},
+                 %{ref: "plan:unread"},
+                 %{ref: "evidence:unread"}
+               ]
+
+        next_input =
+          initial_input
+          |> Map.put(:transcript, transcript)
+          |> Map.put(:supplied_context_refs, ["chapter:two"])
+          |> Map.put(:scope_source_refs, ["plan:unread", "evidence:unread"])
+          |> Map.update!(:scope, fn scope ->
+            Map.put(scope, :context, %{provided_chapter: %{ref: "chapter:two", text: "实读正文"}})
+          end)
+
+        {continued, next} = production_request(next_input, profile)
+        assert continued.refs.base_refs == [%{ref: "chapter:one"}, %{ref: "chapter:two"}]
+        assert next.observation_refs == transcript.observation_refs
+
+        for ref <- ["plan:unread", "evidence:unread"] do
+          assert {:error, {:used_refs_out_of_scope, [^ref]}} =
+                   next
+                   |> AuthoringTranscript.declare_used_refs([ref])
+                   |> AuthoringTranscript.to_request_ir()
+        end
+      end
+    end
+
+    test "同 Scope 的引用从普通来源变为显式供应材料时不会被去重吞掉" do
+      initial_input =
+        input()
+        |> Map.put(:supplied_context_refs, [])
+        |> Map.put(:scope_source_refs, ["chapter:one"])
+
+      {_initial, transcript} = production_request(initial_input)
+      assert transcript.base_refs == []
+
+      supplied_input =
+        initial_input
+        |> Map.put(:transcript, transcript)
+        |> Map.put(:supplied_context_refs, ["chapter:one"])
+
+      {supplied, next} = production_request(supplied_input)
+      assert supplied.refs.base_refs == [%{ref: "chapter:one"}]
+      assert length(next.messages) == length(transcript.messages) + 1
+
+      assert AuthoringTranscript.current_scope(next).content ==
+               AuthoringTranscript.current_scope(transcript).content
+
+      {_repeated, repeated} =
+        production_request(Map.put(supplied_input, :transcript, next))
+
+      assert repeated == next
+    end
+
+    test "CP4a：续行继承创作历史并追加有版本的 scope，恢复后保持幂等" do
+      run = input().options[:plan_run]
+      {creative, transcript} = production_request(input(capabilities: ["prose_writing"]))
+
+      continuation_input = %{
+        transcript: transcript,
+        goal_text: "按原目标重试一次，完成本章正文候选",
+        deviation_summary: "正文调用超时，尚未形成候选",
+        observation_block: "已有章节计划，尚无本轮正文",
+        scope_source_refs: ["observation:timeout", "plan:chapter-1"],
+        supplied_context_refs: [],
+        scope_change_reason: "continuation",
+        options: [
+          plan_run: %{
+            run
+            | goal: %{run.goal | version: 3},
+              authority_scope: Map.put(run.authority_scope, :work_revision, 8),
+              plan_version: 2
+          }
+        ]
+      }
+
+      {continued, continued_transcript} =
+        production_request(continuation_input, :continuation)
+
+      assert Enum.take(continued.messages, length(creative.messages)) == creative.messages
+      assert continued.refs.base_refs == creative.refs.base_refs
+      assert continued.refs.observation_refs == creative.refs.observation_refs
+      scope = AuthoringTranscript.current_scope(continued_transcript)
+      assert scope.content["goal"]["text"] == continuation_input.goal_text
+      assert scope.content["context"]["deviation_summary"] == continuation_input.deviation_summary
+
+      assert scope.content["context"]["observation_summary"] ==
+               continuation_input.observation_block
+
+      assert scope.versions["scope_revision"] == 2
+      assert scope.versions["change_reason"] == "continuation"
+      assert scope.versions["goal"] == 3
+      refute Map.has_key?(scope.versions, "work")
+      assert scope.versions["plan"] == 2
+
+      assert Enum.map(scope.source_refs, & &1.ref) == [
+               "observation:timeout",
+               "plan:chapter-1"
+             ]
+
+      tool_names = Enum.map(continued_transcript.tools, & &1.name)
+      assert "continuation_decision" in tool_names
+      assert "judgment_decision" in tool_names
+
+      projected_tool_names = Enum.map(continued.tools, & &1.name)
+      assert "continuation_decision" in projected_tool_names
+      refute "judgment_decision" in projected_tool_names
+      refute "submit_tentative_artifact" in projected_tool_names
+
+      assert {:ok, restored} =
+               continued_transcript
+               |> AuthoringCheckpoint.checkpoint()
+               |> AuthoringTranscript.restore()
+
+      {replayed, _replayed_transcript} =
+        production_request(%{continuation_input | transcript: restored}, :continuation)
+
+      assert replayed.messages == continued.messages
+
+      assert {:ok, %{action: "continue"}} =
+               JudgmentProtocol.request_continuation(
+                 %Execution{
+                   result_fn: fn prompt ->
+                     {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+
+                     output = %ProviderOutput{
+                       provider_run_ref: "cp4a-continuation-run",
+                       provider_call_ref: "cp4a-continuation-call",
+                       status: :ok,
+                       content: %{text: result.content, tool_calls: result.tool_calls}
+                     }
+
+                     {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
+                   end
+                 },
+                 %{},
+                 continuation_input
+               )
+    end
+  end
+
+  defp input(opts \\ []) do
+    author_text = "根据本章实际内容判断"
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-judgment-fixture",
+        work_id: "work-judgment-fixture",
+        workspace_id: "workspace-judgment-fixture",
+        session_id: "session-judgment-fixture",
+        parent_turn_ref: "author-turn",
+        origin_frame_ref: "frame-judgment-fixture",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: author_text, version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    input(author_text, "author-turn", %{
+      work_id: run.work_id,
+      facts: %{characters: []},
+      context: %{},
+      coverage: %{}
+    })
+    |> Map.put(:supplied_context_refs, ["chapter:one"])
+    |> Map.put(:options, Keyword.put_new(opts, :plan_run, run))
+  end
+
+  defp input(author_text, source_ref, scope \\ @scope) do
     %{
       author_text: author_text,
-      context_block: context_block,
+      scope: scope,
       source_input_ref: source_ref,
-      supplied_context_refs: ["chapter:one"],
-      options: []
+      supplied_context_refs: Enum.map(@refs, & &1.ref),
+      options: [plan_run: %{run_id: "run-initial-snapshot"}]
     }
   end
 
-  defp production_request(input) do
-    assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input)
-    assert %RequestIR{} = request = JudgmentProtocol.request_for_production(input)
+  defp production_request(input, profile \\ :judgment) do
+    assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input, profile)
+    assert %RequestIR{} = request = JudgmentProtocol.request_for_production(input, profile)
     {request, transcript}
   end
 

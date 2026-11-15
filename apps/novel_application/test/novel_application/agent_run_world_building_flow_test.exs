@@ -73,6 +73,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -210,6 +211,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -218,8 +220,10 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     artifact_event = receive_agent_event(:artifact_created)
     assert_receive {:provider_prompt, provider_prompt}, 500
 
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~
-             "artifact_type：style_rule_seed"
+    assert NovelTest.TestProviderPrompt.scope_content(provider_prompt)["operation"][
+             "artifact_type"
+           ] ==
+             "style_rule_seed"
 
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "写作规则"
     receive_agent_event(:run_completed)
@@ -306,7 +310,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: [],
       structured_chapters: [
         %{

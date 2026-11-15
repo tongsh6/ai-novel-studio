@@ -2,6 +2,7 @@ defmodule NovelPersistence.InteractionLifecycleTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelDomain.DialogueContext
   alias NovelPersistence.{InteractionLifecycle, MemoryLog, Repo, WorkRepo, WorkSessionRepo}
 
   setup do
@@ -21,6 +22,47 @@ defmodule NovelPersistence.InteractionLifecycleTest do
         status: :running
       }
     }
+  end
+
+  test "按 work/session/run/turn 精确读取当前 receipt，保留 Unicode 与空白", %{attrs: attrs} do
+    raw = "\t 作者答复 Ω é\n第二行  "
+    current = %{attrs | turn_id: "input-1:steer:2", text: raw}
+    assert {:ok, _} = InteractionLifecycle.call(:receive, attrs)
+    assert {:ok, _} = InteractionLifecycle.call(:receive, current)
+
+    assert {:ok, %{turn_id: "input-1:steer:2", text: ^raw}} =
+             InteractionLifecycle.call(:input, current)
+
+    assert {:ok, %{text: original}} = InteractionLifecycle.call(:input, attrs)
+    assert original == attrs.text
+
+    for overrides <- [
+          %{workspace_id: "other-work"},
+          %{session_id: "other-session"},
+          %{run_id: "other-run"},
+          %{turn_id: "input-missing"}
+        ] do
+      assert {:error, :received_input_not_found} =
+               InteractionLifecycle.call(:input, Map.merge(current, overrides))
+    end
+  end
+
+  test "当前 receipt 读取不受最近 80 条历史窗口或 600 字预览影响", %{attrs: attrs} do
+    raw = "  " <> String.duplicate("原文 Ω\n", 220) <> "尾部  "
+    current = %{attrs | text: raw}
+    assert {:ok, _} = InteractionLifecycle.call(:receive, current)
+
+    for n <- 1..81 do
+      assert {:ok, _} =
+               InteractionLifecycle.call(
+                 :receive,
+                 %{attrs | turn_id: "later-#{n}", run_id: "later-run-#{n}", text: "后续消息 #{n}"}
+               )
+    end
+
+    context = InteractionLifecycle.context(attrs.workspace_id, attrs.session_id)
+    refute Enum.any?(context.author_inputs, &(&1.turn_ref == attrs.turn_id))
+    assert {:ok, %{text: ^raw}} = InteractionLifecycle.call(:input, current)
   end
 
   test "接收保留字节，同身份重传复用运行，不同内容拒绝", %{attrs: attrs} do
@@ -64,14 +106,14 @@ defmodule NovelPersistence.InteractionLifecycleTest do
     assert {:ok, _} = InteractionLifecycle.call(:receive, attrs)
     fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
 
-    assert {:ok, _, nil, _, _, _, _, state, _source_status} =
+    assert {:ok, %DialogueContext{conversation_summary: nil, interaction_state: state}} =
              fetcher.(attrs.workspace_id, attrs.text, attrs.session_id)
 
     assert [%{text: text}] = state.author_inputs
     assert text == attrs.text
     assert {:ok, _} = InteractionLifecycle.call(:status, %{attrs | status: :completed})
 
-    assert {:ok, _, summary, _, _, _, _, _, _source_status} =
+    assert {:ok, %DialogueContext{conversation_summary: summary}} =
              fetcher.(attrs.workspace_id, "下一句", attrs.session_id)
 
     assert summary =~ attrs.text

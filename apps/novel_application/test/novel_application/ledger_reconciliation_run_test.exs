@@ -52,6 +52,7 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -104,6 +105,7 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 

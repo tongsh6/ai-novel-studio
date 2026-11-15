@@ -124,7 +124,7 @@ defmodule NovelApplication.ProseExecutionBriefTraceTest do
 
   defp context(target_chapter, scene_plans, chapter_emotion) do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: [target_chapter],
       structured_chapters: [
         %{

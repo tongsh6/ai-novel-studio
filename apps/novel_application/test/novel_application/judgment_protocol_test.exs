@@ -5,9 +5,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Projection
-
-  alias NovelApplication.AuthoringCheckpoint
+  alias NovelDomain.AgentRun
 
   alias NovelApplication.{
     AgentNarrativeSource,
@@ -34,14 +32,40 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   defp call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
 
-  defp input(opts \\ []),
-    do: %{
+  defp input(opts \\ []) do
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-judgment-fixture",
+        work_id: "work-judgment-fixture",
+        workspace_id: "workspace-judgment-fixture",
+        session_id: "session-judgment-fixture",
+        parent_turn_ref: "author-turn",
+        origin_frame_ref: "frame-judgment-fixture",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: "根据本章实际内容判断", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    %{
       author_text: "根据本章实际内容判断",
-      context_block: "章计划/读取范围",
+      scope: %{
+        work_id: run.work_id,
+        facts: %{
+          characters:
+            Enum.map(Keyword.get(opts, :character_targets, []), fn target ->
+              target |> Map.put(:ref, target.character_ref) |> Map.delete(:character_ref)
+            end)
+        },
+        context: %{},
+        coverage: %{}
+      },
       source_input_ref: "author-turn",
-      supplied_context_refs: ["chapter:one"],
-      options: opts
+      supplied_context_refs: [
+        "chapter:one" | Enum.map(Keyword.get(opts, :character_targets, []), & &1.character_ref)
+      ],
+      options: Keyword.put_new(opts, :plan_run, run)
     }
+  end
 
   defp plan_args do
     %{
@@ -419,7 +443,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     continuation_input = %{
       goal_text: "写本章",
       deviation_summary: "尚缺结尾",
-      observation_block: "已有前半章"
+      observation_block: "已有前半章",
+      options: input().options
     }
 
     good =
@@ -492,13 +517,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
         resolved_adoptions: [unrelated]
       }
 
-      # 旧格式状态段是当前 scope 内的显式事实段；构造与真实判断请求同形的 IR：
+      # 处置状态只来自当前结构化 Scope，构造与生产判断请求同形的 IR：
       # application scope 携带处置事实，作者原话保持独立 author 消息。
       prompt =
         NovelTest.TestRequestIR.ir(
           [
             NovelTest.TestRequestIR.base("创作判断器"),
-            NovelTest.TestRequestIR.scope("## 消息处置与已有产物\n" <> Jason.encode!(facts)),
+            NovelTest.TestRequestIR.scope(%{context: %{interaction_state: facts}}),
             NovelTest.TestRequestIR.author("把上一条资料原文保存为作品设定。")
           ],
           tools: JudgmentToolContract.tools(:judgment),
@@ -519,20 +544,109 @@ defmodule NovelApplication.JudgmentProtocolTest do
         ] do
       # 生产请求入口已统一为 canonical IR；续行请求保留真实续行工具目录与 tool_choice。
       prompt =
-        NovelTest.TestRequestIR.ir(
-          [
-            NovelTest.TestRequestIR.base(
-              "## 当前目标\n#{goal}\n## 偏离事实\n工具 prose_writing 执行失败\n## 决策与输出契约\ncontinuation_decision"
-            )
-          ],
-          tools: JudgmentToolContract.tools(:continuation),
-          projection: %{tool_choice: "auto"}
+        JudgmentProtocol.request_for_production(
+          %{
+            goal_text: goal,
+            deviation_summary: "工具 prose_writing 执行失败",
+            options: [plan_run: %{run_id: "run-continuation-fixture"}]
+          },
+          :continuation
         )
 
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [%{name: ^tool}] = result.tool_calls
       assert result.content =~ phrase
       assert :ok = JudgmentToolContract.validate(result.tool_calls, :continuation)
+    end
+  end
+
+  test "判断入口拒绝缺失输入配对或运行身份，已有历史与父回合也不能补来源" do
+    run = %{run_id: "run-explicit-judgment", parent_turn_ref: "turn:old-parent"}
+    valid = input(plan_run: run)
+    assert {:ok, previous} = JudgmentProtocol.transcript_for_production(valid)
+    provider = %Execution{result_fn: fn _ -> flunk("缺身份或作者来源不得调用 Provider") end}
+
+    for {text, ref} <- [
+          {valid.author_text, nil},
+          {nil, valid.source_input_ref},
+          {nil, nil},
+          {" \r\n ", valid.source_input_ref},
+          {valid.author_text, " \r\n "},
+          {123, valid.source_input_ref}
+        ],
+        history <- [nil, previous] do
+      invalid =
+        Map.merge(valid, %{author_text: text, source_input_ref: ref, transcript: history})
+
+      assert {:error, :invalid_author_input} =
+               JudgmentProtocol.request_judgment(provider, %{}, invalid)
+    end
+
+    for options <- [
+          [],
+          [plan_run: %{}],
+          [plan_run: %{work_id: "work-without-run"}],
+          [plan_run: %{parent_turn_ref: "turn:parent-without-run"}],
+          [plan_run: %{run_id: "  "}]
+        ] do
+      assert {:error, :missing_run_envelope} =
+               JudgmentProtocol.request_judgment(provider, %{}, %{valid | options: options})
+    end
+  end
+
+  test "没有作者输入的内部续行可用真实 run 建新段，但不能制造运行或作者身份" do
+    input = %{
+      goal_text: "应用归纳的续行目标",
+      deviation_summary: "待补充创作结果",
+      options: [plan_run: %{run_id: "run-authorless-continuation"}]
+    }
+
+    assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input, :continuation)
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert ir.run.run_id == "run-authorless-continuation"
+    refute Enum.any?(ir.messages, &(&1.role == "user"))
+
+    assert {:error, :missing_run_envelope} =
+             JudgmentProtocol.transcript_for_production(%{input | options: []}, :continuation)
+  end
+
+  test "steer 后先进入续行判断也记录同一原文与来源，重复构造不重写历史" do
+    initial = JudgmentProtocol.request_for_production(input())
+    {:ok, transcript} = AuthoringTranscript.from_request_ir(initial)
+    raw = "  先重试 Ω\n只改第二段。\t "
+
+    continuation_input = %{
+      transcript: transcript,
+      author_text: raw,
+      source_input_ref: "author-turn:steer:2",
+      author_turn: %{origin: "author_choice", question_ref: "question:retry"},
+      goal_text: "应用归纳的续行目标",
+      deviation_summary: "正文执行失败",
+      options: [
+        plan_run: %{
+          input().options[:plan_run]
+          | goal: %{text: "应用归纳的续行目标", version: 2}
+        }
+      ]
+    }
+
+    request = JudgmentProtocol.request_for_production(continuation_input, :continuation)
+    assert Enum.take(request.messages, length(initial.messages)) == initial.messages
+    author = request.messages |> Enum.filter(&(&1.role == "user")) |> List.last()
+    assert author.blocks == [%{type: "text", text: raw}]
+    assert author.source_refs == [%{ref: "author-turn:steer:2"}]
+    assert author.author_turn["question_ref"] == "question:retry"
+
+    {:ok, continued} = AuthoringTranscript.from_request_ir(request)
+    repeated_input = %{continuation_input | transcript: continued}
+    repeated = JudgmentProtocol.request_for_production(repeated_input, :continuation)
+    assert repeated.messages == request.messages
+
+    assert_raise ArgumentError, "author_input_conflict", fn ->
+      JudgmentProtocol.request_for_production(
+        %{repeated_input | author_text: String.trim(raw)},
+        :continuation
+      )
     end
   end
 
@@ -683,7 +797,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       goal_text: "写本章",
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
-      source_input_ref: "author-turn"
+      options: input().options
     }
 
     invalid = response("坏响应", [call("not_registered", %{})], "bad-continuation")
@@ -1618,7 +1732,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     quality_input =
       analysis_input
       |> Map.put(:author_text, "第二章正文质量如何？有没有前后矛盾？")
-      |> Map.put(:options, explore: true, explore_tools: ["chapter_read"])
+      |> Map.update!(:options, &Keyword.merge(&1, explore: true, explore_tools: ["chapter_read"]))
 
     quality_explore =
       call("judgment_decision", %{
@@ -1735,18 +1849,26 @@ defmodule NovelApplication.JudgmentProtocolTest do
       }
     ]
 
-    content =
+    request =
       input(
         capabilities: ["revise_character_profile", "character_design"],
         character_targets: targets
       )
       |> JudgmentProtocol.request_for_production()
-      |> first_text()
 
-    assert content =~ "## 角色索引"
+    content = first_text(request)
+
+    assert [
+             %{
+               "ref" => "character:11111111-1111-1111-1111-111111111111",
+               "narrative_role" => "ENSEMBLE_POV"
+             }
+             | _
+           ] =
+             get_in(NovelTest.TestProviderPrompt.scope_content(request), ["facts", "characters"])
+
     assert content =~ "character:11111111-1111-1111-1111-111111111111"
     assert content =~ "老沈"
-    assert content =~ "narrative_role=ENSEMBLE_POV"
     assert content =~ "revise_character_profile"
     assert content =~ "不新建角色、不写正文、不冒充角色演化记忆"
     assert content =~ "灯楼查账人"
@@ -2401,189 +2523,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   # B71：判断请求直接消费 canonical IR；不再保留旧 prompt/prompt_ir 旁路。
-  describe "B71：judgment Request IR" do
-    test "判断请求产出 canonical IR：工具目录稳定、application_base 与作者原话分离" do
-      input = input(capabilities: ["prose_writing"], explore: true)
-      {ir, transcript} = production_request(input)
-
-      assert %RequestIR{} = ir
-      assert ir.ir_version == RequestIR.ir_version()
-      assert :ok = RequestIR.validate(ir)
-
-      # 工具目录来自固定 profile contract（name 顺序一致）。
-      assert Enum.map(ir.tools, & &1.name) ==
-               Enum.map(JudgmentToolContract.tools(:judgment), & &1.name)
-
-      assert RequestIR.Tools.tool_choice(ir) == "auto"
-      assert [%{role: "application_base"} | rest] = ir.messages
-
-      author = Enum.find(ir.messages, &(&1.role == "user" and &1.provenance == "author"))
-      assert author
-      assert message_text(author) == input.author_text
-
-      application_base = Enum.find(ir.messages, &(&1.role == "application_base"))
-      assert application_base
-      assert application_base.provenance == "application"
-
-      # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀，application_base
-      # 只声明应用数据职责与来源边界。
-      system_text = Projection.system_text(ir.system)
-      assert system_text =~ "## 决策与输出契约"
-      assert system_text =~ "本次你承担创作判断器的角色"
-      assert message_text(application_base) =~ "应用数据"
-      refute message_text(application_base) =~ "## 决策与输出契约"
-      refute message_text(application_base) =~ input.context_block
-      refute message_text(application_base) =~ "只读探索当前允许："
-
-      scope_update = Enum.find(ir.messages, &(&1.role == "scope_update"))
-      assert scope_update
-      assert scope_update.provenance == "application"
-      assert message_text(scope_update) =~ input.context_block
-      assert message_text(scope_update) =~ "只读探索当前允许：true"
-      refute message_text(scope_update) =~ "## 作者输入\n" <> input.author_text
-      assert length(rest) >= 2
-
-      assert AuthoringTranscript.current_scope(transcript).text =~ input.context_block
-    end
-
-    test "作者新输入只追加新的 turn 与 scope，不重写既有请求" do
-      first_input = input(explore: true)
-      {first, transcript} = production_request(first_input)
-
-      next_input =
-        first_input
-        |> Map.put(:author_text, "基于已读事实，改为只比较两个方向")
-        |> Map.put(:source_input_ref, "author-turn-2")
-        |> Map.put(:context_block, "作品 revision=2")
-        |> Map.put(:transcript, transcript)
-        |> Map.put(:options, [])
-
-      {second, next} = production_request(next_input)
-      assert Enum.take(second.messages, length(first.messages)) == first.messages
-
-      assert Enum.any?(
-               second.messages,
-               &(&1.role == "user" and &1.provenance == "author" and
-                   message_text(&1) == next_input.author_text)
-             )
-
-      scope = NovelApplication.AuthoringTranscript.current_scope(next)
-      assert scope.text =~ "作品 revision=2"
-      assert scope.versions["change_reason"] == "run_scope_changed"
-      assert [%{ref: "author-turn-2"} | _] = scope.source_refs
-    end
-
-    test "continuation profile 同样直接产出 canonical IR" do
-      input =
-        input(capabilities: ["ask_author"])
-        |> Map.put(:goal_text, "继续当前任务")
-        |> Map.put(:deviation_summary, "偏离事实摘要")
-
-      {ir, _transcript} = production_request(input, :continuation)
-
-      assert Enum.any?(
-               ir.messages,
-               &(&1.role == "user" and &1.provenance == "author" and
-                   message_text(&1) == input.author_text)
-             )
-
-      assert ir.tools != []
-    end
-
-    test "continuation 没有作者消息时保留 application goal，不伪造 user" do
-      input =
-        input(capabilities: ["ask_author"])
-        |> Map.delete(:author_text)
-        |> Map.put(:goal_text, "继续当前任务")
-        |> Map.put(:deviation_summary, "偏离事实摘要")
-
-      {ir, _transcript} = production_request(input, :continuation)
-      refute Enum.any?(ir.messages, &(&1.role == "user" and message_text(&1) == input.goal_text))
-      assert Enum.any?(ir.messages, &String.contains?(message_text(&1), input.goal_text))
-    end
-
-    test "CP4a：续行继承创作历史并追加有版本的 scope，恢复后保持幂等" do
-      {creative, transcript} = production_request(input(capabilities: ["prose_writing"]))
-
-      continuation_input = %{
-        transcript: transcript,
-        goal_text: "按原目标重试一次，完成本章正文候选",
-        deviation_summary: "正文调用超时，尚未形成候选",
-        observation_block: "已有章节计划，尚无本轮正文",
-        source_input_ref: "turn-cp4a",
-        supplied_context_refs: ["observation:timeout", "plan:chapter-1"],
-        scope_change_reason: "continuation",
-        options: [
-          plan_run: %{
-            goal: %{version: 3},
-            authority_scope: %{work_revision: 8},
-            plan_version: 2
-          }
-        ]
-      }
-
-      {continued, continued_transcript} =
-        production_request(continuation_input, :continuation)
-
-      assert Enum.take(continued.messages, length(creative.messages)) == creative.messages
-      scope = AuthoringTranscript.current_scope(continued_transcript)
-      assert scope.text =~ "continuation_decision"
-      assert scope.text =~ continuation_input.goal_text
-      assert scope.text =~ continuation_input.deviation_summary
-      assert scope.text =~ continuation_input.observation_block
-      assert scope.versions["scope_revision"] == 2
-      assert scope.versions["change_reason"] == "continuation"
-      assert scope.versions["goal"] == 3
-      assert scope.versions["work"] == 8
-      assert scope.versions["plan"] == 2
-
-      assert Enum.map(scope.source_refs, & &1.ref) == [
-               "turn-cp4a",
-               "observation:timeout",
-               "plan:chapter-1"
-             ]
-
-      tool_names = Enum.map(continued_transcript.tools, & &1.name)
-      assert "continuation_decision" in tool_names
-      assert "judgment_decision" in tool_names
-
-      projected_tool_names = Enum.map(continued.tools, & &1.name)
-      assert "continuation_decision" in projected_tool_names
-      refute "judgment_decision" in projected_tool_names
-      refute "submit_tentative_artifact" in projected_tool_names
-
-      assert {:ok, restored} =
-               continued_transcript
-               |> AuthoringCheckpoint.checkpoint()
-               |> AuthoringTranscript.restore()
-
-      {replayed, _replayed_transcript} =
-        production_request(%{continuation_input | transcript: restored}, :continuation)
-
-      assert replayed.messages == continued.messages
-
-      assert {:ok, %{action: "continue"}} =
-               JudgmentProtocol.request_continuation(
-                 %Execution{
-                   result_fn: fn prompt ->
-                     {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
-
-                     output = %ProviderOutput{
-                       provider_run_ref: "cp4a-continuation-run",
-                       provider_call_ref: "cp4a-continuation-call",
-                       status: :ok,
-                       content: %{text: result.content, tool_calls: result.tool_calls}
-                     }
-
-                     {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
-                   end
-                 },
-                 %{},
-                 continuation_input
-               )
-    end
-  end
-
   describe "B71：IR 生产探针" do
     test "IR 判断请求保留任务上下文，确定性 provider 仍进入计划协议" do
       input =
@@ -2609,17 +2548,27 @@ defmodule NovelApplication.JudgmentProtocolTest do
     test "真实 protocol_input 的 IR 请求保留角色设计执行路由" do
       author_text = "先看看现有角色阵容，然后设计一个反派"
 
+      {:ok, run} =
+        AgentRun.new(%{
+          run_id: "run-ir-probe",
+          workspace_id: "workspace-ir-probe",
+          origin_frame_ref: "frame-ir-probe",
+          profile_ref: "judgment_loop_v1",
+          parent_turn_ref: "turn-ir-probe",
+          work_id: "work-ir-probe",
+          session_id: "session-ir-probe",
+          goal: %{text: author_text, version: 1},
+          authority_scope: %{
+            production_write: false,
+            allowed_tools: ["judgment", "character_design"]
+          }
+        })
+
       protocol_input =
         DialoguePlanningService.judgment_protocol_input_for_test(
           %{text: author_text},
-          %{
-            profile_ref: "judgment_loop_v1",
-            parent_turn_ref: "turn-ir-probe",
-            work_id: "work-ir-probe",
-            session_id: "session-ir-probe",
-            goal: %{text: author_text, version: 1}
-          },
-          %NovelDomain.DialogueContext{},
+          run,
+          %NovelDomain.DialogueContext{work_id: "work-ir-probe"},
           []
         )
 
@@ -2655,16 +2604,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
   end
 
-  defp production_request(input, profile \\ :judgment) do
-    assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input, profile)
-    assert %RequestIR{} = request = JudgmentProtocol.request_for_production(input, profile)
-    {request, transcript}
-  end
-
   defp message_text(%{blocks: _blocks} = message),
     do: NovelApplication.TestAgenticLoopFixtures.message_text(message)
 
-  # 判断规则现在分层在 canonical system instructions、application_base 与 scope_update 文本块：
+  # 判断规则在 canonical system instructions，应用数据在 native Scope：
   # 文本断言必须读与 provider 同源的完整投影视图，而不是只看第一条消息。
   defp first_text(ir), do: NovelTest.TestProviderPrompt.text(ir)
 

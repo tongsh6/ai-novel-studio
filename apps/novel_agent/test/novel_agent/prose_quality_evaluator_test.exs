@@ -8,6 +8,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
   alias NovelCommon.RequestIR
+  alias NovelTest.TestProviderPrompt
 
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
 
@@ -22,28 +23,122 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
 
   defp findings_json(findings), do: Jason.encode!(%{"findings" => findings})
 
-  test "复用其它角色会话进入 evaluator 时完整只读规则和输出契约进入最新 scope" do
-    request = request()
+  test "首次及续行 evaluator 只把真实材料列入 Base，作者与普通来源仍保持原归属" do
+    author_ref = "turn:quality-author"
+    raw_author = "  质量评审原话 Ω\n保留全部字节。  "
+
+    material_refs = [
+      %{ref: "prose:quality-material", version: 7},
+      %{ref: "chapter:quality-material"}
+    ]
+
+    run = %{run_id: "real-run", work_id: "real-work", parent_turn_ref: "turn:initial-author"}
+
+    request = %{
+      request()
+      | source_ref: "prose:quality-material",
+        run: run,
+        task:
+          AuthoringTaskFixtures.quality_evaluation_task(%{
+            author_words: raw_author,
+            source: %{kind: :author_action, ref: author_ref},
+            source_refs: [author_ref, "turn:quality-linked-source"],
+            materials: [
+              %{kind: :prose, ref: "prose:quality-material", version: 7, complete?: true},
+              %{kind: :target_structure, ref: "chapter:quality-material", complete?: true}
+            ]
+          })
+    }
+
+    assert {:ok, initial} = ProseQualityEvaluator.request_ir(request)
 
     previous =
       RequestIR.new(%{
-        run: %{run_id: "real-run", work_id: "real-work"},
+        run: run,
         system: RequestIR.system_envelope(),
         projection: %{},
+        refs: %{base_refs: [], observation_refs: [], used_refs: []},
         messages: [
           RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
-          RequestIR.message(:user, :author, [RequestIR.text_block(request.task.author_words)])
+          RequestIR.message(:user, :author, [RequestIR.text_block(raw_author)], %{
+            source_refs: [%{ref: author_ref}]
+          })
         ]
       })
 
     assert {:ok, evaluator} = ProseQualityEvaluator.request_ir(%{request | request_ir: previous})
     assert Enum.take(evaluator.messages, length(previous.messages)) == previous.messages
-    latest = List.last(evaluator.messages).blocks |> Enum.map_join("", & &1.text)
-    assert latest =~ AuthoringSemantics.static_block(request.task)
-    assert latest =~ "只读评审，不重写正文，不修改作品事实"
-    assert latest =~ "输出契约（调用 report_quality_findings"
+    assert evaluator.system == previous.system
+
+    assert [
+             %{
+               role: "application_notice",
+               provenance: "application",
+               blocks: [%{type: "text", text: rules}]
+             },
+             %{role: "scope_update", provenance: "application"}
+           ] = Enum.drop(evaluator.messages, length(previous.messages))
+
+    for ir <- [initial, evaluator] do
+      assert ir.refs.base_refs == material_refs
+      assert ir.refs.observation_refs == []
+      current_scope = Enum.find(Enum.reverse(ir.messages), &(&1.role == "scope_update"))
+
+      assert current_scope.source_refs ==
+               material_refs ++
+                 [
+                   %{ref: request.source_turn_ref},
+                   %{ref: author_ref},
+                   %{ref: "turn:quality-linked-source"}
+                 ]
+
+      assert [%{source_refs: [%{ref: ^author_ref}], blocks: [%{type: "text", text: ^raw_author}]}] =
+               Enum.filter(ir.messages, &(&1.role == "user" and &1.provenance == "author"))
+    end
+
+    scope = TestProviderPrompt.scope_content(evaluator)
+    assert rules =~ AuthoringSemantics.static_block(request.task)
+    assert rules =~ "只读评审，不重写正文，不修改作品事实"
+    assert rules =~ "输出契约（调用 report_quality_findings"
+    assert scope["operation"]["prose_text"] == request.prose_text
+    assert TestProviderPrompt.author_text(evaluator) == raw_author
     assert Enum.count(evaluator.messages, &(&1.role == "user")) == 1
     assert evaluator.run == previous.run
+  end
+
+  test "质量材料回合、父回合和质量触发来源都不能补作者输入引用" do
+    raw_author = "  只评审我的这条原话。\r\nΩ é 雪。  "
+    run = %{run_id: "quality-pair", work_id: "quality-work", parent_turn_ref: "turn:old-author"}
+
+    for source <- [nil, %{kind: :quality_finding, ref: "finding:trigger"}] do
+      request = %{
+        request()
+        | run: run,
+          source_turn_ref: "turn:prose-material",
+          task:
+            AuthoringTaskFixtures.quality_evaluation_task(%{
+              author_words: raw_author,
+              source: source,
+              source_refs: ["turn:linked-source"]
+            })
+      }
+
+      assert {:error, :invalid_author_input} = ProseQualityEvaluator.request_ir(request)
+    end
+
+    request = %{
+      request()
+      | run: run,
+        source_turn_ref: "turn:prose-material",
+        task:
+          AuthoringTaskFixtures.quality_evaluation_task(%{
+            author_words: nil,
+            source: %{kind: :quality_finding, ref: "finding:trigger"}
+          })
+    }
+
+    assert {:ok, ir} = ProseQualityEvaluator.request_ir(request)
+    refute Enum.any?(ir.messages, &(&1.role == "user"))
   end
 
   test "独立质量外观不伪造作品身份也不写传输有限模式，真实 run 不降级" do
@@ -60,8 +155,19 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert bound.projection == %{}
   end
 
-  defp provider_execution(result_fn),
-    do: AuthoringTaskFixtures.provider_execution(result_fn, "report_quality_findings")
+  defp provider_execution(result_fn) do
+    %Execution{
+      result_fn: fn ir ->
+        native =
+          AuthoringTaskFixtures.provider_execution(
+            fn _ -> result_fn.(ir) end,
+            "report_quality_findings"
+          )
+
+        native.result_fn.(ir)
+      end
+    }
+  end
 
   defp valid_finding(overrides \\ %{}) do
     Map.merge(
@@ -163,7 +269,8 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     end
 
     ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
-    assert_receive {:prompt, prompt}
+    assert_receive {:prompt, ir}
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
     assert prompt =~ "质量评审"
     assert prompt =~ "findings"
     refute prompt =~ "用户创作简述："
@@ -199,12 +306,19 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     end
 
     ProseQualityEvaluator.evaluate(request, provider_execution(complete))
-    assert_receive {:prompt, prompt}
+    assert_receive {:prompt, ir}
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
     assert prompt =~ "任务 A：局部形式候选的语义判定"
     assert prompt =~ "机械重复与刻意排比"
-    assert prompt =~ "fc_scope"
+
+    assert TestProviderPrompt.scope_content(ir)["operation"]["form_candidates"] ==
+             request.form_candidates
+
     assert prompt =~ "任务 B：章节级叙事节奏独立评审"
-    assert prompt =~ "主线推进章"
+
+    assert TestProviderPrompt.scope_content(ir)["operation"]["pacing_context"] ==
+             request.pacing_context
+
     assert prompt =~ "validator.narrative_pacing_fit"
     assert prompt =~ "不是句长、句数、段落长度或对白"
   end
@@ -255,7 +369,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     complete = fn prompt ->
       send(test_pid, {:prompt, prompt})
 
-      if prompt =~ "evaluator_invalid_json" do
+      if AuthoringTaskFixtures.prompt_text(prompt) =~ "evaluator_invalid_json" do
         {:ok, %{content: findings_json([valid_finding()])}}
       else
         {:ok,
@@ -277,8 +391,15 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert %QualityEvaluationResult{status: :ok, findings: [_]} =
              ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
 
-    assert_receive {:prompt, first_prompt}
-    assert_receive {:prompt, retry_prompt}
+    assert_receive {:prompt, first_ir}
+    assert_receive {:prompt, retry_ir}
+    assert Enum.take(retry_ir.messages, length(first_ir.messages)) == first_ir.messages
+
+    assert TestProviderPrompt.scope_content(retry_ir) ==
+             TestProviderPrompt.scope_content(first_ir)
+
+    first_prompt = AuthoringTaskFixtures.prompt_text(first_ir)
+    retry_prompt = AuthoringTaskFixtures.prompt_text(retry_ir)
     refute first_prompt =~ "上一次的输出"
     assert retry_prompt =~ "evaluator_invalid_json"
     assert retry_prompt =~ "关联：fixture-native-1"
@@ -341,11 +462,10 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     end
 
     ProseQualityEvaluator.evaluate(request, provider_execution(complete))
-    assert_receive {:prompt, prompt}
-    assert prompt =~ "本章计划场次"
-    assert prompt =~ "scene_1（交锋）"
-    assert prompt =~ "scene_2（撤退）"
+    assert_receive {:prompt, ir}
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    assert TestProviderPrompt.scope_content(ir)["operation"]["scene_units"] == request.scene_units
     assert prompt =~ "brief_field_refs"
-    assert prompt =~ "禁止发明不存在的场 id"
+    assert prompt =~ "operation.scene_units 是合法场次清单，finding 的 brief_field_refs 只能使用其中的 unit_id"
   end
 end

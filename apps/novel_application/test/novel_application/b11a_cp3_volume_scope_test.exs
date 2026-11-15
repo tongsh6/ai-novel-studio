@@ -1,24 +1,28 @@
 defmodule NovelApplication.B11ACp3VolumeScopeTest do
   @moduledoc """
-  B11A CP3（VS-00J §3.2 形态 A）：开新卷动作的机械规划范围进入规划 prompt。
+  B11A CP3（VS-00J §3.2 形态 A）：开新卷范围进入当前 Scope.operation.context_text。
 
   - `TurnExecutionService` 收到 run 级 `:volume_scope` 时，仅在 plot_outline 动作上注入
     「本轮规划范围（机械给定，不得改）」段（work_skeleton 之后、current_volume_blueprint
     之前），并用 scope 版分卷指令替换全书卷数版指令；
-  - 无 scope / 非法 scope / 非 plot_outline 能力 → prompt 与既有行为逐字节等价。
+  - 无 scope / 非法 scope 不改变当前操作材料；非 plot_outline 不携带规划范围。
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.CreativeProvider.Real
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelApplication.TurnExecutionService
+  alias NovelCommon.Contracts.CreativeRequest
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
   alias NovelPersistence.ChapterPlanParser
+  alias NovelTest.TestProviderPrompt
 
   @work "work-b11a-cp3"
   @scope NovelDomain.VolumeScope
@@ -36,7 +40,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_work_snapshot: %{target_length: 140_000, planned_volumes: 3},
       current_chapters: ["第01章：起"],
       structured_chapters: [
@@ -70,7 +74,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       assert skeleton_at < scope_at
     end
 
-    test "无 scope / scope=nil / 非法 scope：prompt 逐字节等价（既有行为不变）" do
+    test "无 scope / scope=nil / 非法 scope：当前操作材料逐字节等价" do
       without_scope = run("plot_outline", %{})
       explicit_nil = run("plot_outline", %{volume_scope: nil})
       invalid = run("plot_outline", %{volume_scope: %{next_seq: 0}})
@@ -101,9 +105,8 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
     end
   end
 
-  # ── ⑥ 测试替身：真实 prompt 文本驱动（不认 slice id / env）────────────────
-
-  describe "测试替身 scope 行为（真实产品文本驱动）" do
+  # 测试替身消费真实 creative Operation；材料由当前 native Scope 提供。
+  describe "测试替身 scope 行为（真实产品请求驱动）" do
     test "判断单调用 auto：真实作者文本「请规划下一卷…」→ execute plot_outline" do
       # 生产请求入口已统一为 canonical IR；替身直接消费 IR（含真实 tools/projection）。
       prompt =
@@ -125,24 +128,20 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
     end
 
     test "scoped outline 产出：1 条卷蓝图 + 3 章；production parser 可解析（章号续排/所属卷）" do
-      text = """
-      你是一个创作助手，只输出 JSON 数组。
-      artifact_type：outline_draft
-      用户创作简述：请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。
-      上下文：## 本轮规划范围（机械给定，不得改）
-      - 本轮只规划下一卷：第 3 卷
-      - 当前已有 2 卷，当前卷《第二卷·裂变》，已有 4 章
-      - 下一章号从 5 开始（全书章号全局续排，不得重排已有章）
-      重要：只输出 JSON 数组，不要解释。
-      """
+      scope = %{@valid_scope | existing_chapter_count: 4, next_chapter_seq: 5}
 
-      # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-      prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(text)])
+      prompt =
+        outline_request(
+          "请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。",
+          @scope.render_section(scope)
+        )
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
 
-      items = Jason.decode!(result.content)
+      assert [%{name: "submit_tentative_artifact", arguments: %{items: items}}] =
+               result.tool_calls
+
       assert length(items) == 3
       assert Enum.map(items, & &1["title"]) == ["第05章：觉醒", "第06章：试炼", "第07章：盟约"]
 
@@ -161,18 +160,9 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
                ["第三卷·归墟", "第三卷·归墟", "第三卷·归墟"]
     end
 
-    test "无 scope 文本 → 既有全量产出（12 章、无卷蓝图行），且确定性（两次调用逐字节一致）" do
-      text = """
-      你是一个创作助手，只输出 JSON 数组。
-      artifact_type：outline_draft
-      用户创作简述：规划接下来十二章章节大纲。
-      上下文：## 已采纳章节
-      - 第01章：起点
-      重要：只输出 JSON 数组，不要解释。
-      """
-
-      # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-      prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(text)])
+    test "无规划范围 → 全量产出（12 章、无卷蓝图行），且两次工具参数逐字节一致" do
+      prompt =
+        outline_request("规划接下来十二章章节大纲。", "## 已采纳章节\n- 第01章：起点")
 
       assert {:ok, first} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
@@ -180,22 +170,46 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
       assert {:ok, second} =
                SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
 
-      assert second.content == first.content
+      assert Jason.encode!(second.tool_calls) == Jason.encode!(first.tool_calls)
 
-      items = Jason.decode!(first.content)
+      assert [%{name: "submit_tentative_artifact", arguments: %{items: items}}] = first.tool_calls
+
       assert length(items) == 12
 
       parsed = items |> stub_items_to_content() |> ChapterPlanParser.parse_with_volumes()
       assert parsed.volume_blueprints == []
       assert length(parsed.chapters) == 12
       # 无 scope 时不产「本轮规划范围」相关的额外行为。
-      refute first.content =~ "卷蓝图"
+      refute stub_items_to_content(items) =~ "卷蓝图"
     end
   end
 
   # 复刻生产 `adoption_workflow.items_to_content/2` 的非正文类拼接：`title: body` 换行连接。
   defp stub_items_to_content(items) do
     Enum.map_join(items, "\n", fn item -> "#{item["title"]}: #{item["body"]}" end)
+  end
+
+  defp outline_request(brief, context_text) do
+    source_ref = "turn:turn-b11a-cp3"
+
+    request = %CreativeRequest{
+      request_id: "request-b11a-cp3",
+      tool_name: "plot_outline",
+      artifact_type: "outline_draft",
+      creative_brief: brief,
+      context_text: context_text,
+      source_turn_ref: source_ref,
+      source_input_ref: source_ref,
+      task:
+        AuthoringTaskFixtures.task(:outline, %{
+          author_goal: brief,
+          author_words: brief,
+          source: %{kind: :author_action, ref: source_ref}
+        })
+    }
+
+    assert {:ok, ir} = Real.request_ir(request)
+    ir
   end
 
   defp run(target_ref, overrides) do
@@ -219,16 +233,24 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
         plan: plan(target_ref),
         decision: allow_decision(),
         context: context(),
-        author_input: %{text: "创作"},
+        author_input: %{turn_id: "turn-b11a-cp3", text: "创作"},
         provider_execution: %Execution{result_fn: complete}
       }
       |> Map.merge(overrides)
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
 
-    agent
-    |> Agent.get(& &1)
-    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
+    [request | _] = Agent.get(agent, &Enum.reverse/1)
+
+    assert %{
+             "operation" => %{
+               "role" => "creative_execution",
+               "capability" => ^target_ref,
+               "context_text" => context_text
+             }
+           } = TestProviderPrompt.scope_content(request)
+
+    context_text
   end
 
   defp index(text, needle), do: :binary.match(text, needle) |> elem(0)

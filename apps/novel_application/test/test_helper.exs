@@ -272,4 +272,29 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
   def evaluation_holds do
     %{"advanced" => true, "plan_holds" => true, "new_constraint" => nil}
   end
+
+  @doc "正文运行回归共享的完整章节与计划材料。"
+  def prose_drafting_context(work_id) do
+    %NovelDomain.DialogueContext{
+      work_id: work_id,
+      current_chapters: ["第01章：开端"],
+      structured_chapters: [
+        %{
+          title: "第01章：开端",
+          seq: 1,
+          summary: "主角第一次进入封闭空间。",
+          has_prose: false,
+          plan_direction: %{
+            "chapter_role" => "开端",
+            "plot_progress" => "主角进入异常房间并发现压力来源",
+            "character_change" => "从被动观察转向主动寻找出口",
+            "information_release" => "房间和旧公司实验有关",
+            "foreshadowing_action" => "茶杯上有旧编号",
+            "emotion" => "压抑、警觉"
+          }
+        }
+      ],
+      assembly_policy: NovelDomain.AssemblyPolicy.for_tier(:floor)
+    }
+  end
 end

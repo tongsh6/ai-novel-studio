@@ -1,15 +1,23 @@
 defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  import Ecto.Query
+
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
 
   alias NovelApplication.{
     CapabilityRegistry,
     ChapterStructureMaintenance,
-    PendingArtifactWorkflow
+    PendingArtifactWorkflow,
+    WorkService
   }
 
   alias NovelDomain.DialogueContext
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.WorkSessionRepo
 
   @v1 "volume:11111111-1111-1111-1111-111111111111"
   @v2 "volume:22222222-2222-2222-2222-222222222222"
@@ -172,22 +180,13 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
       model_interpretation_status: "provided"
     }
 
-    run = %{
-      run_id: "run-b30-structure",
-      run_mode: :bounded,
-      profile_ref: "judgment_loop_v1",
-      budget: %{max_tool_calls: 2, max_provider_calls: 2},
-      consumed_budget: %{},
-      authority_scope: %{production_write: false, allowed_tools: ["judgment"]},
-      workspace_id: "work-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      parent_turn_ref: "turn-b30",
-      goal: %{text: "把第2卷章节编号理顺，内容不要动", version: 1}
-    }
+    run =
+      run("work-1", "session-1", %{
+        turn_id: "turn-b30",
+        text: "把第2卷章节编号理顺，内容不要动"
+      })
 
-    context = %DialogueContext{workspace_id: "work-1", interaction_state: %{}}
-
+    context = %DialogueContext{work_id: "work-1", interaction_state: %{}}
     provider = %Execution{result_fn: fn _ -> flunk("结构维护不得调用 provider") end}
 
     assert {:ok, result} =
@@ -221,5 +220,141 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
     [item] = Map.get(payload, :items)
     assert item.body =~ "第3章 → 第2章"
     assert item.body =~ "章节标题/正文/归卷/章数不变" or item.rationale =~ "标题/正文/归卷/章数不变"
+  end
+
+  describe "持久维护候选的 trace 与写入边界" do
+    setup do
+      :ok = Sandbox.checkout(Repo)
+      {:ok, work} = WorkService.create(%{title: "B30 章节维护"})
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+      author_input = %{turn_id: "turn-b30", text: "把第2卷章节编号理顺，内容不要动"}
+
+      %{
+        work: work,
+        author_input: author_input,
+        run: run(work.id, session.id, author_input),
+        context: %DialogueContext{work_id: work.id, interaction_state: %{}}
+      }
+    end
+
+    test "B30 维护分支：trace 完整构造持久化不 crash，产出 change plan 候选且零写入", c do
+      volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
+
+      for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}, {"第13章：丙", 13}] do
+        Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
+      end
+
+      goal_text = "把第2卷章节编号理顺，内容不要动"
+      run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+      judgment = %{
+        action: "execute",
+        capability: "maintain_chapter_structure",
+        dialogue_goal: goal_text,
+        narrative: "我会生成第2卷章节重编号的可审阅变更计划。"
+      }
+
+      before = chapter_rows(c.work.id)
+
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(
+                 judgment,
+                 %{c.author_input | text: goal_text},
+                 run,
+                 c.context,
+                 nil
+               )
+
+      [pending] = result.turn_result.adoption_state.pending
+      assert pending.payload.object_kind == "chapter_structure_change_plan"
+      assert pending.payload.change_plan.object_count == 3
+      assert pending.payload.change_plan.effects == ["display_number_only"]
+
+      # 只产出候选：章节身份/序号零变化，未生产写入。
+      assert chapter_rows(c.work.id) == before
+      refute Map.get(result.turn_result.truthfulness || %{}, :production_write_performed, false)
+    end
+
+    test "B30 维护负例：越界目标 → 作者可见拒绝（非内部错误）、零写入、无候选", c do
+      volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
+
+      for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}] do
+        Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
+      end
+
+      goal_text = "把第九卷章节编号理顺，内容不要动"
+      run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+      judgment = %{
+        action: "execute",
+        capability: "maintain_chapter_structure",
+        dialogue_goal: goal_text,
+        narrative: "作者点名了不存在的卷。"
+      }
+
+      before = chapter_rows(c.work.id)
+
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(
+                 judgment,
+                 %{c.author_input | text: goal_text},
+                 run,
+                 c.context,
+                 nil
+               )
+
+      assert %{assistant_message: %{text: text}} = result.turn_result
+      assert text =~ "超出当前作品结构"
+      assert result.artifact_refs == []
+      assert chapter_rows(c.work.id) == before
+      assert result.tool_call_count == 0 and result.provider_call_count == 0
+    end
+
+    test "B30 维护负例：无目标 → 作者可见拒绝、零写入、无候选", c do
+      goal_text = "把第2卷章节编号理顺，内容不要动"
+      run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+      judgment = %{
+        action: "execute",
+        capability: "maintain_chapter_structure",
+        dialogue_goal: goal_text,
+        narrative: "当前作品没有可维护的卷章结构。"
+      }
+
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(
+                 judgment,
+                 %{c.author_input | text: goal_text},
+                 run,
+                 c.context,
+                 nil
+               )
+
+      assert %{assistant_message: %{text: text}} = result.turn_result
+      assert text =~ "没有找到要重编号的目标章节"
+      assert result.artifact_refs == []
+    end
+  end
+
+  defp run(work_id, session_id, author_input) do
+    %{
+      run_id: "run-b30-structure",
+      run_mode: :bounded,
+      profile_ref: "judgment_loop_v1",
+      budget: %{max_tool_calls: 2, max_provider_calls: 2},
+      consumed_budget: %{},
+      authority_scope: %{production_write: false, allowed_tools: ["judgment"]},
+      workspace_id: work_id,
+      work_id: work_id,
+      session_id: session_id,
+      parent_turn_ref: author_input.turn_id,
+      goal: %{text: author_input.text, version: 1}
+    }
+  end
+
+  defp chapter_rows(work_id) do
+    from(ch in Chapter, where: ch.work_id == ^work_id, order_by: ch.seq)
+    |> Repo.all()
+    |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
   end
 end

@@ -24,6 +24,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelApplication.TurnInteractionService
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
@@ -97,11 +98,15 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
 
       {:ok, run.plan, meta}
     else
+      author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
       with {:ok, plan, meta} <-
              AgenticPlanDraftPlanner.draft_plan_with_meta(
                run,
                planner_provider_execution(spec),
-               snapshot
+               snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id
              ) do
         {:ok, plan, Map.put(meta, :agent_plan, plan)}
       end
@@ -150,11 +155,15 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   # 修订预算耗尽则停等作者。
   defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
     if replan_available?(run) do
+      author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
       with {:ok, revised_plan, revision_meta} <-
              AgenticPlanDraftPlanner.revise_plan_with_meta(
                run,
                planner_provider_execution(spec),
                snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id,
                revision_reason: "计划步骤已走完，但作者请求的目标产出尚未完成。"
              ) do
         execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)
@@ -568,6 +577,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       }
     )
 
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
@@ -577,10 +588,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         decision: decision,
         candidates: [],
         context: execution_context,
-        author_input: %{
-          text: author_input_text(run, plan, observations),
-          author_goal_text: run.goal.text
-        },
+        author_input: execution_author_input(author_input, run.goal.text),
+        creative_brief: creative_brief_text(run, plan, observations),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         chapter_prose_reader:
@@ -656,12 +665,12 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   defp context_for_run(%{context: %DialogueContext{} = context}, _run, _turn_id), do: context
 
   defp context_for_run(spec, run, turn_id) do
-    fetcher = Map.get(spec, :context_fetcher) || fn _ -> {:ok, nil, nil, nil, nil} end
+    fetcher = Map.get(spec, :context_fetcher)
 
     LogContext.put_turn(run.workspace_id, run.work_id, turn_id, run.session_id)
 
     ContextAssembler.assemble_for_input(
-      run.workspace_id,
+      run.work_id,
       run.goal.text,
       fetcher,
       session_id: run.session_id,
@@ -669,7 +678,13 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     )
   end
 
-  defp author_input_text(run, plan, observations) do
+  defp execution_author_input(nil, goal_text),
+    do: %{text: nil, turn_id: nil, author_goal_text: goal_text}
+
+  defp execution_author_input(%{text: text, turn_id: turn_id}, goal_text),
+    do: %{text: text, turn_id: turn_id, author_goal_text: goal_text}
+
+  defp creative_brief_text(run, plan, observations) do
     observation_text =
       observations
       |> Enum.map(& &1.summary)

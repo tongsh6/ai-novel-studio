@@ -40,7 +40,7 @@ defmodule NovelApplication.AuthoringTranscript do
   - `:allow_authorless` 无作者 turn 的续行允许省略 user，默认 false
   - `:author_turn_ref` 作者消息来源
   - `:author_turn` 作者回合元数据（origin/question_ref）
-  - `:initial_scope` 首次快照的实际 scope（`text`/`versions`/`source_refs`）；
+  - `:initial_scope` 首次快照的实际 scope（`content`/`versions`/`source_refs`）；
     存在时按 application_base → scope_update → user 一次构造，无该选项维持原语义
   - `:base_refs` 应用主动提供的 refs
   - `:tools` run 角色工具目录（`RequestIR` 期望的 tool_spec 形状）
@@ -74,24 +74,24 @@ defmodule NovelApplication.AuthoringTranscript do
 
   defp initial_scope_messages(nil), do: []
 
-  defp initial_scope_messages(%{text: text, versions: versions, source_refs: source_refs}),
-    do: [scope_message(text, versions, source_refs)]
+  defp initial_scope_messages(%{content: content, versions: versions, source_refs: source_refs}),
+    do: [scope_message(content, versions, source_refs)]
 
   defp author_messages(opts) do
-    case {Keyword.get(opts, :author_text), Keyword.get(opts, :allow_authorless, false)} do
-      {nil, true} ->
-        []
+    case RequestIR.author_input_messages(
+           Keyword.get(opts, :author_text),
+           Keyword.get(opts, :author_turn_ref)
+         ) do
+      {:ok, []} ->
+        if Keyword.get(opts, :allow_authorless, false),
+          do: [],
+          else: raise(ArgumentError, "author_text is required for an authoring run")
 
-      {nil, false} ->
-        raise ArgumentError, "author_text is required for an authoring run"
+      {:ok, [message]} ->
+        [put_author_turn_origin(message, Keyword.get(opts, :author_turn))]
 
-      {text, _} ->
-        [
-          RequestIR.message(:user, :author, [RequestIR.text_block(text)], %{
-            source_refs: [%{ref: Keyword.get(opts, :author_turn_ref, "author_turn:current")}]
-          })
-          |> put_author_turn_origin(Keyword.get(opts, :author_turn))
-        ]
+      {:error, :invalid_author_input} ->
+        raise ArgumentError, "invalid_author_input"
     end
   end
 
@@ -146,15 +146,20 @@ defmodule NovelApplication.AuthoringTranscript do
   )a
 
   @doc "追加版本化 scope 更新；初始 Base 和既有消息永远不变。"
-  @spec append_scope_update(t(), String.t(), map(), [map()]) :: t()
-  def append_scope_update(transcript, scope_text, versions \\ %{}, source_refs \\ [])
-      when is_binary(scope_text) and is_list(source_refs) do
-    message = scope_message(scope_text, versions, source_refs)
-    %{transcript | messages: transcript.messages ++ [message]}
+  @spec append_scope_update(t(), map(), map(), [map()], [map()]) :: t()
+  def append_scope_update(transcript, content, versions, source_refs, base_refs)
+      when is_map(content) and is_list(source_refs) and is_list(base_refs) do
+    message = scope_message(content, versions, source_refs)
+
+    %{
+      transcript
+      | messages: transcript.messages ++ [message],
+        base_refs: Enum.uniq(transcript.base_refs ++ base_refs)
+    }
   end
 
-  defp scope_message(scope_text, versions, source_refs) do
-    RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope_text)], %{
+  defp scope_message(content, versions, source_refs) do
+    RequestIR.message(:scope_update, :application, [RequestIR.scope_block(content)], %{
       versions: versions,
       source_refs: source_refs
     })
@@ -163,18 +168,23 @@ defmodule NovelApplication.AuthoringTranscript do
   @doc "追加新的作者 turn；同一 turn 重复构造保持幂等，作者字节不被改写。"
   @spec append_author_turn(t(), String.t(), String.t()) :: t()
   def append_author_turn(transcript, author_text, turn_ref, opts \\ []) do
-    latest = transcript.messages |> Enum.filter(&(&1.role == "user")) |> List.last()
+    message =
+      case RequestIR.author_input_messages(author_text, turn_ref) do
+        {:ok, [message]} -> put_author_turn_origin(message, Keyword.get(opts, :author_turn))
+        _ -> raise ArgumentError, "invalid_author_input"
+      end
 
-    if latest && text_of(latest.blocks) == author_text && author_ref(latest) == turn_ref do
-      transcript
-    else
-      message =
-        RequestIR.message(:user, :author, [RequestIR.text_block(author_text)], %{
-          source_refs: [%{ref: turn_ref}]
-        })
-        |> put_author_turn_origin(Keyword.get(opts, :author_turn))
+    existing = Enum.find(transcript.messages, &(&1.role == "user" and author_ref(&1) == turn_ref))
 
-      %{transcript | messages: transcript.messages ++ [message]}
+    cond do
+      existing && text_of(existing.blocks) == author_text ->
+        transcript
+
+      existing ->
+        raise ArgumentError, "author_input_conflict"
+
+      true ->
+        %{transcript | messages: transcript.messages ++ [message]}
     end
   end
 
@@ -194,14 +204,18 @@ defmodule NovelApplication.AuthoringTranscript do
   end
 
   @doc "当前生效的 scope；旧 scope 仍保留在消息序列中供审计。"
-  @spec current_scope(t()) :: %{text: String.t(), versions: map(), source_refs: [map()]} | nil
+  @spec current_scope(t()) :: %{content: map() | nil, versions: map(), source_refs: [map()]} | nil
   def current_scope(transcript) do
     transcript.messages
     |> Enum.reverse()
     |> Enum.find_value(fn message ->
       if message.role == "scope_update" do
         %{
-          text: text_of(message.blocks),
+          content:
+            Enum.find_value(message.blocks, fn
+              %{type: "scope", content: content} -> content
+              _ -> nil
+            end),
           versions: Map.get(message, :versions, %{}),
           source_refs: Map.get(message, :source_refs, [])
         }

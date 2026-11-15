@@ -4,7 +4,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
 
   覆盖：本轮有发现 + 待采纳正文 → 暴露 revise_from_findings 动作；动作经 DialogueGateway
   产出一个新的 tentative 修订草稿（原草稿保留、不自动采纳、不自我递归评估）；修订请求保留
-  prose 三锚点；反“凭空发明动作”。
+  原生 Scope 材料与角色规则；反“凭空发明动作”。
   """
   use ExUnit.Case, async: true
 
@@ -22,6 +22,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTest.TestProviderPrompt
 
   @work "work-vs00e-cp3"
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
@@ -45,18 +46,21 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   test "revise_from_findings produces a new tentative revision draft; original retained; not auto-adopted" do
     source = run_prose_turn()
     [original_pending] = source.adoption_state.pending
-    {revision_turn, prompt} = revise(source)
+    {revision_turn, request} = revise(source)
+    scope = TestProviderPrompt.scope_content(request)
+    operation = scope["operation"]
+    prompt = TestProviderPrompt.text(request)
 
-    # 1. 修订请求保留 prose 三锚点（stub/slice_verify 仍可解析），并带上原正文 + 修订要求
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
-    assert prompt =~ "[质量修订要求]"
+    # 1. 原正文与质量修订要求由原生字段进入实际专业请求。
+    assert operation["capability"] == "prose_writing"
+    assert operation["context_text"] =~ @bad_prose
+    assert operation["revision"] =~ "[质量修订要求]"
+    assert get_in(scope, ["authoring_task", "kind"]) == "revision"
 
     # B27 CP3b：修订由 revision task 渲染，操作互斥来自共享语义，不再继承基础续写句
     assert prompt =~ "## 创作协作共同规则"
     assert prompt =~ "本轮为修订"
-    assert prompt =~ "## 必须保留"
+    assert "未要求修改的内容逐字保留" in get_in(scope, ["authoring_task", "preserve"])
     refute prompt =~ "请在其后自然衔接续写"
     assert prompt =~ "本次修订范围：局部修订"
     assert prompt =~ "命中范围外的文字应尽量逐字保持不变"
@@ -470,10 +474,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     {:ok, _action_result, revision_turn} =
       DialogueGateway.handle_action(input, source, revise_complete(agent))
 
-    {revision_turn,
-     agent
-     |> Agent.get(& &1)
-     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)}
+    {revision_turn, Agent.get(agent, &List.last/1)}
   end
 
   defp revise_action(turn_result) do
@@ -576,7 +577,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: ["第01章：开端"],
       structured_chapters: [%{title: "第01章：开端", seq: 1, summary: "主角登场。", has_prose: false}],
       assembly_policy: AssemblyPolicy.for_tier(:floor)
@@ -647,7 +648,8 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
 
     source = %{source | quality_review: Map.put(source.quality_review, :findings, findings)}
 
-    {revision_turn, prompt} = revise(source)
+    {revision_turn, request} = revise(source)
+    prompt = TestProviderPrompt.text(request)
 
     assert prompt =~ "场：第 2 场（撤退）"
     assert prompt =~ "场级作用域：第 2 场（撤退）"
@@ -715,6 +717,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
       AuthoringTranscript.new(run,
         base_text: "角色规则：只提出待作者审阅的候选，不执行采纳。",
         author_text: "把这一段改得更有压迫感。",
+        author_turn_ref: "input:prior-revision-author",
         tools: []
       )
 

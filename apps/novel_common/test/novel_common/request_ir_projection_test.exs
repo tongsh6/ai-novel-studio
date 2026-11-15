@@ -16,6 +16,9 @@ defmodule NovelCommon.RequestIRProjectionTest do
     RequestIR.message(role, provenance, blocks, extra)
   end
 
+  defp projected_text(%{content: text}) when is_binary(text), do: text
+  defp projected_text(%{content: blocks}), do: Enum.map_join(blocks, "", & &1.text)
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
@@ -353,6 +356,7 @@ defmodule NovelCommon.RequestIRProjectionTest do
           case target do
             "chat_completions" ->
               assert Enum.any?(body.messages, &(&1 == %{role: "user", content: @author_text}))
+
               refute Enum.any?(
                        body.messages,
                        &match?(%{role: "tool", tool_call_id: "call-1"}, &1)
@@ -407,38 +411,57 @@ defmodule NovelCommon.RequestIRProjectionTest do
   end
 
   describe "G7 动态 scope（VS-00L §14）" do
-    test "三种投影都保留 scope 顺序、版本和最新视图" do
-      scope = fn text, revision ->
-        message(:scope_update, :application, [RequestIR.text_block(text)], %{
-          versions: %{"scope_revision" => revision, "work" => 3}
+    test "三种投影无文本 scope 仍等价且保留历史证据、顺序和版本" do
+      scope = fn state, revision ->
+        content = %{
+          work_id: "work-1",
+          facts: %{work: %{ref: "work:work-1", work_id: "work-1", version: 3}},
+          context: %{state: state, opaque: %{"未知键" => [false, nil, "  原字节\n"]}}
+        }
+
+        message(:scope_update, :application, [RequestIR.scope_block(content)], %{
+          versions: %{"scope_revision" => revision, "work" => 3},
+          source_refs: base_refs()
         })
       end
 
-      first = ir(g1_messages() ++ [scope.("只读探索开放", 1)])
-      second = ir(g1_messages() ++ [scope.("只读探索开放", 1), scope.("只读探索关闭", 2)])
+      legacy_text = "  历史范围原文\n保留为证据，不解析为新事实。 "
+      legacy = message(:scope_update, :application, [RequestIR.text_block(legacy_text)])
+      historical = g1_messages() ++ [legacy]
+      first = ir(historical ++ [scope.("只读探索开放", 1)])
+      second = ir(historical ++ [scope.("只读探索开放", 1), scope.("只读探索关闭", 2)])
 
-      for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
-        assert {:ok, first_body} = Projection.project(first, target)
-        assert {:ok, second_body} = Projection.project(second, target)
-        first_items = Map.get(first_body, :messages, first_body[:input])
-        second_items = Map.get(second_body, :messages, second_body[:input])
+      assert Projection.text_of(List.last(second.messages).blocks) == ""
+      assert :ok = RequestIR.validate(first)
+      assert :ok = RequestIR.validate(second)
 
-        # 三投影统一严格前缀：Anthropic 同样 1:1 投影，客户端不合并相邻 role
-        # （连续同 role 由 provider 服务端合并，不改变请求 body 的前缀性质）。
-        assert Enum.take(second_items, length(first_items)) == first_items
+      texts =
+        for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+          assert {:ok, first_body} = Projection.project(first, target)
+          assert {:ok, second_body} = Projection.project(second, target)
+          first_items = Map.get(first_body, :messages, first_body[:input])
+          second_items = Map.get(second_body, :messages, second_body[:input])
 
-        last_item = List.last(second_items)
+          assert Enum.take(second_items, length(first_items)) == first_items
 
-        scope_text =
-          case target do
-            "chat_completions" -> last_item.content
-            "anthropic_messages" -> List.last(last_item.content).text
-            "responses_api" -> List.last(last_item.content).text
-          end
+          assert projected_text(Enum.at(second_items, -3)) ==
+                   "【应用数据 · scope_update · 以最新版本为准】\n版本：{}\n来源：[]\n" <> legacy_text
 
-        assert scope_text =~ "只读探索关闭"
-        assert scope_text =~ ~s("scope_revision":2)
-      end
+          scope_text = projected_text(List.last(second_items))
+          assert scope_text =~ ~s("scope_revision":2)
+          assert scope_text =~ ~s("ref":"work:work-1")
+          content = scope_text |> String.split("\n", parts: 4) |> List.last() |> Jason.decode!()
+
+          assert content["context"] == %{
+                   "state" => "只读探索关闭",
+                   "opaque" => %{"未知键" => [false, nil, "  原字节\n"]}
+                 }
+
+          assert content["facts"]["work"]["version"] == 3
+          scope_text
+        end
+
+      assert length(Enum.uniq(texts)) == 1
     end
 
     test "Anthropic 投影 1:1 保留连续 user：作者独立消息、追加 scope 为新条目、严格前缀" do
@@ -448,14 +471,28 @@ defmodule NovelCommon.RequestIRProjectionTest do
         })
 
       scope_1 =
-        message(:scope_update, :application, [RequestIR.text_block("只读探索开放")], %{
-          versions: %{"scope_revision" => 1}
-        })
+        message(
+          :scope_update,
+          :application,
+          [
+            RequestIR.scope_block(%{work_id: "work-1", context: %{state: "只读探索开放"}})
+          ],
+          %{
+            versions: %{"scope_revision" => 1}
+          }
+        )
 
       scope_2 =
-        message(:scope_update, :application, [RequestIR.text_block("只读探索关闭")], %{
-          versions: %{"scope_revision" => 2}
-        })
+        message(
+          :scope_update,
+          :application,
+          [
+            RequestIR.scope_block(%{work_id: "work-1", context: %{state: "只读探索关闭"}})
+          ],
+          %{
+            versions: %{"scope_revision" => 2}
+          }
+        )
 
       author =
         message(:user, :author, [RequestIR.text_block(@author_text)], %{

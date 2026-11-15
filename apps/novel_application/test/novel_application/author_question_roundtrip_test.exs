@@ -42,6 +42,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
   defp start_question(scope, options \\ [], opts \\ []) do
     parent = self()
     id = "run_question_#{System.unique_integer([:positive])}"
+    author_text = "讨论结尾"
 
     attrs = %{
       run_id: id,
@@ -52,7 +53,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
       origin_frame_ref: "frame_#{id}",
       profile_ref: "conversation_turn_v1",
       trigger: %{kind: "user_message"},
-      goal: %{text: "讨论结尾", version: 1},
+      goal: %{text: author_text, version: 1},
       authority_scope: %{production_write: false, allowed_tools: ["judgment"]}
     }
 
@@ -88,6 +89,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
              starter.(
                NovelApplication.TestAgentEventRelay.observe(attrs, forward),
                next_step_planner: planner,
+               interaction_input: %{text: author_text},
                interaction_store: opts[:store] || store
              )
 

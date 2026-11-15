@@ -90,7 +90,10 @@ defmodule ICachePrefixDriver do
   end
 
   def run do
-    File.mkdir_p!("artifacts/scenario-invariants")
+    artifact_dir =
+      System.get_env("SCENARIO_INVARIANT_ARTIFACT_DIR") || "artifacts/scenario-invariants"
+
+    File.mkdir_p!(artifact_dir)
     restore = install_capture_provider()
 
     try do
@@ -104,8 +107,8 @@ defmodule ICachePrefixDriver do
       assert_enforced_rows!(rows)
 
       markdown = render_markdown(rows)
-      File.write!("artifacts/scenario-invariants/icache.md", markdown)
-      File.write!("artifacts/scenario-invariants/icache.json", Jason.encode!(rows, pretty: true))
+      File.write!(Path.join(artifact_dir, "icache.md"), markdown)
+      File.write!(Path.join(artifact_dir, "icache.json"), Jason.encode!(rows, pretty: true))
 
       IO.puts("\nI-CACHE prefix sharing (VS-00I §6.1 measurement):")
 
@@ -119,8 +122,22 @@ defmodule ICachePrefixDriver do
 
   # B26：同 profile 连续请求保持 auto 与固定工具 schema，旧调用对不再存在。
   defp single_call_rows do
-    a = %{goal_text: "写第一章", deviation_summary: "尚缺结尾", observation_block: "已有前半章"}
-    b = %{a | goal_text: "写第二章", observation_block: "新观察"}
+    run = agent_run("run_icache_continuation", "写第一章", 1)
+
+    a = %{
+      goal_text: "写第一章",
+      deviation_summary: "尚缺结尾",
+      observation_block: "已有前半章",
+      options: [plan_run: run]
+    }
+
+    b = %{
+      a
+      | goal_text: "写第二章",
+        observation_block: "新观察",
+        options: [plan_run: %{run | goal: %{text: "写第二章", version: 2}}]
+    }
+
     shared = "所有动作均须经系统门禁放行。"
 
     row =
@@ -129,7 +146,7 @@ defmodule ICachePrefixDriver do
         "consecutive",
         JudgmentProtocol.request_for_production(a, :continuation),
         JudgmentProtocol.request_for_production(b, :continuation),
-        "## 当前目标",
+        "【应用数据 · scope_update",
         [shared],
         true
       )
@@ -204,8 +221,8 @@ defmodule ICachePrefixDriver do
       shared_prefix_row(
         "chapter_mission",
         "cross_run",
-        mission_ir(mission_a, mission_run_a, "把这一章写得更紧凑"),
-        mission_ir(mission_b, mission_run_b, "保持文风继续推进"),
+        mission_ir(mission_a, mission_run_a, "把这一章写得更紧凑", "author-icache-mission-one"),
+        mission_ir(mission_b, mission_run_b, "保持文风继续推进", "author-icache-mission-two"),
         "把这一章写得更紧凑",
         ["- must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。"],
         true
@@ -222,14 +239,30 @@ defmodule ICachePrefixDriver do
 
     input_a = %{
       author_text: author_a,
-      context_block: DialoguePlanningService.judgment_context_block(context_a, author_a),
-      options: []
+      source_input_ref: "author-icache-judgment-one",
+      scope: DialoguePlanningService.judgment_scope(context_a, author_a),
+      supplied_context_refs: dialogue_refs(context_a),
+      options: [
+        plan_run:
+          agent_run("run_icache_judgment_a", author_a, 1,
+            profile_ref: "judgment_plan_v1",
+            parent_turn_ref: "author-icache-judgment-one"
+          )
+      ]
     }
 
     input_b = %{
       author_text: author_b,
-      context_block: DialoguePlanningService.judgment_context_block(context_b, author_b),
-      options: []
+      source_input_ref: "author-icache-judgment-two",
+      scope: DialoguePlanningService.judgment_scope(context_b, author_b),
+      supplied_context_refs: dialogue_refs(context_b),
+      options: [
+        plan_run:
+          agent_run("run_icache_judgment_b", author_b, 1,
+            profile_ref: "judgment_plan_v1",
+            parent_turn_ref: "author-icache-judgment-two"
+          )
+      ]
     }
 
     # 两个输入各自走真实生产入口；连续轮语义来自调用序列，不在此伪造前一轮 transcript。
@@ -245,10 +278,10 @@ defmodule ICachePrefixDriver do
         "consecutive",
         ir_a,
         ir_b,
-        "## 章节列表（共",
+        "前缀度量样书",
         [
           "所有动作均须经系统门禁放行。",
-          "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
+          List.last(@chapter_titles)
         ],
         # CP-C 重排完成：连续两轮共享前缀必须覆盖 L0–L2（能力目录 L1 + 稳定章节 L2）。
         true
@@ -273,13 +306,13 @@ defmodule ICachePrefixDriver do
 
       shared = shared_prefix_bytes(first, second)
       total = min(byte_size(first), byte_size(second))
-      boundary = marker_offset!(first, "## 章节列表（共", call_site)
+      boundary = marker_offset!(first, "前缀度量样书", call_site)
 
       required_tail_ends =
         Enum.map(
           [
             "所有动作均须经系统门禁放行。",
-            "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
+            List.last(@chapter_titles)
           ],
           fn tail -> marker_offset!(first, tail, call_site) + byte_size(tail) end
         )
@@ -292,7 +325,7 @@ defmodule ICachePrefixDriver do
         shared_prefix_bytes: shared,
         total_bytes: total,
         ratio: ratio(shared, total),
-        boundary_marker: "## 章节列表（共",
+        boundary_marker: "前缀度量样书",
         boundary_bytes: boundary,
         covers_required_prefix: covers,
         enforce: true,
@@ -360,7 +393,7 @@ defmodule ICachePrefixDriver do
           run,
           execution,
           snapshot,
-          chapter_titles_reader: fn _workspace_id -> @chapter_titles end
+          chapter_index_reader: fn _work_id -> chapter_entries() end
         )
       end,
       "agent_plan_draft",
@@ -377,7 +410,7 @@ defmodule ICachePrefixDriver do
           execution,
           snapshot,
           revision_reason: revision_reason,
-          chapter_titles_reader: fn _workspace_id -> @chapter_titles end
+          chapter_index_reader: fn _work_id -> chapter_entries() end
         )
       end,
       "agent_plan_revision",
@@ -385,7 +418,7 @@ defmodule ICachePrefixDriver do
     )
   end
 
-  defp mission_ir(inputs, run, author_text) do
+  defp mission_ir(inputs, run, author_text, source_input_ref) do
     basis_ref = inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> List.first()
 
     arguments = %{
@@ -402,6 +435,7 @@ defmodule ICachePrefixDriver do
         ChapterMissionService.derive(inputs, execution,
           run: run,
           author_text: author_text,
+          source_input_ref: source_input_ref,
           kind: :prose
         )
       end,
@@ -461,7 +495,7 @@ defmodule ICachePrefixDriver do
 
   defp ir_text(%RequestIR{} = ir) do
     ir.messages
-    |> Enum.map(&Projection.text_of(Map.get(&1, :blocks, [])))
+    |> Enum.map(&Projection.content_of(Map.get(&1, :blocks, [])))
     |> Enum.join("\n")
   end
 
@@ -470,9 +504,20 @@ defmodule ICachePrefixDriver do
   # capture provider 按声明的 wire target 投影；静态段（角色句+shared/operation/output
   # 规则）必须在连续轮字节恒定，L3 动态段随后变化。
   defp professional_rows do
-    writer_input_a = writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单")
+    writer_input_a =
+      writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单", "author-icache-writer-one")
+
     writer_a = writer_prompt(writer_input_a)
-    writer_b = writer_prompt(writer_task("接着第02章往下写，并保持既有文风", "chapter:two", "第02章：旧服务器里的残诀"))
+
+    writer_b =
+      writer_prompt(
+        writer_task(
+          "接着第02章往下写，并保持既有文风",
+          "chapter:two",
+          "第02章：旧服务器里的残诀",
+          "author-icache-writer-two"
+        )
+      )
 
     evaluator_a = evaluator_prompt(evaluator_task("biz_icache_eval_a", "chapter:one"))
     evaluator_b = evaluator_prompt(evaluator_task("biz_icache_eval_b", "chapter:two"))
@@ -492,18 +537,19 @@ defmodule ICachePrefixDriver do
         "consecutive",
         evaluator_a,
         evaluator_b,
-        "## 对象与范围",
+        "【应用数据 · scope_update",
         ["## 创作协作共同规则", "## 输出契约纪律"],
         true
       )
     ]
   end
 
-  defp writer_task(goal, chapter_ref, chapter_title) do
+  defp writer_task(goal, chapter_ref, chapter_title, source_input_ref) do
     {:ok, task} =
       AuthoringTaskBuilder.new(:continuation, %{
         author_goal: goal,
         author_words: goal,
+        source: %{kind: :author_action, ref: source_input_ref},
         scope:
           AuthoringTaskBuilder.scope([chapter_ref],
             coverage: :chapter,
@@ -533,6 +579,7 @@ defmodule ICachePrefixDriver do
       creative_brief: task.author_goal,
       context_text: "目标章：#{chapter_title}",
       source_turn_ref: "turn_icache_writer",
+      source_input_ref: task.source.ref,
       task: task
     }
 
@@ -799,7 +846,7 @@ defmodule ICachePrefixDriver do
 
   defp dialogue_context(conversation_summary) do
     %DialogueContext{
-      workspace_id: "ws_icache_prefix",
+      work_id: "work_icache_prefix",
       current_work_snapshot: %{
         title: "前缀度量样书",
         revision: 1,
@@ -809,10 +856,24 @@ defmodule ICachePrefixDriver do
       conversation_summary: conversation_summary,
       interaction_state: %{},
       current_chapters: @chapter_titles,
-      structured_chapters: Enum.map(@chapter_titles, &%{title: &1, has_prose: true}),
+      structured_chapters: chapter_entries(),
+      source_status: %{work: :ok, chapters: :ok, interaction: :empty, behavior: :empty},
       assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end
+
+  defp chapter_entries do
+    @chapter_titles
+    |> Enum.with_index(1)
+    |> Enum.map(fn {title, seq} ->
+      %{id: "icache_chapter_#{seq}", seq: seq, title: title, has_prose: true}
+    end)
+  end
+
+  defp dialogue_refs(context),
+    do: [
+      "work:#{context.work_id}" | Enum.map(context.structured_chapters, &("chapter:" <> &1.id))
+    ]
 
   # ── 捕获与序列化 ───────────────────────────────────────
 

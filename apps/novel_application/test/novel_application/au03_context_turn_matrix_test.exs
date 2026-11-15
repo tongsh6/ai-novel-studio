@@ -1,7 +1,7 @@
 defmodule NovelApplication.AU03ContextTurnMatrixTest do
   @moduledoc """
   AU03-CONTEXT CP2：本地故障矩阵——同一次真实判断请求中的来源状态、trace 观测与零写入，
-  覆盖 raise/非 ok/部分保留/真实空/work-only/跨作品切换/恢复，以及旧 fetcher 兼容。
+  覆盖 raise/非 ok/部分保留/真实空/work-only/跨作品切换/恢复，以及单一 DTO 的缺省未知语义。
   """
   use ExUnit.Case, async: false
 
@@ -41,14 +41,14 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     }
   end
 
-  defp plan_and_capture(work, fetcher, text \\ "第03章正文里有没有提到旧账？只按当前作品事实回答。") do
+  defp plan_and_capture(work, fetcher, text \\ "第03章正文里有没有提到旧账？只按当前作品事实回答。", opts \\ []) do
     parent = self()
 
     provider = %Execution{
       result_fn: fn prompt ->
         send(
           parent,
-          {:judgment_prompt, NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)}
+          {:judgment_prompt, NovelTest.TestProviderPrompt.scope_content(prompt)}
         )
 
         narrative = "我注意到部分上下文本轮不可用；只能基于已确认事实回答。"
@@ -71,7 +71,7 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
              DialoguePlanningService.plan_agent_run(
                %{
                  text: text,
-                 workspace_id: work.id,
+                 workspace_id: Keyword.get(opts, :workspace_id, work.id),
                  work_id: work.id,
                  session_id: "session-au03",
                  turn_id: "turn-au03-cp2"
@@ -111,17 +111,17 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     end)
   end
 
-  test "raise fetcher：同次请求含可用性段、不声称新对话，trace 状态可查，零写入" do
+  test "raise fetcher：同次请求显式 unavailable，trace 状态可查，零写入" do
     work = seed_work("AU03 故障作品")
     before = write_counts()
 
-    raising = fn _ws, _text, _session -> raise "au03_cp2_db_failure" end
+    raising = fn _work_id, _text, _session -> raise "au03_cp2_db_failure" end
     {context_result, judgment_result, prompt} = plan_and_capture(work, raising)
 
-    assert prompt =~ "## 上下文可用性"
-    assert prompt =~ "读取失败"
-    refute prompt =~ "无——这是新对话或尚未创建作品"
-    refute prompt =~ "全书 0 章"
+    assert prompt["coverage"]["work"] == %{"status" => "unavailable"}
+    assert prompt["coverage"]["chapters"] == %{"status" => "unavailable"}
+    refute Map.has_key?(prompt["facts"], "work")
+    refute Map.has_key?(prompt["facts"], "chapters")
 
     status = context_status_observation(context_result)
     assert status.unavailable_sources |> Enum.sort() |> Enum.member?("work")
@@ -133,11 +133,11 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     work = seed_work("AU03 非 ok 作品")
     before = write_counts()
 
-    bad = fn _ws, _text, _session -> {:error, :db_unavailable} end
+    bad = fn _work_id, _text, _session -> {:error, :db_unavailable} end
     {context_result, _judgment_result, prompt} = plan_and_capture(work, bad)
 
-    assert prompt =~ "## 上下文可用性"
-    refute prompt =~ "无——这是新对话或尚未创建作品"
+    assert prompt["coverage"]["work"] == %{"status" => "unavailable"}
+    refute Map.has_key?(prompt["facts"], "work")
     assert context_status_observation(context_result).unavailable_sources != []
     assert write_counts() == before
   end
@@ -145,25 +145,32 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
   test "部分失败：work 成功 + chapters 失败 → 保留已确认事实、章节标未知、不渲染 0 章" do
     work = seed_work("AU03 部分保留作品")
 
-    partial = fn _ws, _text, _session ->
-      {:ok, %{title: "AU03 部分保留作品"}, nil, nil, nil, [], [], %{},
-       %{
-         work: :ok,
-         conversation: :empty,
-         memory: :empty,
-         behavior: :empty,
-         chapters: :unavailable,
-         interaction: :empty
+    partial = fn workspace_id, _text, _session ->
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: %{title: "AU03 部分保留作品"},
+         conversation_summary: nil,
+         memory_summary: nil,
+         open_behavior_summary: nil,
+         structured_chapters: [],
+         interaction_state: %{},
+         source_status: %{
+           work: :ok,
+           conversation: :empty,
+           memory: :empty,
+           behavior: :empty,
+           chapters: :unavailable,
+           interaction: :empty
+         }
        }}
     end
 
     {context_result, _judgment_result, prompt} = plan_and_capture(work, partial)
 
-    assert prompt =~ "AU03 部分保留作品"
-    assert prompt =~ "## 上下文可用性"
-    assert prompt =~ "章节"
-    refute prompt =~ "无——这是新对话或尚未创建作品"
-    refute prompt =~ "0 章中已写 0 章"
+    assert prompt["facts"]["work"]["title"] == "AU03 部分保留作品"
+    assert prompt["coverage"]["chapters"] == %{"status" => "unavailable"}
+    refute Map.has_key?(prompt["facts"], "chapters")
     assert "chapters" in context_status_observation(context_result).unavailable_sources
   end
 
@@ -174,31 +181,47 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     {context_result, _judgment_result, prompt} =
       plan_and_capture(work, fn ws, text, session -> production.(ws, text, session) end)
 
-    assert prompt =~ "AU03 真实空作品"
-    assert prompt =~ "0 章中已写 0 章"
-    refute prompt =~ "## 上下文可用性"
+    assert prompt["facts"]["work"]["title"] == "AU03 真实空作品"
+    assert prompt["facts"]["chapters"] == []
+    assert prompt["coverage"]["chapters"]["total"] == 0
+    assert prompt["coverage"]["chapters"]["status"] == "complete"
     assert context_status_observation(context_result).unavailable_sources == []
   end
 
-  test "work-only（旧 5 元组）→ 不声称刚才讨论；旧契约缺状态按空事实兼容" do
+  test "只读作品的 DTO 保留作品事实，其他来源缺省 not_read" do
     work = seed_work("AU03 work-only 作品")
-    work_only = fn _ws, _text, _session -> {:ok, %{title: "AU03 work-only 作品"}, nil, nil, nil} end
+
+    work_only = fn workspace_id, _text, _session ->
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: %{title: "AU03 work-only 作品"},
+         source_status: %{work: :ok}
+       }}
+    end
 
     {_context_result, _judgment_result, prompt} = plan_and_capture(work, work_only)
-
-    assert prompt =~ "AU03 work-only 作品"
-    refute prompt =~ "## 上下文可用性"
-    refute prompt =~ "刚才讨论"
+    assert prompt["facts"]["work"]["title"] == "AU03 work-only 作品"
+    assert prompt["coverage"]["chapters"] == %{"status" => "not_read"}
+    refute Map.has_key?(prompt["facts"], "chapters")
   end
 
-  test "旧 5 元组空 → 兼容既有语义（无事实仍渲染新对话），不伪造读取失败" do
-    work = seed_work("AU03 旧空作品")
-    empty = fn _ws, _text, _session -> {:ok, nil, nil, nil, nil} end
+  test "明确读取到空作品与章节集合，才能报告 complete 与零章" do
+    work = seed_work("AU03 空作品")
+
+    empty = fn workspace_id, _text, _session ->
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         source_status: %{work: :empty, chapters: :empty}
+       }}
+    end
 
     {_context_result, _judgment_result, prompt} = plan_and_capture(work, empty)
-
-    assert prompt =~ "无——这是新对话或尚未创建作品"
-    refute prompt =~ "## 上下文可用性"
+    refute Map.has_key?(prompt["facts"], "work")
+    assert prompt["coverage"]["work"] == %{"status" => "complete"}
+    assert prompt["facts"]["chapters"] == []
+    assert prompt["coverage"]["chapters"]["total"] == 0
   end
 
   test "跨作品切换与恢复：故障请求不串作品；恢复后真实事实进入后续请求，零 canon 写入" do
@@ -207,26 +230,43 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     production = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
     before = write_counts()
 
-    broken = fn _ws, _text, _session -> {:error, :temporary} end
+    broken = fn _work_id, _text, _session -> {:error, :temporary} end
     {_ctx1, _jr1, fault_prompt} = plan_and_capture(work_a, broken)
-    assert fault_prompt =~ "## 上下文可用性"
-    refute fault_prompt =~ "AU03 作品甲"
-    refute fault_prompt =~ "AU03 作品乙"
+    assert fault_prompt["coverage"]["work"] == %{"status" => "unavailable"}
+    refute Map.has_key?(fault_prompt["facts"], "work")
 
     {_ctx2, _jr2, prompt_a} =
       plan_and_capture(work_a, fn ws, text, session -> production.(ws, text, session) end)
 
-    assert prompt_a =~ "AU03 作品甲"
-    refute prompt_a =~ "AU03 作品乙"
-    refute prompt_a =~ "## 上下文可用性"
+    assert prompt_a["facts"]["work"]["title"] == "AU03 作品甲"
+    assert prompt_a["work_id"] == work_a.id
 
     {_ctx3, _jr3, prompt_b} =
       plan_and_capture(work_b, fn ws, text, session -> production.(ws, text, session) end)
 
-    assert prompt_b =~ "AU03 作品乙"
-    refute prompt_b =~ "AU03 作品甲"
-    refute prompt_b =~ "## 上下文可用性"
+    assert prompt_b["facts"]["work"]["title"] == "AU03 作品乙"
+    assert prompt_b["work_id"] == work_b.id
 
     assert write_counts() == before
+  end
+
+  test "工作区 ID 与作品 ID 不同时，读取与 Scope 仍绑定真实作品" do
+    work = seed_work("显式作品身份")
+    workspace_id = Ecto.UUID.generate()
+
+    {_context, _result, scope} =
+      plan_and_capture(
+        work,
+        NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
+        "当前作品有几章？",
+        workspace_id: workspace_id
+      )
+
+    assert scope["work_id"] == work.id
+    assert scope["work_id"] != workspace_id
+    assert scope["facts"]["work"]["ref"] == "work:#{work.id}"
+    assert scope["facts"]["work"]["version"] == work.revision
+    assert scope["facts"]["work"]["title"] == "显式作品身份"
+    assert scope["coverage"]["work"]["status"] == "complete"
   end
 end

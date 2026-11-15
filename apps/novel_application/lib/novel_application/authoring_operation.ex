@@ -18,24 +18,38 @@ defmodule NovelApplication.AuthoringOperation do
   @type specification :: %{
           required(:role) => String.t(),
           required(:instructions) => String.t(),
-          required(:scope) => String.t(),
+          required(:scope) => map(),
           required(:tool) => map(),
           optional(:source_refs) => [map()],
+          optional(:base_refs) => [map()],
           optional(:versions) => map(),
-          optional(:author_text) => String.t() | nil
+          optional(:author_text) => String.t() | nil,
+          optional(:source_input_ref) => String.t() | nil
         }
 
   @spec prepare(map() | nil, map(), specification()) :: {:ok, RequestIR.t()} | {:error, term()}
   def prepare(run, snapshot, %{role: role, instructions: rules, scope: scope, tool: tool} = spec)
-      when is_binary(role) and is_binary(rules) and is_binary(scope) and is_map(tool) do
+      when is_binary(role) and is_binary(rules) and is_map(scope) and is_map(tool) do
     with {:ok, previous} <- previous_ir(snapshot),
+         {:ok, previous} <-
+           AuthoringSession.record_author_input(
+             previous,
+             explicit_author_input(spec),
+             Map.get(run || %{}, :author_turn)
+           ),
          {:ok, ir} <-
-           Operation.prepare(previous, run, %{spec | scope: scope <> runtime_scope(run)}) do
+           Operation.prepare(previous, run, %{spec | scope: runtime_scope(scope, run)}) do
       include_initial_history(ir, snapshot)
     end
   end
 
   def prepare(_run, _snapshot, _spec), do: {:error, :invalid_authoring_operation}
+
+  defp explicit_author_input(%{author_text: text, source_input_ref: ref})
+       when is_binary(text) and text != "" and is_binary(ref) and ref != "",
+       do: %{turn_id: ref, text: text}
+
+  defp explicit_author_input(_spec), do: nil
 
   defp include_initial_history(ir, %{initial_session_history: history}) do
     with {:ok, segment} <- AuthoringTranscript.from_request_ir(ir) do
@@ -54,13 +68,18 @@ defmodule NovelApplication.AuthoringOperation do
     end
   end
 
-  defp runtime_scope(run) do
-    facts = Map.take(run || %{}, [:authority_scope, :budget, :consumed_budget])
+  defp runtime_scope(scope, run) do
+    scope = RequestIR.json_value(scope)
+    operation = Map.get(scope, "operation", %{})
 
-    case map_size(facts) do
-      0 -> "\n\n当前运行权限与预算未提供；操作仍须经过应用逐步授权。"
-      _ -> "\n\n## 当前运行权限与预算（不是执行批准）\n" <> Jason.encode!(facts)
-    end
+    runtime =
+      run
+      |> then(&Map.take(&1 || %{}, [:authority_scope, :budget, :consumed_budget]))
+      |> RequestIR.json_value()
+
+    if is_map(operation),
+      do: Map.put(scope, "operation", Map.put(operation, "runtime", runtime)),
+      else: scope
   end
 
   @doc """

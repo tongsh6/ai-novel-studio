@@ -16,6 +16,7 @@ defmodule NovelApplication.ExplorationService do
   """
 
   alias NovelApplication.{
+    AuthorContentRegistration,
     ChapterDisplay,
     MemoryManagementService,
     ReadingProjectionService,
@@ -231,7 +232,7 @@ defmodule NovelApplication.ExplorationService do
       status: entry["adoption_status"],
       artifact_type: entry["artifact_type"],
       source_turn_ref: entry["source_turn_ref"],
-      source_ref: NovelApplication.TurnInteractionService.author_source_ref(entry),
+      source_ref: AuthorContentRegistration.author_source_ref(entry),
       content_source_ref: entry["source_tool_result_ref"],
       title: String.slice(to_string(payload["summary"] || item["title"] || ""), 0, 100),
       body_preview:

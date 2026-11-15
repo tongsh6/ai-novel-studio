@@ -69,10 +69,7 @@ defmodule NovelCommon.RequestIR.Projection.ChatCompletions do
   end
 
   defp project_message(%{role: "scope_update"} = message) do
-    case Projection.text_of(message.blocks) do
-      "" -> []
-      _text -> [%{role: "user", content: Projection.scope_update_text(message)}]
-    end
+    [%{role: "user", content: Projection.scope_update_text(message)}]
   end
 
   defp project_message(%{role: "user"} = message) do

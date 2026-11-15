@@ -121,6 +121,39 @@ RequestIR（已存在，生产中立契约）：
 - **工具**：完整且合法的原生 Schema 来自同一注册表；业务能力与 Agent 决策出口分别定义，`report_capability_gap` 不是作品写入能力。
 - **Writer / Reviewer**：按目标读需要的全章/目标段/章计划/角色状态/作者风格样本；范围、覆盖、未读、当前 accepted 基线与 tentative 明示，不能以省 Token 代替完整基线。
 
+
+### 5.2.1 R02 当前 Scope 纯值契约（2026-11-14）
+
+R02 沿用现有 `RequestIR`、`AuthoringTranscript`、`DialogueContext`、`ContextSourceRef` 与 `AuthoringTask`；不新增持久实体、仓库、通用 ContextBlock 或第二份 Provider JSON 真源。新生产的 Scope 唯一形状为 `scope_update/application` 消息中的一个 `{type: "scope", content: {...}}` 块。外层 `source_refs/versions` 仍是该消息的来源与版本；`content` 使用既有 JSON payload codec，不增加 nested-key 白名单。
+
+| 字段 | 来源与唯一职责 | 缺失、覆盖与校验 |
+|---|---|---|
+| `content.work_id` | 当前请求绑定的作品身份，与 RequestIR run 一致；DialogueContext 也唯一使用 work_id | 独立专业操作没有作品时可同时省略；绑定 ID 不证明已读取事实。common 只校验结构及值间一致性；真实数据库/授权核验属于现有 owner |
+| `facts` | 实读 work metadata、章节目录/版本、相关资产与目标；对象使用唯一 `ref`、实际 `work_id` 和已知 `version` | 未读字段不造值；不从标题推定有正文，不从作者期望推定当前可见；不存在可确认版本时不伪造 |
+| `goal` | 既有 run.goal 的应用目标/解释，标 application 来源；可绑定 `source_input_ref` | 不成为第二作者原文字段；v2 本身不证明作者来源，真实 steer/回答以既有 Interaction receipt 绑定 |
+| `context` | 既有会话/记忆/行为/交互派生材料及来源；显式 derived/application | 不升格为作品事实；模型推断继续保留在 assistant/工具参数 |
+| `authoring_task` / `operation` | 专业调用复用现有 AuthoringTask 和当前操作的结构字段、真实输入材料 | 不把已渲染巨型 prompt 套 JSON；真实 prose/material 字节不改写，指令留现有 system/profile owner |
+| `coverage` | 按实际来源记录 `complete/partial/not_read/unavailable/stale` 与已知 count/returned/total | 成功空集合才可 complete+0；未读不报 0；目录覆盖不等于正文覆盖，当前 draft refs 截断必须可见 |
+| `omissions` | 带非空 `source/reason` 字符串的 JSON map 列表，记录实际预算裁剪、未读、来源失败和截断 | 不接字符串双形状，不从缺省值推断 empty canon，不隐去不完整读取 |
+
+现役生产入口共五个：JudgmentProtocol、CreativeProvider.Real、ProseQualityEvaluator、ChapterMissionService、AgenticPlanDraftPlanner。后四复用 RequestIR.Operation；使命材料沿 ChapterMissionInputs 的原 ref/group/text，计划沿实际 chapter_index_reader，不以标题伪造身份。common 的事实 ref 校验只证明供应 Base 与本消息来源一致，版本自洽只比较实际提供的 work.version；不把 run 创建时的 authority_scope.work_revision 冒充最新版本。
+
+当前作者原文仅由独立 `user/author` 消息提供，来源沿用 Interaction 的 turn/ref；空白只用于合法性检查，不用于变换文本。应用目标与作者字节分别承担原有职责。当前阅读可见性来自真实 ReadingProjection 的目录成员；`desired_visible` 是作者要求，不能写成当前事实，也不预设没有来源的值。
+
+作者来源由既有 `TurnInteractionService.author_input/2` 一次返回 `%{turn_id, text}`：v1 使用明确输入命令，v2/steer/自由答复按 work/session/run/turn 读取 Interaction receipt。专业 planner、mission、writer、候选修订与 continuation 使用同一选择中的字节及引用；`source_input_ref` 沿现有 Operation opts / CreativeRequest 透传。合成的目标、步骤、观察和指导属于 `creative_brief`，不再装进作者原文字段；AuthoringTask 的 `author_words` 只取显式原文。应用通过 AuthoringSession/AuthoringTranscript 按来源幂等追加作者消息；同来源不同字节拒绝，common 不推测后续回合、不读库。没有作者输入的内部动作保留其应用来源，不补作者话。
+
+Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现有 RequestIR 的作者消息构造边界：仅接受两个 nil，或非空白原文与明确输入引用的完整配对；首操作、standalone 和 continued 都拒绝半对/坏类型，不从 run.parent_turn_ref 回填。continued 的合法配对也不由 common 自动追加作者。Quality 与辅助叙述复用 AuthoringTask.source 的 author_action 引用；待评审材料的 source_turn_ref、quality_finding 与 quality_gate_revision 不能充当作者输入来源。 Judgment 使用实际 plan_run 或既有 transcript 的运行身份，不再生成 judgment:current 或 author_turn:current；普通判断必须提供作者配对，纯应用 continuation 明确允许两者同时 nil。
+
+专业 Operation 的 `source_refs` 只说明 Scope 来源；`base_refs` 明确列出已供应材料，缺省为空，不能从一般来源回填。Real/Quality 沿 AuthoringTask.materials 的 ref/实有 version，使命沿 ChapterMissionInputs 的真实 item refs，计划沿实际章节 facts。作者回合、目标范围和观察引用不会因作为 source 出现而自动进入 Base 或 Observation；common 只检查显式值，不替应用裁定材料是否实读。 Judgment 继续用 supplied_context_refs 表示实际供应的 Base，scope_source_refs 只表示普通来源；Scope 消息引用是两者并集，Transcript 追加接口显式接收独立 base_refs。相同 Scope 下首次实际供应的材料也必须登记，不能被 Scope 去重吞掉。Prose continuation 的 plan/observation/evidence 关联仅属普通来源，末六条摘要和偏差信息不能冒充完整计划或证据已供应。既有 Base 与真实 observation_refs 保持原职责。
+
+辅助结果叙述仍使用现有 text_operation，不伪造工具或 Scope。AuxTaskBuilder 只消费同一个真实 author_input 的 turn_id/text，复用 AuthoringTask.source/author_words；Planner 的 system 只消费 static_block，dynamic_block 中的作者原文不重复进入应用材料。text_operation 仅对显式 author_text/source_input_ref 成对输入建立独立 user，缺/坏配对拒绝；两者同时为空时保留原有纯应用调用。作者来源不推导自 frame、tool 或 provider；已有无作者的章节摘要与事实盘点不扩大本次改动范围。
+
+新块只允许出现在 `scope_update/application`，不能冒充作者、模型或真实 tool observation。现有真实工具执行仍按 call_id 进入 observation；Base 与 observation 引用保持分立，used_refs 仍受既有边界约束。三 wire 只消费公共 Scope renderer，不先用 text-only 判空，也不独立组装另一份事实。
+
+本批删除字符串 Scope 生产 API、判断器拼串、Operation 拼串和多形状 fetch 兼容，迁移全部现役消费者。历史 canonical 中的原 text block 按通用文本语义保留为真实证据；不解析成新事实、不重写、不静默过滤。R03/R04 的覆盖/压缩契约不在本批提前实施。
+
+**2026-11-15 职责复核**：原生 Scope 的构造/校验/绑定/revision/append 统一由 `RequestIR.Scope` 承担，RequestIR 只组合该纯值 owner；这不是新 DTO 或第二事实源。独立文本请求归已有 `RequestIR.Operation.text_operation`，全部现役消费者迁移并删除旧 parent 入口。判断专属静态规则归已有 AuthoringTaskPolicy；原文登记的应用业务规则归 NovelApplication.AuthorContentRegistration，已有同名 persistence 模块继续只持有事务防重。TurnInteractionService 保留 Interaction 接收、receipt 和真实作者输入选择。存在性审计、七问、消费链与退役记录见 B87 §13.2；以上划分不改变本文的来源/作者/覆盖语义。
+
 ### 5.3 事实/意图/观察分界
 
 | 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |

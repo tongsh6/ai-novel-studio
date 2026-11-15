@@ -2,7 +2,7 @@ defmodule NovelApplication.B27RequestSourceTest do
   @moduledoc """
   B27 §9 CP1：supplied/available 声明必须与同一次判断请求实际渲染的材料同源。
 
-  - supplied_context_refs 只来自该次 context_block 真正渲染的来源；
+  - supplied_context_refs 只来自该次 结构化 Scope 实际供应的来源；
   - memory 在初始判断请求中不渲染 → available-not-supplied，保留按需 memory_recall；
   - 写作 profile 不渲染 conversation/behavior/memory → 不得声明 supplied；
   - 探索观察只有实际渲染进该次请求才计入 supplied_observation_refs；
@@ -31,31 +31,79 @@ defmodule NovelApplication.B27RequestSourceTest do
     ContextAssembler.assemble_for_input(
       "ws-b27-cp1",
       "现在主角的核心动机是什么？",
-      fn _ws, _text, _session ->
-        {:ok, %{title: "B27 同源请求复现作品", genre: "雨港悬疑"}, "会话摘要：作者上一轮确认主角在查旧账。",
-         "相关记忆：作者确认主角动机是查清灯楼旧账并决定是否点灯。", "上轮开放行为：等待作者确认是否下井。", ["第01章：灯楼夜话"]}
+      fn workspace_id, _text, _session ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: %{title: "B27 同源请求复现作品", genre: "雨港悬疑"},
+           conversation_summary: "会话摘要：作者上一轮确认主角在查旧账。",
+           memory_summary: "相关记忆：作者确认主角动机是查清灯楼旧账并决定是否点灯。",
+           open_behavior_summary: "上轮开放行为：等待作者确认是否下井。",
+           structured_chapters: [
+             %{id: "fixture-chapter-1", title: "第01章：灯楼夜话", seq: 1, has_prose: true}
+           ],
+           interaction_state: %{},
+           source_status: %{
+             work: :ok,
+             conversation: :ok,
+             memory: :ok,
+             behavior: :ok,
+             chapters: :ok,
+             interaction: :empty
+           }
+         }}
       end,
       []
     )
   end
 
-  defp run(profile_ref) do
+  defp run(profile_ref, work_id) do
     %{
+      run_id: "run-b27-source",
       profile_ref: profile_ref,
       parent_turn_ref: "turn-b27-cp1",
-      work_id: "ws-b27-cp1",
+      work_id: work_id,
       session_id: "s-b27-cp1",
       goal: %{text: "现在主角的核心动机是什么？", version: 1}
     }
   end
 
   defp protocol_input(context, profile_ref, explorations \\ []) do
-    DialoguePlanningService.judgment_protocol_input_for_test(
-      %{text: "现在主角的核心动机是什么？"},
-      run(profile_ref),
-      context,
-      explorations
-    )
+    protocol =
+      DialoguePlanningService.judgment_protocol_input_for_test(
+        %{text: "现在主角的核心动机是什么？"},
+        run(profile_ref, context.work_id),
+        context,
+        explorations
+      )
+
+    if explorations != [] and profile_ref != ProseDraftingWithQuality.profile_ref() do
+      {:ok, transcript} = JudgmentProtocol.transcript_for_production(protocol)
+
+      transcript =
+        explorations
+        |> Enum.with_index(1)
+        |> Enum.reduce(transcript, fn {observation, index}, acc ->
+          call_id = "source-test-read-#{index}"
+
+          acc
+          |> NovelApplication.AuthoringTranscript.append_assistant("", [
+            NovelCommon.RequestIR.tool_call_block(
+              "judgment_decision",
+              %{
+                action: "explore",
+                explore_request: %{tool: observation.tool, query: observation.query}
+              },
+              call_id
+            )
+          ])
+          |> JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, observation)
+        end)
+
+      Map.put(protocol, :transcript, transcript)
+    else
+      protocol
+    end
   end
 
   defp prompt_text(protocol_input) do
@@ -69,11 +117,16 @@ defmodule NovelApplication.B27RequestSourceTest do
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
 
-    assert length(input.supplied_context_refs) == 2
+    assert length(input.supplied_context_refs) == 4
     assert length(input.available_context_refs) == 2
 
     by_id = Map.new(context.context_refs, &{&1.context_ref, &1.source_type})
-    supplied_types = input.supplied_context_refs |> Enum.map(&by_id[&1]) |> Enum.sort()
+
+    supplied_types =
+      input.supplied_context_refs
+      |> Enum.flat_map(fn ref -> if by_id[ref], do: [by_id[ref]], else: [] end)
+      |> Enum.sort()
+
     available_types = input.available_context_refs |> Enum.map(&by_id[&1])
 
     assert supplied_types == [:behavior, :current_work]
@@ -89,7 +142,7 @@ defmodule NovelApplication.B27RequestSourceTest do
 
     assert "work" in input.rendered_context_sections
     refute "conversation" in input.rendered_context_sections
-    assert "behavior" in input.rendered_context_sections
+    assert "open_behavior_summary" in input.rendered_context_sections
     refute "memory" in input.rendered_context_sections
   end
 
@@ -99,7 +152,9 @@ defmodule NovelApplication.B27RequestSourceTest do
     prompt = prompt_text(input)
 
     by_id = Map.new(context.context_refs, &{&1.context_ref, &1.source_type})
-    assert Enum.map(input.supplied_context_refs, &by_id[&1]) == [:current_work]
+    assert Enum.filter(Enum.map(input.supplied_context_refs, &by_id[&1]), & &1) == [:current_work]
+    assert "work:ws-b27-cp1" in input.supplied_context_refs
+    assert "chapter:fixture-chapter-1" in input.supplied_context_refs
 
     assert Enum.sort(Enum.map(input.available_context_refs, &by_id[&1])) == [
              :behavior,
@@ -112,7 +167,9 @@ defmodule NovelApplication.B27RequestSourceTest do
     refute prompt =~ "上轮开放行为：等待作者确认是否下井。"
     refute prompt =~ "相关记忆：作者确认主角动机是查清灯楼旧账"
 
-    assert input.rendered_context_sections |> Enum.sort() == ["chapters", "work", "work_facts"]
+    assert "work" in input.rendered_context_sections
+    assert "chapters" in input.rendered_context_sections
+    assert input.scope.context == %{}
   end
 
   test "探索观察只有渲染进该次请求才计入 supplied_observation_refs" do
@@ -130,13 +187,20 @@ defmodule NovelApplication.B27RequestSourceTest do
     default_input = protocol_input(context, "judgment_loop_v1", observations)
     default_prompt = prompt_text(default_input)
     assert default_input.supplied_observation_refs == ["obs:memory:1"]
-    assert default_prompt =~ "## 探索观察（已检索到的作品事实）"
+
+    assert Enum.any?(
+             JudgmentProtocol.request_for_production(default_input).messages,
+             fn message ->
+               Enum.any?(message.blocks, &(&1.type == "observation"))
+             end
+           )
+
     assert default_prompt =~ "观察正文：主角动机=查清灯楼旧账。"
 
     write_input = protocol_input(context, ProseDraftingWithQuality.profile_ref(), observations)
     write_prompt = prompt_text(write_input)
     assert write_input.supplied_observation_refs == []
-    refute write_prompt =~ "## 探索观察（已检索到的作品事实）"
+    refute write_prompt =~ "观察正文：主角动机=查清灯楼旧账。"
   end
 
   test "AU03 部分失败：work 仍渲染并可 supplied，失败来源只进 unavailable，不伪造 supplied" do
@@ -144,16 +208,28 @@ defmodule NovelApplication.B27RequestSourceTest do
       ContextAssembler.assemble_for_input(
         "ws-b27-cp1-fault",
         "第03章有没有旧账？",
-        fn _ws, _text, _session ->
-          {:ok, %{title: "B27 故障作品", genre: "悬疑", core_selling_point: "读取失败与真实空"}, nil, nil, nil,
-           [], [], %{},
-           %{
-             work: :ok,
-             conversation: :empty,
-             memory: :empty,
-             behavior: :empty,
-             chapters: :unavailable,
-             interaction: :empty
+        fn workspace_id, _text, _session ->
+          {:ok,
+           %NovelDomain.DialogueContext{
+             work_id: workspace_id,
+             current_work_snapshot: %{
+               title: "B27 故障作品",
+               genre: "悬疑",
+               core_selling_point: "读取失败与真实空"
+             },
+             conversation_summary: nil,
+             memory_summary: nil,
+             open_behavior_summary: nil,
+             structured_chapters: [],
+             interaction_state: %{},
+             source_status: %{
+               work: :ok,
+               conversation: :empty,
+               memory: :empty,
+               behavior: :empty,
+               chapters: :unavailable,
+               interaction: :empty
+             }
            }}
         end,
         []
@@ -161,11 +237,12 @@ defmodule NovelApplication.B27RequestSourceTest do
 
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
-    assert length(input.supplied_context_refs) == 1
+    assert length(input.supplied_context_refs) == 2
     assert input.available_context_refs == []
-    assert input.unavailable_sources == ["chapters"]
-    assert prompt =~ "## 上下文可用性"
-    refute prompt =~ "全书 0 章"
+    assert "chapters" in input.unavailable_sources
+    assert input.scope.coverage.chapters == %{status: "unavailable"}
+    refute Map.has_key?(input.scope.facts, :chapters)
+    assert prompt =~ "B27 故障作品"
   end
 
   test "reply_record 继承同源字段（supplied/available/rendered/unavailable）" do
@@ -194,19 +271,20 @@ defmodule NovelApplication.B27RequestSourceTest do
     assert judgment.reply_record.supplied_context_refs == input.supplied_context_refs
     assert judgment.reply_record.available_context_refs == input.available_context_refs
     assert judgment.reply_record.supplied_observation_refs == ["obs:1"]
-    assert judgment.reply_record.unavailable_sources == []
+    assert judgment.reply_record.unavailable_sources == input.unavailable_sources
     assert judgment.reply_record.rendered_context_sections == input.rendered_context_sections
     assert judgment.reply_record.observation_refs == ["obs:1"]
   end
 
-  test "CP2：chapters 有渲染内容但无 ContextSourceRef → 不发明 ref，仍如实记录渲染段" do
+  test "章节事实携带现有对象 ref，不依赖另外制造 ContextSourceRef" do
     context = context_with_all_sources()
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
 
     assert "chapters" in input.rendered_context_sections
-    assert prompt =~ "## 章节列表"
-    refute Enum.any?(input.supplied_context_refs, &String.contains?(to_string(&1), "chapter:"))
+    assert prompt =~ "第01章：灯楼夜话"
+    assert "chapter:fixture-chapter-1" in input.supplied_context_refs
+    assert input.scope.facts.chapters |> Enum.map(& &1.ref) == ["chapter:fixture-chapter-1"]
   end
 
   test "CP2：重复/重试的观察 refs 去重；未渲染的观察不计入" do
@@ -221,13 +299,13 @@ defmodule NovelApplication.B27RequestSourceTest do
     assert input.supplied_observation_refs == ["obs:1"]
   end
 
-  test "CP2：历史旧 reply_record 无同源字段 → unknown/空，不回填已供给" do
+  test "未读取的来源不补造供给与可用性声明" do
     legacy_input = %{
       author_text: "历史问题",
-      context_block: "历史材料",
+      scope: %{facts: %{}, context: %{}, coverage: %{}},
       source_input_ref: "author-old",
       supplied_context_refs: ["ctx_old"],
-      options: []
+      options: [plan_run: %{run_id: "run-b27-unread-source"}]
     }
 
     result = %{
@@ -256,8 +334,25 @@ defmodule NovelApplication.B27RequestSourceTest do
       ContextAssembler.assemble_for_input(
         "ws-b27-a",
         "问题 A",
-        fn _ws, _text, _session ->
-          {:ok, %{title: "作品甲", genre: "悬疑"}, "会话甲摘要", "记忆甲内容", nil, []}
+        fn workspace_id, _text, _session ->
+          {:ok,
+           %NovelDomain.DialogueContext{
+             work_id: workspace_id,
+             current_work_snapshot: %{title: "作品甲", genre: "悬疑"},
+             conversation_summary: "会话甲摘要",
+             memory_summary: "记忆甲内容",
+             open_behavior_summary: nil,
+             structured_chapters: [],
+             interaction_state: %{},
+             source_status: %{
+               work: :ok,
+               conversation: :ok,
+               memory: :ok,
+               behavior: :empty,
+               chapters: :empty,
+               interaction: :empty
+             }
+           }}
         end,
         []
       )
@@ -266,8 +361,25 @@ defmodule NovelApplication.B27RequestSourceTest do
       ContextAssembler.assemble_for_input(
         "ws-b27-b",
         "问题 B",
-        fn _ws, _text, _session ->
-          {:ok, %{title: "作品乙", genre: "奇幻"}, "会话乙摘要", "记忆乙内容", nil, []}
+        fn workspace_id, _text, _session ->
+          {:ok,
+           %NovelDomain.DialogueContext{
+             work_id: workspace_id,
+             current_work_snapshot: %{title: "作品乙", genre: "奇幻"},
+             conversation_summary: "会话乙摘要",
+             memory_summary: "记忆乙内容",
+             open_behavior_summary: nil,
+             structured_chapters: [],
+             interaction_state: %{},
+             source_status: %{
+               work: :ok,
+               conversation: :ok,
+               memory: :ok,
+               behavior: :empty,
+               chapters: :empty,
+               interaction: :empty
+             }
+           }}
         end,
         []
       )

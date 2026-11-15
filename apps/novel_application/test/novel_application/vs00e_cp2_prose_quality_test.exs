@@ -174,7 +174,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: ["第01章：开端"],
       structured_chapters: [%{title: "第01章：开端", seq: 1, summary: "主角登场。", has_prose: false}],
       assembly_policy: AssemblyPolicy.for_tier(:floor)

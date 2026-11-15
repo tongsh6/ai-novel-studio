@@ -23,25 +23,38 @@ defmodule NovelApplication.B29CharacterRoleConsumerTest do
   defp input(opts) do
     %{
       author_text: Keyword.get(opts, :author_text, "根据本章实际内容判断"),
-      context_block: "章计划/读取范围",
+      scope: %{
+        facts: %{
+          characters:
+            Enum.map(Keyword.get(opts, :character_targets, []), fn target ->
+              target |> Map.put(:ref, target.character_ref) |> Map.delete(:character_ref)
+            end)
+        },
+        context: %{},
+        coverage: %{characters: %{status: "complete"}}
+      },
       source_input_ref: "author-turn",
-      supplied_context_refs: [],
-      options: opts
+      supplied_context_refs:
+        Enum.map(Keyword.get(opts, :character_targets, []), & &1.character_ref),
+      options: Keyword.put_new(opts, :plan_run, %{run_id: "run-b29-character-role"})
     }
   end
 
   test "判断 prompt：角色索引携带当前 narrative_role，并声明主档案优先于旧记忆" do
     # 角色索引在 canonical scope 文本块、主档案优先规则在 application_base：
     # 断言读与 provider 同源的完整投影文本视图。
-    content =
+    request =
       input(
         capabilities: ["revise_character_profile"],
         character_targets: [target("PROTAGONIST")]
       )
       |> JudgmentProtocol.request_for_production()
-      |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
 
-    assert content =~ "narrative_role=PROTAGONIST"
+    content = NovelApplication.TestAgenticLoopFixtures.prompt_text(request)
+
+    assert [%{"narrative_role" => "PROTAGONIST", "ref" => @ref}] =
+             get_in(NovelTest.TestProviderPrompt.scope_content(request), ["facts", "characters"])
+
     assert content =~ "Character 主档案 narrative_role 为当前事实"
     assert content =~ "记忆/摘要中的"
     assert content =~ "旧主角描述只是历史参考"

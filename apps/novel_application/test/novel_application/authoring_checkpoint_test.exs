@@ -83,7 +83,11 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   end
 
   defp transcript(identity) do
-    AuthoringTranscript.new(identity, base_text: "作者决定作品事实", author_text: "检查角色")
+    AuthoringTranscript.new(identity,
+      base_text: "作者决定作品事实",
+      author_text: "检查角色",
+      author_turn_ref: "input:checkpoint:#{identity.run_id}"
+    )
   end
 
   # 生产等价 seed：application 写入边界编码 → 会话存储追加。
@@ -333,7 +337,8 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     transcript =
       AuthoringTranscript.new(identity,
         base_text: "只记录已有事实",
-        author_text: "  检查日期\n"
+        author_text: "  检查日期\n",
+        author_turn_ref: "input:checkpoint-dates"
       )
       |> AuthoringTranscript.append_assistant(
         "",
@@ -379,7 +384,11 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     marker = "private-payload-marker"
 
     transcript =
-      AuthoringTranscript.new(identity, base_text: "base", author_text: "author")
+      AuthoringTranscript.new(identity,
+        base_text: "base",
+        author_text: "author",
+        author_turn_ref: "input:checkpoint-invalid-value"
+      )
       |> AuthoringTranscript.append_assistant(
         "",
         [RequestIR.tool_call_block("archive_read", %{}, "bad-value")]

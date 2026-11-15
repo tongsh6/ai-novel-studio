@@ -1,6 +1,6 @@
 defmodule NovelDomain.DialogueContext do
   @moduledoc """
-  组装好的对话上下文。Planner 只能接收已组装好的 DialogueContext，不能直接访问 Repo。
+  按作品 ID 读取并组装的对话上下文。Planner 只能接收已组装好的 DialogueContext，不能直接访问 Repo。
 
   规格见 docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §2。
   """
@@ -10,7 +10,7 @@ defmodule NovelDomain.DialogueContext do
   alias NovelDomain.OmissionNote
 
   @type t :: %__MODULE__{
-          workspace_id: String.t(),
+          work_id: String.t(),
           current_work_snapshot: map() | nil,
           conversation_summary: String.t() | nil,
           memory_summary: String.t() | nil,
@@ -20,7 +20,7 @@ defmodule NovelDomain.DialogueContext do
           structured_chapters: [map()],
           context_refs: [ContextSourceRef.t()],
           # AU03-CONTEXT：逐来源可用性（:ok | :empty | :unknown | :unavailable）。
-          # 兼容旧构造：缺省为空 map，渲染按既有语义（不得把缺失状态误当读取失败）。
+          # 缺失状态表示未读取，不能从 nil/空列表推断作品不存在。
           source_status: %{atom() => atom()},
           # 组装策略（CP1，VS-00C §3.4 / `06` §5.3 assembly_policy_ref）：预算是 envelope
           # 一等字段，由 application 按当前 provider 解析后挂上，供创作执行读取。
@@ -31,7 +31,7 @@ defmodule NovelDomain.DialogueContext do
         }
 
   defstruct [
-    :workspace_id,
+    :work_id,
     current_work_snapshot: nil,
     conversation_summary: nil,
     memory_summary: nil,
@@ -47,14 +47,13 @@ defmodule NovelDomain.DialogueContext do
   ]
 
   defp source_status(%__MODULE__{source_status: status}, key) when is_map(status) do
-    Map.get(status, key) || Map.get(status, to_string(key))
+    Map.get(status, key) || Map.get(status, to_string(key)) || :unknown
   end
 
-  defp source_status(_ctx, _key), do: nil
+  defp source_status(_ctx, _key), do: :unknown
 
   defp source_unavailable?(ctx, key) do
-    source_status(ctx, key) in [:unavailable, :unknown] or
-      source_status(ctx, key) in ["unavailable", "unknown"]
+    source_status(ctx, key) in [:unavailable, :unknown, :stale, "unavailable", "unknown", "stale"]
   end
 
   defp source_label(ctx, key) do

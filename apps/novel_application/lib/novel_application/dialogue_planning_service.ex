@@ -25,6 +25,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunFlows.ToolConfirmation
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
+  alias NovelApplication.AuthorContentRegistration
   alias NovelApplication.ChapterListBudget
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExplorationService
@@ -32,6 +33,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
 
   alias NovelDomain.{
@@ -136,7 +138,7 @@ defmodule NovelApplication.DialoguePlanningService do
         provider_execution \\ Execution.dependency(purpose: :conversation)
       ) do
     ws_id = Map.get(input, :workspace_id, "default")
-    work_id = Map.get(input, :work_id) || ws_id
+    work_id = Map.get(input, :work_id)
     turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
 
     session_id =
@@ -504,67 +506,6 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # 探索目录段（explore 开放时给判断 prompt）+ 已有观察段（机械渲染，
-  # 结构词家族 + 出处 refs——观察正文是检索结果字节，非系统代笔叙述）。
-  # B24 CP2：上一页观察带 next_offset 时补一条续读提示（真实章标题 + 上一页 footer
-  # 的 query），让模型知道可以继续读而不是重复同一页；目录 query 说明由
-  # ExplorationService.catalog_section 单点产出（I-EXPLORE-READ-7）。
-  defp exploration_sections(explorations, budget, native_observations?) do
-    catalog = if budget.open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
-
-    observations =
-      case {explorations, native_observations?} do
-        {[], _} ->
-          ""
-
-        {list, true} ->
-          exploration_budget_section(list, budget)
-
-        {list, false} ->
-          rendered =
-            list
-            |> Enum.with_index(1)
-            |> Enum.map_join("\n\n", fn {observation, index} ->
-              "### 观察 #{index}（#{observation.tool}「#{observation.query}」）\n#{observation.summary}"
-            end)
-
-          "\n\n## 探索观察（已检索到的作品事实）\n\n" <>
-            rendered <>
-            coverage_note(list) <>
-            continue_hint(list, budget) <>
-            exploration_budget_section(list, budget)
-      end
-
-    catalog <> observations
-  end
-
-  # B27 CP4 retest5 M18：如实投影探索预算状态与已执行来源——预算关闭不等于
-  # “系统没有探索能力”；模型据此基于已有观察收束或提出具体澄清。
-  # 仅由 exploration_sections/3 的非空 observations 分支调用（空列表在调用方短路）。
-  defp exploration_budget_section(explorations, budget) do
-    tools =
-      explorations
-      |> Enum.map(&Map.get(&1, :tool))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    count = length(explorations)
-
-    state =
-      if Map.get(budget, :open?, false) do
-        "仍可继续只读探索（普通回合上限 #{@max_explore_rounds}；长章续读另计；当前已执行 #{count} 次）"
-      else
-        "只读探索预算已用尽，本轮不再受理新的 explore 请求；这不是系统没有探索能力" <>
-          "（已执行来源：#{Enum.join(tools, "、")}，其观察仍可直接引用）"
-      end
-
-    "\n\n## 探索预算状态（机械事实）\n" <>
-      "- 本轮已执行只读探索：#{count} 次#{if tools == [], do: "", else: "（来源：#{Enum.join(tools, "、")}）"}\n" <>
-      "- 当前状态：#{state}\n" <>
-      "- 预算用尽时：基于已有观察回答/收束；需要作者补充材料时提出具体澄清，" <>
-      "不得把“预算用尽”表述成“系统没有/不可用探索能力”。"
-  end
-
   # B27 CP4 retest2（task-22）：每轮给出机械覆盖事实（已读字符/总长/未读范围）。
   # 未覆盖末页时明确「不得声称已读全章」；已覆盖全章时明确「已覆盖全章」。
   defp coverage_note(explorations) do
@@ -682,17 +623,8 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # M17：内联执行纯只读计划的探索步，观察写入 stage_state 后回到判断循环收束
   # （下一轮判断给最终作者可见结论/必要提问）。不切 profile、不产生 turn_result。
-  defp execute_planned_explorations(
-         judgment,
-         _plan,
-         steps,
-         run,
-         sequence,
-         input,
-         _context,
-         snapshot
-       ) do
-    work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
+  defp execute_planned_explorations(judgment, steps, run, sequence, snapshot) do
+    work_id = run.work_id
     log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
     explorations = judgment_explorations(judgment_stage_state(snapshot))
 
@@ -763,247 +695,6 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # 作品事实块（B27 CP4 M01/M16/M20）：持久化只读投影，回答版本/完成度/统计问题。
-  # 与「章节列表」分开：列表是索引，本段是当前 canon 的计数/版本/历史事实。
-  defp judgment_work_facts_section(%DialogueContext{} = context) do
-    # AU03-CONTEXT CP1：work/chapters 未取得时不得渲染「0 章」等确认空事实；
-    # 由「上下文可用性」段说明未知边界。
-    if source_unavailable?(context, :work) or source_unavailable?(context, :chapters) do
-      ""
-    else
-      chapters = context.structured_chapters || []
-      written = Enum.filter(chapters, &(Map.get(&1, :has_prose) == true))
-      snapshot = context.current_work_snapshot || %{}
-
-      if written == [] and map_size(snapshot) == 0 do
-        ""
-      else
-        lines =
-          [whole_book_facts_line(snapshot, chapters)] ++
-            Enum.map(written, &chapter_facts_line/1) ++
-            session_adoption_facts_lines(context)
-
-        "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前；" <>
-          "字符数=正文原始字符长度，有效字数=去标点/空白口径）\n" <>
-          Enum.join(Enum.reject(lines, &(&1 in [nil, ""])), "\n")
-      end
-    end
-  end
-
-  defp judgment_work_facts_section(_context), do: ""
-
-  defp whole_book_facts_line(snapshot, chapters) do
-    total = length(chapters)
-    written = Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
-    planned = total - written
-    words = chapters |> Enum.map(&(Map.get(&1, :word_count) || 0)) |> Enum.sum()
-    chars = chapters |> Enum.map(&(Map.get(&1, :char_count) || 0)) |> Enum.sum()
-
-    body_stats =
-      if chars > 0,
-        do: "当前已采纳正文：字符数 #{chars}；有效字数 #{words}",
-        else: "当前已采纳正文有效字数 #{words}"
-
-    target =
-      [
-        snapshot_value(snapshot, :target_length, "目标总字数"),
-        snapshot_value(snapshot, :planned_volumes, "预计卷数"),
-        snapshot_value(snapshot, :serial_form, "连载形态")
-      ]
-      |> Enum.join("；")
-
-    goal = snapshot_value(snapshot, :main_goal, "全书目标")
-
-    "- 全书：#{goal}；#{target}；正文统计：#{total} 章中已写 #{written} 章、计划中 #{planned} 章" <>
-      "；#{body_stats}"
-  end
-
-  defp snapshot_value(snapshot, key, label) do
-    case map_get(snapshot, key) do
-      value when value in [nil, ""] -> "#{label}=未登记"
-      value -> "#{label}=#{value}"
-    end
-  end
-
-  defp chapter_facts_line(chapter) do
-    seq = Map.get(chapter, :seq)
-    title = text_or_default(Map.get(chapter, :title), "")
-    accepted = integer_or_zero(Map.get(chapter, :accepted_draft_count))
-    scenes = integer_or_zero(Map.get(chapter, :scene_count))
-    words = integer_or_zero(Map.get(chapter, :word_count))
-    chars = integer_or_zero(Map.get(chapter, :char_count))
-    refs = List.wrap(Map.get(chapter, :current_draft_refs))
-    superseded = integer_or_zero(Map.get(chapter, :superseded_draft_count))
-    summary_status = text_or_default(Map.get(chapter, :summary_status), "无当前采纳摘要")
-    chapter_status = text_or_default(Map.get(chapter, :chapter_status), "未知")
-    plan_fields = chapter_plan_fields(chapter)
-
-    "- #{chapter_facts_title(seq, title)}：当前已采纳正文 #{accepted}/#{scenes} 场（#{chapter_volume_label(chars, words)}）；" <>
-      current_version_segment(refs) <>
-      "；章摘要=#{summary_status}；历史 SUPERSEDED 稿 #{superseded} 份（不计入当前）；" <>
-      "章状态=#{chapter_status}；章计划字段=#{plan_fields_label(plan_fields)}"
-  end
-
-  defp chapter_facts_title(seq, title) do
-    title = to_string(title || "")
-    embedded = NovelApplication.ChapterDisplay.title_number(title)
-
-    if is_integer(seq) and is_integer(embedded) and embedded == seq do
-      "第#{seq}章「#{title}」"
-    else
-      NovelApplication.ChapterDisplay.display_title(%{seq: seq, title: title})
-    end
-  end
-
-  defp text_or_default(value, default) when value in [nil, ""], do: default
-  defp text_or_default(value, _default), do: value
-
-  defp integer_or_zero(value) when is_integer(value), do: value
-  defp integer_or_zero(_value), do: 0
-
-  defp chapter_volume_label(chars, words) when is_integer(chars) and chars > 0,
-    do: "正文 #{chars} 字符；有效字数 #{words}"
-
-  defp chapter_volume_label(_chars, words), do: "有效字数 #{words}"
-
-  defp current_version_segment([]), do: "当前版本 refs=（无）"
-  defp current_version_segment(refs), do: "当前版本 refs=" <> Enum.join(refs, ", ")
-
-  defp plan_fields_label([]), do: "（未登记）"
-  defp plan_fields_label(fields), do: Enum.join(fields, ", ")
-
-  defp chapter_plan_fields(chapter) do
-    case Map.get(chapter, :plan_direction) do
-      %{} = direction -> direction |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
-      _ -> []
-    end
-  end
-
-  defp session_adoption_facts_lines(%DialogueContext{interaction_state: state})
-       when is_map(state) do
-    pending = List.wrap(Map.get(state, :pending_adoptions))
-    resolved = List.wrap(Map.get(state, :resolved_adoptions))
-
-    if pending == [] and resolved == [] do
-      []
-    else
-      canon =
-        Enum.count(
-          resolved,
-          &(adoption_status(&1) in NovelDomain.AdoptionStatus.canon_statuses())
-        )
-
-      discarded =
-        Enum.count(
-          resolved,
-          &(adoption_status(&1) == NovelFoundation.Enums.AdoptionStatus.discarded())
-        )
-
-      [
-        "- 会话候选处置：pending #{length(pending)} 项（未采纳）；resolved #{length(resolved)} 项，" <>
-          "其中 ACCEPTED/EDITED_ACCEPTED #{canon} 项、DISCARDED #{discarded} 项；" <>
-          "候选处置/单段采纳不等于整章或全书叙事完成。"
-      ]
-    end
-  end
-
-  defp session_adoption_facts_lines(_context), do: []
-
-  defp adoption_status(entry) do
-    entry |> map_get(:adoption_status) |> to_string_or_empty()
-  end
-
-  defp to_string_or_empty(nil), do: ""
-  defp to_string_or_empty(value), do: to_string(value)
-
-  # 待采纳候选预览（B27 CP4 M07/M08）：真实 ref/类型/状态/可用操作/内容预览。
-  # 预览为空时如实说明（来源回合可能未携带正文），并提示执行修订时系统会读取实际候选。
-  defp judgment_pending_candidates_section(%DialogueContext{interaction_state: state})
-       when is_map(state) do
-    entries = List.wrap(Map.get(state, :pending_adoptions))
-
-    if entries == [] do
-      ""
-    else
-      lines = entries |> Enum.take(12) |> Enum.map(&pending_candidate_line/1)
-
-      "## 待采纳候选（真实对象，status=TENTATIVE；body_preview 为空时不得据此编造内容）\n" <>
-        Enum.join(lines, "\n")
-    end
-  end
-
-  defp judgment_pending_candidates_section(_context), do: ""
-
-  defp pending_candidate_line(entry) do
-    ref = map_get(entry, :artifact_id)
-    type = map_get(entry, :artifact_type)
-    status = adoption_status(entry)
-    operations = NovelApplication.PendingArtifactWorkflow.operations(entry)
-    payload = map_get(entry, :payload) || %{}
-    title = candidate_title(payload)
-    body = candidate_body_preview(payload)
-
-    body_text =
-      if body == "",
-        do: "（空：来源回合未携带候选正文预览；执行修订时系统读取实际候选内容，不得据此编造）",
-        else: body
-
-    "- ref=#{ref} | type=#{type} | status=#{status} | title=#{title || "（无标题）"}" <>
-      " | operations=#{Enum.join(operations, "/")} | body_preview=#{body_text}"
-  end
-
-  defp candidate_title(payload) when is_map(payload) do
-    case map_get(payload, :summary) do
-      title when is_binary(title) ->
-        title
-
-      _ ->
-        case map_get(payload, :items) do
-          [item | _] -> map_get(item, :title)
-          _ -> map_get(payload, :title)
-        end
-    end
-  end
-
-  defp candidate_title(_payload), do: nil
-
-  defp candidate_body_preview(payload) when is_map(payload) do
-    body =
-      case map_get(payload, :content) do
-        content when is_binary(content) ->
-          content
-
-        _ ->
-          payload
-          |> map_get(:items)
-          |> List.wrap()
-          |> Enum.map(&map_get(&1, :body))
-          |> Enum.filter(&is_binary/1)
-          |> Enum.join("\n\n")
-      end
-
-    String.slice(body, 0, 300)
-  end
-
-  defp candidate_body_preview(_payload), do: ""
-
-  # Q1c：把 accepted 目标 ref 明确摆到判断上下文里，避免模型在 resolved 列表里猜
-  # 或把“没有待采纳候选”误判成“没有修订能力”。
-  defp adopted_content_targets_section(context) do
-    targets = NovelApplication.PendingArtifactWorkflow.accepted_targets(context)
-
-    if map_size(targets) == 0 do
-      ""
-    else
-      lines =
-        Enum.map_join(targets, "\n", fn {ref, operations} ->
-          "- #{ref}：#{Enum.join(operations, " / ")}"
-        end)
-
-      "\n\n## 已采纳可修订对象（只用于 revise_adopted_content）\n#{lines}"
-    end
-  end
-
   defp judgment_terminal(run, sequence, kind, summary) do
     decision =
       judgment_mech_decision(run, sequence, "judgment_settle", summary, [
@@ -1028,25 +719,26 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_context_step(input) do
     fn run, sequence, snapshot ->
-      text = effective_author_text(input, run)
+      text = TurnInteractionService.author_text(input, run)
       ws_id = map_get(input, :workspace_id) || run.workspace_id
+      work_id = run.work_id
       turn_id = map_get(input, :turn_id) || run.parent_turn_ref
 
       # 业务日志 turn/session 关联（与旧 conversation context 步同款）：缺失会让
       # context.assemble.done 等 JSONL 失去 per-turn 关联，外部验收无法归组。
       NovelTelemetry.LogContext.put_turn(
         ws_id,
-        map_get(input, :work_id) || run.work_id || ws_id,
+        work_id,
         turn_id,
         map_get(input, :session_id) || run.session_id
       )
 
       context =
         ContextAssembler.assemble_for_input(
-          ws_id,
+          work_id,
           text,
           context_fetcher_or_default(map_get(input, :context_fetcher)),
-          session_id: map_get(input, :session_id),
+          session_id: map_get(input, :session_id) || run.session_id,
           assembly_policy: NovelApplication.current_assembly_policy()
         )
 
@@ -1124,7 +816,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp put_judgment_log_context(input, run) do
     NovelTelemetry.LogContext.put_turn(
       map_get(input, :workspace_id) || run.workspace_id,
-      map_get(input, :work_id) || run.work_id || run.workspace_id,
+      run.work_id,
       map_get(input, :turn_id) || run.parent_turn_ref,
       map_get(input, :session_id) || run.session_id
     )
@@ -1173,7 +865,7 @@ defmodule NovelApplication.DialoguePlanningService do
          snapshot,
          explorations
        ) do
-    case TurnInteractionService.validate_author_registration(
+    case AuthorContentRegistration.validate_author_registration(
            judgment,
            protocol_input.options[:author_content_sources]
          ) do
@@ -1198,15 +890,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
     case judgment.action do
       "explore" ->
-        judgment_explore_result(
-          judgment,
-          run,
-          sequence,
-          input,
-          context,
-          snapshot,
-          explorations
-        )
+        judgment_explore_result(judgment, run, sequence, snapshot, explorations)
 
       _ ->
         dispatch_with_transcript(judgment, run, sequence, input, context, snapshot)
@@ -1236,164 +920,109 @@ defmodule NovelApplication.DialoguePlanningService do
   # B27 §9 CP1：同一 sections 列表派生「实际渲染段」与供给声明，避免从 context DTO
   # 全量 refs 猜 supplied。memory 在初始判断请求中不渲染 → available-not-supplied，
   # 保持通用探索（memory_recall 等）按需取证；失败/未知来源只进 unavailable，不产生虚假 supplied。
-  defp context_materials(context, write_judgment?, sections, explorations) do
-    rendered_names =
-      sections
-      |> Enum.reject(fn {_name, text} -> text in [nil, ""] end)
-      |> Enum.map(fn {name, _text} -> name end)
-
+  defp context_materials(context, write_judgment?, scope, explorations) do
+    source_types = if write_judgment?, do: [:current_work], else: [:current_work, :behavior]
     refs = context.context_refs || []
+    supplied = Enum.filter(refs, &(&1.source_type in source_types))
+    supplied_ids = Enum.map(supplied, & &1.context_ref)
+    facts = Map.get(scope, :facts, %{})
 
-    by_type =
-      Enum.group_by(refs, fn ref -> Map.get(ref, :source_type) end)
-
-    conversation_ref = Enum.find(by_type[:conversation] || [], fn _ -> true end)
-
-    supplied_refs =
-      []
-      |> append_if_rendered(hd_or_nil(by_type[:current_work]), "work", rendered_names)
-      |> append_if_rendered(conversation_ref, "conversation", rendered_names)
-      |> append_if_rendered(hd_or_nil(by_type[:behavior]), "behavior", rendered_names)
-
-    supplied_ids = Enum.map(supplied_refs, fn ref -> Map.get(ref, :context_ref) end)
-    supplied_ids = Enum.reject(supplied_ids, &is_nil/1)
-
-    available_ids =
-      refs
-      |> Enum.map(fn ref -> Map.get(ref, :context_ref) end)
-      |> Enum.reject(fn id -> is_nil(id) or id in supplied_ids end)
-
-    supplied_observation_refs =
-      if write_judgment? or explorations == [] do
-        []
-      else
-        explorations
-        |> Enum.flat_map(fn observation ->
-          observation
-          |> Map.get(:refs, [])
-          |> List.wrap()
-          |> Enum.map(&to_string/1)
-        end)
-        |> Enum.uniq()
-      end
-
-    unavailable_sources =
-      (context.source_status || %{})
-      |> Enum.filter(fn {_key, value} ->
-        normalize_source_status(value) in [:unavailable, :unknown]
-      end)
-      |> Enum.map(fn {key, _value} -> to_string(key) end)
-      |> Enum.sort()
+    fact_refs =
+      [Map.get(facts, :work) | Map.get(facts, :chapters, []) ++ Map.get(facts, :characters, [])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(&[Map.get(&1, :ref) | Map.get(&1, :current_draft_refs, [])])
+      |> Enum.reject(&is_nil/1)
 
     %{
-      supplied_context_refs: supplied_ids,
-      available_context_refs: available_ids,
-      supplied_observation_refs: supplied_observation_refs,
-      unavailable_sources: unavailable_sources,
-      rendered_context_sections: rendered_names
+      supplied_context_refs: Enum.uniq(supplied_ids ++ fact_refs),
+      available_context_refs: Enum.map(refs -- supplied, & &1.context_ref),
+      supplied_observation_refs:
+        if(write_judgment?,
+          do: [],
+          else: Enum.flat_map(explorations, &List.wrap(&1[:refs])) |> Enum.uniq()
+        ),
+      unavailable_sources:
+        scope.coverage
+        |> Enum.filter(fn {_key, item} -> item.status in ["unavailable", "not_read", "stale"] end)
+        |> Enum.map(fn {key, _} -> to_string(key) end),
+      rendered_context_sections:
+        Enum.map(
+          Map.keys(facts) ++ Map.keys(Map.drop(scope.context, [:provenance, :derived])),
+          &to_string/1
+        )
     }
-  end
-
-  defp hd_or_nil(nil), do: nil
-  defp hd_or_nil([first | _]), do: first
-  defp hd_or_nil([]), do: nil
-
-  defp append_if_rendered(refs, nil, _name, _rendered), do: refs
-
-  defp append_if_rendered(refs, ref, name, rendered) do
-    if name in rendered, do: refs ++ [ref], else: refs
-  end
-
-  defp normalize_source_status(value) when is_atom(value), do: value
-  defp normalize_source_status(value) when is_binary(value), do: safe_status_atom(value)
-  defp normalize_source_status(_value), do: nil
-
-  defp safe_status_atom(value) do
-    case value do
-      "unavailable" -> :unavailable
-      "unknown" -> :unknown
-      "ok" -> :ok
-      "empty" -> :empty
-      _ -> nil
-    end
   end
 
   defp judgment_protocol_input(input, run, context, explorations, opts \\ []) do
     budget = exploration_budget(explorations)
-    explore_open? = budget.open?
-
-    author_text = effective_author_text(input, run)
+    author_input = TurnInteractionService.author_input(input, run)
+    author_text = author_input.text
     write_judgment? = write_judgment_profile?(run)
+    {characters, character_status} = character_targets(run)
+    {revision_targets, revision_status} = chapter_revision_targets(run)
 
-    base_sections =
-      if write_judgment? do
-        write_judgment_context_sections(context, author_text)
-      else
-        judgment_context_sections(context, author_text)
-      end
+    scope =
+      context
+      |> judgment_scope(author_text,
+        write_judgment?: write_judgment?,
+        source_input_ref: author_input.turn_id
+      )
+      |> Map.update!(
+        :facts,
+        &put_scope_fact(
+          &1,
+          :characters,
+          if character_status == "complete" do
+            Enum.map(characters, fn target ->
+              target
+              |> Map.delete(:character_ref)
+              |> Map.put(:ref, Map.fetch!(target, :character_ref))
+              |> Map.put(:work_id, run.work_id)
+            end)
+          end
+        )
+      )
+      |> Map.update!(
+        :coverage,
+        &Map.merge(&1, %{
+          characters: %{status: character_status},
+          chapter_revision_targets: %{status: revision_status}
+        })
+      )
 
-    rendered_sections =
-      if write_judgment? do
-        base_sections
-      else
-        base_sections ++
-          [
-            {"explorations",
-             exploration_sections(
-               explorations,
-               budget,
-               Keyword.get(opts, :native_observations, false)
-             )},
-            {"adopted_targets", adopted_content_targets_section(context)}
-          ]
-      end
-
-    context_block = compose_context_sections(rendered_sections)
-
-    materials =
-      context_materials(context, write_judgment?, rendered_sections, explorations)
+    materials = context_materials(context, write_judgment?, scope, explorations)
 
     protocol_input = %{
       author_text: author_text,
-      # 作者输入来源标记（回答 vs 普通请求）：透传到 canonical transcript 消息元数据。
       author_turn: Map.get(run, :author_turn),
-      source_input_ref: TurnInteractionService.input_ref(run),
+      source_input_ref: author_input.turn_id,
+      scope: scope,
       supplied_context_refs: materials.supplied_context_refs,
       available_context_refs: materials.available_context_refs,
       supplied_observation_refs: materials.supplied_observation_refs,
       unavailable_sources: materials.unavailable_sources,
       rendered_context_sections: materials.rendered_context_sections,
       observations: explorations,
-      # B33 CP1：消息处置段只保留一份。默认 profile 由 author_content_context 渲染（唯一一次）；
-      # 写作判断按 keep-list 裁剪后连该历史段一起省略，避免重复/无关历史稀释动作意图。
-      author_content_context:
-        if(write_judgment?,
-          do: "",
-          else: TurnInteractionService.context_section(context.interaction_state)
-        ),
-      context_block: context_block,
       scope_change_reason: scope_change_reason(budget, explorations),
-      options:
-        [
-          plan_run: %{run | profile_ref: "judgment_plan_v1"},
-          capabilities:
-            @judgment_capabilities ++ NovelApplication.PendingArtifactWorkflow.capabilities(),
-          pending_artifact_targets: NovelApplication.PendingArtifactWorkflow.targets(context),
-          adopted_content_targets:
-            NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
-          registered_sources: TurnInteractionService.registered_sources(context),
-          chapter_revision_targets: chapter_revision_targets(run),
-          character_targets: character_targets(run),
-          readonly_capabilities: @judgment_readonly_capabilities,
-          author_content_sources:
-            context
-            |> TurnInteractionService.author_sources(TurnInteractionService.input_ref(run))
-            |> Enum.map(& &1.turn_ref)
-        ] ++
-          if(explore_open?,
-            do: [explore: true, explore_tools: ExplorationService.tool_names()],
-            else: []
-          )
+      options: [
+        plan_run: %{run | profile_ref: "judgment_plan_v1"},
+        capabilities:
+          @judgment_capabilities ++ NovelApplication.PendingArtifactWorkflow.capabilities(),
+        pending_artifact_targets: NovelApplication.PendingArtifactWorkflow.targets(context),
+        adopted_content_targets:
+          NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
+        registered_sources: AuthorContentRegistration.registered_sources(context),
+        chapter_revision_targets: revision_targets,
+        character_targets: characters,
+        readonly_capabilities: @judgment_readonly_capabilities,
+        author_content_sources:
+          context
+          |> AuthorContentRegistration.author_sources(author_input.turn_id)
+          |> Enum.map(& &1.turn_ref),
+        exploration_budget: budget,
+        explore: budget.open?,
+        explore_tools: if(budget.open?, do: ExplorationService.tool_names(), else: [])
+      ]
     }
 
     protocol_input =
@@ -1418,27 +1047,6 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   def write_judgment_profile?(_run), do: false
-
-  @doc false
-  # 写作判断 keep-list（B33 CP1）：作品事实 + 章节列表/目标章点名 + 作者输入 + 操作目录/契约。
-  # 不含完整 plan track、全量候选、会话摘要、无关历史观察（探索段）与消息处置历史。
-  @spec write_judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
-  def write_judgment_context_block(context, author_text) do
-    context
-    |> write_judgment_context_sections(author_text)
-    |> compose_context_sections()
-  end
-
-  # B27 §9 CP1：按段构造，段名与字节同源产生；supplied/available 由同一 sections 列表派生。
-  defp write_judgment_context_sections(context, author_text) do
-    [
-      {"work", judgment_work_section(context)},
-      {"availability", judgment_availability_section(context)},
-      {"work_facts", judgment_work_facts_section(context)},
-      {"chapters", judgment_stable_chapters_section(context)},
-      {"named_chapters", judgment_named_chapters_section(context, author_text)}
-    ]
-  end
 
   @doc false
   def judgment_protocol_input_for_test(input, run, context, explorations),
@@ -1474,10 +1082,7 @@ defmodule NovelApplication.DialoguePlanningService do
     Enum.map_join(messages, "", fn message ->
       message
       |> Map.get(:blocks, [])
-      |> Enum.map_join("", fn
-        %{type: "text", text: text} when is_binary(text) -> text
-        _block -> ""
-      end)
+      |> Projection.content_of()
     end)
   end
 
@@ -1499,28 +1104,26 @@ defmodule NovelApplication.DialoguePlanningService do
       "contracts"
     ]
 
-  # B29 CP1：把已有角色索引（ref/name/aliases/narrative_role/summary）带入判断目录，
-  # name/aliases 仅展示与消歧；读端口不可用时诚实为空（不猜/不新建）。
-  defp character_targets(run) do
-    work_id = run.work_id || run.workspace_id
+  defp character_targets(run),
+    do:
+      read_scope_targets(fn ->
+        NovelApplication.CharacterProfile.targets(run.work_id)
+      end)
 
-    case NovelApplication.CharacterProfile.targets(work_id) do
-      {:ok, targets} when is_list(targets) -> targets
-      targets when is_list(targets) -> targets
-      _ -> []
+  defp chapter_revision_targets(run),
+    do:
+      read_scope_targets(fn ->
+        NovelApplication.AdoptionWorkflow.chapter_revision_targets(run.work_id)
+      end)
+
+  defp read_scope_targets(read) do
+    case read.() do
+      {:ok, targets} when is_list(targets) -> {targets, "complete"}
+      targets when is_list(targets) -> {targets, "complete"}
+      _ -> {[], "unavailable"}
     end
   rescue
-    _ -> []
-  end
-
-  # B28 CP1.5：把有 accepted 正文的章目标带入判断上下文（ref 唯一，title 仅展示）。
-  defp chapter_revision_targets(run) do
-    work_id = run.work_id || run.workspace_id
-
-    case NovelApplication.AdoptionWorkflow.chapter_revision_targets(work_id) do
-      {:ok, targets} -> targets
-      _ -> []
-    end
+    _ -> {[], "unavailable"}
   end
 
   # 业务日志（ADR-0018 观测族）：判断结构落地事实——frame 语义并入判断后，
@@ -1561,21 +1164,12 @@ defmodule NovelApplication.DialoguePlanningService do
   # B27 CP4 M17：若模型计划只含只读探索步（无创作能力步），在判断循环内联执行这些
   # 检索步后**回到判断收束**（下一轮由模型给最终作者可见结论/提问），而不是切到
   # judgment_plan flow 耗尽后停等作者而没有结论。含创作步的计划仍走原 flow。
-  defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, context, snapshot) do
+  defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context, snapshot) do
     case selected_judgment_plan(run, :judgment_plan, judgment) do
       {:ok, plan, inline_meta} ->
         case read_only_plan_steps(plan) do
           steps when is_list(steps) and steps != [] ->
-            execute_planned_explorations(
-              judgment,
-              plan,
-              steps,
-              run,
-              sequence,
-              input,
-              context,
-              snapshot
-            )
+            execute_planned_explorations(judgment, steps, run, sequence, snapshot)
 
           _ ->
             judgment_switch_payload(
@@ -1797,19 +1391,14 @@ defmodule NovelApplication.DialoguePlanningService do
   # 不再只放模型的东西。来源缺失或空文本诚实失败，不用存档指令替代历史原文。
   defp maybe_attach_author_content(turn_result, judgment, input, run, context) do
     if judgment.action == "author_content_registration" do
-      current_ref = TurnInteractionService.input_ref(run)
-
-      input_bytes =
-        if run.goal.version > 1, do: run.goal.text, else: map_get(input, :text) || run.goal.text
+      author_input = TurnInteractionService.author_input(input, run)
+      current_ref = author_input.turn_id
+      input_bytes = author_input.text
 
       with {:ok, source_ref, text} <-
-             TurnInteractionService.source_text(
+             AuthorContentRegistration.source_text(
                judgment[:author_content_source_ref],
-               TurnInteractionService.current_text(
-                 context,
-                 current_ref,
-                 input_bytes
-               ),
+               input_bytes,
                context,
                current_ref
              ) do
@@ -1828,7 +1417,7 @@ defmodule NovelApplication.DialoguePlanningService do
         &Map.put(&1, :registration_source_ref, "author_input:#{source_ref}")
       )
 
-    if TurnInteractionService.materialized_source?(context, source_ref) do
+    if AuthorContentRegistration.materialized_source?(context, source_ref) do
       {:ok, turn_result}
     else
       with {:ok, artifact_set} <-
@@ -1913,25 +1502,14 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp effective_author_text(input, run) do
-    goal_text = run.goal.text |> to_string() |> String.trim()
-    original_text = map_get(input, :text)
-
-    cond do
-      run.goal.version > 1 and goal_text != "" -> goal_text
-      is_binary(original_text) and String.trim(original_text) != "" -> String.trim(original_text)
-      true -> goal_text
-    end
-  end
-
   # CP5a explore：按 explore_request 跑只读检索（同判断步内联执行，0 提供者调用），
   # 观察追加进 stage_state（shallow merge 整表替换，故带旧值重建）后回环——planner
   # 不见 settle 会再入判断步。explore_request 缺失（模型选了 explore 但没点名工具/
   # 查询）按 S2 韧性降级停等，不伪造检索。工具失败记为观察（诚实呈现，下一轮判断
   # 自行换面或停等），不硬失败整个 run。
-  defp judgment_explore_result(judgment, run, sequence, input, _context, snapshot, explorations) do
+  defp judgment_explore_result(judgment, run, sequence, snapshot, explorations) do
     %{tool: tool, query: query} = judgment.explore_request
-    work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
+    work_id = run.work_id
     log_judgment_decided(judgment, "judgment_explore", 0)
 
     observation = run_inline_exploration(work_id, run, tool, query)
@@ -2101,7 +1679,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_frame(judgment, turn_id, ws_id, %DialogueContext{} = context) do
     frame_type = reply_frame_type(judgment.frame_type)
 
-    context_ref = "context:#{context.workspace_id}"
+    context_ref = "context:#{context.work_id}"
 
     %DialogueFrame{
       schema_version: "3.0-draft",
@@ -2184,210 +1762,167 @@ defmodule NovelApplication.DialoguePlanningService do
   defp scope_judgment_turn_result(turn_result, input, run) do
     turn_result
     |> Map.put_new(:workspace_id, map_get(input, :workspace_id) || run.workspace_id)
-    |> Map.put_new(:work_id, map_get(input, :work_id) || run.work_id || run.workspace_id)
+    |> Map.put_new(:work_id, run.work_id)
     |> Map.put_new(:session_id, map_get(input, :session_id) || run.session_id)
   end
 
-  # 判断①的 L2/L3 上下文段（机械准备渲染）。L1（角色句 + 能力目录）由
-  # `JudgmentProtocol` 的公共前缀统一产出，使同 profile 连续两轮共享 L0–L1；
-  # 章节段拆为 L2 稳定列表（不消费作者输入）与 L3 作者点名补充。
-  # 探针与生产共用同一真源（MBC 的上下文必须是被测代码真实产出的字节）。
-  @doc false
-  @spec judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
-  def judgment_context_block(context, author_text) do
-    context
-    |> judgment_context_sections(author_text)
-    |> compose_context_sections()
+  @doc "当前实读作品与派生语境的单一 Scope 值；不从标题或缺省值推断事实。"
+  def judgment_scope(%DialogueContext{} = context, author_text, opts \\ []) do
+    chapters = supplied_chapters(context)
+    {listed, omitted} = ChapterListBudget.project_entries(chapters, author_text)
+    write? = Keyword.get(opts, :write_judgment?, false)
+    work = supplied_work(context)
+
+    facts =
+      %{}
+      |> put_scope_fact(:work, work)
+      |> put_scope_fact(
+        :chapters,
+        if(source_read?(context, :chapters),
+          do: Enum.map(listed, &chapter_scope_fact(&1, context.work_id))
+        )
+      )
+
+    coverage = %{
+      work: %{status: scope_source_status(context, :work)},
+      chapters: chapter_scope_coverage(context, chapters, listed, omitted),
+      chapter_prose: %{status: "not_read"},
+      behavior: %{
+        status: if(write?, do: "not_read", else: scope_source_status(context, :behavior))
+      },
+      interaction: %{
+        status: if(write?, do: "not_read", else: scope_source_status(context, :interaction))
+      }
+    }
+
+    derived =
+      if write? do
+        %{}
+      else
+        %{
+          provenance: "application",
+          derived: true,
+          open_behavior_summary: context.open_behavior_summary
+        }
+        |> put_scope_fact(
+          :interaction_state,
+          if(source_read?(context, :interaction),
+            do:
+              TurnInteractionService.context_payload(
+                context.interaction_state,
+                Keyword.get(opts, :source_input_ref)
+              )
+          )
+        )
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+      end
+
+    %{
+      work_id: context.work_id,
+      facts: facts,
+      context: derived,
+      coverage: coverage,
+      omissions: scope_omissions(context, listed, omitted, write?)
+    }
   end
 
-  defp judgment_context_sections(context, author_text) do
-    [
-      {"work", judgment_work_section(context)},
-      {"availability", judgment_availability_section(context)},
-      {"work_facts", judgment_work_facts_section(context)},
-      {"chapters", judgment_stable_chapters_section(context)},
-      {"pending_candidates", judgment_pending_candidates_section(context)},
-      {"named_chapters", judgment_named_chapters_section(context, author_text)},
-      # B81 CP6：旧会话记录材料段退役（ADR-0035 决策 9）——会话 canonical 历史由
-      # CP2 作为完整消息进入请求派生，不再在判断材料里重复摘要。
-      {"behavior", context.open_behavior_summary || ""}
-    ]
-  end
+  defp supplied_work(context) do
+    if source_read?(context, :work) and is_map(context.current_work_snapshot) do
+      snapshot = context.current_work_snapshot
 
-  defp compose_context_sections(sections) do
-    sections
-    |> Enum.reject(fn {_name, text} -> text in [nil, ""] end)
-    |> Enum.map_join("\n\n", fn {_name, text} -> text end)
-  end
-
-  # AU03-CONTEXT CP1：读取失败/未知不得渲染为“新对话或尚未创建作品”。
-  # 可用性状态来自 ContextAssembler（生产 fetcher 逐来源 safe 包装），旧构造缺省时保持既有语义。
-  @availability_labels %{
-    work: "当前作品事实",
-    memory: "相关记忆",
-    behavior: "未完成行为/上轮状态",
-    chapters: "章节事实",
-    interaction: "待采纳候选/交互状态"
-  }
-
-  defp context_source_status(%DialogueContext{source_status: status}, key) when is_map(status) do
-    Map.get(status, key) || Map.get(status, to_string(key))
-  end
-
-  defp context_source_status(_context, _key), do: nil
-
-  defp source_unavailable?(context, key) do
-    context_source_status(context, key) in [:unavailable, :unknown, "unavailable", "unknown"]
-  end
-
-  defp source_status_label(status) when status in [:unavailable, "unavailable"], do: "读取失败"
-  defp source_status_label(_status), do: "未取得/未知"
-
-  defp judgment_availability_section(%DialogueContext{} = context) do
-    entries =
-      Enum.flat_map(@availability_labels, fn {key, label} ->
-        status = context_source_status(context, key)
-
-        if status in [:unavailable, :unknown, "unavailable", "unknown"] do
-          ["- #{label}：#{source_status_label(status)}（未知）"]
-        else
-          []
-        end
-      end)
-
-    if entries == [] do
-      ""
-    else
-      "## 上下文可用性（APP 客观状态，不得改写）\n" <>
-        Enum.join(entries, "\n") <>
-        "\n（以上来源本轮未知或读取失败：不得解释为不存在、空、0 章、没有讨论或没有记忆；" <>
-        "不得据此猜身份或写入，必要时向作者澄清或明确说明未知。）"
+      snapshot
+      |> Map.drop([:revision, "revision"])
+      |> Map.put(:ref, "work:#{context.work_id}")
+      |> Map.put(:work_id, context.work_id)
+      |> put_scope_fact(:version, map_get(snapshot, :revision))
     end
   end
 
-  defp judgment_work_section(%DialogueContext{} = context) do
-    snapshot = context.current_work_snapshot || %{}
-
-    cond do
-      source_unavailable?(context, :work) ->
-        "## 当前作品上下文\n" <>
-          "（#{source_status_label(context_source_status(context, :work))}：当前作品事实未知，" <>
-          "不得当作无作品或新对话，不得声称 0 章。）"
-
-      map_size(snapshot) > 0 ->
-        # 缺席字段诚实缺席（06 §5.0）：nil/空串不渲染占位行（CA01 创作锚字段可选）。
-        "## 当前作品上下文\n" <>
-          (snapshot
-           |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-           |> Enum.map_join("\n", fn {key, value} -> "- #{key}: #{value}" end))
-
-      true ->
-        "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
-    end
+  defp supplied_chapters(context) do
+    if source_read?(context, :chapters), do: context.structured_chapters, else: []
   end
 
-  # T2a（长上下文病灶结构性收口，历史两段式时期发现）：章节段有界投影——超限时首章+最近 N。
-  # CP-C（VS-00I §4）：稳定列表不消费作者输入（L2）；作者点名章在 L3 单独补充，
-  # 保证连续两轮的 L0–L2 字节恒定；target_chapter 精确复制契约在判断与计划调用均适用。
-  # Order 7-④（M2 实锤：标头"已写章节共17章"实际12章有正文）：标头区分已写/
-  # 计划中，未写正文的章标注「（计划中）」——判断器对写作进度的认知不再被计划章污染。
-  defp judgment_stable_chapters_section(
-         %DialogueContext{current_chapters: [_ | _] = chapters} = context
-       ) do
-    entries = chapter_index_entries(context, chapters)
-    {listed, omitted} = ChapterListBudget.project_entries(entries, nil)
-    planned_count = Enum.count(entries, &(Map.get(&1, :has_prose) == false))
-    written_count = length(entries) - planned_count
+  defp put_scope_fact(map, _key, nil), do: map
+  defp put_scope_fact(map, key, value), do: Map.put(map, key, value)
 
-    "## 章节列表（共 #{length(entries)} 章：已写 #{written_count} 章，计划中 #{planned_count} 章）\n" <>
-      ChapterListBudget.render_entry_lines(listed, omitted, length(entries)) <>
-      "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
+  defp chapter_scope_fact(chapter, work_id) do
+    if not is_binary(chapter.id) or chapter.id == "" or
+         Map.get(chapter, :work_id) not in [nil, work_id],
+       do: raise(ArgumentError, "invalid_chapter_source")
+
+    chapter
+    |> Map.delete(:id)
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.put(:ref, "chapter:#{chapter.id}")
+    |> Map.put_new(:work_id, work_id)
   end
 
-  defp judgment_stable_chapters_section(_context), do: ""
+  defp chapter_scope_coverage(context, chapters, listed, omitted) do
+    status = scope_source_status(context, :chapters)
 
-  defp judgment_named_chapters_section(
-         %DialogueContext{current_chapters: [_ | _] = chapters} = context,
-         author_text
-       ) do
-    entries = chapter_index_entries(context, chapters)
-    {listed, _omitted} = ChapterListBudget.project_entries(entries, nil)
-    stable_keys = MapSet.new(listed, &entry_key/1)
+    case status do
+      "complete" ->
+        %{
+          status: if(omitted > 0, do: "partial", else: "complete"),
+          total: length(chapters),
+          returned: length(listed),
+          written_count: Enum.count(chapters, &(Map.get(&1, :has_prose) == true)),
+          planned_count: Enum.count(chapters, &(Map.get(&1, :has_prose) == false)),
+          unknown_prose_count: Enum.count(chapters, &(not is_boolean(Map.get(&1, :has_prose))))
+        }
 
-    named_titles =
-      entries
-      |> Enum.map(&entry_title/1)
-      |> ChapterListBudget.named_chapter_titles(author_text)
-      |> MapSet.new()
-
-    supplement =
-      entries
-      |> Enum.filter(&MapSet.member?(named_titles, entry_title(&1)))
-      |> Enum.reject(&MapSet.member?(stable_keys, entry_key(&1)))
-
-    case supplement do
-      [] ->
-        ""
-
-      named_entries ->
-        "## 作者点名章（本轮请求涉及；target_chapter 从此段或「章节列表」精确复制全名）\n" <>
-          ChapterListBudget.render_entry_lines(named_entries, 0, length(entries))
-    end
-  end
-
-  defp judgment_named_chapters_section(_context, _author_text), do: ""
-
-  # B24（I-EXPLORE-READ-9 双面身份）：判断 L2 章节索引同时给出 chapter_ref（模型寻址）、
-  # seq（人类序号）与 title（展示）。有 structured_chapters（生产路径）时用其 id/seq；
-  # 手工构造的上下文只有标题时退回旧标题行（不伪造 ref）。
-  defp chapter_index_entries(%DialogueContext{} = context, chapters) when is_list(chapters) do
-    case chapter_index_entries_from_structured(context) do
-      entries when is_list(entries) -> entries
-      _ -> title_chapter_entries(chapters)
-    end
-  end
-
-  defp chapter_index_entries_from_structured(%DialogueContext{structured_chapters: structured})
-       when is_list(structured) and structured != [] do
-    case structured |> Enum.map(&chapter_index_entry/1) |> Enum.reject(&is_nil/1) do
-      [] -> nil
-      entries -> entries
-    end
-  end
-
-  defp chapter_index_entries_from_structured(_context), do: nil
-
-  defp chapter_index_entry(chapter) when is_map(chapter) do
-    case Map.get(chapter, :title) do
-      title when is_binary(title) ->
-        if String.trim(title) == "" do
-          nil
-        else
-          %{
-            title: String.trim(title),
-            seq: Map.get(chapter, :seq),
-            id: Map.get(chapter, :id),
-            has_prose: Map.get(chapter, :has_prose, true)
-          }
-        end
+      "partial" ->
+        %{status: status, returned: length(listed)}
 
       _ ->
-        nil
+        %{status: status}
     end
   end
 
-  defp chapter_index_entry(_chapter), do: nil
+  defp source_read?(context, key),
+    do: scope_source_status(context, key) in ["complete", "partial"]
 
-  defp title_chapter_entries(chapters) do
-    chapters
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&%{title: String.trim(&1), seq: nil, id: nil, has_prose: true})
-    |> Enum.reject(&(&1.title == ""))
+  defp scope_source_status(context, key) do
+    value = Map.get(context.source_status, key) || Map.get(context.source_status, to_string(key))
+
+    case value do
+      value when value in [:ok, :empty, "ok", "empty"] -> "complete"
+      value when value in [:partial, "partial"] -> "partial"
+      value when value in [:unavailable, "unavailable"] -> "unavailable"
+      value when value in [:stale, "stale"] -> "stale"
+      _ -> "not_read"
+    end
   end
 
-  defp entry_title(entry), do: Map.get(entry, :title, "")
+  defp scope_omissions(context, chapters, omitted, write?) do
+    notes = Enum.map(context.omission_notes, &Map.from_struct/1)
 
-  defp entry_key(entry), do: {entry_title(entry), Map.get(entry, :seq), Map.get(entry, :id)}
+    budget =
+      if omitted > 0,
+        do: [%{source: "chapters", reason: "budget_limited", count: omitted}],
+        else: []
+
+    profile = if write?, do: [%{source: "interaction", reason: "profile_not_supplied"}], else: []
+
+    draft_refs =
+      Enum.flat_map(chapters, fn chapter ->
+        total = Map.get(chapter, :accepted_draft_count)
+        returned = length(Map.get(chapter, :current_draft_refs, []))
+
+        if is_integer(total) and total > returned,
+          do: [
+            %{
+              source: "chapter:#{chapter.id}",
+              reason: "draft_refs_truncated",
+              total: total,
+              returned: returned
+            }
+          ],
+          else: []
+      end)
+
+    notes ++ budget ++ profile ++ draft_refs
+  end
 
   defp emit_judgment_decided(snapshot, judgment) do
     emit_judgment_stage(
@@ -2625,6 +2160,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input) do
     ProseDraftingWithQuality.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       context: context,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
@@ -2678,6 +2214,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     CharacterDesignWithContext.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       trace_persister: map_get(input, :trace_persister),
       context: context,
       provider_execution: provider_execution,
@@ -2707,6 +2244,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     JudgmentPlan.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
@@ -2731,6 +2269,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     PlotOutlineWithContext.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
@@ -2763,6 +2302,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     CharacterEvolutionWithContext.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
@@ -2785,6 +2325,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     WorldBuildingWithContext.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
@@ -2844,6 +2385,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     ReadonlyBatchContext.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       readers: map_get(input, :readonly_readers),
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution)
@@ -2859,6 +2401,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     LedgerReconciliation.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       reconcile_fn: map_get(input, :reconcile_fn),
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution)
@@ -2874,6 +2417,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     FactInventory.next_step_planner(%{
+      author_input: Map.take(input, [:text, :interaction_store]),
       material_reader: map_get(input, :material_reader),
       skeleton_reader: map_get(input, :skeleton_reader),
       assumption_writer: map_get(input, :assumption_writer),
@@ -3205,7 +2749,7 @@ defmodule NovelApplication.DialoguePlanningService do
     ])
   end
 
-  defp context_fetcher_or_default(nil), do: fn _ -> {:ok, nil, nil, nil, nil} end
+  defp context_fetcher_or_default(nil), do: nil
   defp context_fetcher_or_default(fetcher) when is_function(fetcher), do: fetcher
 
   defp map_get(map, key) when is_map(map),

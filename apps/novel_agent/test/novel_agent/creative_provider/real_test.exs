@@ -8,6 +8,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
+  alias NovelTest.TestProviderPrompt
 
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
 
@@ -17,6 +18,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     artifact_type: "prose_fragment",
     creative_brief: "写第一章开篇",
     source_turn_ref: "turn-1",
+    source_input_ref: "turn:test",
     context_text: "赛博修仙",
     task: AuthoringTaskFixtures.prose_task(),
     provider_hints: %{}
@@ -26,24 +28,91 @@ defmodule NovelAgent.CreativeProvider.RealTest do
                %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}
              ])
 
-  test "复用计划会话进入 writer 时完整角色规则进入最新 scope，原消息不变" do
+  test "首次及续行 writer 只把真实材料列入 Base，作者与普通来源仍保持原归属" do
+    author_ref = "turn:writer-author:steer:2"
+    raw_author = "  作者原话 Ω\n保留全部字节。  "
+
+    material_refs = [
+      %{ref: "chapter:writer-material", version: 7},
+      %{ref: "work:writer-material"}
+    ]
+
+    run = %{run_id: "real-run", work_id: "real-work", parent_turn_ref: author_ref}
+
+    request = %{
+      @request
+      | source_input_ref: author_ref,
+        run: run,
+        task:
+          AuthoringTaskFixtures.prose_task(%{
+            author_words: raw_author,
+            source: %{kind: :author_action, ref: author_ref},
+            source_refs: [author_ref, "turn:writer-linked-source"],
+            materials: [
+              %{
+                kind: :target_structure,
+                ref: "chapter:writer-material",
+                version: 7,
+                complete?: true
+              },
+              %{kind: :target_structure, ref: "work:writer-material", complete?: true}
+            ]
+          })
+    }
+
+    assert {:ok, initial} = Real.request_ir(request)
+
     previous =
       RequestIR.new(%{
-        run: %{run_id: "real-run", work_id: "real-work"},
+        run: run,
         system: RequestIR.system_envelope(),
         projection: %{},
+        refs: %{base_refs: [], observation_refs: [], used_refs: []},
         messages: [
           RequestIR.message(:application_base, :application, [RequestIR.text_block("首阶段只承担计划起草。")]),
-          RequestIR.message(:user, :author, [RequestIR.text_block(@request.task.author_words)])
+          RequestIR.message(:user, :author, [RequestIR.text_block(raw_author)], %{
+            source_refs: [%{ref: author_ref}]
+          })
         ]
       })
 
-    assert {:ok, writer} = Real.request_ir(%{@request | request_ir: previous})
+    assert {:ok, writer} = Real.request_ir(%{request | request_ir: previous})
     assert Enum.take(writer.messages, length(previous.messages)) == previous.messages
-    latest = List.last(writer.messages).blocks |> Enum.map_join("", & &1.text)
-    assert latest =~ AuthoringSemantics.static_block(@request.task)
-    assert latest =~ "本次你承担小说正文写作助手的角色"
-    assert latest =~ "items 内正文条目必须包含以下键"
+    assert writer.system == previous.system
+
+    assert [
+             %{
+               role: "application_notice",
+               provenance: "application",
+               blocks: [%{type: "text", text: rules}]
+             },
+             %{role: "scope_update", provenance: "application"}
+           ] = Enum.drop(writer.messages, length(previous.messages))
+
+    for ir <- [initial, writer] do
+      assert ir.refs.base_refs == material_refs
+      assert ir.refs.observation_refs == []
+      current_scope = Enum.find(Enum.reverse(ir.messages), &(&1.role == "scope_update"))
+
+      assert current_scope.source_refs ==
+               material_refs ++
+                 [
+                   %{ref: request.source_turn_ref},
+                   %{ref: author_ref},
+                   %{ref: "turn:writer-linked-source"}
+                 ]
+
+      assert [%{source_refs: [%{ref: ^author_ref}], blocks: [%{type: "text", text: ^raw_author}]}] =
+               Enum.filter(ir.messages, &(&1.role == "user" and &1.provenance == "author"))
+    end
+
+    scope = TestProviderPrompt.scope_content(writer)
+    assert rules =~ AuthoringSemantics.static_block(request.task)
+    assert rules =~ "本次你承担小说正文写作助手的角色"
+    assert rules =~ "items 内正文条目必须包含以下键"
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert TestProviderPrompt.author_text(writer) == raw_author
     assert Enum.count(writer.messages, &(&1.role == "user")) == 1
     assert writer.run == previous.run
   end
@@ -65,8 +134,19 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   # 修不了——仍应触发既有的重试/诚实失败路径。
   @unrepairable_bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "b",}])
 
-  defp provider_execution(result_fn),
-    do: AuthoringTaskFixtures.provider_execution(result_fn, "submit_tentative_artifact")
+  defp provider_execution(result_fn) do
+    %Execution{
+      result_fn: fn ir ->
+        native =
+          AuthoringTaskFixtures.provider_execution(
+            fn _ -> result_fn.(ir) end,
+            "submit_tentative_artifact"
+          )
+
+        native.result_fn.(ir)
+      end
+    }
+  end
 
   test "G4 writer uses native tentative tool and returns one canonical session" do
     assert {:ok, initial_ir} = Real.request_ir(@request)
@@ -211,13 +291,21 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert result.status == :ok
     assert [%{body: "夜色压在账单上。"}] = result.items
 
-    [_first, correction] = Agent.get(agent, & &1)
+    [first, correction_ir] = Agent.get(agent, & &1)
+    assert Enum.take(correction_ir.messages, length(first.messages)) == first.messages
+
+    assert TestProviderPrompt.scope_content(correction_ir) ==
+             TestProviderPrompt.scope_content(first)
+
+    assert TestProviderPrompt.author_text(correction_ir) == @request.task.author_words
+    correction = AuthoringTaskFixtures.prompt_text(correction_ir)
     assert correction =~ "provider_response_invalid"
     assert correction =~ "关联：fixture-native-1"
     refute correction =~ "原生创作调用不符合契约"
     refute correction =~ "不是合法 JSON"
-    assert correction =~ "用户创作简述："
-    assert correction =~ "重要："
+
+    assert TestProviderPrompt.scope_content(correction_ir)["operation"]["creative_brief"] ==
+             @request.creative_brief
   end
 
   test "fails honestly when retry also returns structurally invalid JSON" do
@@ -432,7 +520,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
              )
   end
 
-  test "prose writing prompt asks for ReaderEffect self report without losing anchors" do
+  test "prose writing rules retain ReaderEffect self report and native materials" do
+    request = @request
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     result_fn = fn prompt ->
@@ -442,7 +531,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert %{status: :ok} = Real.generate(@request, provider_execution(result_fn))
 
-    prompt = Agent.get(agent, & &1)
+    ir = Agent.get(agent, & &1)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    scope = TestProviderPrompt.scope_content(ir)
     assert prompt =~ "self_report"
     assert prompt =~ "companion_artifacts"
     assert prompt =~ "character_seed"
@@ -457,14 +548,14 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "建议为本段具名出场人物各产出"
     assert prompt =~ "场景 2"
     assert prompt =~ "待采纳草稿"
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert TestProviderPrompt.author_text(ir) == request.task.author_words
   end
 
   # B11C CP1：章计划 prompt 的逐场格式说明扩到 VS-00E §1 场级结构子槽（全部可选、
-  # 没把握可省略），且保留 stub/slice_verify 解析的三锚点。
-  test "plot outline prompt 说明场级结构可选子槽且保留三锚点" do
+  # 没把握可省略），材料独立放入原生 Scope。
+  test "plot outline prompt 说明场级结构可选子槽且绑定原生材料" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     result_fn = fn prompt ->
@@ -481,7 +572,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert %{status: :ok} = Real.generate(request, provider_execution(result_fn))
 
-    prompt = Agent.get(agent, & &1)
+    ir = Agent.get(agent, & &1)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    scope = TestProviderPrompt.scope_content(ir)
     refute is_nil(prompt)
 
     # 既有最小三槽仍在
@@ -500,13 +593,13 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "感官："
     assert prompt =~ "没把握可省略"
 
-    # 三锚点保留（stub/slice_verify 依赖）
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    # 原生材料逐字保留。
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert TestProviderPrompt.author_text(ir) == request.task.author_words
   end
 
-  test "character design prompt 走专用分支：骨架维度 + 开放框架 + 上下文 grounding + 保留三锚点" do
+  test "character design prompt 走专用分支：骨架维度 + 开放框架 + 上下文 grounding + 绑定原生材料" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     result_fn = fn prompt ->
@@ -522,6 +615,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       artifact_type: "character_seed",
       creative_brief: "设计一个稽查官 NONCE7Q",
       source_turn_ref: "turn-char",
+      source_input_ref: "turn:test",
       context_text: "## 现有角色\n- 白露（对手）：黑市掮客",
       task: AuthoringTaskFixtures.task(:character_design),
       provider_hints: %{}
@@ -529,7 +623,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert %{status: :ok} = Real.generate(request, provider_execution(result_fn))
 
-    prompt = Agent.get(agent, & &1)
+    ir = Agent.get(agent, & &1)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    scope = TestProviderPrompt.scope_content(ir)
     # 角色对象模型核心骨架维度（21 §7.2）
     assert prompt =~ "定位："
     assert prompt =~ "动机："
@@ -540,10 +636,10 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     # 上下文 grounding：看得见现有角色、不凭空
     assert prompt =~ "基于上下文中的作品背景、世界观、设定与现有角色"
     assert prompt =~ "## 现有角色"
-    # 三锚点 + I3 nonce 指令保留
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    # 原生材料与 I3 nonce 指令保留。
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert TestProviderPrompt.author_text(ir) == request.task.author_words
     assert prompt =~ "原样保留"
   end
 
@@ -577,9 +673,11 @@ defmodule NovelAgent.CreativeProvider.RealTest do
                end)
              )
 
-    assert_received {:revision_prompt, prompt}
-    assert prompt =~ request.revision
-    assert prompt =~ request.context_text
+    assert_received {:revision_prompt, ir}
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    scope = TestProviderPrompt.scope_content(ir)
+    assert scope["operation"]["revision"] == request.revision
+    assert scope["operation"]["context_text"] == request.context_text
     refute prompt =~ "逐行包含：设定内容"
     refute prompt =~ "待作者确认处"
   end
@@ -601,14 +699,16 @@ defmodule NovelAgent.CreativeProvider.RealTest do
                Real.generate(
                  request,
                  provider_execution(fn prompt ->
-                   assert prompt =~ request.revision
+                   assert TestProviderPrompt.scope_content(prompt)["operation"]["revision"] ==
+                            request.revision
+
                    {:ok, %{content: @good_json}}
                  end)
                )
     end
   end
 
-  test "world building prompt 按 foreshadowing_seed 输出伏笔结构 + 上下文 grounding + 保留三锚点" do
+  test "world building prompt 按 foreshadowing_seed 输出伏笔结构 + 上下文 grounding + 绑定原生材料" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     result_fn = fn prompt ->
@@ -634,6 +734,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       artifact_type: "foreshadowing_seed",
       creative_brief: "设计一个伏笔线索 RULE9Q8",
       source_turn_ref: "turn-world",
+      source_input_ref: "turn:test",
       context_text: "## 已确认设定\n- 灵源矿区吞掉过失踪者",
       task:
         AuthoringTaskFixtures.task(:world_building, %{
@@ -646,15 +747,17 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert %{status: :ok} = Real.generate(request, provider_execution(result_fn))
 
-    prompt = Agent.get(agent, & &1)
+    ir = Agent.get(agent, & &1)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    scope = TestProviderPrompt.scope_content(ir)
     assert prompt =~ "本次草稿类型：foreshadowing_seed"
     assert prompt =~ "伏笔标题"
     assert prompt =~ "伏笔线索 / 首次出现位置 / 推进方式 / 回收方式 / 风险与禁忌"
     assert prompt =~ "基于上下文中的作品背景、世界观、设定、角色和已采纳内容"
     assert prompt =~ "## 已确认设定"
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert TestProviderPrompt.author_text(ir) == request.task.author_words
     assert prompt =~ "原样保留"
   end
 

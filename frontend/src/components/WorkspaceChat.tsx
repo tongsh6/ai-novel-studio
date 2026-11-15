@@ -2411,9 +2411,7 @@ export function WorkspaceChat() {
   });
   // 问题提示条、composer 和任务控制消费同一个路由决定；列表末尾可能是已完成的 B。
   const answeringRun =
-    agentRunInputDecision.reason === "active_has_model_question"
-      ? agentRunInputDecision.run
-      : null;
+    agentRunInputDecision.reason === "active_has_model_question" ? agentRunInputDecision.run : null;
   const latestAgentRun = answeringRun ?? visibleAgentRuns.at(-1) ?? null;
   const latestMessage = messages.at(-1);
   const continuedCandidatesBySourceTurn = new Map<string, string>();
@@ -2539,7 +2537,8 @@ export function WorkspaceChat() {
   const answeringQuestionRef = activeModelQuestionResult?.author_question?.question_ref ?? null;
   // 46 §9.7（2026-11-04 修订）：输入区语义由单一派生函数给出，渲染只按 mode 分支。
   const inputMode = deriveAgentRunInputMode(agentRunInputDecision, agentRunInputPresentation, {
-    answerModeDismissed: dismissedQuestionRef !== null && dismissedQuestionRef === answeringQuestionRef,
+    answerModeDismissed:
+      dismissedQuestionRef !== null && dismissedQuestionRef === answeringQuestionRef,
     blocked: budgetShortfallAwaiting,
   });
   // 等待起点：最后一个 awaiting_author 事件时间（提示条据此显示「已等待 X」）。
@@ -2757,7 +2756,7 @@ export function WorkspaceChat() {
       const answered = await handleQuestionReply(
         activeModelQuestionResult,
         answerFreeTextAction,
-        text.trim(),
+        text,
       );
       if (answered && messageText === inputText) setInputText("");
       return;
@@ -2806,7 +2805,7 @@ export function WorkspaceChat() {
         authorStepLimit ? { max_steps: 1 } : null,
       );
       if (authorStepLimit) setAuthorStepLimit(false);
-      setDismissedQuestionRef((current) => current === dismissedQuestionRef ? null : current);
+      setDismissedQuestionRef((current) => (current === dismissedQuestionRef ? null : current));
       rememberAgentRunAck(response, text, clientMessageId);
     } catch (error) {
       if (activeConnectionRef.current.workId !== context.workId) return;

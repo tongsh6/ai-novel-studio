@@ -72,7 +72,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
   end
 
   defp context(chapters),
-    do: %DialogueContext{workspace_id: "work-cp0", current_chapters: chapters}
+    do: %DialogueContext{work_id: "work-cp0", current_chapters: chapters}
 
   defp raising_result_fn do
     fn _prompt -> flunk("provider 不应被调用：hard missing 必须短路") end

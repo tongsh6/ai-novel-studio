@@ -6,6 +6,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
+  alias NovelTest.TestProviderPrompt
 
   @valid_findings Jason.encode!(%{
                     "findings" => [
@@ -66,13 +67,19 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
   end
 
   defp execution(agent, contents) do
-    AuthoringTaskFixtures.provider_execution(
-      fn prompt ->
-        Agent.update(agent, fn _ -> prompt end)
-        {:ok, %{content: contents}}
-      end,
-      "report_quality_findings"
-    )
+    native =
+      AuthoringTaskFixtures.provider_execution(
+        fn _ -> {:ok, %{content: contents}} end,
+        "report_quality_findings"
+      )
+
+    %{
+      native
+      | result_fn: fn ir ->
+          Agent.update(agent, fn _ -> ir end)
+          native.result_fn.(ir)
+        end
+    }
   end
 
   test "task-aware evaluator renders shared semantics, coverage statement, and findings contract" do
@@ -83,14 +90,25 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
     assert result.status == :ok
     assert length(result.findings) == 1
 
-    prompt = Agent.get(agent, & &1)
+    ir = Agent.get(agent, & &1)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert String.split(prompt, AuthoringSemantics.static_block(task)) |> length() == 2
     assert String.split(prompt, "## 创作协作共同规则") |> length() == 2
-    assert prompt =~ "评审范围：单对象/片段"
-    assert prompt =~ "不得据此声称整章"
-    assert prompt =~ "本章执行简述"
-    assert prompt =~ "作品事实基线"
+    scope = TestProviderPrompt.scope_content(ir)
+
+    assert scope["authoring_task"] ==
+             task
+             |> AuthoringTask.to_map()
+             |> Map.delete("author_words")
+             |> Jason.encode!()
+             |> Jason.decode!()
+
+    assert scope["authoring_task"]["scope"]["coverage"] == "single"
+    assert Enum.any?(scope["authoring_task"]["materials"], &(&1["complete?"] == false))
+    assert scope["operation"]["execution_brief"] == request(task).execution_brief
+    assert scope["operation"]["facts_context"] == request(task).facts_context
+    assert scope["operation"]["prose_text"] == request(task).prose_text
     assert prompt =~ "quality_gate_ref"
     assert prompt =~ "evidence_spans"
     assert prompt =~ "impact_scope"

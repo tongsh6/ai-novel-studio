@@ -15,6 +15,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   alias NovelApplication.AgentRunFlows.MechanicalPlan
   alias NovelApplication.FactInventoryService
   alias NovelApplication.ProviderActivityProjector
+  alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep, DialogueFrame}
@@ -196,7 +197,8 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
                materials,
                inventory_provider_execution(spec, snapshot),
                work_id: run.work_id,
-               author_words: run.goal.text,
+               author_words:
+                 TurnInteractionService.author_text(Map.get(spec, :author_input), run),
                missing_skeleton_fields: missing_skeleton_fields,
                known_characters: known_characters(spec, run),
                unresolved_foreshadows: unresolved_foreshadows(spec, run)

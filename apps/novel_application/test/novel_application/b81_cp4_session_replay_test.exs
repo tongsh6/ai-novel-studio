@@ -55,7 +55,14 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
   defp base_transcript(work, session, run_id, author_text, opts \\ []) do
     AuthoringTranscript.new(
       identity(work, session, run_id),
-      Keyword.merge([base_text: "CP4 应用 Base", author_text: author_text], opts)
+      Keyword.merge(
+        [
+          base_text: "CP4 应用 Base",
+          author_text: author_text,
+          author_turn_ref: "input:cp4:#{run_id}"
+        ],
+        opts
+      )
     )
   end
 

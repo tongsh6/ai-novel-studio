@@ -349,7 +349,11 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
         parent_turn_ref: parent_turn,
         profile_ref: "conversation_turn_v1"
       }
-      |> AuthoringTranscript.new(base_text: "应用 Base", author_text: "作者原话")
+      |> AuthoringTranscript.new(
+        base_text: "应用 Base",
+        author_text: "作者原话",
+        author_turn_ref: "input:history-#{run_id}"
+      )
       |> AuthoringTranscript.append_assistant("先读取角色。", [tool_call(call_id)])
       |> AuthoringTranscript.append_observation(call_id, observation())
       |> AuthoringTranscript.compact(

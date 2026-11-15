@@ -14,7 +14,7 @@ defmodule NovelApplication.TraceWriterTest do
   describe "record/3 author-safe summary" do
     test "redacts sensitive context source summaries before TurnResult consumption" do
       context = %DialogueContext{
-        workspace_id: "work-redact",
+        work_id: "work-redact",
         memory_summary: "raw prompt should not leave trace summary",
         context_refs: [
           %ContextSourceRef{

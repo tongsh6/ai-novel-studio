@@ -22,7 +22,7 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
       run(
         action: %{target_chapter: "第02章：旧服务器里的残诀"},
         context: %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: ["第01章：底层灵气账单", "第02章：旧服务器里的残诀"],
           structured_chapters: [
             %{

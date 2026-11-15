@@ -310,4 +310,52 @@ defmodule NovelApplication.B28AdoptionContractTest do
     assert target.coverage == :complete
     assert target.fragment_count == 1
   end
+
+  test "单候选 payload 不携带章级修订字段（当前采纳契约）" do
+    # 非章级 world_setting 候选只携带自身的采纳语义。
+    {:ok, artifact} =
+      NovelApplication.ArtifactAssembler.assemble(
+        %NovelCommon.Contracts.ToolResult{
+          tool_result_id: "tr-single-artifact",
+          tool_request_ref: "tq-single-artifact",
+          tool_name: "world_building",
+          status: :succeeded,
+          output: %{
+            artifact_type: "world_setting",
+            item_count: 1,
+            items: [%{item_id: "single-artifact-1", title: "独立设定", body: "书铺。", rationale: nil}]
+          },
+          artifact_refs: ["single-artifact-1"],
+          state_delta: [],
+          usage: %{},
+          trace_refs: [],
+          completed_at: DateTime.utc_now()
+        },
+        "turn-single-artifact"
+      )
+
+    frame = %NovelDomain.DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: "frame-single-artifact",
+      turn_id: "turn-single-artifact",
+      workspace_id: "work-single-artifact",
+      primary: true,
+      frame_type: :execution_candidate,
+      source_refs: %{author_input_ref: "turn-single-artifact"},
+      dialogue_goal: %{summary: "生成候选"},
+      tool_need: %{needs_tool: true, reason_code: :tool_needed},
+      execution_readiness: :ready,
+      author_visible_draft: %{message: "候选"},
+      evidence_summary: %{},
+      uncertainty: []
+    }
+
+    result = NovelApplication.TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact)
+    [pending] = result.adoption_state.pending
+
+    refute Map.has_key?(pending.payload, "modification_scope")
+    refute Map.has_key?(pending.payload, "adoption_effect")
+    refute Map.has_key?(pending.payload, "base_text")
+    assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
+  end
 end

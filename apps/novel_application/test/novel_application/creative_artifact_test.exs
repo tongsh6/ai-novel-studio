@@ -347,6 +347,8 @@ defmodule NovelApplication.CreativeArtifactTest do
   end
 
   defp task_input(tool_name, artifact_type \\ nil) do
+    source_ref = "turn-#{tool_name}"
+
     contract = %{
       kind: :json,
       schema_ref: "tentative_artifact_v1",
@@ -359,16 +361,17 @@ defmodule NovelApplication.CreativeArtifactTest do
       kind: kind_for(tool_name),
       author_goal: "fixture goal #{tool_name}",
       author_words: "fixture author words #{tool_name}",
+      source: %{kind: :author_action, ref: source_ref},
       scope: %{refs: ["work:fixture"], coverage: :chapter},
       materials: [%{kind: :target_structure, ref: "target_structure:fixture"}],
       preserve: [],
       operation_effect: effect_for(tool_name),
       output_contract: contract,
-      source_refs: ["turn:fixture"],
+      source_refs: [source_ref],
       semantic_version: AuthoringSemantics.version()
     }
 
-    %{"authoring_task" => AuthoringTask.to_map(task)}
+    %{"authoring_task" => AuthoringTask.to_map(task), "source_input_ref" => source_ref}
   end
 
   defp default_artifact_type("character_design"), do: :character_seed

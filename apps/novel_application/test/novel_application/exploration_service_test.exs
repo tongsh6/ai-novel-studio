@@ -70,20 +70,11 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     state = NovelPersistence.InteractionLifecycle.context(work.id, session.id)
 
-    facts =
-      state
-      |> NovelApplication.TurnInteractionService.context_section()
-      |> String.split("\n")
-      |> Enum.find_value(fn line ->
-        case Jason.decode(line) do
-          {:ok, %{"omitted_adoptions" => _} = data} -> data
-          _ -> nil
-        end
-      end)
+    facts = NovelApplication.TurnInteractionService.context_payload(state)
 
-    assert facts["pending_adoption_count"] == 15
-    assert facts["omitted_adoptions"] == 3
-    assert length(facts["pending_adoptions"]) == 12
+    assert facts.pending_adoption_count == 15
+    assert facts.omitted_adoptions == 3
+    assert length(facts.pending_adoptions) == 12
     assert {:ok, first} = ExplorationService.run(work.id, "session_adoptions", "", session.id)
     assert %{"matched_count" => 15, "next_offset" => 3} = Jason.decode!(first.summary)
 

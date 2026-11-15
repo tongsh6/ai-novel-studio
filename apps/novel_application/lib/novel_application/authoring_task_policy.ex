@@ -12,6 +12,33 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   @version "b27-task-v2"
   def version, do: @version
 
+  @doc "判断阶段的对象、版本与可操作范围证据纪律。"
+  def judgment_scope_rules do
+    """
+    ## 对象与版本证据纪律（先取证/消歧，再操作）
+    对象/版本操作（revise/discard/改权威版本等）只能引用本轮上下文或观察中真实列出的 ref；
+    上下文没有真实 ref 时先 explore（如 session_adoptions 查候选、chapter_read/archive_read 查版本），
+    或用 ask_author 具体澄清，不得编造 ref、不得用标题/记忆猜 ref。
+    存在多个候选（pending_adoption_count > 1）且作者当前消息没有唯一指定对象/范围时，不得猜“最新/首条/最近讨论”，
+    必须先 explore(session_adoptions) 取证或 ask_author 指出具体分歧；明确前不执行 revise。
+    修改权威版本（正式开头/当前采纳版本/canon 等）前，必须有当前版本事实（先取证）或作者明确指定；
+    只讨论/比较时不改变 canon，也不得把建议包装成系统已定；最终选择由作者决定。
+    execute 只填一个目标 ref 字段：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；
+    不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。
+    """
+  end
+
+  # 作者明确"只聊/先别动笔/讨论"且没有要求生成/登记时：分析类任务，不得物化候选。
+  @discussion_re ~r/(先别动笔|别动笔|只聊|聊聊|先聊|讨论一下|讨论|聊聊看|分析一下|不要写|别写|不生成|别生成)/u
+  @materialize_request_re ~r/(生成|写一段|写个|写一版|候选|方向|草稿|续写|改写|重写|登记|保存|存进|存到|产出)/u
+
+  @doc false
+  def discussion_only?(text) when is_binary(text) do
+    Regex.match?(@discussion_re, text) and not Regex.match?(@materialize_request_re, text)
+  end
+
+  def discussion_only?(_text), do: false
+
   @doc "判断/计划提示词使用的规则文本：共享段落（单一真源）+ 判断计划专属段。"
   def rules do
     [AuthoringSemantics.shared_rules(), judgment_rules()]
@@ -103,6 +130,27 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> then(&[&1, AuthoringSemantics.content_hash(), rules(), judgment_operation_rules()])
     |> Enum.join("\n---\n")
     |> then(&(:sha256 |> :crypto.hash(&1) |> Base.encode16(case: :lower)))
+  end
+
+  @doc "当前真实能力目录的结构投影；名称与效果仍来自既有 registry。"
+  def operation_data(options) do
+    Enum.map(Keyword.get(options, :capabilities, []), fn name ->
+      case NovelApplication.CapabilityRegistry.get(name) do
+        nil ->
+          %{name: name, effect_summary: operation(name)}
+
+        entry ->
+          entry
+          |> Map.take([
+            :effect_summary,
+            :read_scopes,
+            :write_scopes,
+            :output_contract_ref,
+            :risk_class
+          ])
+          |> Map.put(:name, name)
+      end
+    end)
   end
 
   def operations(options) do

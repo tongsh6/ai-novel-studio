@@ -143,32 +143,48 @@ defmodule NovelApplication.AuxTaskBuilder do
 
   @doc "工具结果叙述任务：携带真实作者目标、工具实际后果与失败/边界信息。"
   @spec for_result_narration(map()) :: {:ok, AuthoringTask.t()} | {:error, term()}
-  def for_result_narration(attrs) when is_map(attrs) do
-    tool_name = blank_to_nil(text(attrs[:tool_name]))
-    artifact_refs = string_list(attrs[:artifact_refs])
-    tool_ref = if tool_name, do: "tool:#{tool_name}", else: nil
+  def for_result_narration(%{author_input: author_input} = attrs) do
+    with {:ok, author_input} <- narration_author_input(author_input) do
+      tool_name = blank_to_nil(text(attrs[:tool_name]))
+      artifact_refs = string_list(attrs[:artifact_refs])
+      tool_ref = if tool_name, do: "tool:#{tool_name}", else: nil
 
-    AuthoringTaskBuilder.new(:result_narration, %{
-      author_goal: blank_to_nil(text(attrs[:author_goal])),
-      author_words: blank_to_nil(text(attrs[:author_words])),
-      scope:
-        AuthoringTaskBuilder.scope(Enum.reject([tool_ref | artifact_refs], &is_nil/1),
-          object_kind: :tool_result,
-          coverage: :single
-        ),
-      materials: [],
-      prior_result:
-        AuthoringTaskBuilder.prior_result(%{
-          run_ref: attrs[:run_ref],
-          turn_ref: attrs[:turn_ref],
-          status: attrs[:tool_status],
-          summary: attrs[:outcome_summary],
-          pending_refs: artifact_refs
-        }),
-      source_refs: string_list([tool_ref, blank_to_nil(text(attrs[:provider_call_ref]))]),
-      output_contract: contract(:result_narration)
-    })
+      AuthoringTaskBuilder.new(:result_narration, %{
+        author_goal: blank_to_nil(text(attrs[:author_goal])),
+        author_words: author_input && author_input.text,
+        source: author_input && %{kind: :author_action, ref: author_input.turn_id},
+        scope:
+          AuthoringTaskBuilder.scope(Enum.reject([tool_ref | artifact_refs], &is_nil/1),
+            object_kind: :tool_result,
+            coverage: :single
+          ),
+        materials: [],
+        prior_result:
+          AuthoringTaskBuilder.prior_result(%{
+            run_ref: attrs[:run_ref],
+            turn_ref: attrs[:turn_ref],
+            status: attrs[:tool_status],
+            summary: attrs[:outcome_summary],
+            pending_refs: artifact_refs
+          }),
+        source_refs: string_list([tool_ref, blank_to_nil(text(attrs[:provider_call_ref]))]),
+        output_contract: contract(:result_narration)
+      })
+    end
   end
+
+  def for_result_narration(_attrs), do: {:error, :author_input_unavailable}
+
+  defp narration_author_input(nil), do: {:ok, nil}
+
+  defp narration_author_input(%{turn_id: ref, text: text} = input)
+       when is_binary(ref) and is_binary(text) do
+    if String.trim(ref) != "" and String.trim(text) != "",
+      do: {:ok, Map.take(input, [:turn_id, :text])},
+      else: {:error, :author_input_unavailable}
+  end
+
+  defp narration_author_input(_input), do: {:error, :author_input_unavailable}
 
   # ── helpers ──────────────────────────────────────────────
 

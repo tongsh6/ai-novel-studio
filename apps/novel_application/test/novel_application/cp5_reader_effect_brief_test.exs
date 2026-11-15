@@ -18,7 +18,7 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
   test "prose_writing prompt includes reader effect brief and self report stays out of adoption payload" do
     {turn_result, prompt} =
       run(%DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         current_chapters: ["第01章：底层灵气账单", "第02章：旧服务器里的残诀"],
         structured_chapters: [
           %{

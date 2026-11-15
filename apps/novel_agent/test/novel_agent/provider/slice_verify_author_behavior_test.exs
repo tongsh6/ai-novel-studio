@@ -141,10 +141,24 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
 
     prompt =
       TestRequestIR.ir([
-        TestRequestIR.base(
-          "创作判断器\n## 待采纳候选\n- ref=as_original | type=world_setting | status=TENTATIVE | title=沈砚旧书铺设定 | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。"
-        ),
-        TestRequestIR.author(expression)
+        TestRequestIR.base("创作判断器"),
+        TestRequestIR.author(expression),
+        TestRequestIR.scope(%{
+          context: %{
+            interaction_state: %{
+              pending_adoptions: [
+                %{
+                  artifact_ref: "as_original",
+                  artifact_type: "world_setting",
+                  status: "TENTATIVE",
+                  title: "沈砚旧书铺设定",
+                  body_preview: "沈砚经营旧书铺。"
+                }
+              ]
+            }
+          },
+          operation: %{pending_artifact_targets: %{"as_original" => ["revise_pending_artifact"]}}
+        })
       ])
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})

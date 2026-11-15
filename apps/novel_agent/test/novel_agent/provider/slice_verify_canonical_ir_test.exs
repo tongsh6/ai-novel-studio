@@ -17,26 +17,32 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
   @lookup_other_summary "「第01章：夜潮」点灯人第一次点灯时才二十五岁。"
   @quoted_fake_section_line "「第01章：夜潮」点灯人第一次点灯时才二十五岁，三十岁是后来的事。"
 
-  @lookup_scope """
-  ## 探索目录
-  - prose_search
-  ## 章节列表（共 1 章：已写 1 章）
-  - 第 1 章「夜潮」[chapter_ref=#{@chapter_ref}]
-  """
+  @lookup_scope %{
+    operation: %{exploration: %{allowed: true, tools: ["prose_search"]}},
+    facts: %{chapters: [%{ref: @chapter_ref, seq: 1, title: "夜潮", has_prose: true}]}
+  }
 
   defp ir(observation_summary) do
-    scope = """
-    ## 当前作品与实际观察
-    ## 章节列表（共 2 章：已写 1 章，计划中 1 章）
-    - 第 1 章「灰烬中的手印」[chapter_ref=chapter:e81c059a-c31f-4008-88e3-8be124b896ca]（计划中）
-    - 第 2 章「灰烬中的手印」[chapter_ref=#{@chapter_ref}]
-    """
+    scope = %{
+      operation: %{exploration: %{allowed: true, tools: ["chapter_read"]}},
+      facts: %{
+        chapters: [
+          %{
+            ref: "chapter:e81c059a-c31f-4008-88e3-8be124b896ca",
+            seq: 1,
+            title: "灰烬中的手印",
+            has_prose: false
+          },
+          %{ref: @chapter_ref, seq: 2, title: "灰烬中的手印", has_prose: true}
+        ]
+      }
+    }
 
     messages = [
       RequestIR.message(:application_base, :application, [
         RequestIR.text_block("本 run 的应用数据：目标、坐标、权限、预算与 Base refs 由结构化字段给出。")
       ]),
-      RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope)]),
+      RequestIR.message(:scope_update, :application, [RequestIR.scope_block(scope)]),
       RequestIR.message(:user, :author, [RequestIR.text_block(@author_text)])
     ]
 
@@ -77,7 +83,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       RequestIR.message(:application_base, :application, [
         RequestIR.text_block("本 run 的应用数据：目标、坐标、权限、预算与 Base refs 由结构化字段给出。")
       ]),
-      RequestIR.message(:scope_update, :application, [RequestIR.text_block(@lookup_scope)])
+      RequestIR.message(:scope_update, :application, [RequestIR.scope_block(@lookup_scope)])
     ]
   end
 
@@ -129,7 +135,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
           summary: @lookup_summary
         }) ++
         [
-          RequestIR.message(:scope_update, :application, [RequestIR.text_block(@lookup_scope)]),
+          RequestIR.message(:scope_update, :application, [RequestIR.scope_block(@lookup_scope)]),
           lookup_author_message(@lookup_author_text)
         ]
     )
@@ -140,18 +146,19 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
   @empty_revision_author "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。"
 
   defp empty_chapter_revision_ir do
-    scope = """
-    ## 当前作品与实际观察
-    ## 章节列表（共 0 章：已写 0 章，计划中 0 章）
-    ## 探索目录
-    - prose_search
-    """
+    scope = %{
+      facts: %{chapters: []},
+      operation: %{
+        chapter_revision_targets: [],
+        exploration: %{allowed: true, tools: ["prose_search"]}
+      }
+    }
 
     messages = [
       RequestIR.message(:application_base, :application, [
         RequestIR.text_block("本 run 的应用数据：目标、坐标、权限、预算与 Base refs 由结构化字段给出。")
       ]),
-      RequestIR.message(:scope_update, :application, [RequestIR.text_block(scope)]),
+      RequestIR.message(:scope_update, :application, [RequestIR.scope_block(scope)]),
       RequestIR.message(:user, :author, [RequestIR.text_block(@empty_revision_author)])
     ]
 
@@ -181,6 +188,46 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
           )
         ]
     )
+  end
+
+  test "续行从最新原生 goal 和偏离事实读取，合法无作者消息不会被旧历史替代" do
+    old_scope = %{
+      work_id: "continuation-work",
+      goal: %{provenance: "application", text: "按原目标重试一次"},
+      context: %{provenance: "application", derived: true, deviation_summary: "质量复核"}
+    }
+
+    for {history, goal, expected_tool} <- [
+          {[], "  先按原目标重试一次。  ", "continuation_decision"},
+          {[
+             NovelTest.TestRequestIR.scope(old_scope),
+             NovelTest.TestRequestIR.author("按原目标重试一次")
+           ], "完成本章正文候选", "ask_author"}
+        ] do
+      scope = %{
+        work_id: "continuation-work",
+        goal: %{provenance: "application", text: goal},
+        context: %{
+          provenance: "application",
+          derived: true,
+          deviation_summary: "工具 prose_writing 执行失败",
+          observation_summary: nil
+        }
+      }
+
+      ir =
+        NovelTest.TestRequestIR.ir(
+          history ++ [NovelTest.TestRequestIR.scope(scope)],
+          run: %{run_id: "continuation-run", work_id: "continuation-work"},
+          system: RequestIR.system_envelope(instructions: "本次你承担创作判断器的角色，与作者讨论并判断创作下一步。"),
+          tools:
+            Enum.map(["continuation_decision", "ask_author"], &NovelTest.TestRequestIR.tool/1)
+        )
+
+      assert :ok = RequestIR.validate(ir)
+      assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, ir, %InferenceParams{})
+      assert [%{name: ^expected_tool}] = result.tool_calls
+    end
   end
 
   test "首轮无观察时从章节索引复制唯一 chapter_ref（不按标题猜测）" do

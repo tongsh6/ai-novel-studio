@@ -119,6 +119,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -137,9 +138,14 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     # WR02：规划前推理步——模型原话进作者可见事件，依据越界条目被机械丢弃。
     assert_receive {:planning_mission_prompt, mission_prompt}, 1_000
-    assert prompt_text(mission_prompt) =~ "本轮规划（按当前进度态推导接下来该规划什么）"
-    assert prompt_text(mission_prompt) =~ "[ledger:information:foreshadow_a]"
-    assert prompt_text(mission_prompt) =~ "[plan:0:summary]"
+
+    mission_inputs =
+      NovelTest.TestProviderPrompt.scope_content(mission_prompt)["operation"]["mission_inputs"]
+
+    assert mission_inputs["mode"] == "planning"
+    mission_refs = Enum.map(mission_inputs["items"], & &1["ref"])
+    assert "ledger:information:foreshadow_a" in mission_refs
+    assert "plan:0:summary" in mission_refs
     assert_receive {:agent_event, :mission_derived, mission_event}, 1_000
     assert mission_event.payload.author_narrative =~ "先给超期伏笔安排回收"
     assert mission_event.payload.dropped_unbound_count == 1
@@ -317,6 +323,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -412,7 +419,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: [],
       structured_chapters: [
         %{
@@ -522,6 +529,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn _event ->
                  :ok
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -550,7 +558,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
   defp scope_context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_work_snapshot: %{target_length: 140_000, planned_volumes: 3},
       current_chapters: ["第01章：开局设定"],
       structured_chapters: [

@@ -5,26 +5,28 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.TestSupport.AuthoringTaskFixtures
   alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeRequest
-
-  @good_json Jason.encode!([
-               %{item_id: "i1", title: "候选", body: "候选正文", rationale: nil}
-             ])
+  alias NovelCommon.RequestIR
+  alias NovelTest.TestProviderPrompt
 
   defp captured_prompt(request) do
-    {:ok, agent} = Agent.start_link(fn -> nil end)
+    assert {:ok, ir} = Real.request_ir(request)
+    assert :ok = RequestIR.validate(ir)
+    scope = TestProviderPrompt.scope_content(ir)
 
-    execution =
-      AuthoringTaskFixtures.provider_execution(
-        fn prompt ->
-          Agent.update(agent, fn _ -> prompt end)
-          {:ok, %{content: @good_json}}
-        end,
-        "submit_tentative_artifact"
-      )
+    assert scope["authoring_task"] ==
+             request.task
+             |> AuthoringTask.to_map()
+             |> Map.delete("author_words")
+             |> Jason.encode!()
+             |> Jason.decode!()
 
-    assert Real.generate(request, execution).status == :ok
-    Agent.get(agent, & &1)
+    assert scope["operation"]["creative_brief"] == request.creative_brief
+    assert scope["operation"]["context_text"] == request.context_text
+    assert scope["operation"]["revision"] == request.revision
+    assert TestProviderPrompt.author_text(ir) == request.task.author_words
+    ir
   end
 
   defp request(tool, artifact_type, task) do
@@ -35,30 +37,35 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
       creative_brief: "用户创作简述占位",
       context_text: "上下文占位",
       source_turn_ref: "turn-1",
+      source_input_ref: task.source.ref,
       task: task,
       provider_hints: %{}
     }
   end
 
-  defp assert_task_prompt(prompt, task, operation_marker) do
+  defp assert_task_prompt(ir, task, operation_marker) do
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
     assert String.split(prompt, AuthoringSemantics.static_block(task)) |> length() == 2
     assert String.split(prompt, "## 创作协作共同规则") |> length() == 2
     assert prompt =~ operation_marker
-    assert prompt =~ "作者原话（逐字保留、可追溯）：作者原话 NONCE42"
-    assert prompt =~ "本轮目标（应用据作者输入与已验证上下文归纳，来源可追溯）"
+    assert TestProviderPrompt.author_text(ir) == task.author_words
+
+    assert TestProviderPrompt.scope_content(ir)["authoring_task"]["author_goal"] ==
+             task.author_goal
+
     assert prompt =~ "submit_tentative_artifact"
     refute prompt =~ "只返回 JSON 数组"
     refute prompt =~ "本次你承担创作助手的角色"
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    refute prompt =~ "用户创作简述："
+    refute Map.has_key?(TestProviderPrompt.scope_content(ir)["authoring_task"], "author_words")
   end
 
   test "plot_outline creation prompt keeps outline domain schema and shared semantics" do
     task = AuthoringTaskFixtures.task(:outline)
-    prompt = captured_prompt(request("plot_outline", :outline_draft, task))
+    ir = captured_prompt(request("plot_outline", :outline_draft, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为结构规划")
+    assert_task_prompt(ir, task, "本轮为结构规划")
     assert prompt =~ "章功能定位："
     assert prompt =~ "场次：场名｜目标："
     assert prompt =~ "本次你承担章计划助手的角色"
@@ -76,19 +83,23 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
         preserve: ["未要求修改的内容逐字保留"]
       })
 
-    prompt = captured_prompt(request("plot_outline", :outline_draft, task))
+    ir = captured_prompt(request("plot_outline", :outline_draft, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为修订")
-    assert prompt =~ "## 必须保留"
-    assert prompt =~ "未要求修改的内容逐字保留"
+    assert_task_prompt(ir, task, "本轮为修订")
+
+    assert TestProviderPrompt.scope_content(ir)["authoring_task"]["preserve"] ==
+             ["未要求修改的内容逐字保留"]
+
     assert prompt =~ "本次你承担章计划修订助手的角色"
   end
 
   test "character_design creation prompt keeps narrative_role/domain schema" do
     task = AuthoringTaskFixtures.task(:character_design)
-    prompt = captured_prompt(request("character_design", :character_seed, task))
+    ir = captured_prompt(request("character_design", :character_seed, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为角色设计")
+    assert_task_prompt(ir, task, "本轮为角色设计")
     assert prompt =~ "narrative_role"
     assert prompt =~ "PROTAGONIST"
     assert prompt =~ "本次你承担小说角色设计助手的角色"
@@ -100,18 +111,20 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
         output_contract: AuthoringTaskFixtures.contract_for(:character_design)
       })
 
-    prompt = captured_prompt(request("character_design", :character_seed, task))
+    ir = captured_prompt(request("character_design", :character_seed, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为修订")
+    assert_task_prompt(ir, task, "本轮为修订")
     assert prompt =~ "narrative_role"
     assert prompt =~ "本次你承担小说角色设定修订助手的角色"
   end
 
   test "character_evolution prompt keeps memory_subtype schema" do
     task = AuthoringTaskFixtures.task(:character_evolution)
-    prompt = captured_prompt(request("character_evolution", :character_evolution_seed, task))
+    ir = captured_prompt(request("character_evolution", :character_evolution_seed, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为角色演化记录")
+    assert_task_prompt(ir, task, "本轮为角色演化记录")
     assert prompt =~ "memory_subtype"
     assert prompt =~ "CHARACTER_PROFILE"
     assert prompt =~ "只记录演化事件，不重建主档案"
@@ -125,9 +138,10 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
           |> Map.put(:artifact_type, :foreshadowing_seed)
       })
 
-    prompt = captured_prompt(request("world_building", "foreshadowing_seed", task))
+    ir = captured_prompt(request("world_building", "foreshadowing_seed", task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为世界观/设定提案")
+    assert_task_prompt(ir, task, "本轮为世界观/设定提案")
     assert prompt =~ "本次草稿类型：foreshadowing_seed"
     assert prompt =~ "伏笔标题"
     assert prompt =~ "伏笔线索 / 首次出现位置"
@@ -142,9 +156,10 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
           |> Map.put(:artifact_type, :world_setting)
       })
 
-    prompt = captured_prompt(request("world_building", "world_setting", task))
+    ir = captured_prompt(request("world_building", "world_setting", task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert_task_prompt(prompt, task, "本轮为修订")
+    assert_task_prompt(ir, task, "本轮为修订")
     assert prompt =~ "本次修订类型：world_setting"
     refute prompt =~ "逐行包含：设定内容"
     refute prompt =~ "待作者确认处"
@@ -171,7 +186,8 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
       | revision: "本轮修订已有候选。必须输出完整修订稿。\n\n目标段定位：作者要求修改第2段。\n第二段原文。"
     }
 
-    prompt = captured_prompt(request)
+    ir = captured_prompt(request)
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert prompt =~ "本轮为修订"
     assert prompt =~ "## 修订基线纪律"
@@ -201,12 +217,14 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
         }
       })
 
-    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+    ir = captured_prompt(request("prose_writing", :prose_fragment, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert prompt =~ "## 整章仅排版修订（format_only）"
-    assert prompt =~ "- 目标对象 refs：draft:d1、draft:d2"
-    assert prompt =~ "- 目标章 ref：chapter:ch01"
-    assert prompt =~ "修订范围：仅排版"
+    scope = TestProviderPrompt.scope_content(ir)["authoring_task"]["scope"]
+    assert scope["refs"] == ["draft:d1", "draft:d2"]
+    assert scope["target_chapter_ref"] == "chapter:ch01"
+    assert scope["modification_scope"] == "format_only"
     assert prompt =~ "按任务给出的覆盖顺序完整输出"
     assert prompt =~ "只允许调整分段、标点、排版与空白；不改变任何字句"
     assert prompt =~ "不得写成续写或“继续往后写”"
@@ -227,14 +245,18 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
         }
       })
 
-    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+    ir = captured_prompt(request("prose_writing", :prose_fragment, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert prompt =~ "## 整章内容修订"
     assert prompt =~ "按任务给出的覆盖顺序输出整章的完整替换稿"
     assert prompt =~ "不得只返回修改片段、摘要或旧稿对照"
     assert prompt =~ "其余段落/片段逐字保留"
     assert prompt =~ "不得写成续写或“继续往后写”"
-    assert prompt =~ "修订范围：整章"
+
+    assert TestProviderPrompt.scope_content(ir)["authoring_task"]["scope"]["modification_scope"] ==
+             "whole_chapter"
+
     refute prompt =~ ~r/(请|可以)继续往后写/
   end
 
@@ -250,7 +272,8 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
         }
       })
 
-    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+    ir = captured_prompt(request("prose_writing", :prose_fragment, task))
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert prompt =~ "## 指定片段/段落内容修订（target_segments）"
     assert prompt =~ "只输出目标段落的完整替换文本"
@@ -281,9 +304,10 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
       })
 
     base_request = request("prose_writing", :prose_fragment, task)
-    prompt = captured_prompt(%{base_request | creative_brief: cp3_wording})
+    ir = captured_prompt(%{base_request | creative_brief: cp3_wording})
+    prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert prompt =~ cp3_wording
+    assert TestProviderPrompt.scope_content(ir)["operation"]["creative_brief"] == cp3_wording
     assert prompt =~ "只输出目标段落的完整替换文本"
     assert prompt =~ "不要输出整章"
     assert prompt =~ "不要复述其他段落"

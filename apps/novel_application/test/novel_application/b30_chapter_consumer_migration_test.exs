@@ -33,7 +33,7 @@ defmodule NovelApplication.B30ChapterConsumerMigrationTest do
 
   test "TEC 目标章：作者按当前 seq 点名 → 命中同章 ref/title（旧 title 编号不误导）" do
     context = %DialogueContext{
-      workspace_id: "work-1",
+      work_id: "work-1",
       current_chapters: ["第01章：初夜", "第11章：外门名册上的空白", "第12章：旧钱与旧名"],
       structured_chapters: [@ch1, @ch2, @ch3]
     }

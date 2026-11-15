@@ -395,7 +395,7 @@ defmodule NovelApplication.ToolProvenanceTest do
       end
 
       context = %NovelDomain.DialogueContext{
-        workspace_id: "work-cont",
+        work_id: "work-cont",
         current_chapters: ["第01章：底层灵气账单", "第02章：宗门试炼"]
       }
 

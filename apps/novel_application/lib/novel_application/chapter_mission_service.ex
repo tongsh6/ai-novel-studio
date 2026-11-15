@@ -18,6 +18,7 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AuthoringOperation
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
+  alias NovelDomain.ChapterPlanDirection
 
   # kind（WR02）：:prose 写某章前 / :planning 规划下一批章前——两类调用点（prompt 目录
   # SSOT），工具名与锚点独立，值对象与绑定机制复用。
@@ -41,7 +42,8 @@ defmodule NovelApplication.ChapterMissionService do
 
   @doc """
   推导本章使命。`opts[:run]` 或 `opts[:snapshot]` 必须提供真实运行来源。
-  `opts[:author_text]` 仅在首次创建会话时作为独立作者原话进入请求。
+  `opts[:author_text]` 由应用会话边界按真实来源幂等记录为独立作者原话；
+  `opts[:source_input_ref]` 由应用提供该原话的真实来源，不从目标版本推导。
   """
   @spec derive(ChapterMissionInputs.t(), Execution.dependency() | nil, keyword()) ::
           {:ok, ChapterMission.t(), meta()} | {:error, term(), meta()}
@@ -77,19 +79,23 @@ defmodule NovelApplication.ChapterMissionService do
       |> Map.delete(:goal_version)
       |> Map.put("goal_version", map_get(goal, :version))
 
+    material_refs = inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> Enum.map(&%{ref: &1})
+
     AuthoringOperation.prepare(run, Keyword.get(opts, :snapshot), %{
       role: tool_name(kind),
       instructions: instructions(kind),
       scope: mission_scope(inputs, goal),
       tool: mission_tool(kind),
-      source_refs: inputs |> ChapterMissionInputs.refs() |> Enum.sort() |> Enum.map(&%{ref: &1}),
+      source_refs: material_refs,
+      base_refs: material_refs,
       versions: versions,
       # VS-00L §3.2（裁决 A）：版本引用进入 canonical system 前缀。
       system_versions: %{
         constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
         output_protocol_version: NovelCommon.AuthoringSemantics.version()
       },
-      author_text: Keyword.get(opts, :author_text)
+      author_text: Keyword.get(opts, :author_text),
+      source_input_ref: Keyword.get(opts, :source_input_ref)
     })
   end
 
@@ -101,14 +107,28 @@ defmodule NovelApplication.ChapterMissionService do
   end
 
   defp mission_scope(inputs, goal) do
-    """
-    当前应用目标：#{map_get(goal, :text) || "未提供"}
-    目标版本：#{map_get(goal, :version) || "未知"}
+    %{
+      goal: goal || %{},
+      operation: %{
+        mission_inputs: %{
+          mode: Atom.to_string(inputs.mode),
+          chapter: mission_chapter(inputs.chapter),
+          items:
+            Enum.map(
+              inputs.items,
+              &Map.update!(&1, :group, fn group -> Atom.to_string(group) end)
+            ),
+          undated_foreshadow_count: inputs.undated_foreshadow_count,
+          written_progress: inputs.written_progress
+        }
+      }
+    }
+  end
 
-    材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：
+  defp mission_chapter(nil), do: nil
 
-    #{ChapterMissionInputs.to_prompt_section(inputs)}
-    """
+  defp mission_chapter(chapter) do
+    Map.update!(chapter, :direction, &ChapterPlanDirection.to_storage/1)
   end
 
   defp instructions(kind) do
@@ -146,8 +166,8 @@ defmodule NovelApplication.ChapterMissionService do
     """
     - statement：一两句话说清这一章现在该干什么。优先处理已超期或本章到期的伏笔、停滞的
       弧光、沉寂的主线、偏离的题材承诺；没有这些压力就按本章计划推进。
-    - must_advance：1 到 4 条，每条 text 具体可执行，basis_ref 必须精确复制材料中方括号内
-      的 ref；找不到依据的不要写。
+    - must_advance：1 到 4 条，每条 text 具体可执行，basis_ref 必须精确复制 mission_inputs.items
+      的 ref 字段；找不到依据的不要写。
     - must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。
     """
     |> String.trim()
@@ -158,7 +178,7 @@ defmodule NovelApplication.ChapterMissionService do
     - statement：一两句话说清这批章要完成什么。优先给已超期或临近的伏笔安排回收、给停滞
       角色安排回归、让沉寂主线重新推进、守住题材承诺；并按全书进度控制节奏。
     - must_advance：1 到 4 条「这批章必须安排的事」，每条 text 具体可排进章计划，basis_ref
-      必须精确复制材料中方括号内的 ref；找不到依据的不要写。
+      必须精确复制 mission_inputs.items 的 ref 字段；找不到依据的不要写。
     - must_avoid：0 到 3 条「这批章不得安排的事」（距目标尚远不得提前收官、不得另立主导
       角色、不得提前揭示保密的计划信息等），basis_ref 同上。
     """

@@ -9,6 +9,7 @@ defmodule NovelPersistence.WorkspaceContext do
   import Ecto.Query, only: [from: 2]
 
   alias NovelDomain.BehaviorState
+  alias NovelDomain.DialogueContext
   alias NovelDomain.VolumeBlueprint
   require NovelTelemetry.LogEmit, as: LogEmit
 
@@ -23,7 +24,6 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Work
   alias NovelPersistence.Schemas.WorkSession
-  alias NovelPersistence.Schemas.Workspace
   alias NovelPersistence.TraceRepository
   alias NovelPersistence.WorkSessionRepo
 
@@ -32,94 +32,54 @@ defmodule NovelPersistence.WorkspaceContext do
   @session_summary_sample_limit 6
 
   @doc """
-  构建 context fetcher 回调。该回调从 DB 读取当前 workspace 信息和最近的对话。
-
-  返回 (workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters})。
-  chapters 是当前作品已采纳章节标题（供 Planner 解析续写/重写目标章）；structured_chapters
-  是 VS-00C CP3 的 tool 侧结构对象（标题、顺序、计划摘要、是否已有正文）。
-  """
-  @spec context_fetcher() :: function()
-  def context_fetcher do
-    fn workspace_id ->
-      {snapshot, work_status} =
-        safe_source(workspace_id, :work, fn -> fetch_workspace_info(workspace_id) end)
-
-      {conv_summary, conversation_status} =
-        safe_source(workspace_id, :conversation, fn ->
-          fetch_conversation_summary(workspace_id)
-        end)
-
-      {structured_chapters, chapters_status} =
-        safe_source(workspace_id, :chapters, fn -> fetch_structured_chapters(workspace_id) end)
-
-      structured_chapters = structured_chapters || []
-
-      {mem_summary, memory_status} =
-        safe_source(workspace_id, :memory, fn -> fetch_memory_summary(workspace_id, nil) end)
-
-      {behavior_summary, behavior_status} =
-        safe_source(workspace_id, :behavior, fn -> fetch_behavior_summary(workspace_id) end)
-
-      {:ok, snapshot, conv_summary, mem_summary, behavior_summary,
-       titles_from_structured_chapters(structured_chapters), structured_chapters, %{},
-       %{
-         work: work_status,
-         conversation: conversation_status,
-         memory: memory_status,
-         behavior: behavior_status,
-         chapters: chapters_status,
-         interaction: :empty
-       }}
-    end
-  end
-
-  @doc """
   构建带作者输入的 context fetcher 回调，用于当前 turn 的相关记忆召回。
 
-  返回 (workspace_id, author_text, session_id ->
-    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters})。
+  唯一返回值为 {:ok, %DialogueContext{}}；作品快照与阅读目录在同一读取事务中取得。
   """
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
-    fn workspace_id, author_text, session_id ->
-      {snapshot, work_status} =
-        safe_source(workspace_id, :work, fn -> fetch_workspace_info(workspace_id) end)
+    fn work_id, author_text, session_id ->
+      {snapshot, work_status, structured_chapters, chapters_status} =
+        fetch_work_sources(work_id)
 
       {conv_summary, conversation_status} =
-        safe_source(workspace_id, :conversation, fn ->
-          fetch_conversation_summary(workspace_id, session_id)
+        safe_source(work_id, :conversation, fn ->
+          fetch_conversation_summary(work_id, session_id)
         end)
 
-      {structured_chapters, chapters_status} =
-        safe_source(workspace_id, :chapters, fn -> fetch_structured_chapters(workspace_id) end)
-
-      structured_chapters = structured_chapters || []
-
       {mem_summary, memory_status} =
-        safe_source(workspace_id, :memory, fn ->
-          fetch_memory_summary(workspace_id, author_text)
+        safe_source(work_id, :memory, fn ->
+          fetch_memory_summary(work_id, author_text)
         end)
 
       {behavior_summary, behavior_status} =
-        safe_source(workspace_id, :behavior, fn ->
-          fetch_behavior_summary(workspace_id, session_id)
+        safe_source(work_id, :behavior, fn ->
+          fetch_behavior_summary(work_id, session_id)
         end)
 
       {interaction_state, interaction_status} =
-        safe_source(workspace_id, :interaction, fn ->
-          NovelPersistence.InteractionLifecycle.context(workspace_id, session_id)
+        safe_source(work_id, :interaction, fn ->
+          NovelPersistence.InteractionLifecycle.context(work_id, session_id)
         end)
 
-      {:ok, snapshot, conv_summary, mem_summary, behavior_summary,
-       titles_from_structured_chapters(structured_chapters), structured_chapters,
-       interaction_state,
-       %{
-         work: work_status,
-         conversation: conversation_status,
-         memory: memory_status,
-         behavior: behavior_status,
-         chapters: chapters_status,
-         interaction: interaction_status
+      {:ok,
+       %DialogueContext{
+         work_id: work_id,
+         current_work_snapshot: snapshot,
+         conversation_summary: conv_summary,
+         memory_summary: mem_summary,
+         open_behavior_summary: behavior_summary,
+         structured_chapters: structured_chapters,
+         current_chapters: titles_from_structured_chapters(structured_chapters),
+         interaction_state: interaction_state || %{},
+         source_status: %{
+           work: work_status,
+           conversation: conversation_status,
+           memory: memory_status,
+           behavior: behavior_status,
+           chapters: chapters_status,
+           interaction: interaction_status
+         }
        }}
     end
   end
@@ -188,6 +148,26 @@ defmodule NovelPersistence.WorkspaceContext do
 
   # ── private fetchers ─────────────────────────────
 
+  defp fetch_work_sources(workspace_id) do
+    {sources, status} =
+      safe_source(workspace_id, :work, fn ->
+        {:ok, result} =
+          Repo.transaction(fn ->
+            {fetch_workspace_info(workspace_id), fetch_structured_chapters(workspace_id)}
+          end)
+
+        result
+      end)
+
+    case sources do
+      {snapshot, chapters} ->
+        {snapshot, source_status(snapshot), chapters, source_status(chapters)}
+
+      nil ->
+        {nil, status, [], status}
+    end
+  end
+
   defp fetch_workspace_info(workspace_id) do
     case Ecto.UUID.cast(workspace_id) do
       {:ok, uuid} ->
@@ -197,14 +177,7 @@ defmodule NovelPersistence.WorkspaceContext do
         end
 
       :error ->
-        # Legacy workspace_id in channel = workspace.name in DB.
-        ws =
-          from(w in Workspace, where: w.name == ^workspace_id, limit: 1)
-          |> Repo.one()
-
-        if ws do
-          %{name: ws.name, description: ws.description}
-        end
+        raise ArgumentError, "invalid work reference"
     end
   end
 
@@ -227,7 +200,10 @@ defmodule NovelPersistence.WorkspaceContext do
     facts = ReadingProjectionRepo.chapter_facts(workspace_id)
 
     Enum.map(entries, fn entry ->
-      Map.merge(entry, Map.get(facts, to_string(entry.id), %{}))
+      entry
+      |> Map.merge(Map.get(facts, to_string(entry.id), %{}))
+      |> Map.put(:work_id, workspace_id)
+      |> Map.put(:visible_in_reading, true)
     end)
   end
 
@@ -257,7 +233,7 @@ defmodule NovelPersistence.WorkspaceContext do
         seq: Map.get(chapter, :seq),
         summary: chapter |> Map.get(:summary) |> normalize_title(),
         plan_direction: Map.get(chapter, :plan_direction),
-        has_prose: Map.get(chapter, :word_count, 0) > 0,
+        has_prose: prose_present?(Map.get(chapter, :word_count)),
         volume_id: Map.get(volume, :id),
         volume_seq: Map.get(volume, :seq),
         volume_title: volume |> Map.get(:title) |> normalize_blank(),
@@ -268,9 +244,12 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp structured_chapter_entry(_chapter, _volume), do: nil
 
+  defp prose_present?(count) when is_integer(count), do: count > 0
+  defp prose_present?(_count), do: nil
+
   defp titles_from_structured_chapters(chapters), do: Enum.map(chapters, & &1.title)
 
-  defp normalize_title(value) when is_binary(value), do: String.trim(value)
+  defp normalize_title(value) when is_binary(value), do: value
   defp normalize_title(_), do: ""
 
   @doc """
@@ -407,8 +386,6 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp fetch_conversation_summary(workspace_id, _session_id),
     do: fetch_conversation_summary(workspace_id)
-
-  defp fetch_behavior_summary(workspace_id), do: fetch_behavior_summary(workspace_id, nil)
 
   defp fetch_behavior_summary(workspace_id, session_id)
        when is_binary(session_id) and session_id != "" do

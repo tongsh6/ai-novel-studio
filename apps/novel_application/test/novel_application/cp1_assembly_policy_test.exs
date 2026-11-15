@@ -70,7 +70,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
 
   defp context(policy) do
     %DialogueContext{
-      workspace_id: "work-cp1",
+      work_id: "work-cp1",
       current_chapters: ["第一章"],
       assembly_policy: policy
     }
@@ -153,7 +153,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
     long = String.duplicate("丁", 3000)
 
     ctx = %DialogueContext{
-      workspace_id: "work-cp1",
+      work_id: "work-cp1",
       current_chapters: ["第一章"],
       assembly_policy: nil
     }

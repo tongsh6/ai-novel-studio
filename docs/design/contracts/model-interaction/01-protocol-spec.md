@@ -36,7 +36,7 @@
 | `capabilities` | profile工具、实际业务效果、目录覆盖与探索入口 | 原生tools展开完整Schema；目录不是无边界预装所有作品知识 |
 | `runtime` | Provider/model、输出预算、流式、strict方言 | 传输参数，不能作为模型业务事实 |
 
-`identity.kind=standalone_operation` 不要求 run_ref/session_ref/turn_ref。章摘要、设定盘点、结果叙述可以是已有事实驱动的独立作业；这不意味着“Provider能力有限”，不能因此填finite_mode。参照现役 `RequestIR.text_operation` [S03]。
+`identity.kind=standalone_operation` 不要求 run_ref/session_ref/turn_ref。章摘要、设定盘点、结果叙述可以是已有事实驱动的独立作业；这不意味着“Provider能力有限”，不能因此填finite_mode。参照现役 `RequestIR.Operation.text_operation`（B87 R02 收敛到既有 Operation；历史存在性证据见 [S03]）。
 
 `history.current_author_insert_at` 是**本设计的派生视图索引**，不是建议新增的Canonical存储字段。它使当前原话在同回合工具读取之前，而在下一作者回合时置于历史之后，避免连续工具调用后重复当前作者消息。生产应由已有消息身份/顺序推导等价位置，不持久化另一份顺序真源。
 

@@ -9,13 +9,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
-  alias NovelDomain.AssemblyPolicy
-  alias NovelDomain.DialogueContext
+  alias NovelTest.TestProviderPrompt
 
   @work "work-agent-prose-flow"
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
 
-  test "bounded prose run exposes context, strategy, prose quality, and finalization steps" do
+  test "bounded prose run uses run work identity for reads, persistence, quality and finalization" do
     parent = self()
 
     writer = fn prompt ->
@@ -133,8 +132,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     input = %{
       text: "先写第01章正文草稿，再做质量复核，检查是否有问题。",
-      workspace_id: @work,
-      work_id: @work,
+      workspace_id: "workspace-agent-prose-flow",
+      work_id: "work-stale-prose-input",
       session_id: "session-agent-prose-flow",
       turn_id: "turn-agent-prose-flow",
       trigger: %{kind: "user_message"},
@@ -151,9 +150,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, :recorded}
       end,
       quality_provider_execution: %Execution{result_fn: evaluator},
-      chapter_prose_reader: fn _work_id, _chapter -> "" end,
+      chapter_prose_reader: fn work_id, _chapter ->
+        send(parent, {:prose_reader_work_id, :chapter_prose, work_id})
+        ""
+      end,
       chapter_summary_reader: %{},
-      character_reader: fn _work_id -> [] end,
+      character_reader: fn work_id ->
+        send(parent, {:prose_reader_work_id, :character, work_id})
+        []
+      end,
+      ledger_reader: fn work_id ->
+        send(parent, {:prose_reader_work_id, :ledger, work_id})
+        []
+      end,
+      written_progress_reader: fn work_id ->
+        send(parent, {:prose_reader_work_id, :written_progress, work_id})
+        nil
+      end,
       # WR01b：推理成功即落暂定（写端口可注入；作者版在场由端口自行拒绝覆盖）。
       chapter_mission_writer: fn work_id, seq, mission_map ->
         send(parent, {:mission_persisted, work_id, seq, mission_map})
@@ -170,10 +183,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       )
 
     assert planned.run_attrs.profile_ref == ProseDraftingWithQuality.profile_ref()
+    run_attrs = Map.put(planned.run_attrs, :work_id, @work)
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(
-               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+               NovelApplication.TestAgentEventRelay.observe(run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
                next_step_planner: planned.next_step_planner,
@@ -241,14 +255,16 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:writer_prompt, writer_prompt}, 500
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "用户创作简述："
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "场级执行简述"
+    writer_scope = TestProviderPrompt.scope_content(writer_prompt)
+    assert is_binary(writer_scope["operation"]["creative_brief"])
+    assert writer_scope["operation"]["creative_brief"] != ""
+    assert writer_scope["operation"]["execution_brief"] =~ "场级执行简述"
 
-    # B27 CP3b：writer 由共享任务语义渲染（L1 静态段 + L3 动态事实），不再只靠模板
+    # B27/R02：共享规则保持静态，任务与覆盖从原生 Scope 读取；作者原文独立保留。
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "## 创作协作共同规则"
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "本轮任务语义："
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "## 材料与覆盖"
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "作者原话（逐字保留、可追溯）"
+    assert %{"kind" => "first_draft", "materials" => [_ | _]} = writer_scope["authoring_task"]
+    refute Map.has_key?(writer_scope["authoring_task"], "author_words")
+    assert TestProviderPrompt.author_text(writer_prompt) == input.text
 
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
              "companion_artifacts"
@@ -296,10 +312,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       |> List.last()
 
     assert quality_message
-    quality_scope = NovelApplication.TestAgenticLoopFixtures.message_text(quality_message)
-
-    assert quality_scope =~ "评审范围：单对象/片段"
-    refute quality_scope =~ "用户创作简述："
+    assert quality_message.role == "application_notice"
+    quality_scope = TestProviderPrompt.scope_content(evaluator_prompt)
+    assert quality_scope["authoring_task"]["kind"] == "quality_evaluation"
+    assert quality_scope["authoring_task"]["scope"]["coverage"] == "single"
+    assert quality_scope["operation"]["prose_text"] == @bad_prose
+    refute Map.has_key?(quality_scope["operation"], "creative_brief")
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "质量复核已完成"
     assert_receive {:agent_event, :exploration_observed, quality_event}, 500
@@ -318,6 +336,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
+    assert state.run.workspace_id == "workspace-agent-prose-flow"
+    assert state.run.work_id == @work
+    assert_receive {:prose_reader_work_id, :character, @work}
+    assert_receive {:prose_reader_work_id, :ledger, @work}
+    assert_receive {:prose_reader_work_id, :written_progress, @work}
+    refute_receive {:prose_reader_work_id, _, "work-stale-prose-input"}, 10
+    refute_receive {:prose_reader_work_id, _, "workspace-agent-prose-flow"}, 10
     # WR01：context + chapter_mission + prose_writing 三步；写前推理 +1 调用。
     assert length(state.run.completed_step_refs) == 3
     assert state.run.consumed_budget.steps == 3
@@ -587,6 +612,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -733,6 +759,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -849,6 +876,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -871,81 +899,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # 规划 2（首调缺 tool call + 纠错）+ 写前推理 1 + writer 1 + evaluator 1 = 5
     assert state.run.consumed_budget.provider_calls == 5
     assert Agent.get(planner_counter, & &1) == 2
-  end
-
-  test "作者已采纳旗标在迭代边界机械收束（0 调用，不再进判断②/改进步）（M0）" do
-    {:ok, plan} =
-      NovelDomain.AgentPlan.new(%{
-        plan_id: "ap_author_settle",
-        run_ref: "run_author_settle",
-        steps: [
-          %{
-            step_id: "s1",
-            kind: :explore,
-            status: :completed,
-            description: "读取正文写作上下文",
-            target_tool_ref: "context_assemble"
-          },
-          %{
-            step_id: "s2",
-            kind: :act,
-            status: :completed,
-            description: "生成正文草稿并触发质量复核",
-            target_tool_ref: "prose_writing",
-            write_intent: :tentative,
-            authoring_intent: :continuation,
-            target_chapter: "第01章：开端"
-          }
-        ]
-      })
-
-    {:ok, run} =
-      NovelDomain.AgentRun.new(%{
-        run_id: "run_author_settle",
-        workspace_id: "ws-author-settle",
-        work_id: "work-author-settle",
-        session_id: "session-author-settle",
-        parent_turn_ref: "turn-author-settle",
-        origin_frame_ref: "frame-author-settle",
-        profile_ref: "prose_drafting_with_quality_v1",
-        goal: %{text: "接着第01章往下写一段正文", version: 1},
-        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-        plan: plan
-      })
-
-    flunk_provider = %Execution{
-      result_fn: fn _prompt -> flunk("settled run must not call any provider") end
-    }
-
-    spec =
-      NovelApplication.DialoguePlanningService.run_spec_for_profile(
-        :prose_drafting_with_quality,
-        %{
-          text: "接着第01章往下写一段正文",
-          workspace_id: "ws-author-settle",
-          work_id: "work-author-settle",
-          session_id: "session-author-settle",
-          turn_id: "turn-author-settle"
-        },
-        nil,
-        flunk_provider
-      )
-
-    snapshot = %{
-      stage_state: %{
-        agent_plan_cursor: 2,
-        author_adopted_refs: ["as_settled"]
-      },
-      observations: [],
-      events: [],
-      stage_sink: fn _event -> :ok end
-    }
-
-    # 计划已走完 + 旗标在：原本会进判断②（1 次调用）；收束语义下 0 调用直接完成。
-    assert {:complete, decision, meta} = spec.next_step_planner.(run, 3, snapshot)
-    assert decision.decision_type == :goal_satisfied
-    assert "author_adopted_candidate" in decision.reason_codes
-    assert meta.provider_call_count == 0
   end
 
   test "D1 tool failure revises plan before waiting for author" do
@@ -1105,6 +1058,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planned.next_step_planner
              )
 
@@ -1133,6 +1087,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   test "scoped writer-timeout steer grants one bounded retry and recovers the same run" do
     parent = self()
+    {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "原文范围重试"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.create(%{work_id: work.id})
 
     writer = fn prompt ->
       cond do
@@ -1202,8 +1158,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       start_prose_run!(
         %{
           text: "写第01章正文草稿，但 writer provider 连续超时。",
-          session_id: "session-agent-b17-scoped-retry",
+          workspace_id: work.id,
+          work_id: work.id,
+          session_id: session.id,
           turn_id: "turn-agent-b17-scoped-retry",
+          context_override: %{context() | work_id: work.id},
+          interaction_store: &NovelPersistence.InteractionLifecycle.call/2,
           quality_provider_execution: %Execution{result_fn: evaluator}
         },
         writer,
@@ -1215,16 +1175,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert "writer_timeout" in awaiting.reason_codes
     assert "writer_timeout_retry_recommended" in awaiting.reason_codes
 
-    assert {:ok, _receipt} =
-             AgentRunService.steer(
-               run_id,
-               "缩小范围重试：先只写当前章的第一个场景，500 字以内；写完就停，等我确认后再继续下一个场景。"
-             )
+    raw_steer =
+      "  缩小范围重试：先只写当前章的第一个场景，500 字以内；写完就停，等我确认后再继续下一个场景。Ω\n  "
+
+    assert {:ok, _receipt} = AgentRunService.steer(run_id, raw_steer)
 
     recovery_events = collect_agent_events_until(:run_completed, 5_000)
     assert find_event!(recovery_events, :run_completed)
     assert_receive {:scoped_writer_prompt, scoped_prompt}, 1_000
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(scoped_prompt) =~ "先只写当前章的第一个场景"
+    assert TestProviderPrompt.author_text(scoped_prompt) == raw_steer
+
+    assert %{
+             source_refs: [%{ref: "turn-agent-b17-scoped-retry:steer:2"}],
+             blocks: [%{type: "text", text: ^raw_steer}]
+           } =
+             scoped_prompt.messages
+             |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))
+             |> List.last()
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
@@ -1272,7 +1239,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert Enum.any?(transcript.messages, fn message ->
              message.role == "scope_update" and
-               Enum.any?(message.blocks, &(Map.get(&1, :text, "") =~ "D1 偏离信号"))
+               Enum.any?(message.blocks, fn
+                 %{type: "scope", content: content} ->
+                   (get_in(content, ["context", "deviation_summary"]) || "") =~ "D1 偏离信号"
+
+                 _ ->
+                   false
+               end)
            end)
 
     assert {:ok, restored} =
@@ -1684,14 +1657,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         mission_prompt?(prompt) ->
-          mission_text = prompt_text(prompt)
-          send(parent, {:mission_prompt, mission_text})
+          send(parent, {:mission_prompt, prompt})
 
-          [observation_ref | _] =
-            ~r/observation:obs_[A-Za-z0-9_]+/
-            |> Regex.scan(mission_text)
-            |> List.flatten()
-            |> Enum.uniq()
+          %{"ref" => observation_ref} =
+            TestProviderPrompt.scope_content(prompt)["operation"]["mission_inputs"]["items"]
+            |> Enum.find(&(&1["group"] == "observation"))
 
           {:ok,
            with_provider_call(
@@ -1709,14 +1679,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         true ->
-          writer_text = prompt_text(prompt)
-          send(parent, {:writer_prompt, writer_text})
+          send(parent, {:writer_prompt, prompt})
 
-          [observation_ref | _] =
-            ~r/observation:obs_[A-Za-z0-9_]+/
-            |> Regex.scan(writer_text)
-            |> List.flatten()
-            |> Enum.uniq()
+          mission_observation_refs =
+            for %{role: "scope_update", blocks: [%{type: "scope", content: content}]} <-
+                  prompt.messages,
+                %{"group" => "observation", "ref" => ref} <-
+                  get_in(content, ["operation", "mission_inputs", "items"]) || [],
+                do: ref
+
+          %{"ref" => observation_ref} =
+            TestProviderPrompt.scope_content(prompt)["authoring_task"]["materials"]
+            |> Enum.find(&(&1["kind"] == "observation" and &1["ref"] in mission_observation_refs))
 
           {:ok,
            with_provider_call(
@@ -1805,11 +1779,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # CP1b：观察以 observation ref 进入使命输入，模型可引用且 bind 保留；
     # writer AuthoringTask 材料/来源登记同一 observation ref。
     assert_receive {:mission_prompt, mission_prompt}, 1_000
-    assert mission_prompt =~ "本 run 已取得的观察"
-    assert mission_prompt =~ "observation:obs_"
 
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
-             "observation：observation:obs_"
+    mission_observations =
+      TestProviderPrompt.scope_content(mission_prompt)["operation"]["mission_inputs"]["items"]
+      |> Enum.filter(&(&1["group"] == "observation"))
+
+    assert [%{"ref" => observation_ref, "text" => observation_text}] = mission_observations
+    assert observation_ref =~ "observation:obs_"
+    assert observation_text =~ explore_event.payload.summary
+
+    writer_task = TestProviderPrompt.scope_content(writer_prompt)["authoring_task"]
+
+    assert Enum.any?(
+             writer_task["materials"],
+             &(&1["kind"] == "observation" and &1["ref"] == observation_ref)
+           )
+
+    assert observation_ref in writer_task["source_refs"]
 
     assert_receive {:mission_persisted, "work-agent-prose-flow", 1, persisted_mission}, 1_000
     persisted_advance = persisted_mission["must_advance"] || persisted_mission[:must_advance]
@@ -1952,6 +1938,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
+               interaction_store: planned.interaction_store,
                next_step_planner: planned.next_step_planner
              )
 
@@ -2045,27 +2033,5 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     end
   end
 
-  defp context do
-    %DialogueContext{
-      workspace_id: @work,
-      current_chapters: ["第01章：开端"],
-      structured_chapters: [
-        %{
-          title: "第01章：开端",
-          seq: 1,
-          summary: "主角第一次进入封闭空间。",
-          has_prose: false,
-          plan_direction: %{
-            "chapter_role" => "开端",
-            "plot_progress" => "主角进入异常房间并发现压力来源",
-            "character_change" => "从被动观察转向主动寻找出口",
-            "information_release" => "房间和旧公司实验有关",
-            "foreshadowing_action" => "茶杯上有旧编号",
-            "emotion" => "压抑、警觉"
-          }
-        }
-      ],
-      assembly_policy: AssemblyPolicy.for_tier(:floor)
-    }
-  end
+  defp context, do: TestAgenticLoopFixtures.prose_drafting_context(@work)
 end

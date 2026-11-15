@@ -118,16 +118,22 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.NativeToolExchange
+  alias NovelAgent.Provider.RuntimeConfig
   alias NovelCommon.RequestIR
   alias NovelTelemetry.LLMLog
   alias NovelTelemetry.LogFileDate
+  alias NovelTest.TestRequestIR
 
   @tool "judgment_decision"
   @provider_opts [provider: :execution_refs_fixture, model: "fixture-model"]
 
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
+    old_provider = Application.get_env(:novel_agent, :provider)
+    RuntimeConfig.reset()
     old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
     dir = Path.join(System.tmp_dir!(), "gateway-execution-refs-#{unique_integer()}")
 
@@ -139,6 +145,8 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
     Logger.reset_metadata([])
 
     on_exit(fn ->
+      RuntimeConfig.reset()
+      restore_app_env(:novel_agent, :provider, old_provider)
       Logger.reset_metadata([])
       restore_app_env(:novel_agent, :extra_providers, old_extra)
       restore_app_env(:novel_telemetry, :llm_log_dir, old_dir)
@@ -342,4 +350,98 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
   defp restore_app_env(app, key, nil), do: Application.delete_env(app, key)
 
   defp restore_app_env(app, key, value), do: Application.put_env(app, key, value)
+
+  describe "execution log scope" do
+    test "success log carries the same refs as ProviderRun and Result", %{dir: dir} do
+      # R2：工具调用走 SSE 流式传输，日志记录来自真实流式请求/响应。
+      eventsource = fn _url, _body, _opts, on_data ->
+        on_data.(
+          "data: " <>
+            Jason.encode!(%{
+              "choices" => [%{"delta" => %{"content" => "HTTP 替身成功正文"}}],
+              "model" => "stand-in-model",
+              "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 4}
+            }) <> "\n\n"
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
+      end
+
+      RuntimeConfig.put_provider_config(:strata,
+        eventsource_fn: eventsource,
+        model: "stand-in-model",
+        endpoint: "http://stand-in.test/v1"
+      )
+
+      assert {:ok, %{provider_run: run, output: output, events: events}} =
+               Gateway.execute(tool_ir(), nil, %InferenceParams{},
+                 provider: :strata,
+                 provider_call_ref: "pcall-log-success",
+                 provider_run_id: "prun-log-success"
+               )
+
+      assert %DateTime{} = Enum.find(events, &(&1.event_type == :started)).emitted_at
+      assert run.provider_call_ref == "pcall-log-success"
+      assert run.provider_run_id == "prun-log-success"
+      assert output.provider_call_ref == "pcall-log-success"
+      assert output.provider_run_ref == "prun-log-success"
+
+      [record] = read_llm_records(dir)
+
+      assert record["provider"] == "strata"
+      assert record["provider_call_ref"] == "pcall-log-success"
+      assert record["provider_run_ref"] == "prun-log-success"
+      assert record["response"]["status"] == 200
+      assert record["request"]["body"]["messages"] != []
+      refute Map.has_key?(record["request"], "headers")
+      refute Jason.encode!(record) =~ "authorization"
+
+      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
+    end
+
+    test "error log carries the same refs as the failed ProviderRun", %{dir: dir} do
+      eventsource = fn _url, _body, _opts, _on_data ->
+        {:error, :http_error, 503, "stand-in upstream failed"}
+      end
+
+      RuntimeConfig.put_provider_config(:strata,
+        eventsource_fn: eventsource,
+        model: "stand-in-model",
+        endpoint: "http://stand-in.test/v1"
+      )
+
+      assert {:error, %{provider_run: run, output: output, error: error}} =
+               Gateway.execute(tool_ir(), nil, %InferenceParams{},
+                 provider: :strata,
+                 provider_call_ref: "pcall-log-error",
+                 provider_run_id: "prun-log-error"
+               )
+
+      assert error.type == :provider_internal
+      assert run.provider_call_ref == "pcall-log-error"
+      assert run.provider_run_id == "prun-log-error"
+      assert run.status == :failed
+      assert output.provider_call_ref == "pcall-log-error"
+      assert output.provider_run_ref == "prun-log-error"
+
+      [record] = read_llm_records(dir)
+
+      assert record["provider_call_ref"] == "pcall-log-error"
+      assert record["provider_run_ref"] == "prun-log-error"
+      assert record["response"]["status"] == 503
+      refute record["response"]["status"] == 200
+
+      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
+    end
+
+    defp tool_ir do
+      TestRequestIR.ir([TestRequestIR.author("读取当前作品。")],
+        tools: [TestRequestIR.tool("read_work")],
+        projection: %{tool_choice: "read_work"}
+      )
+    end
+  end
 end

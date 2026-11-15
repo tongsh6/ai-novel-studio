@@ -14,19 +14,55 @@ defmodule NovelApplication.ContextGroundingTest do
     "world_setting" => "2077年，灵气被垄断为能源，修仙者沦为公司的灵源电池"
   }
 
-  defp stub_fetcher(_ws_id) do
-    {:ok, @work_snapshot, "上一轮讨论了主角林烬潜入地牢的计划。", "林烬觉醒过雷电系灵力。", nil}
+  defp stub_fetcher(workspace_id, _author_text, _session_id) do
+    {:ok,
+     %NovelDomain.DialogueContext{
+       work_id: workspace_id,
+       current_work_snapshot: @work_snapshot,
+       conversation_summary: "上一轮讨论了主角林烬潜入地牢的计划。",
+       memory_summary: "林烬觉醒过雷电系灵力。",
+       open_behavior_summary: nil,
+       structured_chapters: [],
+       interaction_state: %{},
+       source_status: %{
+         work: :ok,
+         conversation: :ok,
+         memory: :ok,
+         behavior: :empty,
+         chapters: :empty,
+         interaction: :empty
+       }
+     }}
   end
 
-  defp empty_fetcher(_ws_id), do: {:ok, nil, nil, nil, nil}
+  defp empty_fetcher(workspace_id, _author_text, _session_id),
+    do:
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: nil,
+         conversation_summary: nil,
+         memory_summary: nil,
+         open_behavior_summary: nil,
+         structured_chapters: [],
+         interaction_state: %{},
+         source_status: %{
+           work: :empty,
+           conversation: :empty,
+           memory: :empty,
+           behavior: :empty,
+           chapters: :empty,
+           interaction: :empty
+         }
+       }}
 
   # ── Context Assembly ──────────────────────────
 
   describe "ContextAssembler" do
     test "assembles context from fetcher" do
-      ctx = ContextAssembler.assemble("ws-ctx", &stub_fetcher/1)
+      ctx = ContextAssembler.assemble("ws-ctx", &stub_fetcher/3)
 
-      assert ctx.workspace_id == "ws-ctx"
+      assert ctx.work_id == "ws-ctx"
       assert ctx.current_work_snapshot != nil
       assert ctx.current_work_snapshot["protagonist"] == "林烬"
       assert ctx.conversation_summary != nil
@@ -37,8 +73,25 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "summarizes transcript-shaped conversation refs instead of exposing role logs" do
-      fetcher = fn _ws_id ->
-        {:ok, nil, "user: 我想写赛博修仙 assistant: 可以从灵气代码化切入", nil, nil}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: "user: 我想写赛博修仙 assistant: 可以从灵气代码化切入",
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :ok,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-conversation-summary", fetcher)
@@ -52,8 +105,25 @@ defmodule NovelApplication.ContextGroundingTest do
     test "旧 session-scoped transcript 来源已退役（CP6）：统一为 conversation 来源" do
       # ADR-0035 决策 9：旧 `:session_transcript` 材料类型退役——会话 canonical 历史
       # 由 CP2 作为消息进入请求派生；ContextAssembler 不再单独标记会话转录来源。
-      fetcher = fn _ws_id, _author_text, _session_id ->
-        {:ok, nil, "user: 当前会话确认当前蓝桥计划 assistant: 已记录当前蓝桥计划", nil, nil}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: "user: 当前会话确认当前蓝桥计划 assistant: 已记录当前蓝桥计划",
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :ok,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx =
@@ -71,8 +141,25 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "keeps workspace fallback conversation refs when no active session is provided" do
-      fetcher = fn _ws_id ->
-        {:ok, nil, "user: 工作区最近讨论 assistant: 已回应", nil, nil}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: "user: 工作区最近讨论 assistant: 已回应",
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :ok,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-conversation-fallback", fetcher)
@@ -82,7 +169,26 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "does not create low-value current work trace refs for title-only snapshots" do
-      fetcher = fn _ws_id -> {:ok, %{"title" => "未命名作品"}, nil, nil, nil} end
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: %{"title" => "未命名作品"},
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :ok,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
+      end
 
       ctx = ContextAssembler.assemble("ws-title-only", fetcher)
 
@@ -91,15 +197,31 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "summarizes persisted work fields into author-visible current work refs" do
-      fetcher = fn _ws_id ->
+      fetcher = fn workspace_id, _author_text, _session_id ->
         {:ok,
-         %{
-           "title" => "灵源纪元",
-           "genre" => "东方奇幻",
-           "core_selling_point" => "林烬追查灵源矿区真相",
-           "target_reader" => "悬疑成长读者",
-           "tone_preference" => "克制、带希望感"
-         }, nil, nil, nil}
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: %{
+             "title" => "灵源纪元",
+             "genre" => "东方奇幻",
+             "core_selling_point" => "林烬追查灵源矿区真相",
+             "target_reader" => "悬疑成长读者",
+             "tone_preference" => "克制、带希望感"
+           },
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :ok,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-work-summary", fetcher)
@@ -112,9 +234,9 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "assembles empty context correctly" do
-      ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/1)
+      ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/3)
 
-      assert ctx.workspace_id == "ws-empty"
+      assert ctx.work_id == "ws-empty"
       assert ctx.current_work_snapshot == nil
       assert ctx.conversation_summary == nil
       assert ctx.context_refs == []
@@ -122,22 +244,38 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "accepts structured chapter entries without changing current_chapters title list" do
-      fetcher = fn _ws_id ->
-        {:ok, @work_snapshot, nil, nil, nil, ["第一章", "第二章"],
-         [
-           %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
-           %{
-             title: "第二章",
-             seq: 2,
-             summary: "推进计划",
-             has_prose: false,
-             plan_direction: %{
-               "chapter_role" => "转折章",
-               "plot_progress" => "主角进入旧服务器",
-               "emotion" => "紧张"
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: @work_snapshot,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [
+             %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
+             %{
+               title: "第二章",
+               seq: 2,
+               summary: "推进计划",
+               has_prose: false,
+               plan_direction: %{
+                 "chapter_role" => "转折章",
+                 "plot_progress" => "主角进入旧服务器",
+                 "emotion" => "紧张"
+               }
              }
+           ],
+           interaction_state: %{},
+           source_status: %{
+             work: :ok,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :ok,
+             interaction: :empty
            }
-         ]}
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-structured-chapters", fetcher)
@@ -160,13 +298,29 @@ defmodule NovelApplication.ContextGroundingTest do
              ] = ctx.structured_chapters
     end
 
-    test "can derive current_chapters from a legacy six-tuple structured chapter payload" do
-      fetcher = fn _ws_id ->
-        {:ok, @work_snapshot, nil, nil, nil,
-         [
-           %{"title" => "第一章", "seq" => "1", "summary" => "开局计划", "word_count" => 12},
-           %{"title" => "第二章", "seq" => 2, "summary" => "推进计划", "word_count" => 0}
-         ]}
+    test "derives current_chapters from structured source values" do
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: @work_snapshot,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [
+             %{"title" => "第一章", "seq" => "1", "summary" => "开局计划", "word_count" => 12},
+             %{"title" => "第二章", "seq" => 2, "summary" => "推进计划", "word_count" => 0}
+           ],
+           interaction_state: %{},
+           source_status: %{
+             work: :ok,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :ok,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-structured-six-tuple", fetcher)
@@ -180,12 +334,12 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "has_context? returns true when snapshot exists" do
-      ctx = ContextAssembler.assemble("ws-has", &stub_fetcher/1)
+      ctx = ContextAssembler.assemble("ws-has", &stub_fetcher/3)
       assert DialogueContext.has_context?(ctx)
     end
 
     test "to_prompt_text includes all non-nil sections" do
-      ctx = ContextAssembler.assemble("ws-prompt", &stub_fetcher/1)
+      ctx = ContextAssembler.assemble("ws-prompt", &stub_fetcher/3)
       text = DialogueContext.to_prompt_text(ctx)
 
       assert String.contains?(text, "灵源纪元")
@@ -195,15 +349,32 @@ defmodule NovelApplication.ContextGroundingTest do
     end
 
     test "to_prompt_text with empty context shows (无)" do
-      ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/1)
+      ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/3)
       text = DialogueContext.to_prompt_text(ctx)
 
       assert String.contains?(text, "无")
     end
 
     test "assembles behavior summary into prompt text and author-safe context refs" do
-      fetcher = fn _ws_id ->
-        {:ok, nil, nil, nil, "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。"}
+      fetcher = fn workspace_id, _author_text, _session_id ->
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
+           structured_chapters: [],
+           interaction_state: %{},
+           source_status: %{
+             work: :empty,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :ok,
+             chapters: :empty,
+             interaction: :empty
+           }
+         }}
       end
 
       ctx = ContextAssembler.assemble("ws-behavior", fetcher)

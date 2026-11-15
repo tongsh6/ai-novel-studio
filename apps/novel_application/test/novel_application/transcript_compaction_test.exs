@@ -1,13 +1,14 @@
 defmodule NovelApplication.TranscriptCompactionTest do
   @moduledoc """
-  B71 P2（VS-00L §16.2/§16.4）：显式压缩派生边界的单测。
+  B71 P2（VS-00L §16.2/§16.4）：显式压缩的派生与执行边界。
 
-  只证明「从 canonical 事实派生命中范围/证据/作者安全摘要」的纯函数语义；
+  覆盖从 canonical 事实派生命中范围、证据和摘要，以及原始交换保留与投影折叠；
   真实 Channel/页面消费者见 `workspace_channel_compaction_test.exs`。
   """
 
   use ExUnit.Case, async: true
 
+  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringReplay
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TranscriptCompaction
@@ -29,12 +30,18 @@ defmodule NovelApplication.TranscriptCompactionTest do
     }
   end
 
-  defp base_transcript do
-    AuthoringTranscript.new(run(),
-      base_text: "run goal: 读取角色事实后给出 tentative 候选",
-      author_text: @author_text,
-      author_turn_ref: "turn-1",
-      tools: [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}]
+  defp base_transcript(run_identity \\ run(), opts \\ []) do
+    AuthoringTranscript.new(
+      run_identity,
+      Keyword.merge(
+        [
+          base_text: "run goal: 读取角色事实后给出 tentative 候选",
+          author_text: @author_text,
+          author_turn_ref: "turn-1",
+          tools: [%{name: "read_character", description: "读取角色", input_schema: %{type: "object"}}]
+        ],
+        opts
+      )
     )
   end
 
@@ -51,7 +58,7 @@ defmodule NovelApplication.TranscriptCompactionTest do
        status: "ok",
        source_refs: refs,
        versions: versions,
-       content: %{summary: "已读取角色"}
+       content: Keyword.get(opts, :content, %{summary: "已读取角色"})
      }}
   end
 
@@ -67,7 +74,12 @@ defmodule NovelApplication.TranscriptCompactionTest do
     transcript =
       base_transcript()
       |> append_exchange("call-1")
-      |> AuthoringTranscript.append_scope_update("后续只开放创作。", %{"scope_revision" => 2})
+      |> AuthoringTranscript.append_scope_update(
+        %{work_id: "work-1", operation: %{exploration: %{allowed: false}}},
+        %{"scope_revision" => 2},
+        [],
+        []
+      )
       |> append_exchange("call-2",
         source_refs: [%{ref: "character:2", version: 5}],
         versions: %{"character:2" => 5}
@@ -449,5 +461,324 @@ defmodule NovelApplication.TranscriptCompactionTest do
 
     assert plan.covers == %{call_ids: ["call-1"], turn_range: "turn-1"}
     assert plan.retained_items == 4
+  end
+
+  describe "显式压缩保留原始作者与来源事实" do
+    setup do
+      run_identity = %{
+        run_id: "run-ir-1",
+        work_id: "work-1",
+        workspace_id: "ws-1",
+        goal: %{text: @author_text}
+      }
+
+      %{
+        base:
+          base_transcript(run_identity,
+            author_turn_ref: "author_turn:turn-1",
+            base_refs: [%{ref: "work:work-1", version: 3}]
+          )
+      }
+    end
+
+    test "checkpoint 与 author_exit：显式压缩、无伪作者消息", %{base: base} do
+      {:ok, compacted} =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> AuthoringTranscript.compact(
+          %{call_ids: ["call-1"], turn_range: "turn-1..turn-20"},
+          [%{ref: "character:1", version: 2}],
+          %{"character:1" => 2},
+          ["对话细节"],
+          "前 20 轮摘要。"
+        )
+
+      transcript =
+        AuthoringTranscript.append_author_exit(compacted, "author_decision_required", %{
+          question_ref: "question:1"
+        })
+
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+      {:ok, body} = Projection.project(ir, "chat_completions")
+
+      checkpoint_message =
+        Enum.find(body.messages, &(is_binary(&1.content) and &1.content =~ "checkpoint"))
+
+      assert checkpoint_message.content =~ "turn-1..turn-20"
+      refute inspect(body) =~ "author_exit"
+      refute Enum.any?(body.messages, &(&1.role == "tool"))
+    end
+
+    test "显式压缩只改变 Provider 投影，canonical 原始交换与作者字节仍可回查", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> AuthoringTranscript.append_scope_update(
+          %{work_id: "work-1", operation: %{exploration: %{allowed: false}}},
+          %{"scope_revision" => 2},
+          [],
+          []
+        )
+        |> AuthoringTranscript.declare_used_refs(["character:1"])
+
+      assert {:ok, compacted} = compact(transcript, ["call-1"])
+      assert Enum.take(compacted.messages, length(transcript.messages)) == transcript.messages
+      assert compacted.call_ids == transcript.call_ids
+      assert compacted.observation_refs == transcript.observation_refs
+
+      assert AuthoringTranscript.current_scope(compacted) ==
+               AuthoringTranscript.current_scope(transcript)
+
+      assert compact(compacted, ["call-1"]) == {:ok, compacted}
+      assert {:error, :checkpoint_already_applied} = compact(compacted, ["call-1"], "不同摘要")
+
+      for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+        assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted)
+        assert {:ok, body} = Projection.project(ir, target)
+        refute provider_call_ids(body) |> Enum.member?("call-1")
+        assert inspect(body) =~ "已读取角色"
+        assert inspect(body) =~ @author_text
+        assert inspect(body) =~ "省略工具调用的逐字内容"
+        refute inspect(body) =~ "ENSEMBLE_POV"
+      end
+
+      assert {:ok, restored} =
+               compacted
+               |> AuthoringCheckpoint.checkpoint()
+               |> Jason.encode!()
+               |> Jason.decode!()
+               |> AuthoringTranscript.restore()
+
+      assert Jason.encode!(restored.messages) == Jason.encode!(compacted.messages)
+      assert inspect(restored.messages) =~ "ENSEMBLE_POV"
+      assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
+
+      assert Projection.project(restored_ir, "chat_completions") ==
+               Projection.project(
+                 elem(AuthoringTranscript.to_request_ir(compacted), 1),
+                 "chat_completions"
+               )
+    end
+
+    test "压缩必须精确选择实际已闭合交换，不接受任意范围说明", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+
+      assert {:error, :checkpoint_call_ids_required} =
+               AuthoringTranscript.compact(
+                 transcript,
+                 %{turn_range: "另一轮"},
+                 [],
+                 %{},
+                 ["省略"],
+                 "摘要"
+               )
+
+      assert {:error, :checkpoint_unknown_call} = compact(transcript, ["missing-call"])
+      assert {:error, :checkpoint_invalid_call_ids} = compact(transcript, ["call-1", "call-1"])
+
+      assert {:error, :checkpoint_omissions_required} =
+               AuthoringTranscript.compact(transcript, %{call_ids: ["call-1"]}, [], %{}, [], "摘要")
+
+      pending =
+        AuthoringTranscript.append_assistant(base, "读取角色。", [tool_call("call-1")])
+
+      assert {:error, :checkpoint_incomplete_exchange} = compact(pending, ["call-1"])
+    end
+
+    test "连续压缩按显式调用范围选择，未选历史和待完成调用保持不变", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> AuthoringTranscript.append_scope_update(
+          %{work_id: "work-1", operation: %{exploration: %{allowed: true}}},
+          %{"scope_revision" => 2},
+          [],
+          []
+        )
+        |> AuthoringTranscript.append_assistant("再次读取。", [
+          RequestIR.tool_call_block("read_character", %{}, "call-2")
+        ])
+        |> AuthoringTranscript.append_observation("call-2", character_observation())
+
+      assert {:ok, first} = compact(transcript, ["call-2"])
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(first)
+      assert {:ok, body} = Projection.project(ir, "chat_completions")
+      assert provider_call_ids(body) == ["call-1", "call-1"]
+
+      assert {:ok, second} = compact(first, ["call-1"])
+      assert Enum.take(second.messages, length(transcript.messages)) == transcript.messages
+      assert Enum.count(second.messages, &(&1.role == "checkpoint")) == 2
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(second)
+      assert {:ok, body} = Projection.project(ir, "chat_completions")
+      assert provider_call_ids(body) == []
+      assert {:error, :checkpoint_already_applied} = compact(second, ["call-1", "call-2"])
+    end
+
+    test "同一 assistant 的多工具交换不能只压缩其中一半", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("并行核查。", [
+          tool_call("call-1"),
+          RequestIR.tool_call_block("read_character", %{}, "call-2")
+        ])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> AuthoringTranscript.append_observation("call-2", character_observation())
+
+      assert {:error, :checkpoint_partial_message} = compact(transcript, ["call-1"])
+      assert {:ok, compacted} = compact(transcript, ["call-1", "call-2"])
+      assert {:ok, _} = AuthoringTranscript.to_request_ir(compacted)
+    end
+
+    test "压缩不能丢失真实来源版本或声明没有读过的来源", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+
+      for {refs, versions} <- [
+            {[], %{}},
+            {[%{ref: "character:other", version: 2}], %{"character:other" => 2}},
+            {[%{ref: "character:1", version: 2}], %{"character:1" => 99}}
+          ] do
+        assert {:error, :checkpoint_evidence_mismatch} =
+                 AuthoringTranscript.compact(
+                   transcript,
+                   %{call_ids: ["call-1"]},
+                   refs,
+                   versions,
+                   ["省略原始工具细节"],
+                   "已读取角色"
+                 )
+      end
+    end
+
+    test "候选压缩后仍可从持久 canonical 记录逐字回查模型产物", %{base: base} do
+      body = "雨落在门槛上。\n\n她没有回答。\n"
+      arguments = %{"items" => [%{"item_id" => "candidate-1", "title" => "夜雨", "body" => body}]}
+
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("", [
+          RequestIR.tool_call_block("submit_tentative_artifact", arguments, "candidate-call")
+        ])
+        |> AuthoringTranscript.append_validation(
+          "candidate-call",
+          "passed",
+          "tentative_validated"
+        )
+
+      assert {:ok, compacted} =
+               AuthoringTranscript.compact(
+                 transcript,
+                 %{call_ids: ["candidate-call"]},
+                 [],
+                 %{},
+                 ["候选原文从请求中省略，仍保留在历史记录中。"],
+                 "已提出夜雨候选，尚未采纳。"
+               )
+
+      assert {:ok, restored} =
+               compacted
+               |> AuthoringCheckpoint.checkpoint()
+               |> Jason.encode!()
+               |> Jason.decode!()
+               |> AuthoringTranscript.restore()
+
+      call =
+        for message <- restored.messages,
+            block <- message.blocks,
+            Map.get(block, :type) == "tool_call",
+            do: block
+
+      assert [%{arguments: ^arguments}] = call
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(restored)
+      assert {:ok, request} = Projection.project(ir, "chat_completions")
+      refute Jason.encode!(request) =~ "雨落在门槛上"
+      assert inspect(request) =~ "尚未采纳"
+    end
+
+    test "纯 turn_range checkpoint 在 RequestIR 结构入口被拒绝，不授权删除真实交换", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> append_invalid_checkpoint(%{turn_range: "turn-1"}, [], %{}, [], "旧版摘要")
+
+      assert {:error, :invalid_checkpoint_block} =
+               AuthoringTranscript.to_request_ir(transcript)
+    end
+
+    test "压缩更早的完整交换不会删除后来未完成的交换", %{base: base} do
+      transcript =
+        base
+        |> AuthoringTranscript.append_assistant("读取角色。", [tool_call("call-1")])
+        |> AuthoringTranscript.append_observation("call-1", character_observation())
+        |> AuthoringTranscript.append_assistant("还有信息缺口。", [
+          RequestIR.tool_call_block("read_character", %{}, "pending-call")
+        ])
+
+      assert {:ok, compacted} = compact(transcript, ["call-1"])
+      assert Enum.take(compacted.messages, length(transcript.messages)) == transcript.messages
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(compacted)
+      effective = Compaction.project(ir.messages)
+
+      assert Enum.any?(effective, fn message ->
+               Enum.any?(message.blocks, &(Map.get(&1, :call_id) == "pending-call"))
+             end)
+
+      assert {:error, {:pending_tool_calls, ["pending-call"]}} = RequestIR.prepare_request(ir)
+    end
+  end
+
+  defp compact(transcript, call_ids, summary \\ "已读取角色；这不表示候选已获采纳。") do
+    AuthoringTranscript.compact(
+      transcript,
+      %{call_ids: call_ids},
+      [%{ref: "character:1", version: 2}],
+      %{"character:1" => 2},
+      ["省略工具调用的逐字内容；原始证据仍可回查。"],
+      summary
+    )
+  end
+
+  defp provider_call_ids(body) do
+    messages = Map.get(body, :messages, Map.get(body, :input, []))
+
+    block_ids =
+      for message <- messages,
+          block <- Map.get(message, :tool_calls, []) ++ List.wrap(Map.get(message, :content)),
+          is_map(block),
+          id = Map.get(block, :id) || Map.get(block, :tool_use_id),
+          is_binary(id),
+          do: id
+
+    message_ids =
+      for message <- messages,
+          id = Map.get(message, :tool_call_id) || Map.get(message, :call_id),
+          is_binary(id),
+          do: id
+
+    block_ids ++ message_ids
+  end
+
+  defp append_invalid_checkpoint(transcript, covers, source_refs, versions, omissions, summary) do
+    block =
+      NovelCommon.RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+
+    message = NovelCommon.RequestIR.message(:checkpoint, :application, [block])
+    %{transcript | messages: transcript.messages ++ [message]}
+  end
+
+  defp character_observation do
+    {_call_id, observation} =
+      observation("call-1", content: %{"narrative_role" => "ENSEMBLE_POV"})
+
+    Map.merge(observation, %{coverage: %{fields: ["narrative_role"]}, omissions: []})
   end
 end

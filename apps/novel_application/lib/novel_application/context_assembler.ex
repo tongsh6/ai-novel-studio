@@ -13,192 +13,87 @@ defmodule NovelApplication.ContextAssembler do
   alias NovelDomain.DialogueContext
   alias NovelDomain.VolumeBlueprint
 
-  @doc """
-  为给定 workspace 组装 DialogueContext。
+  @type fetcher_return :: {:ok, DialogueContext.t()}
+  @type fetcher :: (String.t(), String.t() | nil, String.t() | nil -> fetcher_return())
 
-  fetcher 返回基础上下文与章节数据；生产 8 元组追加消息处置投影，兼容原 5/6/7 元组。
-  测试中可注入 stub fetcher。
-  """
-  # fetcher 可返回 5 元组（无章节，向后兼容既有 stub）、6 元组（末位为已采纳章节标题列表）
-  # 或 7 元组（标题列表 + 结构化章节条目，VS-00C CP3）。
-  @type fetcher_return ::
-          {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
-          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()]}
-          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
-             [map()]}
-          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
-             [map()], map()}
-          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
-             [map()], map(), map()}
-  @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
-  def assemble(workspace_id, fetcher \\ &default_fetch/1) do
-    assemble_for_input(workspace_id, nil, fetcher, [])
-  end
+  @doc "组装上下文；唯一 fetch 契约是三参数回调返回 DialogueContext。"
+  @spec assemble(String.t(), fetcher() | nil) :: DialogueContext.t()
+  def assemble(work_id, fetcher \\ nil),
+    do: assemble_for_input(work_id, nil, fetcher, [])
 
-  @doc """
-  为当前作者输入组装 DialogueContext。
-
-  新 fetcher 可实现 `(workspace_id, author_text -> fetcher_return)` 以支持相关记忆召回；
-  也可实现 `(workspace_id, author_text, session_id -> fetcher_return)` 以支持会话内对话召回；
-  旧的一参 fetcher 继续兼容，用于既有测试和不需要 query 的调用点。
-  """
-  @spec assemble_for_input(String.t(), String.t() | nil, function(), keyword()) ::
+  @spec assemble_for_input(String.t(), String.t() | nil, fetcher() | nil, keyword()) ::
           DialogueContext.t()
-  def assemble_for_input(workspace_id, author_text, fetcher \\ &default_fetch/1, opts \\ []) do
+  def assemble_for_input(work_id, author_text, fetcher \\ nil, opts \\ []) do
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:context, :assemble, :start, %{})
     session_id = Keyword.get(opts, :session_id)
+    context = safe_fetch(fetcher, work_id, author_text, session_id)
+    chapters = normalize_structured_chapters(context.structured_chapters)
 
-    # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
-    # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
-    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters,
-     interaction_state, source_status} =
-      safe_fetch(fetcher, workspace_id, author_text, session_id)
+    refs =
+      build_refs(
+        context.current_work_snapshot,
+        context.conversation_summary,
+        context.memory_summary,
+        context.open_behavior_summary,
+        session_id
+      )
 
-    refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id)
-
-    duration = System.monotonic_time(:millisecond) - t0
+    context = %{
+      context
+      | work_id: work_id,
+        structured_chapters: chapters,
+        current_chapters: titles_from_structured(chapters),
+        source_status: normalize_source_status(context.source_status),
+        context_refs: refs,
+        assembly_policy:
+          Keyword.get(opts, :assembly_policy, NovelDomain.AssemblyPolicy.default()),
+        assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
 
     LogEmit.emit(:context, :assemble, :done, %{
       context_refs_count: length(refs),
-      has_snapshot: snapshot != nil,
-      has_conversation: conv_summary != nil,
-      has_session_summary: session_summary?(conv_summary),
-      has_memory: mem_summary != nil,
-      source_status: Enum.into(source_status, %{}, fn {k, v} -> {to_string(k), to_string(v)} end),
-      duration_ms: duration
+      has_snapshot: context.current_work_snapshot != nil,
+      has_conversation: context.conversation_summary != nil,
+      has_session_summary: session_summary?(context.conversation_summary),
+      has_memory: context.memory_summary != nil,
+      source_status:
+        Map.new(context.source_status, fn {k, v} -> {to_string(k), to_string(v)} end),
+      duration_ms: System.monotonic_time(:millisecond) - t0
+    })
+
+    context
+  end
+
+  @source_keys [:work, :conversation, :memory, :behavior, :chapters, :interaction]
+  @known_statuses [:ok, :empty, :unknown, :unavailable, :partial, :stale]
+
+  defp safe_fetch(nil, work_id, _author_text, _session_id),
+    do: %DialogueContext{work_id: work_id}
+
+  defp safe_fetch(fetcher, work_id, author_text, session_id) do
+    case fetcher.(work_id, author_text, session_id) do
+      {:ok, %DialogueContext{work_id: ^work_id} = context} -> context
+      _ -> unavailable_context(work_id, "invalid_context_source")
+    end
+  rescue
+    _error -> unavailable_context(work_id, "source_unavailable")
+  catch
+    _kind, _reason -> unavailable_context(work_id, "source_unavailable")
+  end
+
+  defp unavailable_context(work_id, reason) do
+    LogEmit.emit(:context, :assemble, :error, %{
+      work_id: work_id,
+      reason: reason,
+      degraded_to: "unavailable_context"
     })
 
     %DialogueContext{
-      workspace_id: workspace_id,
-      current_work_snapshot: snapshot,
-      conversation_summary: conv_summary,
-      memory_summary: mem_summary,
-      open_behavior_summary: behavior_summary,
-      interaction_state: interaction_state,
-      source_status: source_status,
-      current_chapters: chapters,
-      structured_chapters: structured_chapters,
-      context_refs: refs,
-      # CP1：组装策略由 application 在边界解析后传入并挂到 envelope（`06` §5.3）；
-      # 未传则回落地板档默认，保证 floor 行为不变。
-      assembly_policy: Keyword.get(opts, :assembly_policy, NovelDomain.AssemblyPolicy.default()),
-      assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      work_id: work_id,
+      source_status: Map.new(@source_keys, &{&1, :unavailable})
     }
   end
-
-  defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
-
-  # 明确空上下文（fetcher 失败时的降级形态）。
-  @unavailable_status %{
-    work: :unavailable,
-    conversation: :unavailable,
-    memory: :unavailable,
-    behavior: :unavailable,
-    chapters: :unavailable,
-    interaction: :unavailable
-  }
-  @empty_fetch {:ok, nil, nil, nil, nil, [], [], %{}, @unavailable_status}
-
-  # fetcher 异常或返回非 {:ok, ...} 时降级为明确空上下文 + 留痕，不让整轮崩溃（G10 / AU-03 SC-B3）。
-  defp safe_fetch(fetcher, workspace_id, author_text, session_id) do
-    fetcher
-    |> call_fetcher(workspace_id, author_text, session_id)
-    |> normalize_fetch_result()
-  rescue
-    error ->
-      emit_fetch_fallback(workspace_id, Exception.message(error))
-      @empty_fetch
-  catch
-    kind, reason ->
-      emit_fetch_fallback(workspace_id, "#{kind}: #{inspect(reason)}")
-      @empty_fetch
-  end
-
-  defp emit_fetch_fallback(workspace_id, reason) do
-    LogEmit.emit(:context, :assemble, :error, %{
-      workspace_id: workspace_id,
-      reason: reason,
-      degraded_to: "empty_context"
-    })
-  end
-
-  # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。非 ok 返回也降级为空。
-  defp normalize_fetch_result(
-         {:ok, snapshot, conv, mem, behavior, chapters, structured_chapters, state, statuses}
-       )
-       when is_map(state) and is_map(statuses) do
-    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    status = normalize_source_status(statuses, snapshot, conv, mem, behavior, titles, state)
-    {:ok, snapshot, conv, mem, behavior, titles, entries, state, status}
-  end
-
-  defp normalize_fetch_result(
-         {:ok, snapshot, conv, mem, behavior, chapters, structured_chapters, state}
-       )
-       when is_map(state) do
-    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    status = infer_source_status(snapshot, conv, mem, behavior, titles, state)
-    {:ok, snapshot, conv, mem, behavior, titles, entries, state, status}
-  end
-
-  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters, structured_chapters}) do
-    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    status = infer_source_status(snapshot, conv, mem, behavior, titles, %{})
-    {:ok, snapshot, conv, mem, behavior, titles, entries, %{}, status}
-  end
-
-  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
-    do: normalize_six_tuple(snapshot, conv, mem, behavior, chapters)
-
-  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
-    do:
-      {:ok, snapshot, conv, mem, behavior, [], [], %{},
-       infer_source_status(snapshot, conv, mem, behavior, [], %{})}
-
-  defp normalize_fetch_result(_other), do: @empty_fetch
-
-  defp normalize_six_tuple(snapshot, conv, mem, behavior, chapters) do
-    {titles, entries} =
-      cond do
-        structured_chapter_list?(chapters) ->
-          entries = normalize_structured_chapters(chapters)
-          {titles_from_structured(entries), entries}
-
-        is_list(chapters) ->
-          {normalize_chapters(chapters), []}
-
-        true ->
-          {[], []}
-      end
-
-    {:ok, snapshot, conv, mem, behavior, titles, entries, %{},
-     infer_source_status(snapshot, conv, mem, behavior, titles, %{})}
-  end
-
-  defp normalize_chapter_payload(chapters, structured_chapters) do
-    entries = normalize_structured_chapters(structured_chapters)
-
-    titles =
-      case normalize_chapters(chapters) do
-        [] -> titles_from_structured(entries)
-        titles -> titles
-      end
-
-    {titles, entries}
-  end
-
-  defp normalize_chapters(chapters) when is_list(chapters) do
-    chapters
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp normalize_chapters(_), do: []
-
-  defp structured_chapter_list?([first | _]), do: is_map(first)
-  defp structured_chapter_list?(_), do: false
 
   defp normalize_structured_chapters(chapters) when is_list(chapters) do
     chapters
@@ -221,6 +116,8 @@ defmodule NovelApplication.ContextAssembler do
         # B24（I-EXPLORE-READ-9）：章节唯一编码白名单透传——判断/计划章节索引据此
         # 渲染 `[chapter_ref=chapter:<uuid>]`（additive key，既有消费者不受影响）。
         id: chapter |> get_any([:id, "id"]) |> normalize_optional_text(),
+        work_id: chapter |> get_any([:work_id, "work_id"]) |> normalize_optional_text(),
+        visible_in_reading: get_any(chapter, [:visible_in_reading, "visible_in_reading"]),
         title: title,
         seq: chapter |> get_any([:seq, "seq"]) |> normalize_integer(),
         summary: chapter |> get_any([:summary, "summary"]) |> normalize_text(),
@@ -283,13 +180,13 @@ defmodule NovelApplication.ContextAssembler do
     end)
   end
 
-  defp normalize_text(value) when is_binary(value), do: String.trim(value)
+  defp normalize_text(value) when is_binary(value), do: value
   defp normalize_text(_), do: ""
 
   defp normalize_optional_text(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
-      text -> text
+      _text -> value
     end
   end
 
@@ -319,62 +216,20 @@ defmodule NovelApplication.ContextAssembler do
 
   defp normalize_has_prose(value) when is_boolean(value), do: value
   defp normalize_has_prose(value) when is_integer(value), do: value > 0
-  defp normalize_has_prose(_), do: false
+  defp normalize_has_prose(_), do: nil
 
   defp session_summary?(summary) when is_binary(summary),
     do: String.contains?(summary, "会话早期摘要")
 
   defp session_summary?(_summary), do: false
 
-  defp call_fetcher(fetcher, workspace_id, author_text, session_id) when is_function(fetcher) do
-    case :erlang.fun_info(fetcher, :arity) do
-      {:arity, 3} -> fetcher.(workspace_id, author_text, session_id)
-      {:arity, 2} -> fetcher.(workspace_id, author_text)
-      {:arity, 1} -> fetcher.(workspace_id)
-    end
-  end
-
-  @source_keys [:work, :conversation, :memory, :behavior, :chapters, :interaction]
-  @known_statuses [:ok, :empty, :unknown, :unavailable]
-
-  # AU03-CONTEXT CP1：来源状态规范化——生产 fetcher 显式提供；旧 fetcher 按值推断。
-  # 旧合同无法表达 unknown/unavailable，推断只给 :ok/:empty，保持既有 prompt 字节不变；
-  # 失败/非 ok 由 @empty_fetch 显式标 :unavailable。
-  defp normalize_source_status(statuses, snapshot, conv, mem, behavior, titles, state) do
-    inferred = infer_source_status(snapshot, conv, mem, behavior, titles, state)
-
-    Enum.reduce(@source_keys, inferred, fn key, acc ->
+  defp normalize_source_status(statuses) do
+    Map.new(@source_keys, fn key ->
       value = Map.get(statuses, key) || Map.get(statuses, to_string(key))
-      normalized = normalize_status_value(value)
-
-      if normalized in @known_statuses, do: Map.put(acc, key, normalized), else: acc
+      status = Enum.find(@known_statuses, :unknown, &(to_string(&1) == to_string(value)))
+      {key, status}
     end)
   end
-
-  defp normalize_status_value(value) when is_atom(value) and value in @known_statuses, do: value
-  defp normalize_status_value(value) when is_binary(value), do: status_from_string(value)
-  defp normalize_status_value(_value), do: nil
-
-  defp status_from_string(value) do
-    Enum.find(@known_statuses, fn status -> to_string(status) == value end)
-  end
-
-  defp infer_source_status(snapshot, conv, mem, behavior, titles, state) do
-    %{
-      work: inferred_status(snapshot),
-      conversation: inferred_status(conv),
-      memory: inferred_status(mem),
-      behavior: inferred_status(behavior),
-      chapters: inferred_status(titles),
-      interaction: inferred_status(state)
-    }
-  end
-
-  defp inferred_status(nil), do: :empty
-  defp inferred_status(""), do: :empty
-  defp inferred_status([]), do: :empty
-  defp inferred_status(value) when is_map(value) and map_size(value) == 0, do: :empty
-  defp inferred_status(_value), do: :ok
 
   defp build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id) do
     {conversation_type, conversation_id} = conversation_ref_identity(session_id)

@@ -59,7 +59,11 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
   end
 
   defp base_transcript(run_id, author_text) do
-    AuthoringTranscript.new(identity(run_id), base_text: "会话压缩测试 Base", author_text: author_text)
+    AuthoringTranscript.new(identity(run_id),
+      base_text: "会话压缩测试 Base",
+      author_text: author_text,
+      author_turn_ref: identity(run_id).parent_turn_ref
+    )
   end
 
   defp append_exchange(transcript, call_id, chapter_ref) do
@@ -180,7 +184,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
                JudgmentProtocol.request_judgment(
                  execution([response("本轮判断完成。", [])]),
                  %{},
-                 b81_input(segment, history)
+                 b81_input(segment, history, @current_author_text)
                )
 
       # 跨段 checkpoint 的 covers 只在会话视图可见；调用必须真实发生且携带历史作者原话。
@@ -202,7 +206,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
       assert Enum.any?(view.messages, &(Map.get(&1, :session_history_run_id) == "run-cp3-view-1"))
 
       input =
-        b81_input(view, nil)
+        b81_input(view, nil, @current_author_text)
         |> Map.delete(:session_history)
 
       assert {:ok, judgment} =
@@ -245,14 +249,15 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
       seed_run!(history_transcript)
 
-      segment = base_transcript("run-cp3-b81-2", "本轮作者原话：继续计划")
+      current_author_text = "本轮作者原话：继续计划"
+      segment = base_transcript("run-cp3-b81-2", current_author_text)
       assert {:ok, history} = AuthoringSessionHistory.fetch(segment.run)
 
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
                  execution([response("分步完成。", plan_pair())]),
                  %{},
-                 b81_input(segment, history)
+                 b81_input(segment, history, current_author_text)
                )
 
       decision =
@@ -265,10 +270,16 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
       refute @old_judgment_call_id in judgment.transcript.call_ids
     end
 
-    defp b81_input(segment, history) do
-      input()
-      |> Map.put(:transcript, segment)
-      |> Map.put(:session_history, history)
+    defp b81_input(segment, history, author_text) do
+      %{
+        author_text: author_text,
+        scope: %{work_id: segment.run.work_id, facts: %{}, context: %{}, coverage: %{}},
+        source_input_ref: segment.run.parent_turn_ref,
+        supplied_context_refs: ["chapter:one"],
+        options: [],
+        transcript: segment,
+        session_history: history
+      }
     end
 
     defp response(text, calls, ref \\ "call-1") do
@@ -285,16 +296,6 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     end
 
     defp call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
-
-    defp input do
-      %{
-        author_text: "根据本章实际内容判断",
-        context_block: "章计划/读取范围",
-        source_input_ref: "author-turn",
-        supplied_context_refs: ["chapter:one"],
-        options: []
-      }
-    end
 
     defp plan_pair do
       [call("agent_plan_draft", plan_args()), call("judgment_decision", plan_decision_args())]
@@ -455,7 +456,8 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
     defp race_transcript(run_id, author_text) do
       AuthoringTranscript.new(race_identity(run_id),
         base_text: "B81 CP3 并发压缩 Base",
-        author_text: author_text
+        author_text: author_text,
+        author_turn_ref: "input:race:#{run_id}"
       )
     end
 

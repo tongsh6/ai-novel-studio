@@ -6,9 +6,9 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   上一轮结果、可用操作）组装成本结构；agent 消费本结构渲染角色专属输出契约，
   **不重新解释作者目标、权限或事实地位**（B27 §3.1）。
 
-  本契约是既有 `CreativeRequest` / `QualityEvaluationRequest` 的 additive 部分：
-  两个请求可携带 `task`，旧调用不带 `task` 时行为不变；迁移完成后所有专业调用
-  必须携带，规则文本真源为 `NovelCommon.AuthoringSemantics`。
+  既有 `CreativeRequest` / `QualityEvaluationRequest` 的专业调用必须携带本契约；
+  缺失任务直接失败。规则文本真源为 `NovelCommon.AuthoringSemantics`。
+  作者原文与同一任务的作者动作来源分别保留，不以应用目标或材料来源补原文。
   """
 
   @kinds [
@@ -151,6 +151,28 @@ defmodule NovelCommon.Contracts.AuthoringTask do
 
   @doc "可按已验证作者动作/质量修订动作作为来源的任务来源类型。"
   def action_source_kinds, do: @action_source_kinds
+
+  @doc "作者原文只使用同一任务的显式作者动作来源；材料与质量触发来源不能替代。"
+  @spec author_source_ref(t()) :: String.t() | nil
+  def author_source_ref(%__MODULE__{
+        author_words: words,
+        source: %{kind: :author_action, ref: ref}
+      })
+      when is_binary(words) and is_binary(ref),
+      do: ref
+
+  def author_source_ref(%__MODULE__{}), do: nil
+
+  @doc "仅投影显式 materials 的来源；任务来源与目标范围不自动成为已供应材料。"
+  @spec material_refs(t()) :: [map()]
+  def material_refs(%__MODULE__{materials: materials}) do
+    materials
+    |> Enum.map(fn material ->
+      %{ref: Map.get(material, :ref)}
+      |> maybe_put(:version, Map.get(material, :version))
+    end)
+    |> Enum.uniq()
+  end
 
   @doc """
   JSON-safe 序列化（用于 ToolRequest.input / trace）；语义字段保持原样，便于

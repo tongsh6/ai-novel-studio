@@ -8,6 +8,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.SystemEnvelope
 
   @good_json Jason.encode!([
                %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}
@@ -18,6 +19,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
       kind: :first_draft,
       author_goal: "写第 01 章开篇",
       author_words: "把第一章开篇写出来 NONCE42",
+      source: %{kind: :author_action, ref: "turn-1"},
       scope: %{refs: ["chapter:one"], coverage: :chapter},
       materials: [
         %{kind: :target_structure, ref: "target_structure:chapter:one", complete?: true}
@@ -31,7 +33,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
         required_keys: ["items", "item_id", "title", "body"],
         allow_companions: true
       },
-      source_refs: ["turn:t1"],
+      source_refs: ["turn-1"],
       semantic_version: AuthoringSemantics.version()
     }
     |> AuthoringTask.to_map()
@@ -74,6 +76,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
 
     input =
       %{
+        "source_input_ref" => "turn-1",
         "creative_brief" => "用户创作简述占位",
         "context_text" => "上下文占位"
       }
@@ -88,17 +91,24 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
     assert [%{name: "submit_tentative_artifact"}] = ir.tools
     assert Enum.any?(ir.messages, &(&1.source_refs != []))
 
-    # 2026-11-06 裁决 A：角色规则/输出协议在 canonical system 前缀，完整请求文本需含 system。
-    text = NovelTest.TestProviderPrompt.text(ir)
+    system = SystemEnvelope.system_text(ir.system)
+    assert system =~ "## 创作协作共同规则"
+    assert system =~ "本轮为首稿创作"
+    refute system =~ "把第一章开篇写出来 NONCE42"
 
-    assert text =~ "## 创作协作共同规则"
-    assert text =~ "本轮为首稿创作"
-    assert text =~ "作者原话（逐字保留、可追溯）：把第一章开篇写出来 NONCE42"
+    assert [author] = Enum.filter(ir.messages, &(&1.role == "user"))
+    assert author.provenance == "author"
+    assert author.blocks == [RequestIR.text_block("把第一章开篇写出来 NONCE42")]
+    assert author.source_refs == [%{ref: "turn-1"}]
 
-    assert Enum.any?(ir.messages, fn message ->
-             message.role == "user" and
-               Enum.any?(message.blocks, &(Map.get(&1, :text) == "把第一章开篇写出来 NONCE42"))
-           end)
+    scope = NovelTest.TestProviderPrompt.scope_content(ir)
+    assert scope["authoring_task"]["kind"] == "first_draft"
+    assert scope["authoring_task"]["author_goal"] == "写第 01 章开篇"
+    refute Map.has_key?(scope["authoring_task"], "author_words")
+    assert scope["operation"]["capability"] == "prose_writing"
+    assert scope["operation"]["artifact_type"] == "prose_fragment"
+    assert scope["operation"]["creative_brief"] == input["creative_brief"]
+    assert scope["operation"]["context_text"] == input["context_text"]
   end
 
   test "invalid authoring task fails the tool call instead of silently falling back" do

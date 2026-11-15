@@ -175,7 +175,7 @@ defmodule NovelApplication.B29CharacterProfileTest do
   end
 
   defp context do
-    %DialogueContext{workspace_id: "work-b29", interaction_state: %{}}
+    %DialogueContext{work_id: "work-b29", interaction_state: %{}}
   end
 
   test "未采纳零写入：执行修订产出候选（无 provider、无 DB 写入），字段/对象可见" do

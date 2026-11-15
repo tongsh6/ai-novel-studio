@@ -4,11 +4,20 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.JudgmentProtocol
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.DialogueContext
 
   defp context(overrides \\ %{}) do
     base = %DialogueContext{
-      workspace_id: "w-b33",
+      work_id: "w-b33",
+      source_status: %{
+        work: :ok,
+        chapters: :ok,
+        behavior: :ok,
+        interaction: :ok,
+        conversation: :ok,
+        memory: :empty
+      },
       current_work_snapshot: %{
         title: "灯楼夜雨",
         genre: "悬疑",
@@ -87,8 +96,9 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
   end
 
-  test "P0 去重：判断 prompt 中「消息处置与已有产物」恰好 1 次（默认 profile）" do
+  test "初始判断只构造一个结构化 Scope，消息处置只有一个实际字段" do
     run = %{
+      run_id: "run-b33-judgment",
       profile_ref: "judgment_loop_v1",
       parent_turn_ref: "turn-b33",
       work_id: "w-b33",
@@ -96,16 +106,16 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
       goal: %{text: "第02章正文还没写，帮我写出来吧。", version: 1}
     }
 
-    content = protocol_input(context(), run) |> prompt_content()
-
-    assert length(String.split(content, "## 消息处置与已有产物")) - 1 == 1
-    # context_block 自身不再含该段（由 author_content_context 唯一渲染）
-    refute DialoguePlanningService.judgment_context_block(context(), "写第02章") =~
-             "## 消息处置与已有产物"
+    request = protocol_input(context(), run) |> JudgmentProtocol.request_for_production()
+    assert Enum.count(request.messages, &(&1.role == "scope_update")) == 1
+    scope = NovelTest.TestProviderPrompt.scope_content(request)
+    assert scope["context"]["interaction_state"]["pending_adoption_count"] == 10
+    assert scope["context"]["interaction_state"]["resolved_adoption_count"] == 10
   end
 
   test "写作判断 keep-list 裁剪：消息处置 0 次，保留作品事实/章节，去掉候选/会话/行为/探索" do
     run = %{
+      run_id: "run-b33-prose",
       profile_ref: ProseDraftingWithQuality.profile_ref(),
       parent_turn_ref: "turn-b33",
       work_id: "w-b33",
@@ -118,11 +128,18 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     content = prompt_content(protocol)
 
     # 写作判断不渲染历史消息处置段（按 keep-list 省略）
-    assert length(String.split(content, "## 消息处置与已有产物")) - 1 == 0
-    assert content =~ "## 作品事实（持久化只读投影"
+    assert protocol.scope.context == %{}
+    assert protocol.scope.facts.work.title == "灯楼夜雨"
+    assert protocol.scope.coverage.interaction.status == "not_read"
+    assert Enum.any?(protocol.scope.omissions, &(&1.reason == "profile_not_supplied"))
     assert content =~ "第01章：灯楼夜雨"
     assert content =~ "第02章正文还没写，帮我写出来吧。"
-    assert content =~ "## 当前可用操作"
+    request = JudgmentProtocol.request_for_production(protocol)
+
+    assert NovelTest.TestProviderPrompt.scope_content(request)["operation"][
+             "available_operations"
+           ] != []
+
     refute content =~ "长会话摘要："
     refute content =~ "开放行为摘要："
   end
@@ -131,6 +148,7 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     context = context()
 
     default_run = %{
+      run_id: "run-b33-judgment",
       profile_ref: "judgment_loop_v1",
       parent_turn_ref: "turn-b33",
       work_id: "w-b33",
@@ -139,6 +157,7 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
     }
 
     write_run = %{
+      run_id: "run-b33-prose",
       profile_ref: ProseDraftingWithQuality.profile_ref(),
       parent_turn_ref: "turn-b33",
       work_id: "w-b33",
@@ -146,7 +165,8 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
       goal: %{text: "第02章正文还没写，帮我写出来吧。", version: 1}
     }
 
-    default_chars = protocol_input(context, default_run) |> prompt_content() |> String.length()
+    default_protocol = protocol_input(context, default_run)
+    default_chars = default_protocol |> prompt_content() |> String.length()
     write_protocol = protocol_input(context, write_run)
     write_chars = write_protocol |> prompt_content() |> String.length()
 
@@ -157,16 +177,20 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
       write_protocol
       |> JudgmentProtocol.request_for_production()
       |> Map.fetch!(:messages)
-      |> Enum.map_join("", &NovelApplication.TestAgenticLoopFixtures.message_text/1)
+      |> Enum.map_join("", &Projection.content_of(&1.blocks))
       |> String.length()
 
     IO.puts("B33 CP1 prompt chars: default=#{default_chars} write_cropped=#{write_chars}")
 
     assert write_chars < default_chars
 
-    # CP6 退役会话摘要材料后默认判断 prompt 变短，保留「写作判断显著更短」的意图；
-    # 门槛按实际比例（≈0.60）留出余量，而不是绑定到某次绝对字节数。
-    assert write_chars * 3 < default_chars * 2
+    # profile 裁剪只比较实际应用材料；稳定 system 不属于选择预算。
+    default_request = JudgmentProtocol.request_for_production(default_protocol)
+    write_request = JudgmentProtocol.request_for_production(write_protocol)
+    assert default_request.system == write_request.system
+    default_scope_bytes = default_protocol.scope |> Jason.encode!() |> byte_size()
+    write_scope_bytes = write_protocol.scope |> Jason.encode!() |> byte_size()
+    assert write_scope_bytes * 3 < default_scope_bytes * 2
     assert diagnostics.prompt_chars == production_chars
     assert diagnostics.prompt_tokens == div(production_chars, 4)
     assert diagnostics.cropped == true

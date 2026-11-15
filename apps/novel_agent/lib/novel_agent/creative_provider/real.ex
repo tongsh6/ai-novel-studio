@@ -82,38 +82,44 @@ defmodule NovelAgent.CreativeProvider.Real do
       [
         "#{role}只提出待作者审阅的 tentative 候选，不执行采纳或 canon 写入。",
         AuthoringSemantics.static_block(request.task),
+        nonce_requirement(),
         domain_schema,
         extra
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
       |> Enum.join("\n\n")
 
-    scope =
-      [
-        AuthoringSemantics.dynamic_block(request.task),
-        "capability：#{request.tool_name}",
-        "artifact_type：#{request.artifact_type}",
-        "用户创作简述：#{request.creative_brief}",
-        "上下文：#{request.context_text}",
-        "重要：#{nonce_requirement()}",
-        execution_brief_section(request),
-        progress_state_section(request),
-        planning_mission_section(request),
-        revision_section(request)
-      ]
-      |> Enum.reject(&(&1 in [nil, ""]))
-      |> Enum.join("\n")
+    scope = %{
+      authoring_task: request.task |> AuthoringTask.to_map() |> Map.delete("author_words"),
+      operation: %{
+        role: "creative_execution",
+        capability: request.tool_name,
+        artifact_type: request.artifact_type,
+        creative_brief: request.creative_brief,
+        context_text: request.context_text,
+        execution_brief: request.execution_brief,
+        progress_state: request.progress_state,
+        planning_mission: request.planning_mission,
+        revision: request.revision
+      }
+    }
+
+    # AuthoringTask 的 enum 是 atom；在纯值边界转成实际 JSON 标量，材料字符串字节不变。
+    scope = scope |> Jason.encode!() |> Jason.decode!()
 
     {run, projection} = operation_context(request)
+    material_refs = AuthoringTask.material_refs(request.task)
 
     Operation.prepare(request.request_ir, run, %{
       role: "creative_execution",
       instructions: instructions,
       scope: scope,
       tool: tentative_artifact_tool(),
-      source_refs: source_refs(request),
+      source_refs: source_refs(request, material_refs),
+      base_refs: material_refs,
       versions: %{},
       author_text: request.task.author_words,
+      source_input_ref: request.source_input_ref,
       projection: projection
     })
   end
@@ -168,13 +174,13 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp operation_context(request), do: {request.run, %{}}
 
-  defp source_refs(request) do
+  defp source_refs(request, material_refs) do
     refs =
       [request.source_turn_ref | List.wrap(request.task.source_refs)]
       |> Enum.filter(&is_binary/1)
       |> Enum.uniq()
 
-    Enum.map(refs, &%{ref: &1})
+    Enum.uniq_by(material_refs ++ Enum.map(refs, &%{ref: &1}), & &1.ref)
   end
 
   defp tentative_artifact_tool do
@@ -528,43 +534,6 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp nonce_requirement do
     "如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留至少一处。"
   end
-
-  # VS-00E：场级执行简述（已由 application 渲染成文本）追加在 prose 三锚点之后，
-  # 不污染 stub/slice_verify 的「用户创作简述：/上下文：/重要：」捕获。缺省为空。
-  defp execution_brief_section(%CreativeRequest{execution_brief: brief})
-       when is_binary(brief) and brief != "" do
-    "\n#{brief}\n"
-  end
-
-  defp execution_brief_section(_request), do: ""
-
-  # VS-00F（ADR-0026）：账面投影追加在三锚点之后，不污染锚点捕获。段落文案由
-  # application 按 action 渲染完成（prose=弧光+反泄漏约束；plot_outline=五账规划
-  # 摘要+延续性要求，CP4a），本函数只做原样嵌入。
-  defp progress_state_section(%CreativeRequest{progress_state: progress})
-       when is_binary(progress) and progress != "" do
-    "\n#{progress}\n"
-  end
-
-  defp progress_state_section(_request), do: ""
-
-  # WR02（VS-00E §16.9）：规划前推理结论（本轮规划使命）——账面摘要是材料、使命是结论，
-  # 相邻呈现且在输出契约之前（决策点邻近）。缺席/降级时为空段，规划 prompt 逐字节不变。
-  defp planning_mission_section(%CreativeRequest{planning_mission: text})
-       when is_binary(text) and text != "" do
-    "\n" <> text <> "\n"
-  end
-
-  defp planning_mission_section(_request), do: ""
-
-  # VS-00E CP3：按质量发现重写要求（已由 application 渲染成文本）追加在 prose 三锚点 +
-  # execution_brief 之后，不污染锚点捕获。仅 revise_from_findings 路径非空，缺省为空。
-  defp revision_section(%CreativeRequest{revision: revision})
-       when is_binary(revision) and revision != "" do
-    "\n#{revision}\n"
-  end
-
-  defp revision_section(_request), do: ""
 
   defp world_building_guidance(type) when type in [:foreshadowing_seed, "foreshadowing_seed"] do
     %{

@@ -152,6 +152,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
         context: context,
         author_input: %{
           text: spec.author_message.text,
+          turn_id: spec.author_message.turn_ref,
           author_goal_text: spec.author_message.text
         },
         source_turn_ref: spec.action_input.source_turn_ref,
@@ -337,15 +338,13 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
      ContextAssembler.assemble_for_input(
        run.work_id,
        author_text,
-       fetcher || (&empty_context/1),
+       fetcher,
        session_id: run.session_id,
        assembly_policy: NovelApplication.current_assembly_policy()
      )}
   rescue
     error -> {:error, {:context_assembly_failed, Exception.message(error)}}
   end
-
-  defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   defp build_frame(run, turn_id, source, author) do
     plan = Map.get(source, :plan) || Map.get(source, "plan") || %{}

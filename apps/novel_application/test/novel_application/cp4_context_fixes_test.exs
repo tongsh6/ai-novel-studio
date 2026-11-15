@@ -13,6 +13,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+  alias NovelTest.TestProviderPrompt
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -24,9 +25,10 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   # ── M03：长章续读覆盖 ───────────────────────────────────────
 
-  test "M03 长章分页续读：34k 字符读到末页后收束，prompt 显式覆盖/续读阶段" do
+  test "M03 长章分页续读：34k 字符读到末页后收束，原生观察与 Scope 保留覆盖事实" do
     total = 34_357
-    {work_id, _chapter_ref} = seed_chapter_with_prose(long_prose(total))
+    {work_id, chapter_ref} = seed_chapter_with_prose(long_prose(total))
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work_id)
     provider = long_read_execution(self())
 
     {:ok, spec} =
@@ -35,62 +37,78 @@ defmodule NovelApplication.CP4ContextFixesTest do
           text: "帮我通读一遍第01章，看看前后有没有矛盾。",
           workspace_id: work_id,
           work_id: work_id,
-          session_id: "session-long-read",
+          session_id: session.id,
           turn_id: "turn-long-read"
         },
-        nil,
+        NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
         provider
       )
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
     {_snapshot, result} = run_until_turn_result(spec, run, 20)
-
     assert result.turn_result.assistant_message.text =~ @long_tail_anchor
 
-    prompts = drain_prompts([])
-    reader_prompts = Enum.filter(prompts, &String.contains?(&1, "## 探索观察"))
-    assert length(reader_prompts) >= 6
+    prompts = drain_prompt_maps([])
+    assert length(Enum.filter(prompts, &has_observation?/1)) >= 6
 
-    # 长章覆盖事实：已读/总长 + 续读阶段约束（普通 2 轮额度用完后仅允许同章续读）
-    assert Enum.any?(prompts, &String.contains?(&1, "已读约 12000/34357 字符"))
-    assert Enum.any?(prompts, &String.contains?(&1, "本轮剩余探索额度只用于该章续读"))
+    # 普通两轮额度耗尽后，仅开放同章未读页；来源、范围与下一页位置均来自真实观察。
+    assert Enum.any?(prompts, fn prompt ->
+             budget =
+               get_in(TestProviderPrompt.scope_content(prompt), [
+                 "operation",
+                 "exploration",
+                 "budget"
+               ])
 
-    # 未读末页（已读 1–30000/34357）时 prompt 必须给出覆盖缺口事实，
-    # 并明确不得声称已读全章（retest2 M03r2 口径）。
-    partial_prompt =
-      Enum.find(prompts, fn prompt ->
-        String.contains?(prompt, "## 探索观察") and
-          length(String.split(prompt, "### 观察 ")) - 1 == 5
-      end)
+             budget["continuation_only?"] == true and
+               budget["continuation"] == %{
+                 "chapter_ref" => chapter_ref,
+                 "next_offset" => 12_000,
+                 "read_end" => 12_000,
+                 "total" => total
+               }
+           end)
 
+    partial_prompt = Enum.find(prompts, &(length(observation_blocks(&1)) == 5))
     assert partial_prompt
-    assert partial_prompt =~ "覆盖事实：本章正文已读 1–30000/34357 字符"
-    assert partial_prompt =~ "未读 30001–34357 字符"
-    assert partial_prompt =~ "不得声称已读全章"
-    assert partial_prompt =~ "## 探索预算状态（机械事实）"
-    assert partial_prompt =~ "仍可继续只读探索"
+    partial_page = partial_prompt |> observation_blocks() |> List.last()
+    assert partial_page.coverage["prose_range"] == %{"start" => 24_001, "end" => 30_000}
+    assert partial_page.coverage["prose_total_chars"] == total
+    assert partial_page.next_offset == 30_000
+    assert partial_page.coverage["coverage_note"] =~ "未读 30001–34357 字符"
+    assert partial_page.coverage["coverage_note"] =~ "不得声称已读全章"
 
-    # 读完整章（6 页）后的判断 prompt 关闭探索目录，模型必须收束
-    final_prompt =
-      Enum.find(prompts, fn prompt ->
-        String.contains?(prompt, "## 探索观察") and
-          length(String.split(prompt, "### 观察 ")) - 1 >= 6
-      end)
+    assert get_in(TestProviderPrompt.scope_content(partial_prompt), [
+             "operation",
+             "exploration",
+             "allowed"
+           ]) == true
 
+    final_prompt = Enum.find(prompts, &(length(observation_blocks(&1)) == 6))
     assert final_prompt
-    assert final_prompt =~ @long_tail_anchor
-    assert final_prompt =~ "覆盖事实：本章正文已读 1–34357/34357 字符，已覆盖全章"
-    assert final_prompt =~ "只读探索预算已用尽"
-    assert final_prompt =~ "不是系统没有探索能力"
-    final_scope = final_prompt |> String.split("【应用数据 · scope_update") |> List.last()
-    refute final_scope =~ "## 探索目录"
-    assert final_scope =~ "只读探索当前允许：false"
+    final_page = final_prompt |> observation_blocks() |> List.last()
+    assert final_page.content["summary"] =~ @long_tail_anchor
+    assert final_page.coverage["prose_range"] == %{"start" => 30_001, "end" => total}
+    assert final_page.coverage["prose_total_chars"] == total
+    assert final_page.coverage["coverage_note"] =~ "已覆盖全章"
+    assert final_page.next_offset == nil
+
+    final_scope = TestProviderPrompt.scope_content(final_prompt)
+
+    assert %{"allowed" => false, "tools" => [], "catalog" => []} =
+             final_scope["operation"]["exploration"]
+
+    final_message =
+      final_prompt.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
+
+    assert final_message.versions["change_reason"] == "exploration_budget_exhausted"
   end
 
   # ── M17：纯只读计划在判断循环内联执行后收束 ─────────────────
 
   test "M17 只读计划内联执行后回到判断收束，产生最终作者可见结论" do
     {work_id, chapter_ref} = seed_chapter_with_prose(long_prose(7000))
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work_id)
     provider = planned_reads_then_reply_execution(self(), chapter_ref)
 
     fetch =
@@ -117,11 +135,10 @@ defmodule NovelApplication.CP4ContextFixesTest do
           text: "比较一下两个候选再给我建议。",
           workspace_id: work_id,
           work_id: work_id,
-          session_id: "session-m17",
-          turn_id: "turn-m17",
-          context_fetcher: fetch
+          session_id: session.id,
+          turn_id: "turn-m17"
         },
-        nil,
+        fetch,
         provider
       )
 
@@ -130,10 +147,11 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
     assert result.turn_result.assistant_message.text =~ "两份候选的真实差异"
     assert result.turn_result.assistant_message.text =~ @long_tail_anchor
-    prompts = drain_prompts([])
-    assert Enum.any?(prompts, &String.contains?(&1, "## 探索观察"))
-    # 计划内联执行不产生 plan_drafted 事件（不切 judgment_plan profile）
-    assert run_plan_profile_events(spec, run) == []
+    # 检查实际执行结果，内联只读计划不切到 judgment_plan profile。
+    refute Enum.any?(
+             snapshot.step_results,
+             &(get_in(&1, [:run_patch, :profile_ref]) == "judgment_plan_v1")
+           )
 
     # 下一次 provider 请求：计划内的多次真实读取以**单一**同 call_id 聚合观察回流。
     prompt_maps = drain_prompt_maps([])
@@ -206,7 +224,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   test "作品事实块：当前 accepted 版本/段数/字符数/superseded/摘要/全书目标/会话采纳计数" do
     context = %DialogueContext{
-      workspace_id: "w-facts",
+      work_id: "w-facts",
+      source_status: %{work: :ok, chapters: :ok, interaction: :ok},
       current_work_snapshot: %{
         title: "灯楼夜雨",
         main_goal: "查清灯楼异象",
@@ -251,25 +270,36 @@ defmodule NovelApplication.CP4ContextFixesTest do
       }
     }
 
-    block = DialoguePlanningService.judgment_context_block(context, "这一章写完了吗？")
+    scope = DialoguePlanningService.judgment_scope(context, "这一章写完了吗？")
 
-    assert block =~ "## 作品事实（持久化只读投影"
-    assert block =~ "目标总字数=200000"
-    assert block =~ "预计卷数=3"
-    assert block =~ "当前已采纳正文：字符数 950；有效字数 900"
-    assert block =~ "2 章中已写 1 章、计划中 1 章"
-    assert block =~ "第1章「第01章：灯楼夜雨」：当前已采纳正文 3/3 场（正文 950 字符；有效字数 900）"
-    assert block =~ "当前版本 refs=draft:d1:1, draft:d2:1, draft:d3:1"
-    assert block =~ "章摘要=ACCEPTED"
-    assert block =~ "历史 SUPERSEDED 稿 1 份（不计入当前）"
-    assert block =~ "章计划字段=ending_hook, opening_hook"
-    assert block =~ "resolved 1 项，其中 ACCEPTED/EDITED_ACCEPTED 1 项"
-    assert block =~ "不等于整章或全书叙事完成"
+    assert scope.facts.work.target_length == 200_000
+    assert scope.facts.work.planned_volumes == 3
+    assert scope.facts.work.ref == "work:w-facts"
+
+    assert %{status: "complete", total: 2, returned: 2, written_count: 1, planned_count: 1} =
+             scope.coverage.chapters
+
+    assert [written, planned] = scope.facts.chapters
+    assert written.ref == "chapter:chapter-1"
+    assert written.work_id == "w-facts"
+    assert written.has_prose == true
+    assert written.char_count == 950
+    assert written.word_count == 900
+    assert written.accepted_draft_count == 3
+    assert written.scene_count == 3
+    assert written.current_draft_refs == ["draft:d1:1", "draft:d2:1", "draft:d3:1"]
+    assert written.summary_status == "ACCEPTED"
+    assert written.superseded_draft_count == 1
+    assert written.plan_direction == %{opening_hook: "第七盏灯自亮", ending_hook: "第三人脚步"}
+    assert planned.has_prose == false
+    assert scope.context.interaction_state.resolved_adoption_count == 1
+    assert [%{status: "EDITED_ACCEPTED"}] = scope.context.interaction_state.resolved_adoptions
   end
 
-  test "旧作品无 char_count 时 facts 只给有效字数，不伪造字符数" do
+  test "来源未提供 char_count 时保留有效字数，不伪造字符数" do
     context = %DialogueContext{
-      workspace_id: "w-legacy",
+      work_id: "w-incomplete-count",
+      source_status: %{work: :ok, chapters: :ok},
       current_work_snapshot: %{title: "旧作品"},
       structured_chapters: [
         %{
@@ -289,16 +319,18 @@ defmodule NovelApplication.CP4ContextFixesTest do
       ]
     }
 
-    block = DialoguePlanningService.judgment_context_block(context, "进度如何？")
-
-    assert block =~ "当前已采纳正文有效字数 500"
-    assert block =~ "第1章「第01章：旧稿」：当前已采纳正文 1/1 场（有效字数 500）"
-    refute block =~ "字符数 0"
+    scope = DialoguePlanningService.judgment_scope(context, "进度如何？")
+    assert [chapter] = scope.facts.chapters
+    assert chapter.word_count == 500
+    assert chapter.accepted_draft_count == 1
+    assert chapter.scene_count == 1
+    refute Map.has_key?(chapter, :char_count)
   end
 
-  test "待采纳候选预览：真实 ref/type/状态/操作/正文预览；空预览诚实标注不得编造" do
+  test "待采纳候选预览保留真实身份、状态、操作和原文；缺失正文不合成预览" do
     context = %DialogueContext{
-      workspace_id: "w-pending",
+      work_id: "w-pending",
+      source_status: %{interaction: :ok, chapters: :empty},
       interaction_state: %{
         pending_adoptions: [
           %{
@@ -319,15 +351,24 @@ defmodule NovelApplication.CP4ContextFixesTest do
       structured_chapters: []
     }
 
-    block = DialoguePlanningService.judgment_context_block(context, "那就整理一下吧。")
+    scope = DialoguePlanningService.judgment_scope(context, "那就整理一下吧。")
+    assert scope.context.provenance == "application"
+    assert scope.coverage.interaction.status == "complete"
+    assert [candidate, bare] = scope.context.interaction_state.pending_adoptions
+    assert candidate.artifact_ref == "as_m07"
+    assert candidate.artifact_type == "prose_fragment"
+    assert candidate.status == "TENTATIVE"
 
-    assert block =~ "## 待采纳候选"
-    assert block =~ "ref=as_m07"
-    assert block =~ "operations=revise_pending_artifact/discard_pending_artifact"
-    assert block =~ "body_preview=雨点落在灯楼上。"
-    assert block =~ "ref=as_bare"
-    assert block =~ "来源回合未携带候选正文预览"
-    assert block =~ "不得据此编造"
+    assert candidate.available_operations == [
+             "revise_pending_artifact",
+             "discard_pending_artifact"
+           ]
+
+    assert candidate.title == "仅排版候选"
+    assert candidate.body_preview == "雨点落在灯楼上。"
+    assert bare.artifact_ref == "as_bare"
+    assert bare.body_preview == ""
+    assert bare.title == nil
   end
 
   # ── M07/M08：候选正文缺失时诚实失败（不调用模型、不编造） ─────
@@ -385,7 +426,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
     }
 
     provider = %Execution{result_fn: fn _prompt -> flunk("空基线不得调用 provider") end}
-    context = %DialogueContext{workspace_id: work.id, interaction_state: %{}}
+    context = %DialogueContext{work_id: work.id, interaction_state: %{}}
 
     assert {:error, {:pending_artifact_invalid, :candidate_content_unavailable}, failure_state} =
              PendingArtifactWorkflow.run(judgment, %{}, run, context, provider)
@@ -398,6 +439,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   test "生产 fetch 链把 chapter_facts 带进判断作品事实块（白名单透传回归）" do
     {:ok, work} = WorkService.create(%{"title" => "事实链作品"})
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
     volume =
       %Volume{} |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1}) |> Repo.insert!()
@@ -448,7 +490,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
         work.id,
         "第01章写完了吗？当前版本是什么？",
         fetcher,
-        session_id: "session-facts-chain"
+        session_id: session.id
       )
 
     assert [entry] = context.structured_chapters
@@ -462,19 +504,29 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert entry.char_count == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
     assert entry.word_count < entry.char_count
 
-    block = DialoguePlanningService.judgment_context_block(context, "第01章写完了吗？当前版本是什么？")
-
-    assert block =~ "当前已采纳正文 1/1 场（正文 #{entry.char_count} 字符；有效字数 #{entry.word_count}）"
-    assert block =~ "历史 SUPERSEDED 稿 1 份（不计入当前）"
-    assert block =~ "章状态=COMPLETED"
-    assert block =~ "当前版本 refs=draft:"
-    refute block =~ "当前已采纳正文 0/0 场"
+    scope = DialoguePlanningService.judgment_scope(context, "第01章写完了吗？当前版本是什么？")
+    assert [fact] = scope.facts.chapters
+    assert fact.accepted_draft_count == 1
+    assert fact.scene_count == 1
+    assert fact.char_count == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
+    assert fact.word_count == entry.word_count
+    assert fact.superseded_draft_count == 1
+    assert fact.chapter_status == "COMPLETED"
+    assert fact.current_draft_refs == [ref]
+    assert fact.work_id == work.id
+    assert fact.visible_in_reading == true
   end
 
   # ── helpers ───────────────────────────────────────────────
 
   defp run_until_turn_result(spec, run, max_steps) do
-    empty = %{stage_state: %{}, observations: [], events: [], stage_sink: fn _ -> :ok end}
+    empty = %{
+      stage_state: %{},
+      observations: [],
+      events: [],
+      step_results: [],
+      stage_sink: fn _ -> :ok end
+    }
 
     Enum.reduce_while(1..max_steps, {empty, nil}, fn seq, {snapshot, _result} ->
       case spec.next_step_planner.(run, seq, snapshot) do
@@ -495,25 +547,13 @@ defmodule NovelApplication.CP4ContextFixesTest do
     snapshot = %{
       snapshot
       | stage_state: Map.merge(snapshot.stage_state, result[:stage_state] || %{}),
-        observations: snapshot.observations ++ (result[:observations] || [])
+        observations: snapshot.observations ++ (result[:observations] || []),
+        step_results: snapshot.step_results ++ [result]
     }
 
     if result[:turn_result],
       do: {:halt, {snapshot, result}},
       else: {:cont, {snapshot, nil}}
-  end
-
-  defp run_plan_profile_events(_spec, _run) do
-    # 内联只读计划不切 profile；本测试的 run patch 里不出现 judgment_plan profile。
-    []
-  end
-
-  defp drain_prompts(acc) do
-    receive do
-      {:prompt, text} -> drain_prompts([text | acc])
-    after
-      0 -> Enum.reverse(acc)
-    end
   end
 
   defp drain_prompt_maps(acc) do
@@ -539,13 +579,14 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   # 长章脚本：按观察页数逐页续读；读满 6 页（34357 字符）后收束引用末页锚点。
   defp long_read_execution(test_pid) do
-    scripted_judgment_execution(fn _prompt, text ->
-      send(test_pid, {:prompt, text})
+    scripted_judgment_execution(fn prompt ->
+      send(test_pid, {:prompt_map, prompt})
+      pages = observation_blocks(prompt)
 
-      if String.contains?(text, @long_tail_anchor) do
+      if Enum.any?(pages, &String.contains?(&1.content["summary"], @long_tail_anchor)) do
         {:narrative, "我读完了全章六页，结论如下：\n\n" <> @long_tail_anchor}
       else
-        query = long_read_query(text)
+        query = long_read_query(prompt)
 
         {:decision,
          %{
@@ -557,20 +598,29 @@ defmodule NovelApplication.CP4ContextFixesTest do
     end)
   end
 
-  defp long_read_query(text) do
-    pages = length(String.split(text, "### 观察 ")) - 1
-    if pages == 0, do: explore_ref_query(text), else: footer_query(text)
+  defp long_read_query(prompt) do
+    case prompt |> observation_blocks() |> List.last() do
+      nil ->
+        assert %{"facts" => %{"chapters" => [chapter | _]}} =
+                 TestProviderPrompt.scope_content(prompt)
+
+        Jason.encode!(%{"chapter_ref" => chapter["ref"], "offset" => 0})
+
+      page ->
+        Jason.encode!(%{
+          "chapter_ref" => Map.fetch!(page.coverage, "chapter_ref"),
+          "offset" => page.next_offset
+        })
+    end
   end
 
   # M17 脚本：首轮 judgment_decision(plan)+agent_plan_draft（只读 archive_read +
   # 同章两页 chapter_read），内联执行后第二轮基于观察给出最终对比结论。
   defp planned_reads_then_reply_execution(test_pid, chapter_ref) do
-    scripted_judgment_execution(fn prompt, text ->
-      send(test_pid, {:prompt, text})
+    scripted_judgment_execution(fn prompt ->
       send(test_pid, {:prompt_map, prompt})
-      has_observation = String.contains?(text, "## 探索观察")
 
-      if has_observation do
+      if has_observation?(prompt) do
         {:narrative,
          "两份候选的真实差异：A 更冷峻克制，B 更热闹外放；建议先说明取舍再修订。\n\n" <>
            @long_tail_anchor}
@@ -619,9 +669,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
   defp scripted_judgment_execution(script) do
     %Execution{
       result_fn: fn prompt ->
-        text = prompt_to_text(prompt)
-
-        case script.(prompt, text) do
+        case script.(prompt) do
           {:narrative, narrative} ->
             {:ok,
              %{
@@ -680,16 +728,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
     }
   end
 
-  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
-
-  defp prompt_to_text(%{messages: _messages} = prompt),
-    do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
-
-  defp prompt_to_text(%{"messages" => _messages} = prompt),
-    do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
-
-  defp prompt_to_text(other), do: inspect(other)
-
   defp provider_output(text) do
     %ProviderOutput{
       provider_run_ref: "prun-#{System.unique_integer([:positive])}",
@@ -699,44 +737,18 @@ defmodule NovelApplication.CP4ContextFixesTest do
     }
   end
 
-  defp explore_ref_query(prompt_text) do
-    case Regex.run(~r/\[chapter_ref=(chapter:[0-9a-fA-F-]{36})\]/u, prompt_text) do
-      [_, ref] -> Jason.encode!(%{"chapter_ref" => ref, "offset" => 0})
-      _ -> Jason.encode!(%{"chapter_seq" => 1, "offset" => 0})
-    end
-  end
+  defp context_with_pending_candidates(work_id, pending) do
+    fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
 
-  defp footer_query(prompt_text) do
-    matches =
-      Regex.scan(~r/【续读】剩余 \d+ 字符；用 (\{"chapter_ref".*?\}) 继续。/u, prompt_text)
+    fn ^work_id, author_text, session_id ->
+      {:ok, context} = fetcher.(work_id, author_text, session_id)
 
-    case List.last(matches) do
-      [_, query] -> query
-      _ -> Jason.encode!(%{"chapter_seq" => 1, "offset" => 0})
-    end
-  end
-
-  defp context_with_pending_candidates(_work_id, pending) do
-    structured = [
-      %{
-        id: "chapter-1",
-        title: "第01章：灯楼夜雨",
-        seq: 1,
-        has_prose: true,
-        word_count: 24,
-        accepted_draft_count: 1,
-        scene_count: 1,
-        current_draft_refs: ["draft:d1:1"],
-        superseded_draft_count: 0,
-        chapter_status: "DRAFTING",
-        summary_status: "ACCEPTED",
-        plan_direction: %{}
-      }
-    ]
-
-    fn _work_id, _author_text, _session_id ->
-      {:ok, %{title: "灯楼夜雨"}, nil, nil, nil, ["第01章：灯楼夜雨"], structured,
-       %{pending_adoptions: pending, resolved_adoptions: []}}
+      {:ok,
+       %{
+         context
+         | interaction_state: %{pending_adoptions: pending, resolved_adoptions: []},
+           source_status: Map.put(context.source_status, :interaction, :ok)
+       }}
     end
   end
 

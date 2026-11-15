@@ -663,7 +663,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
           profile_ref: "conversation_turn_v1"
         },
         base_text: "应用 Base",
-        author_text: "作者原话"
+        author_text: "作者原话",
+        author_turn_ref: source_turn
       )
       |> AuthoringTranscript.append_assistant(
         "模型可见叙事 " <> marker,
@@ -826,7 +827,8 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         profile_ref: "conversation_turn_v1"
       },
       base_text: "应用 Base",
-      author_text: "作者原话"
+      author_text: "作者原话",
+      author_turn_ref: "input:history-binding:#{run_id}"
     )
     |> append_compacted_checkpoint("call-#{run_id}", summary)
     |> AuthoringCheckpoint.checkpoint()

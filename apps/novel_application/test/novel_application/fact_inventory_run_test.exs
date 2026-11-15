@@ -73,7 +73,8 @@ defmodule NovelApplication.FactInventoryRunTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
@@ -154,7 +155,8 @@ defmodule NovelApplication.FactInventoryRunTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
-               next_step_planner: spec.next_step_planner
+               next_step_planner: spec.next_step_planner,
+               interaction_input: spec.interaction_input
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)

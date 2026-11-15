@@ -137,6 +137,7 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
       kind: kind,
       author_goal: "写出一版可采纳的候选",
       author_words: "作者原话 NONCE42",
+      source: %{kind: :author_action, ref: "turn:test"},
       scope: scope_for(kind),
       materials: materials_for(kind),
       preserve: if(kind == :revision, do: ["未要求修改的内容逐字保留"], else: []),

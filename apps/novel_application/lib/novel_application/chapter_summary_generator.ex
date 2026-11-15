@@ -16,7 +16,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   alias NovelAgent.Provider.Execution
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
-  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
   alias NovelDomain.ChapterSummary
   alias NovelTelemetry.LogContext
 
@@ -54,7 +54,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   defp summary_request(%AuthoringTask{} = task, prose) do
     {instructions, material} = build_prompt_parts(task, prose)
 
-    RequestIR.text_operation(%{
+    Operation.text_operation(%{
       profile_ref: "chapter_summary",
       text: material,
       source_refs: task.source_refs,

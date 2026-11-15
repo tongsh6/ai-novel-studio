@@ -20,10 +20,11 @@ defmodule NovelTest.TestRequestIR do
     RequestIR.message(:system, :application, [RequestIR.text_block(text)])
   end
 
-  @spec scope(String.t(), map()) :: message()
-  def scope(text, versions \\ %{}) when is_binary(text) do
-    RequestIR.message(:scope_update, :application, [RequestIR.text_block(text)], %{
-      versions: versions
+  @spec scope(map(), map(), [map()]) :: message()
+  def scope(content, versions \\ %{}, source_refs \\ []) when is_map(content) do
+    RequestIR.message(:scope_update, :application, [RequestIR.scope_block(content)], %{
+      versions: versions,
+      source_refs: source_refs
     })
   end
 

@@ -89,7 +89,7 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
       plan: plan(target_ref),
       decision: allow_decision(),
       context: %DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         assembly_policy: AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "创作"},

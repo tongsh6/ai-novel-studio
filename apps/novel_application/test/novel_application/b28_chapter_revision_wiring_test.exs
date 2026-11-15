@@ -24,6 +24,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   }
 
   alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+  alias NovelTest.TestProviderPrompt
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -68,6 +69,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       base_text: "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。\n\n续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
     }
 
+    author_input = %{turn_id: "request", text: "把第一章正文整理一下，只调整分段和排版，别改字句。"}
+
     run = %{
       run_id: "run-b28-chapter",
       run_mode: :bounded,
@@ -84,13 +87,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       workspace_id: work.id,
       work_id: work.id,
       session_id: session.id,
-      parent_turn_ref: "request",
-      goal: %{text: "把第一章正文整理一下，只调整分段和排版，别改字句。", version: 1}
+      parent_turn_ref: author_input.turn_id,
+      goal: %{text: author_input.text, version: 1}
     }
 
-    context = %DialogueContext{workspace_id: work.id, interaction_state: %{}}
+    context = %DialogueContext{work_id: work.id, interaction_state: %{}}
 
-    {:ok, Map.merge(facts, %{run: run, context: context})}
+    {:ok, Map.merge(facts, %{run: run, context: context, author_input: author_input})}
   end
 
   defp judgment(chapter_ref, opts \\ %{}) do
@@ -125,7 +128,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       result_fn: fn prompt ->
         send(
           test_pid,
-          {:chapter_writer_prompt, NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)}
+          {:chapter_writer_prompt, prompt}
         )
 
         items =
@@ -174,18 +177,32 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                provider(explanation, self(), changes)
              )
 
-    assert_received {:chapter_writer_prompt, prompt}
+    assert_received {:chapter_writer_prompt, request}
+    scope = TestProviderPrompt.scope_content(request)
+    assert TestProviderPrompt.author_text(request) == c.author_input.text
+
+    author = Enum.find(request.messages, &(&1.role == "user" and &1.provenance == "author"))
+    current_scope = request.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
+    base = Enum.find(request.messages, &(&1.role == "application_base"))
+
+    assert %{ref: c.author_input.turn_id} in author.source_refs
+    assert Enum.any?(current_scope.source_refs, &(&1.ref == c.author_input.turn_id))
+    assert Enum.map(request.refs.base_refs, & &1.ref) == [c.draft1_ref, c.draft2_ref]
+    assert base.source_refs == request.refs.base_refs
+    assert request.refs.observation_refs == []
+
+    assert get_in(scope, ["operation", "artifact_type"]) == "prose_formatting_plan"
+    prompt = TestProviderPrompt.text(request)
     assert prompt =~ "可选换行边界"
     assert prompt =~ hd(view.boundaries).boundary_id
-    assert prompt =~ "artifact_type：prose_formatting_plan"
-    assert prompt =~ "目标章 ref：#{c.chapter_ref}"
-    assert prompt =~ "2 个已采纳片段"
+    assert get_in(scope, ["authoring_task", "scope", "target_chapter_ref"]) == c.chapter_ref
+    assert get_in(scope, ["authoring_task", "scope", "refs"]) == [c.draft1_ref, c.draft2_ref]
     assert prompt =~ "只提出换行计划"
     refute prompt =~ "本次你承担小说正文写作助手"
 
@@ -250,7 +267,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       assert {:error, {:pending_artifact_invalid, ^reason}, failure_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref),
-                 %{},
+                 c.author_input,
                  c.run,
                  c.context,
                  provider("模型方案", self(), changes)
@@ -272,7 +289,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     {:ok, result} =
       PendingArtifactWorkflow.run(
         judgment(c.chapter_ref),
-        %{},
+        c.author_input,
         c.run,
         c.context,
         provider("方案说明", self(), changes)
@@ -300,7 +317,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     {:ok, first} =
       PendingArtifactWorkflow.run(
         judgment(c.chapter_ref),
-        %{},
+        c.author_input,
         c.run,
         c.context,
         provider("原方案说明", self(), changes)
@@ -327,16 +344,18 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         pending_artifact_ref: original.artifact_id
       })
 
+    input = %{turn_id: "adjust-plan", text: "把这份方案调整为紧凑排版，别改字句。"}
+
     run = %{
       c.run
-      | parent_turn_ref: "adjust-plan",
-        goal: %{text: "把这份方案调整为紧凑排版，别改字句。", version: 1}
+      | parent_turn_ref: input.turn_id,
+        goal: %{text: input.text, version: 1}
     }
 
     assert {:error, {:pending_artifact_invalid, :no_formatting_changes}, no_change_state} =
              PendingArtifactWorkflow.run(
                j,
-               %{},
+               input,
                run,
                c.context,
                provider("只改说明", self(), changes)
@@ -349,7 +368,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:ok, changed} =
              PendingArtifactWorkflow.run(
                j,
-               %{},
+               input,
                run,
                c.context,
                provider("取消该处换行", self(), [%{boundary_id: boundary, lines: 0}])
@@ -358,7 +377,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     prompts =
       for _ <- 1..3 do
         assert_receive {:chapter_writer_prompt, prompt}
-        prompt
+        TestProviderPrompt.text(prompt)
       end
 
     adjustment_prompt = List.last(prompts)
@@ -387,7 +406,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:error, {:pending_artifact_invalid, :incomplete_scope}, incomplete_state} =
              PendingArtifactWorkflow.run(
                judgment("chapter:#{chapter.id}"),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                %Execution{result_fn: fn _ -> flunk("无正文不得调用模型") end}
@@ -405,7 +424,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:error, {:pending_artifact_invalid, :revision_not_allowed}, read_only_state} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                %Execution{result_fn: fn _ -> flunk("read-only 会话不得调用修订 writer") end}
@@ -418,54 +437,6 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert WorkSessionRepo.get_by_work(c.work.id, c.session.id).status == archived.status
   end
 
-  test "旧单 artifact 修订路径 payload 不含 B28 字段（legacy 兼容）", c do
-    # 给 pending 候选做 B27 单 artifact 修订（不涉及章级），payload 保持旧字段。
-    {:ok, artifact} =
-      NovelApplication.ArtifactAssembler.assemble(
-        %NovelCommon.Contracts.ToolResult{
-          tool_result_id: "tr-legacy",
-          tool_request_ref: "tq-legacy",
-          tool_name: "world_building",
-          status: :succeeded,
-          output: %{
-            artifact_type: "world_setting",
-            item_count: 1,
-            items: [%{item_id: "legacy-1", title: "旧设定", body: "旧书铺。", rationale: nil}]
-          },
-          artifact_refs: ["legacy-1"],
-          state_delta: [],
-          usage: %{},
-          trace_refs: [],
-          completed_at: DateTime.utc_now()
-        },
-        "turn-legacy"
-      )
-
-    frame = %NovelDomain.DialogueFrame{
-      schema_version: "3.0-draft",
-      frame_id: "frame-legacy",
-      turn_id: "turn-legacy",
-      workspace_id: c.work.id,
-      primary: true,
-      frame_type: :execution_candidate,
-      source_refs: %{author_input_ref: "turn-legacy"},
-      dialogue_goal: %{summary: "生成候选"},
-      tool_need: %{needs_tool: true, reason_code: :tool_needed},
-      execution_readiness: :ready,
-      author_visible_draft: %{message: "候选"},
-      evidence_summary: %{},
-      uncertainty: []
-    }
-
-    result = NovelApplication.TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact)
-    [pending] = result.adoption_state.pending
-
-    refute Map.has_key?(pending.payload, "modification_scope")
-    refute Map.has_key?(pending.payload, "adoption_effect")
-    refute Map.has_key?(pending.payload, "base_text")
-    assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
-  end
-
   test "slice_verify fixture：format_only 仅验证计划传递机制", c do
     provider = %Execution{
       result_fn: fn prompt ->
@@ -476,7 +447,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                provider
@@ -497,10 +468,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   test "slice_verify fixture：content_revision 只落实作者明确改动，其余逐字", c do
-    run = %{
-      c.run
-      | goal: %{text: "把第一章正文里的二十五岁改成三十岁，其他不变。", version: 1}
-    }
+    input = %{c.author_input | text: "把第一章正文里的二十五岁改成三十岁，其他不变。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
 
     judgment =
       judgment(c.chapter_ref, %{
@@ -514,7 +483,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     }
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+             PendingArtifactWorkflow.run(judgment, input, run, c.context, provider)
 
     [pending] = result.turn_result.adoption_state.pending
     [item] = pending.payload[:items]
@@ -576,7 +545,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       assert {:error, {:pending_artifact_invalid, ^reason}, rejection_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: text}),
-                 %{},
+                 %{c.author_input | text: text},
                  run,
                  c.context,
                  %Execution{result_fn: fn _ -> flunk("范围不唯一不得调用writer") end}
@@ -598,11 +567,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
       )
 
+    input = %{c.author_input | text: "只改第十一段，其他段逐字保留。"}
+
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "只改第十一段"}),
-               %{},
-               %{c.run | goal: %{text: "只改第十一段，其他段逐字保留。", version: 1}},
+               input,
+               %{c.run | goal: %{text: input.text, version: 1}},
                c.context,
                provider("灯楼第十层，灯焰骤亮。", self())
              )
@@ -622,13 +593,14 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: unquote(interpretation)}),
-                 %{},
+                 %{c.author_input | text: author},
                  run,
                  c.context,
                  provider(target_body, self())
                )
 
-      assert_received {:chapter_writer_prompt, prompt}
+      assert_received {:chapter_writer_prompt, request}
+      prompt = TestProviderPrompt.text(request)
       assert prompt =~ "只输出**目标段落的替换文本**"
       refute prompt =~ "本轮为整章正文修订"
       [pending] = result.turn_result.adoption_state.pending
@@ -640,12 +612,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   test "作者明确整章修订时，模型说明不能擅自缩成单段", c do
-    run = %{c.run | goal: %{text: "请通读整章并修订第一章正文。", version: 1}}
+    input = %{c.author_input | text: "请通读整章并修订第一章正文。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "只改第一段"}),
-               %{},
+               input,
                run,
                c.context,
                provider(c.base_text, self())
@@ -658,10 +631,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   test "B35 target_segments：prompt 要求目标段替换，候选声明 scope/covered/preserve", c do
-    run = %{
-      c.run
-      | goal: %{text: "只把第一章开头一段改得更紧张，其他段落逐字保留。", version: 1}
-    }
+    input = %{c.author_input | text: "只把第一章开头一段改得更紧张，其他段落逐字保留。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
 
     judgment =
       judgment(c.chapter_ref, %{
@@ -671,13 +642,14 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment,
-               %{},
+               input,
                run,
                c.context,
                provider(c.base_text, self())
              )
 
-    assert_received {:chapter_writer_prompt, prompt}
+    assert_received {:chapter_writer_prompt, request}
+    prompt = TestProviderPrompt.text(request)
     assert prompt =~ "只输出**目标段落的替换文本**"
     assert prompt =~ "未改段落由系统逐字节保留"
 
@@ -706,19 +678,21 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     Repo.update!(Ecto.Changeset.change(draft2, content: long))
     base = ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
     last = base |> LocalizedRevision.segment() |> List.last()
-    run = %{c.run | goal: %{text: "不要整章重写，只改最后一段。", version: 1}}
+    input = %{c.author_input | text: "不要整章重写，只改最后一段。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
     target_body = "续写：灯楼九层，每层九盏，他数到第九层时，天已经亮了。"
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "只改最后一段"}),
-               %{},
+               input,
                run,
                c.context,
                provider(target_body, self())
              )
 
-    assert_received {:chapter_writer_prompt, prompt}
+    assert_received {:chapter_writer_prompt, request}
+    prompt = TestProviderPrompt.text(request)
     assert prompt =~ "只输出**目标段落的替换文本**"
     refute prompt =~ "本轮为整章正文修订"
 
@@ -762,13 +736,14 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   test "CP1 通读全文后只修第二段 → target_segments 第二段（读取不等于修改授权）", c do
-    run = %{c.run | goal: %{text: "通读全文后只修第二段。", version: 1}}
+    input = %{c.author_input | text: "通读全文后只修第二段。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
     target_body = "续写：灯楼九层，每层九盏，他数到第九层时，天已经亮了。"
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "只修第二段"}),
-               %{},
+               input,
                run,
                c.context,
                provider(target_body, self())
@@ -794,7 +769,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, scope_state} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: text}),
-                 %{},
+                 %{c.author_input | text: text},
                  run,
                  c.context,
                  %Execution{result_fn: fn _ -> flunk("未授权修改不得调用 writer") end}
@@ -807,17 +782,15 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   test "CP1 条件性整章未判定 → 保守不授整章（无目标解析时拒绝，不猜整章）", c do
-    run = %{
-      c.run
-      | goal: %{text: "如果第03章有明显问题就整章改一遍，没有问题就告诉我。", version: 1}
-    }
+    input = %{c.author_input | text: "如果第03章有明显问题就整章改一遍，没有问题就告诉我。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
 
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
     assert {:error, {:pending_artifact_invalid, :incomplete_scope}, incomplete_state} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "按条件处理"}),
-               %{},
+               input,
                run,
                c.context,
                %Execution{result_fn: fn _ -> flunk("条件未判定不得自动生成整章候选") end}

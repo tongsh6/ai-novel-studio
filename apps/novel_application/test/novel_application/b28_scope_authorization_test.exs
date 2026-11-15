@@ -20,6 +20,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{LocalizedRevision, ReadingProjectionRepo, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+  alias NovelTest.TestProviderPrompt
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -120,15 +121,18 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                j3,
-               %{},
+               %{text: @g2_author},
                g2_run(ctx, @g2_author),
-               %DialogueContext{workspace_id: ctx.work.id, interaction_state: %{}},
+               %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
                writer
              )
 
-    assert_received {:chapter_writer_prompt, prompt}
-    assert prompt =~ target_id
-    assert prompt =~ "本轮局部修订目标段"
+    assert_received {:chapter_writer_prompt, request}
+    scope = TestProviderPrompt.scope_content(request)
+    assert scope["operation"]["context_text"] =~ target_id
+    assert scope["operation"]["context_text"] =~ "本轮局部修订目标段"
+    assert scope["authoring_task"]["scope"]["modification_scope"] == "target_segments"
+    assert TestProviderPrompt.author_text(request) == @g2_author
 
     [pending] = result.turn_result.adoption_state.pending
 
@@ -171,14 +175,17 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                j3,
-               %{},
+               %{text: author},
                g2_run(ctx, author),
-               %DialogueContext{workspace_id: ctx.work.id, interaction_state: %{}},
+               %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
                chapter_writer("起笔：陈九斤在井口停下。", self())
              )
 
-    assert_received {:chapter_writer_prompt, prompt}
-    assert prompt =~ first_segment.segment_id
+    assert_received {:chapter_writer_prompt, request}
+    scope = TestProviderPrompt.scope_content(request)
+    assert scope["operation"]["context_text"] =~ first_segment.segment_id
+    assert scope["authoring_task"]["scope"]["modification_scope"] == "target_segments"
+    assert TestProviderPrompt.author_text(request) == author
 
     [pending] = result.turn_result.adoption_state.pending
     assert pending.payload.adoption_effect["target_segment_ids"] == [first_segment.segment_id]
@@ -195,9 +202,9 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     assert {:error, {:pending_artifact_invalid, :stale_base_version}, _state} =
              PendingArtifactWorkflow.run(
                j3,
-               %{},
+               %{text: @g2_author},
                g2_run(ctx, @g2_author),
-               %DialogueContext{workspace_id: ctx.work.id, interaction_state: %{}},
+               %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
                chapter_writer("不会用到的候选。", self())
              )
 
@@ -211,17 +218,23 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
 
     {j1, request1} = judge!(ctx, author, nil, provider, "explore")
 
-    prompt = TestAgenticLoopFixtures.prompt_text(request1)
-    [_, target_section] = String.split(prompt, "## 可选章级修订目标")
-    [catalog, _] = String.split(target_section, "\n## ", parts: 2)
+    scope = TestProviderPrompt.scope_content(request1)
+    assert [target] = scope["operation"]["chapter_revision_targets"]
 
-    assert catalog =~
-             "- #{ctx.chapter_ref}｜#{@g2_title}｜已采纳稿 1 篇｜覆盖 complete（材料覆盖）｜"
+    assert target == %{
+             "chapter_ref" => ctx.chapter_ref,
+             "chapter_title" => @g2_title,
+             "seq" => 2,
+             "covered_refs" => ["draft:#{ctx.draft.id}"],
+             "fragment_count" => 1,
+             "char_count" => String.length(ctx.base),
+             "coverage" => "complete"
+           }
 
-    for scope <- ["format_only=仅排版", "target_segments=指定片段", "whole_chapter=整章"],
-        do: assert(catalog =~ scope)
+    rules = RequestIR.SystemEnvelope.system_text(request1.system)
 
-    assert catalog |> String.split("\n") |> Enum.count(&String.starts_with?(&1, "- ")) == 1
+    for modification_scope <- ["format_only", "target_segments", "whole_chapter"],
+        do: assert(rules =~ modification_scope)
 
     {:ok, page1} = run_chapter_exploration(ctx, j1)
 
@@ -306,17 +319,23 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp judgment_input(ctx, author, transcript) do
     {:ok, chapter_targets} = AdoptionWorkflow.chapter_revision_targets(ctx.work.id)
 
-    context = %DialogueContext{workspace_id: ctx.work.id, interaction_state: %{}}
+    context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
     adopted = PendingArtifactWorkflow.accepted_targets(context)
     capabilities = adopted |> Map.values() |> List.flatten() |> Enum.uniq()
 
     %{
       author_text: author,
-      context_block: "作品：#{ctx.work.title}",
+      scope: %{
+        work_id: ctx.work.id,
+        facts: %{work: %{ref: "work:#{ctx.work.id}", work_id: ctx.work.id, title: ctx.work.title}},
+        coverage: %{work: %{status: "complete"}},
+        context: %{}
+      },
       source_input_ref: "turn-g2-observed-target",
-      supplied_context_refs: [],
+      supplied_context_refs: ["work:#{ctx.work.id}"],
       transcript: transcript,
       options: [
+        plan_run: g2_run(ctx, author),
         capabilities: capabilities,
         pending_artifact_targets: %{},
         adopted_content_targets: adopted,
@@ -352,7 +371,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
       workspace_id: ctx.work.id,
       work_id: ctx.work.id,
       session_id: ctx.session.id,
-      parent_turn_ref: "request",
+      parent_turn_ref: "turn-g2-observed-target",
       goal: %{text: author, version: 1}
     }
   end
@@ -475,7 +494,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp chapter_writer(body, test_pid) do
     %Execution{
       result_fn: fn prompt ->
-        send(test_pid, {:chapter_writer_prompt, TestAgenticLoopFixtures.prompt_text(prompt)})
+        send(test_pid, {:chapter_writer_prompt, prompt})
 
         items = [
           %{

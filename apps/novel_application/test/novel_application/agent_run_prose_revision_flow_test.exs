@@ -136,6 +136,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
@@ -320,6 +321,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
@@ -592,7 +594,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
   defp context do
     %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       current_chapters: ["第01章：开端"],
       structured_chapters: [%{title: "第01章：开端", seq: 1, summary: "主角登场。", has_prose: false}],
       assembly_policy: AssemblyPolicy.for_tier(:floor)
@@ -1162,6 +1164,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert {:ok, run_id} =
              AgentRunService.start_bounded(
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, event_forward),
+               interaction_input: planned.interaction_input,
                next_step_planner: planner,
                interaction_store: planned.interaction_store
              )
@@ -1238,7 +1241,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
   defp slice_verify_context(work_id) do
     %DialogueContext{
-      workspace_id: work_id,
+      work_id: work_id,
       current_chapters: ["第02章：矿区追击战"],
       structured_chapters: [
         %{

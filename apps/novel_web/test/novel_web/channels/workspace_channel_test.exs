@@ -5,6 +5,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.BehaviorState
+  alias NovelDomain.DialogueContext
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.WorkspaceContext
   alias NovelWeb.UserSocket
@@ -295,8 +296,13 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
     assert %BehaviorState{behavior_id: "bh-open"} = socket.assigns.active_behavior
 
-    assert {:ok, _snapshot, _summary, nil, behavior_summary, [], [], _interaction_state,
-            _source_status} =
+    assert {:ok,
+            %DialogueContext{
+              memory_summary: nil,
+              open_behavior_summary: behavior_summary,
+              current_chapters: [],
+              structured_chapters: []
+            }} =
              WorkspaceContext.context_fetcher_with_query().(work.id, "继续", session.id)
 
     assert behavior_summary =~ "待作者确认"

@@ -117,18 +117,12 @@ defmodule NovelCommon.RequestIR.Projection.AnthropicMessages do
   end
 
   defp project_message(%{role: "scope_update"} = message) do
-    case Projection.text_of(message.blocks) do
-      "" ->
-        []
-
-      _text ->
-        [
-          %{
-            role: "user",
-            content: [%{type: "text", text: Projection.scope_update_text(message)}]
-          }
-        ]
-    end
+    [
+      %{
+        role: "user",
+        content: [%{type: "text", text: Projection.scope_update_text(message)}]
+      }
+    ]
   end
 
   defp project_message(%{role: "user"} = message), do: user_text(message.blocks, nil)

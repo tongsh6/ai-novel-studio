@@ -2,6 +2,7 @@ defmodule NovelPersistence.MemoryLogTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryClass
   alias NovelFoundation.Enums.RetentionTier
@@ -11,6 +12,7 @@ defmodule NovelPersistence.MemoryLogTest do
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.WorkRepo
   alias NovelPersistence.WorkSessionRepo
+  alias NovelPersistence.WorkspaceContext
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -242,6 +244,45 @@ defmodule NovelPersistence.MemoryLogTest do
       assert {:ok, interaction} = MemoryLog.record(entry)
       assert interaction.workspace_id == "ws-align"
       assert interaction.turn_id == "turn-align"
+    end
+  end
+
+  describe "interaction_recorder/0" do
+    test "persists multiple entries for later context assembly" do
+      {:ok, work} = WorkRepo.create(%{title: "消息记录上下文"})
+      ws_id = work.id
+      recorder = WorkspaceContext.interaction_recorder()
+
+      entries =
+        Enum.map([{"user", "第一轮"}, {"assistant", "收到第一轮"}], fn {role, text} ->
+          @valid_entry
+          |> Map.merge(%{
+            turn_id: "turn-r",
+            role: role,
+            content: %{text: text},
+            source_ref: "turn-r",
+            scope_ref: nil
+          })
+          |> Map.delete(:workspace_id)
+        end)
+
+      assert :ok = recorder.(ws_id, entries)
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok,
+              %DialogueContext{
+                current_work_snapshot: %{},
+                conversation_summary: summary,
+                memory_summary: nil,
+                open_behavior_summary: nil,
+                current_chapters: [],
+                structured_chapters: [],
+                interaction_state: %{}
+              }} = fetcher.(ws_id, "", nil)
+
+      assert String.contains?(summary, "user: 第一轮")
+      assert String.contains?(summary, "assistant: 收到第一轮")
     end
   end
 end

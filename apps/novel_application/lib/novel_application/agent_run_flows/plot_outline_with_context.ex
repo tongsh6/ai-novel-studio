@@ -16,6 +16,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelApplication.TurnInteractionService
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
@@ -328,9 +329,13 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       |> Execution.with_purpose(:planner)
       |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
 
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     case ChapterMissionService.derive(inputs, provider_execution,
            run: run,
            snapshot: snapshot,
+           author_text: author_input && author_input.text,
+           source_input_ref: author_input && author_input.turn_id,
            kind: :planning
          ) do
       {:ok, mission, meta} ->
@@ -700,6 +705,8 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       }
     )
 
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     {turn_result, trace, transcript} =
       %{
         frame: frame,
@@ -710,9 +717,11 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         candidates: [],
         context: execution_context,
         author_input: %{
-          text: author_input_text(run, plan, observations),
+          text: author_input && author_input.text,
+          turn_id: author_input && author_input.turn_id,
           author_goal_text: run.goal.text
         },
+        creative_brief: creative_brief_text(run, plan, observations),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         planning_mission: Map.get(stage_state(snapshot), :planning_mission),
@@ -779,12 +788,12 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   defp context_for_run(%{context: %DialogueContext{} = context}, _run, _turn_id), do: context
 
   defp context_for_run(spec, run, turn_id) do
-    fetcher = Map.get(spec, :context_fetcher) || fn _ -> {:ok, nil, nil, nil, nil} end
+    fetcher = Map.get(spec, :context_fetcher)
 
     LogContext.put_turn(run.workspace_id, run.work_id, turn_id, run.session_id)
 
     ContextAssembler.assemble_for_input(
-      run.workspace_id,
+      run.work_id,
       run.goal.text,
       fetcher,
       session_id: run.session_id,
@@ -792,7 +801,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     )
   end
 
-  defp author_input_text(run, plan, observations) do
+  defp creative_brief_text(run, plan, observations) do
     observation_text =
       observations
       |> Enum.map(& &1.summary)

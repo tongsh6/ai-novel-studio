@@ -78,14 +78,22 @@ defmodule I1CausalDriver do
     nonce = gen_nonce()
     text = compose_input(c, nonce)
 
-    input = %{
-      text: text,
-      workspace_id: "i1-driver-#{c.name}"
-    }
-
     result_fn = build_traced_result_fn(trace_agent)
 
     try do
+      {:ok, work} =
+        NovelApplication.WorkService.create(%{"title" => "I1 scenario fixture #{c.name}"})
+
+      {:ok, session} =
+        NovelApplication.WorkSessionService.create(work.id, %{"title" => "I1 #{c.name}"})
+
+      input = %{
+        text: text,
+        workspace_id: "i1-driver-#{c.name}",
+        work_id: work.id,
+        session_id: session.id
+      }
+
       case run_main_chain(input, provider_execution(result_fn)) do
         {:ok, turn_result} ->
           calls = Agent.get(trace_agent, & &1) |> Enum.reverse()
@@ -134,6 +142,8 @@ defmodule I1CausalDriver do
          {:ok, _run_id} <-
            AgentRunService.start_bounded(
              spec.run_attrs,
+             interaction_input: spec.interaction_input,
+             interaction_store: spec.interaction_store,
              next_step_planner: spec.next_step_planner
            ) do
       await_turn_result(nil)

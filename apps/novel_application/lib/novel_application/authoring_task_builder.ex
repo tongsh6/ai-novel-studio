@@ -144,7 +144,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   `attrs`：
   - `:action`：MicroPlan action（`:authoring_intent` / `:summary` / `:target_chapter_ref`）
-  - `:author_input` / `:author_words`：作者原话字节（仅 `author_goal_text` 或显式 words）
+  - `:author_words`：经真实输入/receipt 核对的作者原话字节；应用 author_goal 不作 fallback
   - `:author_goal`：应用已验证的目标解释（action/step summary，来源在 `source_refs`）
   - `:resolved_chapter` / `:resolved_chapter_ref`：应用解析后的目标章
   - `:prior_prose` / `:omission_notes`：已采纳前文与预算省略
@@ -892,14 +892,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   defp kind_ref(kind, content), do: "#{kind}:" <> short_hash(content)
 
-  defp author_words(attrs) do
-    words =
-      blank_to_nil(text(attrs[:author_words])) ||
-        blank_to_nil(text(get_in(attrs, [:author_input, :author_goal_text]))) ||
-        blank_to_nil(text(get_in(attrs, [:author_input, "author_goal_text"])))
-
-    words
-  end
+  defp author_words(attrs), do: blank_to_nil(text(attrs[:author_words]))
 
   defp prose_coverage_note(:chapter), do: nil
   defp prose_coverage_note(_coverage), do: "仅本轮生成的正文候选，非整章已采纳全文"

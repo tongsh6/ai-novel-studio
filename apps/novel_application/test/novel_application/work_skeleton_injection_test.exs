@@ -82,7 +82,7 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
     end
 
     context = %DialogueContext{
-      workspace_id: @work,
+      work_id: @work,
       assembly_policy: AssemblyPolicy.for_tier(:floor),
       current_work_snapshot: snapshot,
       current_chapters: chapters

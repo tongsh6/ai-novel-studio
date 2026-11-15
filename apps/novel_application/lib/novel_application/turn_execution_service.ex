@@ -72,6 +72,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:candidates) => list(),
           optional(:context) => term(),
           optional(:author_input) => map(),
+          optional(:creative_brief) => String.t(),
           optional(:provider_execution) => Execution.dependency(),
           optional(:quality_provider_execution) => Execution.dependency(),
           optional(:chapter_prose_reader) => function(),
@@ -94,6 +95,7 @@ defmodule NovelApplication.TurnExecutionService do
   @spec execute(execution_input()) ::
           {map(), NovelDomain.DecisionTrace.t(), AuthoringTranscript.t() | nil}
   def execute(%{frame: frame, plan: plan, decision: decision} = input) do
+    input = bind_author_input(input, frame)
     action = hd(plan.proposed_actions)
 
     # AI 只识别意图与候选目标章；目标章由应用层用作品现有章节列表确定性解析（LLM 对结构化
@@ -144,6 +146,38 @@ defmodule NovelApplication.TurnExecutionService do
       )
     end
   end
+
+  defp bind_author_input(input, frame) do
+    author_input =
+      select_author_input(input[:author_input], input[:source_turn_ref] || frame.turn_id)
+
+    origin = Map.get(input[:agent_run] || %{}, :author_turn)
+
+    case AuthoringSession.record_author_input(input[:request_ir], author_input, origin) do
+      {:ok, ir} ->
+        input
+        |> Map.put(:request_ir, ir)
+        |> Map.put(:source_input_ref, author_input && author_input.turn_id)
+
+      {:error, reason} when reason in [:author_input_conflict, :author_input_unavailable] ->
+        raise ArgumentError, to_string(reason)
+
+      {:error, _reason} ->
+        raise ArgumentError, "authoring session request IR is invalid"
+    end
+  end
+
+  defp select_author_input(%{text: text} = author, source_turn_ref) when is_binary(text),
+    do: %{turn_id: Map.get(author, :turn_id) || source_turn_ref, text: text}
+
+  defp select_author_input(%{"text" => text} = author, source_turn_ref) when is_binary(text),
+    do: %{turn_id: Map.get(author, "turn_id") || source_turn_ref, text: text}
+
+  defp select_author_input(_author, _source_turn_ref), do: nil
+
+  defp author_words(%{text: text}) when is_binary(text), do: text
+  defp author_words(%{"text" => text}) when is_binary(text), do: text
+  defp author_words(_input), do: nil
 
   defp do_execute(
          frame,
@@ -647,8 +681,7 @@ defmodule NovelApplication.TurnExecutionService do
         tool_input(
           frame,
           action,
-          input[:author_input],
-          input[:context],
+          input,
           sections
         ),
       read_scope_grants: (entry && entry.read_scopes) || [],
@@ -662,12 +695,12 @@ defmodule NovelApplication.TurnExecutionService do
   defp tool_input(
          frame,
          action,
-         author_input,
-         _context,
+         input,
          sections
        ) do
-    text = author_input_text(frame, author_input)
-    author_goal_text = author_goal_text(author_input)
+    text = author_input_text(frame, input[:author_input])
+    author_goal_text = author_goal_text(input[:author_input])
+    creative_brief = Map.get(input, :creative_brief) || text
 
     # 顺序：目标章结构对象（L2 设计态）→ 现有角色主档案（作品级阵容）→ 前文各章摘要
     # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 确认记忆事实（L3b）→ 风格偏好
@@ -692,10 +725,11 @@ defmodule NovelApplication.TurnExecutionService do
     %{
       "text" => text,
       "creative_brief" =>
-        [action_summary(action), word_count_brief(action), text]
+        [action_summary(action), word_count_brief(action), creative_brief]
         |> Enum.reject(&blank?/1)
         |> Enum.join("\n"),
-      "context_text" => context_text
+      "context_text" => context_text,
+      "source_input_ref" => input[:source_input_ref]
     }
     |> maybe_put_author_goal_text(author_goal_text)
     |> maybe_put_characters(action, sections.characters)
@@ -817,7 +851,7 @@ defmodule NovelApplication.TurnExecutionService do
         action: action,
         turn_id: frame.turn_id,
         workspace_id: frame.workspace_id,
-        author_input: input[:author_input],
+        author_words: author_words(input[:author_input]),
         author_goal: action_summary(action),
         resolved_chapter: resolved_chapter,
         resolved_chapter_ref: resolved_chapter_ref,
@@ -2899,7 +2933,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp narration_task(input, frame, tool_result, artifact_set) do
     attrs = %{
       author_goal: narration_goal(frame),
-      author_words: author_input_text(frame, input[:author_input]),
+      author_input: input[:author_input],
       tool_name: tool_result.tool_name,
       tool_status: tool_result.status,
       artifact_refs: narration_artifact_refs(tool_result, artifact_set),

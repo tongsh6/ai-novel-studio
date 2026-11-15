@@ -11,6 +11,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     ActionValidator,
     AdoptionWorkflow,
     ArtifactAssembler,
+    AuthorContentRegistration,
     AuthoringOperation,
     AuthoringTaskBuilder,
     CapabilityRegistry,
@@ -615,8 +616,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
          {:ok, revision_scope} <- b36_revision_scope(facts, modification_scope, run, judgment),
+         author_input = TurnInteractionService.author_input(input, run),
          {:ok, task} <-
-           build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
+           build_chapter_revision_task(facts, modification_scope, frame, judgment, author_input) do
       # 标题与章号来自同一次 accepted 章事实（chapter_revision_context/2），
       # 不再按全库章目录查找，也不回退到裸 chapter_ref。
       chapter_title = facts.chapter_title
@@ -637,10 +639,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           modification_scope: modification_scope,
           chapter_title: chapter_title,
           judgment: judgment,
-          run: run,
+          author_input: author_input,
           previous_plan: previous_plan
         })
-        |> AuthoringSession.bind_tool_request(run, snapshot)
+        |> AuthoringSession.bind_tool_request(run, snapshot, author_input)
 
       {result, session} =
         AuthorizedToolExecutor.execute_with_session(
@@ -885,7 +887,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
+  defp build_chapter_revision_task(facts, modification_scope, frame, judgment, author_input) do
     preserve =
       if modification_scope == :format_only,
         do: ["只提出换行计划，文字、空格、标点及其他非换行字节全部不变"],
@@ -899,9 +901,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       coverage: :complete,
       modification_scope: modification_scope,
       author_goal: chapter_author_goal(judgment),
-      author_words: run.goal.text,
-      source: %{kind: :author_action, ref: run_ref(run, frame)},
-      source_refs: [run_ref(run, frame), "turn:" <> frame.turn_id],
+      author_words: author_input.text,
+      source: %{kind: :author_action, ref: author_input.turn_id},
+      source_refs: [author_input.turn_id, "turn:" <> frame.turn_id],
       preserve: preserve,
       output_contract: chapter_output_contract(modification_scope)
     }
@@ -963,7 +965,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       modification_scope: modification_scope,
       chapter_title: chapter_title,
       judgment: judgment,
-      run: run
+      author_input: author_input
     } = request_context
 
     registry = CapabilityRegistry.get(tool)
@@ -972,7 +974,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       %{
         "creative_brief" =>
           "修订#{chapter_title}正文（#{modification_scope_label(modification_scope)}）。" <>
-            "作者原话：#{run.goal.text}
+            "作者原话：#{author_input.text}
 本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：" <>
             "#{judgment.dialogue_goal || ""}
 覆盖范围：#{length(facts.covered_refs)} 个已采纳片段，按阅读投影顺序处理。",
@@ -1515,8 +1517,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     with true <- is_binary(tool),
          false <- OrchestratorDecision.blocks_execution?(decision),
          :ok <- check_revision_content(entry),
-         {:ok, request} <- request(frame, plan, decision, entry, tool, run.goal.text, run) do
-      request = AuthoringSession.bind_tool_request(request, run, snapshot)
+         author_input = TurnInteractionService.author_input(input, run),
+         {:ok, request} <- request(frame, plan, decision, entry, tool, author_input) do
+      request = AuthoringSession.bind_tool_request(request, run, snapshot, author_input)
       execute_single_artifact_revision(Map.put(ctx, :request, request))
     else
       false -> revision_failure(:revision_not_allowed, snapshot)
@@ -1672,7 +1675,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           [:payload],
           Map.merge(entry.payload, %{
             revision_of: field(source, :artifact_id),
-            registration_source_ref: TurnInteractionService.author_source_ref(source)
+            registration_source_ref: AuthorContentRegistration.author_source_ref(source)
           })
         )
       end)
@@ -1728,13 +1731,14 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
     with true <- is_binary(tool),
          false <- OrchestratorDecision.blocks_execution?(decision),
-         {:ok, request} <- request_adopted(frame, plan, decision, entry, tool, run.goal.text, run) do
-      request = AuthoringSession.bind_tool_request(request, run, snapshot)
+         author_input = TurnInteractionService.author_input(input, run),
+         {:ok, request} <- request_adopted(frame, plan, decision, entry, tool, author_input) do
+      request = AuthoringSession.bind_tool_request(request, run, snapshot, author_input)
       execute_single_artifact_revision(Map.put(ctx, :request, request))
     else
       false -> revision_failure(:revision_not_allowed, snapshot)
       true -> revision_failure(:revision_not_allowed, snapshot)
-      # request_adopted/7 的错误面只有 {:authoring_task_invalid, _}（revision_input
+      # request_adopted/6 的错误面只有 {:authoring_task_invalid, _}（revision_input
       # 只转发 AuthoringTaskBuilder 错误）；嵌套 pending_artifact_invalid 不可达（B60）。
       {:error, reason} -> {:error, {:authoring_task_invalid, reason}, step_state(%{}, snapshot)}
     end
@@ -1914,8 +1918,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     to_string(field(entry, :artifact_type)) in ~w(world_setting world_rule_seed style_rule_seed constraint_seed)
   end
 
-  defp request_adopted(frame, plan, decision, entry, tool, author_text, run) do
+  defp request_adopted(frame, plan, decision, entry, tool, author_input) do
     registry = CapabilityRegistry.get(tool)
+    author_text = author_input.text
 
     with {:ok, input} <-
            revision_input(
@@ -1932,8 +1937,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              tool,
              entry,
              frame,
-             author_text,
-             run,
+             author_input,
              :author_action
            ) do
       {:ok,
@@ -2033,8 +2037,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp request(frame, plan, decision, entry, tool, author_text, run) do
+  defp request(frame, plan, decision, entry, tool, author_input) do
     registry = CapabilityRegistry.get(tool)
+    author_text = author_input.text
 
     with {:ok, input} <-
            revision_input(
@@ -2051,8 +2056,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              tool,
              entry,
              frame,
-             author_text,
-             run,
+             author_input,
              :author_action
            ) do
       {:ok,
@@ -2077,17 +2081,17 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   # B27 CP3d：所有可修订 creative 类型（prose/outline/character/world）统一组装
   # AuthoringTask；角色/设定/大纲 schema 差异由 output_contract.artifact_type 与
   # 各自 agent 模板保留。task 组装失败返回可解释错误（由调用方不派发）。
-  defp revision_input(input, tool, entry, frame, author_text, run, source_kind) do
+  defp revision_input(input, tool, entry, frame, author_input, source_kind) do
     attrs = %{
-      source: %{kind: source_kind, ref: run_ref(run, frame)},
+      source: %{kind: source_kind, ref: author_input.turn_id},
       artifact_ref: field(entry, :artifact_id),
       artifact_type: field(entry, :artifact_type),
       base_body: TurnInteractionService.artifact_body(entry),
       coverage: :single,
       target_chapter_ref: field(entry, :target_chapter_ref),
       author_goal: revision_goal(tool),
-      author_words: author_text,
-      source_refs: [run_ref(run, frame), "turn:" <> frame.turn_id]
+      author_words: author_input.text,
+      source_refs: [author_input.turn_id, "turn:" <> frame.turn_id]
     }
 
     case AuthoringTaskBuilder.for_revision(attrs) do
@@ -2101,10 +2105,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp revision_goal("character_design"), do: "按作者要求修订角色设定候选"
   defp revision_goal("world_building"), do: "按作者要求修订设定候选"
   defp revision_goal(_tool), do: "按作者要求修订已有内容"
-
-  defp run_ref(run, frame) do
-    field(run, :parent_turn_ref) || field(run, :run_id) || "turn:" <> frame.turn_id
-  end
 
   defp frame(judgment, input, run, type, ref) do
     turn = field(input, :turn_id) || run.parent_turn_ref

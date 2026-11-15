@@ -49,6 +49,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
                next_step_planner: next_step_planner
              )
 
@@ -125,6 +126,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -177,6 +179,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -204,16 +207,19 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
 
   test "steer updates the following character design step input" do
     parent = self()
+    {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "角色改向原文"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.create(%{work_id: work.id})
 
     result_fn = agentic_result_fn(parent, nil)
     provider_execution = %Execution{result_fn: result_fn}
 
     input = %{
       text: "先看看当前已有角色，再帮我设计一个主要反派。",
-      workspace_id: "work-agent-steer",
-      work_id: "work-agent-steer",
-      session_id: "11111111-1111-4111-8111-111111111121",
-      turn_id: "turn-agent-steer"
+      workspace_id: work.id,
+      work_id: work.id,
+      session_id: session.id,
+      turn_id: "turn-agent-steer",
+      interaction_store: &NovelPersistence.InteractionLifecycle.call/2
     }
 
     planned =
@@ -241,16 +247,27 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
                NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: planned.interaction_input,
+               interaction_store: planned.interaction_store,
                next_step_planner: next_step_planner
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive :roster_reader_started
-    assert {:ok, _} = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")
+    raw_steer = "  改成政治操盘者，不做武力型反派 Ω\n  "
+    assert {:ok, _} = AgentRunService.steer(run_id, raw_steer)
     assert_receive {:agent_event, :plan_adjusted, _}
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "改成政治操盘者"
+
+    assert %{
+             source_refs: [%{ref: "turn-agent-steer:steer:2"}],
+             blocks: [%{type: "text", text: ^raw_steer}]
+           } =
+             provider_prompt.messages
+             |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))
+             |> List.last()
+
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "已完成观察"
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
   end

@@ -26,16 +26,21 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         else: System.delete_env("SLICE_VERIFY_PLAN_EXHAUST")
     end)
 
-    prompt_text = """
-    本次你承担创作判断器的角色。
-    ## 会话摘要
-    另一个任务仍在等待：先核对正文再调整大纲，UA01PLANEXHAUST-older-run。
-    ## 作者输入
-    确认第一卷；当前还没有章节，请先为第一卷生成12章的待采纳章节计划，供后续结构维护使用，暂不采纳。
-    """
+    author_text =
+      "确认第一卷；当前还没有章节，请先为第一卷生成12章的待采纳章节计划，供后续结构维护使用，暂不采纳。"
 
-    # 生产请求入口已统一为 canonical IR；替身按 IR 投影文本识别请求形态。
-    prompt = NovelTest.TestRequestIR.ir([NovelTest.TestRequestIR.base(prompt_text)])
+    prompt =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("另一个任务仍在等待：先核对正文再调整大纲，UA01PLANEXHAUST-older-run。"),
+          NovelTest.TestRequestIR.scope(%{
+            operation: %{available_operations: [%{name: "plot_outline"}]}
+          }),
+          NovelTest.TestRequestIR.author(author_text)
+        ],
+        system: RequestIR.system_envelope(instructions: "本次你承担创作判断器的角色。"),
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+      )
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
@@ -43,9 +48,11 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert args["capability"] == "plot_outline"
 
     own_prompt =
-      NovelTest.TestRequestIR.ir([
-        NovelTest.TestRequestIR.base(prompt_text <> "UA01PLANEXHAUST-current-run")
-      ])
+      NovelTest.TestRequestIR.put_message_text(
+        prompt,
+        2,
+        author_text <> "UA01PLANEXHAUST-current-run"
+      )
 
     assert {:ok, own} = SliceVerify.complete(nil, nil, own_prompt, %{})
 
@@ -104,6 +111,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:b31_plan_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -171,6 +179,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                  NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                    send(parent, {:plan_event, event.event_type, event})
                  end),
+                 interaction_input: spec.interaction_input,
                  next_step_planner: spec.next_step_planner
                )
 
@@ -297,6 +306,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -416,6 +426,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -553,6 +564,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -661,6 +673,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 

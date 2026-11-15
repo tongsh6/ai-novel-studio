@@ -26,7 +26,7 @@ defmodule NovelApplication.CP3StructuredContextTest do
           target_chapter: "第二章：旧服务器里的残诀"
         },
         context: %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: [
             "第一章：底层灵气账单",
             "第二章：旧服务器里的残诀",
@@ -73,7 +73,7 @@ defmodule NovelApplication.CP3StructuredContextTest do
           target_chapter: "第二章"
         },
         context: %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: ["第一章", "第二章"],
           assembly_policy: AssemblyPolicy.for_tier(:floor)
         }
@@ -94,7 +94,7 @@ defmodule NovelApplication.CP3StructuredContextTest do
         },
         author_text: "请根据已采纳章节计划生成第02章：旧服务器里的残诀正文草稿",
         context: %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: [
             "第01章：底层灵气账单",
             "第02章：旧服务器里的残诀",

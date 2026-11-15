@@ -5,6 +5,7 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
   """
   use NovelPersistence.DataCase, async: false
 
+  alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.ID
   alias NovelPersistence.AdoptionRepository
@@ -75,10 +76,15 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
         decision_id: ID.uuid()
       })
 
-    fetcher = WorkspaceContext.context_fetcher()
+    fetcher = WorkspaceContext.context_fetcher_with_query()
 
-    assert {:ok, _snapshot, _conv, _mem, _behavior, titles, structured, %{}, _source_status} =
-             fetcher.(work_id)
+    assert {:ok,
+            %DialogueContext{
+              current_chapters: titles,
+              structured_chapters: structured,
+              interaction_state: %{}
+            }} =
+             fetcher.(work_id, "", nil)
 
     assert titles == [
              "第01章：底层灵气账单",

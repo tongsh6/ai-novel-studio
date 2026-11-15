@@ -7,9 +7,11 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
-  alias NovelPersistence.Repo
+  alias NovelPersistence.{InteractionLifecycle, Repo, WorkRepo, WorkSessionRepo}
+  alias NovelTest.TestProviderPrompt
 
   # 判断执行会经 ProviderActivityProjector 提交真实 Provider 事实；本测试必须
   # 显式持有 Sandbox 连接，否则事实写入被 OwnershipError 拒绝后只剩日志噪音。
@@ -96,44 +98,110 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert complete_meta.provider_call_count == 0
   end
 
-  test "awaiting_author steer 后判断 prompt 使用 goal version 2 的作者补充" do
+  test "awaiting_author steer 后判断使用当前 receipt 的原文与来源" do
     parent = self()
     original_text = "第一章字数太少了"
-    steered_text = "直接在现有正文基础上扩写，保持现有结构与情节不变"
+    steered_text = "  直接在现有正文基础上扩写，保持现有结构与情节不变。\r\n保留 Ω。  "
+    {:ok, work} = WorkRepo.create(%{title: "判断 steer 来源"})
+    {:ok, session} = WorkSessionRepo.create(%{work_id: work.id})
+    store = &InteractionLifecycle.call/2
 
     provider_execution =
       judgment_execution("reply", nil,
         narrative: "已收到明确方向，我会按现有结构扩写。",
         reply_included: true,
-        on_prompt: fn prompt -> send(parent, {:judgment_prompt, prompt_text(prompt)}) end
+        on_prompt: fn request -> send(parent, {:judgment_request, request}) end
       )
 
+    input = %{
+      text: original_text,
+      workspace_id: "ws-awaiting-steer",
+      work_id: work.id,
+      session_id: session.id,
+      turn_id: "turn-awaiting-steer",
+      interaction_store: store
+    }
+
     assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: original_text,
-                 workspace_id: "ws-awaiting-steer",
-                 work_id: "work-awaiting-steer",
-                 session_id: "session-awaiting-steer",
-                 turn_id: "turn-awaiting-steer"
-               },
-               nil,
-               provider_execution
-             )
+             DialoguePlanningService.plan_agent_run(input, nil, provider_execution)
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
-    steered_run = %{run | goal: %{run.goal | text: steered_text, version: 2}}
+    assert {:ok, _} = TurnInteractionService.receive_input(run, store, input)
+
+    steered_run = %{
+      run
+      | goal: %{run.goal | text: "应用目标：按现有结构扩写", version: 2}
+    }
+
+    assert {:ok, _} =
+             TurnInteractionService.record_steer(steered_run, steered_text, store, "dps-steer-2")
 
     {_context_result, _judgment_result} =
       drive_judgment(spec, steered_run, fn _event -> :ok end)
 
-    assert_receive {:judgment_prompt, narrative_prompt}
-    refute_receive {:judgment_prompt, _}, 10
+    assert_receive {:judgment_request, request}
+    refute_receive {:judgment_request, _}, 10
+    expected_ref = "turn-awaiting-steer:steer:2"
 
-    for prompt <- [narrative_prompt] do
-      assert prompt =~ steered_text
-      refute prompt =~ original_text
+    assert [
+             %{
+               blocks: [%{type: "text", text: ^steered_text}],
+               source_refs: [%{ref: ^expected_ref}]
+             }
+           ] =
+             Enum.filter(request.messages, &(&1.role == "user" and &1.provenance == "author"))
+
+    scope = TestProviderPrompt.scope_content(request)
+    assert scope["goal"]["text"] == steered_run.goal.text
+    assert scope["goal"]["version"] == 2
+    assert scope["goal"]["source_input_ref"] == expected_ref
+    refute TestProviderPrompt.author_text(request) == original_text
+  end
+
+  test "judgment reads the run work when workspace and captured input work differ" do
+    parent = self()
+    work_id = "work-current-run"
+    author_text = "核对当前作品后继续讨论。"
+
+    context_fetcher = fn fetched_work_id, text, session_id ->
+      send(parent, {:work_identity_context_read, fetched_work_id, text, session_id})
+
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: fetched_work_id,
+         current_work_snapshot: %{title: "当前 run 的作品", revision: 1},
+         source_status: %{work: :ok, chapters: :empty}
+       }}
     end
+
+    input = %{
+      text: author_text,
+      workspace_id: "workspace-work-identity",
+      work_id: "work-stale-input",
+      session_id: "session-work-identity",
+      turn_id: "turn-work-identity"
+    }
+
+    execution =
+      judgment_execution("reply", nil,
+        on_prompt: fn request -> send(parent, {:work_identity_judgment_request, request}) end
+      )
+
+    assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, context_fetcher, execution)
+    assert {:ok, run} = spec.run_attrs |> Map.put(:work_id, work_id) |> AgentRun.new()
+
+    {context_result, judgment_result} = drive_judgment(spec, run, fn _event -> :ok end)
+
+    assert_receive {:work_identity_context_read, ^work_id, ^author_text, "session-work-identity"}
+    refute_receive {:work_identity_context_read, _, _, _}, 10
+    assert context_result.stage_state.judgment_context.work_id == work_id
+    assert judgment_result.provider_call_count == 1
+
+    assert_receive {:work_identity_judgment_request, request}
+    assert request.run.work_id == work_id
+    scope = TestProviderPrompt.scope_content(request)
+    assert scope["work_id"] == work_id
+    assert scope["facts"]["work"]["work_id"] == work_id
   end
 
   test "判断 reply 的非探索 frame 语义机械进入 TurnResult" do
@@ -545,103 +613,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert spec.run_attrs.parent_turn_ref == "turn-q"
   end
 
-  test "legacy 最多一步 text no longer caps budget without structured author_limits" do
-    spec =
-      DialoguePlanningService.run_spec_for_profile(
-        :character_design_with_context,
-        %{
-          text: "先看看现有角色阵容，然后设计一个反派，最多一步",
-          workspace_id: "ws-budget",
-          work_id: "work-budget",
-          session_id: "session-budget",
-          turn_id: "turn-budget-legacy-text"
-        },
-        nil,
-        fn _ -> {:ok, %{content: "[]"}} end
-      )
-
-    assert spec.run_attrs.budget.max_steps > 1
-    refute Map.has_key?(spec.run_attrs.budget, :author_max_steps)
-  end
-
-  test "one-step budget 收窄显式 profile 的 bounded run budget" do
-    spec =
-      DialoguePlanningService.run_spec_for_profile(
-        :character_design_with_context,
-        %{
-          text: "先看看现有角色阵容，然后设计一个反派",
-          author_limits: %{max_steps: 1},
-          workspace_id: "ws-budget",
-          work_id: "work-budget",
-          session_id: "session-budget",
-          turn_id: "turn-budget"
-        },
-        nil,
-        fn _ -> {:ok, %{content: "[]"}} end
-      )
-
-    assert spec.run_attrs.budget.max_steps == 1
-    assert spec.run_attrs.budget.author_max_steps == 1
-  end
-
   test "空文本被拒绝，不走非 agent 回退" do
     assert DialoguePlanningService.agent_run_candidate?("测试") == true
     assert DialoguePlanningService.agent_run_candidate?("") == false
     assert DialoguePlanningService.plan_agent_run(%{text: ""}) == {:error, :empty_text}
-  end
-
-  test "run_spec_for_profile 直接为显式 profile 构建 spec（不经判帧）" do
-    spec =
-      DialoguePlanningService.run_spec_for_profile(
-        :character_design_with_context,
-        %{
-          text: "设计一个反派",
-          workspace_id: "ws-direct",
-          work_id: "work-direct",
-          session_id: "session-direct",
-          turn_id: "turn-direct"
-        },
-        nil,
-        fn _ -> {:ok, %{content: "[]"}} end
-      )
-
-    assert spec.run_attrs.profile_ref == "character_design_with_context_v1"
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
-  end
-
-  test "修订动作显式 profile 构建 revision AgentRun spec" do
-    spec =
-      DialoguePlanningService.run_spec_for_profile(
-        :prose_revision_from_findings,
-        %{
-          text: "按质量发现重写正文草稿",
-          workspace_id: "ws-revision",
-          work_id: "work-revision",
-          session_id: "session-revision",
-          turn_id: "turn-source",
-          source_turn_result: %{},
-          action_input: nil,
-          trigger: %{
-            kind: "author_action",
-            receipt_id: "receipt-revision",
-            action_type: "revise_from_findings",
-            source_turn_ref: "turn-source"
-          }
-        },
-        nil,
-        fn _ -> {:ok, %{content: "{}"}} end
-      )
-
-    assert spec.run_attrs.profile_ref == "prose_revision_from_findings_v1"
-    assert spec.run_attrs.parent_turn_ref == "turn-source"
-    assert spec.run_attrs.trigger.receipt_id == "receipt-revision"
-    assert spec.run_attrs.trigger.action_type == "revise_from_findings"
-    assert spec.run_attrs.budget.max_steps == 6
-    assert spec.run_attrs.budget.max_provider_calls == 8
-    assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
   end
 
   # 判断循环（ADR-0025 CP1）：机械准备（0 调用）→ 判断①单调用（1 调用）→
@@ -807,6 +782,4 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         budget: Map.get(patch, :budget) || run.budget
     }
   end
-
-  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end

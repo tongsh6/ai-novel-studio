@@ -41,6 +41,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
     AuthoringTranscript.new(@run,
       base_text: "角色规则：只在授权边界内提出候选。",
       author_text: @author_text,
+      author_turn_ref: "turn-session",
       tools: [@tool]
     )
   end
@@ -58,7 +59,8 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
     %AuthoringTask{
       kind: :revision,
       author_goal: "只改第二段，其余逐字保留",
-      author_words: "只改第二段，其余逐字保留",
+      author_words: @author_text,
+      source: %{kind: :author_action, ref: "turn-session"},
       operation_effect: :revise_candidate,
       scope: %{refs: ["artifact:one"], coverage: :single, base_ref: "artifact:one"},
       preserve: ["其余逐字保留"],
@@ -77,6 +79,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       AuthoringTranscript.new(run,
         base_text: "角色规则：按作者要求修订候选。",
         author_text: @author_text,
+        author_turn_ref: "turn-session",
         tools: [@tool]
       )
 
@@ -101,6 +104,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       input: %{
         "revision" => "只改第二段，其余逐字保留",
         "authoring_task" => authoring_task_map(),
+        "source_input_ref" => "turn-session",
         "context_text" => "原候选全文"
       },
       read_scope_grants: ["author_text", "chapter_structure"],
@@ -223,6 +227,20 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       })
 
     run
+  end
+
+  describe "record_author_input/3" do
+    test "已有会话拒绝空白作者文本或来源，返回契约错误" do
+      ir = base_ir()
+
+      for input <- [
+            %{turn_id: "turn-session-next", text: " \t\n　"},
+            %{turn_id: " \t\n　", text: @author_text}
+          ] do
+        assert {:error, :invalid_author_input} =
+                 AuthoringSession.record_author_input(ir, input, nil)
+      end
+    end
   end
 
   describe "validate_provider_result/4" do
@@ -710,7 +728,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
           plan: execution_plan(),
           decision: execution_decision(),
           context: %DialogueContext{
-            workspace_id: "workspace-session",
+            work_id: "workspace-session",
             current_chapters: ["第一章"]
           },
           author_input: %{text: "重写第99章"},

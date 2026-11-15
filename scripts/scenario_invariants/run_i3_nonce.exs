@@ -77,15 +77,23 @@ defmodule I3NonceDriver do
     nonce = gen_nonce()
     text = compose_input(c, nonce)
 
-    input = %{
-      text: text,
-      workspace_id: "i3-driver-#{c.name}"
-    }
-
     result_fn = build_stub_result_fn(nonce)
 
     layer_a =
       try do
+        {:ok, work} =
+          NovelApplication.WorkService.create(%{"title" => "I3 scenario fixture #{c.name}"})
+
+        {:ok, session} =
+          NovelApplication.WorkSessionService.create(work.id, %{"title" => "I3 #{c.name}"})
+
+        input = %{
+          text: text,
+          workspace_id: "i3-driver-#{c.name}",
+          work_id: work.id,
+          session_id: session.id
+        }
+
         case run_main_chain(input, provider_execution(result_fn)) do
           {:ok, turn_result} ->
             {:ok, turn_result}
@@ -132,6 +140,8 @@ defmodule I3NonceDriver do
          {:ok, _run_id} <-
            AgentRunService.start_bounded(
              spec.run_attrs,
+             interaction_input: spec.interaction_input,
+             interaction_store: spec.interaction_store,
              next_step_planner: spec.next_step_planner
            ) do
       await_turn_result(nil)
@@ -168,10 +178,11 @@ defmodule I3NonceDriver do
 
   defp run_layer_b_direct(c, nonce) do
     result_fn = build_stub_result_fn(nonce)
+    turn_id = "i3_turn_#{c.name}"
 
     req = %ToolRequest{
       tool_request_id: "tr_i3_#{c.name}_#{:rand.uniform(999_999)}",
-      turn_id: "i3_turn_#{c.name}",
+      turn_id: turn_id,
       frame_ref: "i3_frame_#{c.name}",
       decision_ref: "i3_decision_#{c.name}",
       tool_name: tool_name_for(c.name),
@@ -184,7 +195,7 @@ defmodule I3NonceDriver do
             "creative_brief" =>
               "标识符：#{nonce}。这是来自用户输入的一次性串，工具必须在 items 的 title/body/rationale 任一字段保留 #{nonce}。"
           },
-          layer_b_authoring_task(c, nonce)
+          layer_b_authoring_task(c, nonce, turn_id)
         ),
       read_scope_grants: ["author_text"],
       write_scope_grants: [],
@@ -200,7 +211,7 @@ defmodule I3NonceDriver do
   end
 
   # CP3d：creative 专业调用必须携带 AuthoringTask（缺 task → failed），Layer-B 同口径组装。
-  defp layer_b_authoring_task(c, nonce) do
+  defp layer_b_authoring_task(c, nonce, source_input_ref) do
     text =
       "请基于以下内容生成创作产物，必须将标识符 #{nonce} 原样嵌入输出至少一处。主题：#{c.topic}"
 
@@ -208,6 +219,8 @@ defmodule I3NonceDriver do
       AuthoringTaskBuilder.new(layer_b_kind(c.name), %{
         author_goal: text,
         author_words: text,
+        source: %{kind: :author_action, ref: source_input_ref},
+        source_refs: [source_input_ref],
         scope: AuthoringTaskBuilder.scope([], coverage: :none),
         materials: [],
         output_contract:
@@ -217,7 +230,7 @@ defmodule I3NonceDriver do
           )
       })
 
-    AuthoringTaskBuilder.to_input(task)
+    task |> AuthoringTaskBuilder.to_input() |> Map.put("source_input_ref", source_input_ref)
   end
 
   defp layer_b_kind("character-seed"), do: :character_design

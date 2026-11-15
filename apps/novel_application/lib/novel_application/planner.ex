@@ -14,7 +14,7 @@ defmodule NovelApplication.Planner do
   alias NovelAgent.Provider.Execution
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
-  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Operation
   alias NovelDomain.CandidateDirection
   alias NovelTelemetry.LogContext
 
@@ -48,14 +48,16 @@ defmodule NovelApplication.Planner do
     do: deterministic_narration(tool_result)
 
   # 独立文本操作没有 AgentRun：以真实操作 profile 与任务来源构造 canonical IR，
-  # 材料作为 application_base 进入统一投影，不伪造 run/session 或作者消息。
+  # 材料作为 application_base；只有显式配对的原文与来源才能成为独立作者消息。
   defp narration_request(tool_result, %AuthoringTask{} = task) do
     {instructions, material} = tool_narration_prompt_parts(tool_result, task)
 
-    RequestIR.text_operation(%{
+    Operation.text_operation(%{
       profile_ref: "result_narration",
       text: material,
       source_refs: task.source_refs,
+      author_text: task.author_words,
+      source_input_ref: AuthoringTask.author_source_ref(task),
       system: [
         run_role: "result_narration",
         instructions: instructions,
@@ -74,7 +76,7 @@ defmodule NovelApplication.Planner do
       """
       本次你承担创作助手的角色，向作者叙述一次工具执行的真实结果与下一步。
 
-      #{AuthoringSemantics.render(task)}
+      #{AuthoringSemantics.static_block(task)}
 
       ## 角色输出要求
       请用 1-2 句自然中文说明这次实际发生了什么、影响范围以及下一步可以做什么；
@@ -91,6 +93,11 @@ defmodule NovelApplication.Planner do
       - 输出摘要: #{output_summary(tool_result)}
       """
       |> String.trim()
+
+    material =
+      [AuthoringSemantics.dynamic_block(%{task | author_words: nil}), material]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
 
     {instructions, material}
   end

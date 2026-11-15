@@ -10,6 +10,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   alias NovelApplication.{
     AdoptionWorkflow,
     ArtifactAssembler,
+    AuthorContentRegistration,
     AuthoringTranscript,
     PendingArtifactWorkflow,
     TestAgenticLoopFixtures,
@@ -26,12 +27,9 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
-  alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
-  alias NovelPersistence.Schemas.Volume
   alias NovelPersistence.WorkSessionRepo
-
-  import Ecto.Query
+  alias NovelTest.TestProviderPrompt
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -62,6 +60,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     record(work.id, session.id, source)
 
+    author_input = %{turn_id: "request", text: "把沈砚改成林渡，其余不变，暂不保存。"}
+
     run = %{
       run_id: "run-test",
       run_mode: :bounded,
@@ -78,17 +78,18 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       workspace_id: work.id,
       work_id: work.id,
       session_id: session.id,
-      parent_turn_ref: "request",
-      goal: %{text: "把沈砚改成林渡，其余不变，暂不保存。", version: 1}
+      parent_turn_ref: author_input.turn_id,
+      goal: %{text: author_input.text, version: 1}
     }
 
-    context = %DialogueContext{workspace_id: work.id, interaction_state: %{}}
+    context = %DialogueContext{work_id: work.id, interaction_state: %{}}
 
     %{
       work: work,
       session: session,
       source: source,
       target: artifact.artifact_set_id,
+      author_input: author_input,
       run: run,
       context: context
     }
@@ -97,7 +98,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   test "修订传递已消解指代的目标与原稿全文，原稿保留且新稿来自 Provider", c do
     pid = self()
     body = "林渡经营旧书铺。"
-    run = %{c.run | goal: %{text: "请按刚才讨论的名字修改这份候选，其他不变。", version: 1}}
+    input = %{c.author_input | text: "请按刚才讨论的名字修改这份候选，其他不变。"}
+    run = %{c.run | goal: %{text: input.text, version: 1}}
     judgment = %{judgment(c, "revise_pending_artifact") | dialogue_goal: "把沈砚改成林渡，其余内容保持不变。"}
 
     provider = %Execution{
@@ -127,13 +129,26 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment,
-               %{},
+               input,
                run,
                c.context,
                provider
              )
 
     assert_received {:revision_prompt, prompt}
+    scope = TestProviderPrompt.scope_content(prompt)
+    assert_wire_author_identity(prompt, input.text)
+
+    author = Enum.find(prompt.messages, &(&1.role == "user" and &1.provenance == "author"))
+    current_scope = prompt.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
+    base = Enum.find(prompt.messages, &(&1.role == "application_base"))
+
+    assert %{ref: input.turn_id} in author.source_refs
+    assert Enum.any?(current_scope.source_refs, &(&1.ref == input.turn_id))
+    assert Enum.map(prompt.refs.base_refs, & &1.ref) == [c.target]
+    assert base.source_refs == prompt.refs.base_refs
+    assert prompt.refs.observation_refs == []
+
     prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
     assert prompt =~ "沈砚经营旧书铺。"
     assert prompt =~ "把沈砚改成林渡"
@@ -141,10 +156,10 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     refute run.goal.text =~ "林渡"
     assert prompt =~ "必须输出完整修订稿"
 
-    # B27 CP3d：world 修订由 AuthoringTask 渲染（共享规则 + 修订 operation + preserve）
+    # B27 CP3d：稳定共享规则与原生 AuthoringTask 的修订/保留语义同时出站。
     assert prompt =~ "## 创作协作共同规则"
     assert prompt =~ "本轮为修订"
-    assert prompt =~ "## 必须保留"
+    assert "未要求修改的内容逐字保留" in get_in(scope, ["authoring_task", "preserve"])
     refute prompt =~ "逐行包含：设定内容"
     [revised] = result.turn_result.adoption_state.pending
     assert result.artifact_refs == [revised.artifact_id]
@@ -173,7 +188,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, preflight_state} =
-             PendingArtifactWorkflow.run(judgment, %{}, c.run, c.context, provider)
+             PendingArtifactWorkflow.run(judgment, c.author_input, c.run, c.context, provider)
 
     assert preflight_state.tool_call_count == 0 and preflight_state.provider_call_count == 0
 
@@ -257,10 +272,12 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       narrative: "我会生成一份修订候选，你确认后才替代旧版。"
     }
 
+    age_input = %{c.author_input | text: "把年龄改成三十岁，其他不变。"}
+
     run = %{
       c.run
       | authority_scope: %{production_write: false, allowed_tools: ["world_building"]},
-        goal: %{text: "把年龄改成三十岁，其他不变。", version: 1}
+        goal: %{text: age_input.text, version: 1}
     }
 
     revised_body = "岑舟今年三十岁，是青云宗宗主。"
@@ -290,7 +307,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+             PendingArtifactWorkflow.run(judgment, age_input, run, c.context, provider)
 
     assert_received {:adopted_revision_prompt, prompt}
     prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
@@ -320,7 +337,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:ok, discarded} =
-             PendingArtifactWorkflow.run(discard_judgment, %{}, run, c.context, nil)
+             PendingArtifactWorkflow.run(discard_judgment, age_input, run, c.context, nil)
 
     assert [%{artifact_id: discarded_ref, adoption_status: "DISCARDED"}] =
              discarded.turn_result.adoption_state.resolved
@@ -345,7 +362,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
                judgment,
-               %{},
+               c.author_input,
                c.run,
                c.context,
                nil
@@ -361,12 +378,16 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     record(c.work.id, c.session.id, result.turn_result)
     {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)
     assert snapshot.pending_adoptions == []
-    refute TurnInteractionService.materialized_source?(%{interaction_state: snapshot}, "original")
+
+    refute AuthorContentRegistration.materialized_source?(
+             %{interaction_state: snapshot},
+             "original"
+           )
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, _state} =
              PendingArtifactWorkflow.run(
                judgment(c, "discard_pending_artifact"),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                nil
@@ -377,14 +398,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     bad = %{judgment(c, "discard_pending_artifact") | pending_artifact_ref: "foreign"}
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, _state} =
-             PendingArtifactWorkflow.run(bad, %{}, c.run, c.context, nil)
+             PendingArtifactWorkflow.run(bad, c.author_input, c.run, c.context, nil)
 
     {:ok, _} = WorkSessionService.create(c.work.id)
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, _state} =
              PendingArtifactWorkflow.run(
                judgment(c, "discard_pending_artifact"),
-               %{},
+               c.author_input,
                c.run,
                c.context,
                nil
@@ -395,7 +416,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     {:ok, result} =
       PendingArtifactWorkflow.run(
         judgment(c, "discard_pending_artifact"),
-        %{},
+        c.author_input,
         c.run,
         c.context,
         nil
@@ -422,7 +443,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:error, {:pending_artifact_invalid, :budget_exhausted}, budget_state} =
              PendingArtifactWorkflow.run(
                judgment(c, "revise_pending_artifact"),
-               %{},
+               c.author_input,
                run,
                c.context,
                %Execution{result_fn: fn _ -> flunk("预算耗尽不应调用模型") end}
@@ -437,7 +458,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:error, {:pending_artifact_invalid, :capability_not_authorized}, authority_state} =
              PendingArtifactWorkflow.run(
                judgment(c, "revise_pending_artifact"),
-               %{},
+               c.author_input,
                run,
                c.context,
                %Execution{result_fn: fn _ -> flunk("没有实际工具权限不能调用模型") end}
@@ -499,16 +520,20 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
           dialogue_goal: "修订这份候选，其他内容不变"
       }
 
-      assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(judgment, c.author_input, run, c.context, provider)
+
       assert_receive {:revision_prompt, ^artifact_type, prompt}, 500
 
-      # 任务语义随请求出站：共享规则 + 修订操作 + 基线/保留 + 作者原话
+      # 共享规则属于 system，任务/保留约束属于原生 Scope，作者原文独立出站。
+      scope = TestProviderPrompt.scope_content(prompt)
+      assert_wire_author_identity(prompt, c.author_input.text)
       prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
       assert prompt =~ "## 创作协作共同规则"
       assert prompt =~ "本轮为修订"
-      assert prompt =~ "## 必须保留"
-      assert prompt =~ "artifact_type：#{artifact_type}"
-      assert prompt =~ "作者原话（逐字保留、可追溯）："
+      assert "未要求修改的内容逐字保留" in get_in(scope, ["authoring_task", "preserve"])
+      assert get_in(scope, ["operation", "artifact_type"]) == Atom.to_string(artifact_type)
+      assert get_in(scope, ["authoring_task", "source", "ref"]) == c.author_input.turn_id
       assert prompt =~ "原候选正文内容"
 
       [revised] = result.turn_result.adoption_state.pending
@@ -520,12 +545,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   test "修订模型失败不关闭原稿，也不把修改要求当成新正文", c do
     parent = self()
 
-    input = %{
-      trace_persister: fn _work, attrs ->
+    input =
+      Map.put(c.author_input, :trace_persister, fn _work, attrs ->
         send(parent, {:failed_trace, attrs})
         :ok
-      end
-    }
+      end)
 
     assert {:error, {:pending_artifact_execution_failed, "world_building", trace_ref}, _state} =
              PendingArtifactWorkflow.run(
@@ -675,12 +699,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     Process.put(:layout_bodies, bodies)
 
+    layout_input = %{c.author_input | text: "那就整理一下吧"}
+
     run =
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
           budget: %{max_tool_calls: 3, max_provider_calls: 6},
-          goal: %{c.run.goal | text: "那就整理一下吧"}
+          goal: %{c.run.goal | text: layout_input.text}
       }
 
     judgment = %{
@@ -689,7 +715,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
         dialogue_goal: "整理第01章前两段的排版候选：只调标点和分段，别改字句"
     }
 
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(judgment, layout_input, run, c.context, provider)
 
     assert_received {:layout_prompt, first}
     assert_received {:layout_prompt, second}
@@ -739,12 +766,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       end
     }
 
+    scope_input = %{c.author_input | text: "把第二段改一下"}
+
     run =
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
           budget: %{max_tool_calls: 3, max_provider_calls: 6},
-          goal: %{c.run.goal | text: "把第二段改一下"}
+          goal: %{c.run.goal | text: scope_input.text}
       }
 
     judgment = %{
@@ -753,7 +782,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
         dialogue_goal: "只改第二段，其他段落保留"
     }
 
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(judgment, scope_input, run, c.context, provider)
 
     assert_received {:scope_prompt, first}
     assert_received {:scope_prompt, second}
@@ -790,12 +820,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       end
     }
 
+    numeric_input = %{c.author_input | text: "七成改六成"}
+
     run =
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
           budget: %{max_tool_calls: 3, max_provider_calls: 6},
-          goal: %{c.run.goal | text: "七成改六成"}
+          goal: %{c.run.goal | text: numeric_input.text}
       }
 
     judgment = %{
@@ -805,7 +837,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:error, {:pending_artifact_invalid, :revision_change_not_applied}, numeric_state} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+             PendingArtifactWorkflow.run(judgment, numeric_input, run, c.context, provider)
 
     assert_received {:numeric_prompt, _first}
     assert_received {:numeric_prompt, second}
@@ -835,89 +867,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert is_nil(PendingArtifactWorkflow.execution_tool(pending_judgment, context))
   end
 
-  test "B30 维护分支：trace 完整构造持久化不 crash，产出 change plan 候选且零写入", c do
-    volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
-
-    for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}, {"第13章：丙", 13}] do
-      Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
-    end
-
-    goal_text = "把第2卷章节编号理顺，内容不要动"
-    run = %{c.run | goal: %{text: goal_text, version: 1}}
-
-    judgment = %{
-      action: "execute",
-      capability: "maintain_chapter_structure",
-      dialogue_goal: goal_text,
-      narrative: "我会生成第2卷章节重编号的可审阅变更计划。"
-    }
-
-    before = chapter_rows(c.work.id)
-
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
-
-    [pending] = result.turn_result.adoption_state.pending
-    assert pending.payload.object_kind == "chapter_structure_change_plan"
-    assert pending.payload.change_plan.object_count == 3
-    assert pending.payload.change_plan.effects == ["display_number_only"]
-
-    # 只产出候选：章节身份/序号零变化，未生产写入。
-    assert chapter_rows(c.work.id) == before
-    refute Map.get(result.turn_result.truthfulness || %{}, :production_write_performed, false)
-  end
-
-  defp chapter_rows(work_id) do
-    from(ch in Chapter, where: ch.work_id == ^work_id, order_by: ch.seq)
-    |> Repo.all()
-    |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
-  end
-
-  test "B30 维护负例：越界目标 → 作者可见拒绝（非内部错误）、零写入、无候选", c do
-    volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
-
-    for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}] do
-      Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
-    end
-
-    goal_text = "把第九卷章节编号理顺，内容不要动"
-    run = %{c.run | goal: %{text: goal_text, version: 1}}
-
-    judgment = %{
-      action: "execute",
-      capability: "maintain_chapter_structure",
-      dialogue_goal: goal_text,
-      narrative: "作者点名了不存在的卷。"
-    }
-
-    before = chapter_rows(c.work.id)
-
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
-
-    assert %{assistant_message: %{text: text}} = result.turn_result
-    assert text =~ "超出当前作品结构"
-    assert result.artifact_refs == []
-    assert chapter_rows(c.work.id) == before
-    assert result.tool_call_count == 0 and result.provider_call_count == 0
-  end
-
-  test "B30 维护负例：无目标 → 作者可见拒绝、零写入、无候选", c do
-    goal_text = "把第2卷章节编号理顺，内容不要动"
-    run = %{c.run | goal: %{text: goal_text, version: 1}}
-
-    judgment = %{
-      action: "execute",
-      capability: "maintain_chapter_structure",
-      dialogue_goal: goal_text,
-      narrative: "当前作品没有可维护的卷章结构。"
-    }
-
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
-
-    assert %{assistant_message: %{text: text}} = result.turn_result
-    assert text =~ "没有找到要重编号的目标章节"
-    assert result.artifact_refs == []
-  end
-
   test "B29 角色修订候选：trace 完整构造持久化不 crash，产出 character_profile_revision 且零写入", c do
     shen =
       Repo.insert!(%Character{
@@ -942,7 +891,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     before = Repo.get!(Character, shen.id)
 
-    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal_text},
+               run,
+               c.context,
+               nil
+             )
 
     [pending] = result.turn_result.adoption_state.pending
     assert pending.payload.object_kind == "character_profile_revision"
@@ -981,7 +937,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal},
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert_received {:revision_guard, first}
     assert_received {:revision_guard, second}
@@ -1082,7 +1045,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal},
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert is_map(result.stage_state.judgment_transcript)
     refute Map.has_key?(result.turn_result, :stage_state)
@@ -1128,7 +1098,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:error, {:pending_artifact_invalid, :revision_scope_violation}, step_state} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal},
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert_received {:revision_budget, only}
     refute_received {:revision_budget, _extra}
@@ -1154,9 +1131,15 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     new_messages = Enum.drop(failed_transcript.messages, length(transcript.messages))
 
-    # 修订 scope 是模型实际消费过的 canonical 消息，必须原样保留；之后只追加真实
-    # assistant/tool 交换，不得混入新的作者 user 纠错。
-    assert Enum.map(new_messages, & &1.role) == ["scope_update", "assistant", "tool"]
+    # 专业规则 notice 和修订 Scope 都必须保留；其后只追加真实 assistant/tool，
+    # 不得混入新的作者 user 纠错。
+    assert Enum.map(new_messages, & &1.role) == [
+             "application_notice",
+             "scope_update",
+             "assistant",
+             "tool"
+           ]
+
     refute Enum.any?(new_messages, &(&1.role == "user"))
 
     # 失败会话是 canonical blocks，不是 wire DTO；按 validation_result 的
@@ -1238,7 +1221,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     # 末次真实失败是应用 layout guard，不是首轮协议错误；若外层再发起第 3/4 次，
     # provider 会 flunk，计数也会越过 2。
     assert {:error, {:pending_artifact_invalid, :revision_scope_violation}, step_state} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal},
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert Process.get(:mixed_revision_calls) == 2
     assert step_state.tool_call_count == 1
@@ -1278,6 +1268,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     new_messages = Enum.drop(failed_transcript.messages, length(transcript.messages))
 
     assert Enum.map(new_messages, & &1.role) == [
+             "application_notice",
              "scope_update",
              "assistant",
              "tool",
@@ -1314,7 +1305,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, unavailable_state} =
-             PendingArtifactWorkflow.run(missing, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               missing,
+               c.author_input,
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert unavailable_state.tool_call_count == 0
     assert unavailable_state.provider_call_count == 0
@@ -1326,7 +1324,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:error, {:pending_artifact_invalid, reason}, read_only_state} =
              PendingArtifactWorkflow.run(
                judgment(c, "revise_pending_artifact"),
-               %{},
+               c.author_input,
                run,
                c.context,
                provider,
@@ -1387,7 +1385,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:error, {:pending_artifact_invalid, reason}, state} =
              PendingArtifactWorkflow.run(
                judgment,
-               %{},
+               %{c.author_input | text: goal},
                run,
                c.context,
                provider,
@@ -1445,7 +1443,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert {:error, {:pending_artifact_invalid, reason}, state} =
              PendingArtifactWorkflow.run(
                judgment,
-               %{},
+               %{c.author_input | text: goal},
                missing_run,
                c.context,
                provider,
@@ -1499,7 +1497,14 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider, snapshot)
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal},
+               run,
+               c.context,
+               provider,
+               snapshot
+             )
 
     assert_received {:adopted_history, prompt}
     assert_wire_author_identity(prompt, goal)
@@ -1689,21 +1694,21 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert length(canonical_messages) > length(last_prompt.messages)
     assert Enum.take(canonical_messages, length(last_prompt.messages)) == last_prompt.messages
 
-    scope =
-      Enum.find(transcript.messages, fn message ->
-        Map.get(message, :role) == "scope_update" and
-          canonical_message_text(message) =~ "本轮修订已有候选"
-      end)
+    assert %{content: %{"operation" => operation}} =
+             AuthoringTranscript.current_scope(transcript)
 
-    assert scope, "修订 scope 必须保留在 canonical transcript 中"
+    notice = Enum.find(Enum.reverse(canonical_messages), &(&1.role == "application_notice"))
+    assert notice.provenance == "application"
+    assert canonical_message_text(notice) =~ "本轮为修订"
 
-    scope_text = canonical_message_text(scope)
+    assert operation["revision"] =~ "本轮修订已有候选"
+    assert operation["revision"] =~ "以给定原候选为唯一基线"
+    assert operation["revision"] =~ "作者要求仅排版/分段/标点"
+    assert operation["creative_brief"] =~ goal
+    assert TestProviderPrompt.author_text(canonical_ir) == goal
 
-    assert scope_text =~ "本轮修订已有候选"
-    assert scope_text =~ "以给定原候选为唯一基线"
-    assert scope_text =~ "作者要求仅排版/分段/标点"
-    assert scope_text =~ goal
-    assert scope_text =~ "原候选全文（仅供修订，不是已确认作品事实）：\n" <> base_body
+    assert operation["context_text"] ==
+             "原候选全文（仅供修订，不是已确认作品事实）：\n" <> base_body
 
     assert_canonical_arguments_bytes(transcript)
 

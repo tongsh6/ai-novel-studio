@@ -103,7 +103,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     maybe_delay_agent_cancel(prompt_text)
 
     with :ok <- maybe_fail_provider_execution_prompt(prompt_text),
-         :ok <- maybe_fail_tool_failure_prompt(prompt_text),
+         :ok <- maybe_fail_tool_failure_prompt(prompt),
          :ok <- maybe_fail_summary_prompt(prompt_text),
          :ok <- maybe_fail_writer_timeout_prompt(prompt, prompt_text) do
       maybe_fail_plan_draft_prompt(prompt_text)
@@ -125,7 +125,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     material = PendingDialogueInput.material_text(prompt, prompt_text)
 
     match_text =
-      if judgment_prompt?(prompt_text), do: judgment_author_input(material), else: prompt_text
+      if judgment_prompt?(prompt_text), do: judgment_author_input(prompt), else: prompt_text
 
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
@@ -133,7 +133,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
            Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
         judgment_prompt?(prompt_text) ->
-          author_behavior_stimulus(fixture, material)
+          author_behavior_stimulus(fixture, prompt)
 
         profile_routing_prompt?(prompt_text) ->
           author_behavior_profile_stimulus(fixture, material)
@@ -371,8 +371,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(prompt, "请用 1-2 句自然中文")
   end
 
-  defp maybe_fail_tool_failure_prompt(prompt_text) do
-    if tool_failure_prompt?(prompt_text) and creative_items_prompt?(prompt_text) do
+  defp maybe_fail_tool_failure_prompt(prompt) do
+    if tool_failure_prompt?(TestProviderPrompt.operation_text(prompt)) and
+         WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact" do
       {:error,
        %{
          type: :provider_error,
@@ -429,7 +430,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp usage_for(prompt_text, content) do
-    input_tokens = prompt_text |> String.length() |> div(8) |> max(1)
+    input_tokens = prompt_text |> TestProviderPrompt.text() |> String.length() |> div(8) |> max(1)
     output_tokens = content |> String.length() |> div(6) |> max(1)
 
     Usage.new(input_tokens, output_tokens, "slice-verify-model", 0)
@@ -590,21 +591,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 首轮注入只看当前 operation scope、env 与该 operation 自己的历史；不设全局计数器，
   # 也不按调用时间/turn/slice id 猜。源 writer/evaluator/其它任务没有质量修订段，不命中。
-  defp quality_revision_retry_invalid?(scope, prompt) do
+  defp quality_revision_retry_invalid?(_scope, prompt) do
     System.get_env(@quality_revision_retry_env) == "1" and
-      local_quality_revision_prompt?(scope) and
+      local_quality_revision_prompt?(prompt) and
       not failed_quality_revision_validation?(prompt)
   end
 
-  defp local_quality_revision_prompt?(text) when is_binary(text) do
-    String.contains?(text, "[质量修订要求]") and
-      String.contains?(text, "本次修订范围：局部修订") and
-      String.contains?(text, "原句：") and
-      String.contains?(text, "capability：prose_writing") and
-      String.contains?(text, "artifact_type：prose_fragment")
-  end
+  defp local_quality_revision_prompt?(prompt) do
+    operation = scope_operation(prompt)
+    revision = operation["revision"] || ""
 
-  defp local_quality_revision_prompt?(_text), do: false
+    operation["capability"] == "prose_writing" and operation["artifact_type"] == "prose_fragment" and
+      String.contains?(revision, "本次修订范围：局部修订") and String.contains?(revision, "原句：")
+  end
 
   defp invalid_quality_revision_result(scope) do
     Result.new("", usage_for(scope, ""),
@@ -673,11 +672,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp specialized_response_result(tool, text, prompt)
 
-  defp specialized_response_result("agent_plan_draft", text, _prompt),
-    do: agent_plan_draft_result(text)
+  defp specialized_response_result("agent_plan_draft", _text, prompt),
+    do: agent_plan_draft_result(prompt)
 
-  defp specialized_response_result("agent_plan_revision", text, _prompt),
-    do: agent_plan_revision_result(text)
+  defp specialized_response_result("agent_plan_revision", _text, prompt),
+    do: agent_plan_revision_result(prompt)
 
   defp specialized_response_result("submit_tentative_artifact", text, prompt) do
     # 首操作保留 Base（其中可能有排版/修订纪律），但质量修订的材料必须取当前 scope；
@@ -693,10 +692,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       invalid_quality_revision_result(text)
     else
       content =
-        if local_quality_revision_prompt?(recognized) do
-          quality_revision_items(current_scope(prompt, text))
+        if local_quality_revision_prompt?(prompt) do
+          quality_revision_items(prompt)
         else
-          creative_items_response(recognized, text)
+          creative_items_response(recognized, prompt)
         end
 
       native_tool_result(text, "submit_tentative_artifact", content)
@@ -706,7 +705,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp specialized_response_result("report_quality_findings", text, _prompt),
     do: native_tool_result(text, "report_quality_findings", quality_evaluator_response(text))
 
-  defp specialized_response_result(tool, text, _prompt), do: mission_result(tool, text)
+  defp specialized_response_result(tool, _text, prompt), do: mission_result(tool, prompt)
 
   # 2026-11-06 裁决 A：角色规则/输出协议进入 canonical system 前缀；识别条件 =
   # system 前缀 + 当前操作材料（不含历史 messages 的旧阶段材料）。
@@ -716,14 +715,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp recognition_text(_prompt, text), do: text
 
-  defp current_scope(prompt, text) when is_map(prompt) or is_list(prompt),
-    do: TestProviderPrompt.latest_scope(prompt) || text
-
-  defp current_scope(_prompt, text), do: text
-
   defp general_response_result(prompt, prompt_text) do
     cond do
-      continuation_prompt?(prompt_text) ->
+      continuation_prompt?(prompt, prompt_text) ->
         continuation_result(prompt, prompt_text)
 
       judgment_prompt?(prompt_text) ->
@@ -745,7 +739,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # 不再把扁平历史传给后续意图/目标逻辑，避免旧 scope 或作者引用 JSON 被当授权。
     #
     material = PendingDialogueInput.material_text(prompt, prompt_text)
-    input = PendingDialogueInput.author_text(material)
+    input = PendingDialogueInput.author_text(prompt)
     ir = request_ir(prompt)
 
     cond do
@@ -766,19 +760,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_result_cond(prompt_text, input, ir) do
     # B71：先识别“登记作者原文/处理现有候选”这类明确操作，再识别内容里的
     # 角色/设定等名词；否则“存档为作品设定：主角……”会被 character_design 抢走。
-    if registration_or_candidate_handling_request?(prompt_text) do
+    source = ir || prompt_text
+
+    if registration_or_candidate_handling_request?(source) do
       regular_judgment_result(prompt_text, ir)
     else
-      judgment_result_cond_without_registration(prompt_text, input, ir)
+      judgment_result_cond_without_registration(prompt_text, input, ir, source)
     end
   end
 
-  defp judgment_result_cond_without_registration(prompt_text, input, ir) do
+  defp judgment_result_cond_without_registration(prompt_text, input, ir, source) do
     cond do
       # B30 CP4：结构维护意图直接产出 execute/ask_author（不经过 generic 叙事覆盖，
       # 澄清问题保留具体卷号/当前卷数）；B28/Q1c 不命中该意图。
-      chapter_structure_prompt?(prompt_text) ->
-        judgment_chapter_structure_result(prompt_text)
+      chapter_structure_prompt?(source) ->
+        judgment_chapter_structure_result(source)
 
       String.contains?(input, "把已有角色的叙事身份从配角改为主角") ->
         narrative = "当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改。可以先讨论调整方案，原档案保持不变。"
@@ -827,13 +823,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         )
 
       # B29 CP4：已有角色叙事身份修订 → 绑定唯一 character_ref（候选由产品生成）。
-      character_profile_arguments(prompt_text) != nil ->
-        judgment_character_profile_result(prompt_text)
+      character_profile_arguments(source) != nil ->
+        judgment_character_profile_result(source)
 
       # B29 CP3：「谁是主角」问答从判断 prompt 的「角色索引」读取 Character 当前
       # narrative_role（主档案优先），多主角全列/无主角诚实；不引用旧 memory。
       protagonist_question_prompt?(prompt_text) ->
-        narrative = character_role_answer(prompt_text)
+        narrative = character_role_answer(source)
         Result.new(narrative, nil)
 
       # AU09：设计/创建新角色（含「帮我设计一个主角…」）→ execute character_design；
@@ -842,7 +838,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_character_design_result(prompt_text)
 
       true ->
-        chapter_revision_or_b34_judgment_result(prompt_text, input, ir)
+        chapter_revision_or_b34_judgment_result(prompt_text, input, ir, source)
     end
   end
 
@@ -886,24 +882,24 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # B28 T4：明确针对已保存章节的修订意图，但同份可见目录没有章目标
   # （空作品/无 accepted 正文）→ 直接 ask_author 具体缺正文，不降成新写作；
   # 其余意图仍走既有 B34/generic 分支。
-  defp chapter_revision_or_b34_judgment_result(prompt_text, input, ir) do
-    if chapter_revision_missing_target?(prompt_text) do
+  defp chapter_revision_or_b34_judgment_result(prompt_text, input, ir, source) do
+    if chapter_revision_missing_target?(source) do
       judgment_chapter_revision_missing_target_result()
     else
-      b34_or_regular_judgment_result(prompt_text, input, ir)
+      b34_or_regular_judgment_result(prompt_text, input, ir, source)
     end
   end
 
   # B34 CP1/CP2 分支拆出，避免 judgment_result_cond 复杂度过高；仍保持
   # 既有 B28/B29/B30/AU09 分支优先级在前、generic regular 在最后。
-  defp b34_or_regular_judgment_result(prompt_text, input, ir) do
+  defp b34_or_regular_judgment_result(prompt_text, input, ir, source) do
     cond do
       # B34 CP1/CP2：真实 stage 语料高频/高风险意图的确定性 fixture（保持既有分支优先级；
       # 这些分支只消费 prompt 内可见事实，不引入产品协议字段）。
       progress_query_prompt?(input) ->
-        judgment_progress_query_result(prompt_text)
+        judgment_progress_query_result(source)
 
-      work_setup_prompt?(prompt_text, input) ->
+      work_setup_prompt?(source, input) ->
         judgment_work_setup_result(input)
 
       world_foreshadow_discussion_prompt?(input) ->
@@ -994,24 +990,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp chapter_counts_from_prompt(prompt) when is_binary(prompt) do
-    case Regex.run(
-           ~r/##\s*章节列表（共\s*(\d+)\s*章：已写\s*(\d+)\s*章[，,]\s*计划中\s*(\d+)\s*章）/u,
-           prompt
-         ) do
-      [_, total, written, planned] ->
-        {String.to_integer(total), String.to_integer(written), String.to_integer(planned)}
+  defp chapter_counts_from_prompt(prompt) do
+    case get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["coverage", "chapters"]) do
+      %{
+        "status" => "complete",
+        "total" => total,
+        "written_count" => written,
+        "planned_count" => planned
+      }
+      when is_integer(total) and is_integer(written) and is_integer(planned) ->
+        {total, written, planned}
 
       _ ->
-        case Regex.run(~r/正文统计：\s*(\d+)\s*章中已写\s*(\d+)\s*章/u, prompt) do
-          [_, total, written] ->
-            t = String.to_integer(total)
-            w = String.to_integer(written)
-            {t, w, max(t - w, 0)}
-
-          _ ->
-            nil
-        end
+        nil
     end
   end
 
@@ -1033,7 +1024,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp work_has_written_chapters?(prompt) do
     case chapter_counts_from_prompt(prompt) do
       {_total, written, _planned} -> written > 0
-      nil -> String.contains?(prompt, "## 章节列表")
+      nil -> Enum.any?(scope_chapters(prompt), &(&1["has_prose"] == true))
     end
   end
 
@@ -1239,43 +1230,33 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # 故障只绑定当前请求；canonical 历史原样用于日志和响应，不能作为当前 writer 的判据。
-  defp writer_timeout_scope(prompt, prompt_text) do
-    cond do
-      current_writer_tool?(prompt) ->
-        scope = TestProviderPrompt.latest_scope(prompt)
-        if current_prose_scope?(scope), do: scope
-
-      is_binary(prompt) and prose_fragment_prompt?(prompt_text) ->
-        prompt_text
-
-      true ->
-        nil
+  defp writer_timeout_scope(prompt, _prompt_text) do
+    if WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact" and
+         prose_fragment_prompt?(prompt) do
+      scope_operation(prompt) |> Jason.encode!()
     end
   end
-
-  defp current_writer_tool?(prompt) do
-    WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact"
-  end
-
-  defp current_prose_scope?(scope) when is_binary(scope) do
-    case Regex.run(~r/^artifact_type：([^\r\n]+)$/mu, scope) do
-      [_, artifact_type] -> String.trim(artifact_type) == "prose_fragment"
-      _ -> false
-    end
-  end
-
-  defp current_prose_scope?(_scope), do: false
 
   defp writer_timeout_retry_prompt?(text) do
     String.contains?(text, "先只写当前章的第一个场景") or
       String.contains?(text, "500 字以内；写完就停")
   end
 
-  defp continuation_prompt?(text),
+  defp continuation_prompt?(%NovelCommon.RequestIR{} = prompt, _text),
+    do: Enum.any?(WireToolFacts.specs(prompt), &(&1.name == "continuation_decision"))
+
+  defp continuation_prompt?(_prompt, text),
     do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
 
-  defp continuation_result(_prompt, text) do
-    if String.contains?(continuation_goal(text), "同步到发布平台") and
+  defp continuation_result(prompt, _text) do
+    scope = TestProviderPrompt.scope_content(prompt) || %{}
+    goal = get_in(scope, ["goal", "text"]) || ""
+    context = Map.get(scope, "context", %{})
+
+    text =
+      Enum.join([context["deviation_summary"] || "", context["observation_summary"] || ""], "\n")
+
+    if String.contains?(goal, "同步到发布平台") and
          String.contains?(text, "工具 prose_writing 执行失败") do
       narrative = "本次正文生成未完成，当前也没有同步到发布平台的能力。可以先保留现有作品，在支持的范围内重新调整目标。"
 
@@ -1284,7 +1265,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           %{
             name: "report_capability_gap",
             arguments: %{
-              dialogue_goal: continuation_goal(text),
+              dialogue_goal: goal,
               missing_effect: "同步到发布平台",
               author_reasoning: narrative
             }
@@ -1292,27 +1273,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         ]
       )
     else
-      regular_continuation_result(text)
+      regular_continuation_result(goal, text)
     end
   end
 
-  defp continuation_goal(text) do
-    case Regex.run(~r/## 当前目标\s*\n(.*?)\n## 偏离事实/su, text) do
-      [_, goal] -> goal
-      _ -> ""
-    end
-  end
-
-  defp continuation_retry_requested?(text),
-    do: String.contains?(continuation_goal(text), "按原目标重试一次")
-
-  defp regular_continuation_result(text) do
+  defp regular_continuation_result(goal, text) do
     {action, guidance} =
       if writer_timeout_fixture?(),
         do: {"continue", "先拆成场景，缩小单次范围后再生成。"},
-        else: continuation_decision(text)
+        else: continuation_decision(goal, text)
 
-    narrative = continuation_narrative(text)
+    narrative = continuation_narrative(goal, text)
 
     {name, args} =
       if action == "continue",
@@ -1327,9 +1298,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp plan_exhaust_fixture?, do: System.get_env(@plan_exhaust_env) == "1"
 
-  defp continuation_decision(text) do
+  defp continuation_decision(goal, text) do
     cond do
-      continuation_retry_requested?(text) ->
+      String.contains?(goal, "按原目标重试一次") ->
         {"continue", "按作者刚给出的回复，保持原目标和范围重试一次。"}
 
       String.contains?(text, "计划步骤已走完") ->
@@ -1350,9 +1321,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp continuation_narrative(text) do
+  defp continuation_narrative(goal, text) do
     cond do
-      continuation_retry_requested?(text) ->
+      String.contains?(goal, "按原目标重试一次") ->
         "你已要求按原目标重试，我会保持原范围再执行一次。"
 
       String.contains?(text, "工具 prose_writing 执行失败") ->
@@ -1443,9 +1414,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp mission_result(tool, text) do
     refs =
-      ~r/\[([a-z_]+:[^\]\s]+)\]/u
-      |> Regex.scan(text)
-      |> Enum.map(fn [_, ref] -> ref end)
+      (get_in(TestProviderPrompt.scope_content(text) || %{}, [
+         "operation",
+         "mission_inputs",
+         "items"
+       ]) || [])
+      |> Enum.map(& &1["ref"])
+      |> Enum.filter(&is_binary/1)
       |> Enum.uniq()
 
     foreshadow = Enum.find(refs, &String.contains?(&1, ":foreshadow_"))
@@ -1755,13 +1730,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         plan_exhaust_revision_packet(prompt)
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(prompt, "UA01NOPROGRESS") ->
+          String.contains?(agent_plan_author_goal(prompt), "UA01NOPROGRESS") ->
         prose_no_progress_agent_plan_packet(:revision)
 
       true ->
-        prompt
-        |> String.replace("UA01D6REPLAN", "")
-        |> agent_plan_draft_packet()
+        agent_plan_draft_packet_for_profile(profile_ref, prompt)
         |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
         |> Map.update!(:reason_codes, fn codes ->
           ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
@@ -1775,11 +1748,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 追加产出步，让 cursor 从 3 继续到产出步并真正完成（仍是同一 run）。
   defp plan_exhaust_revision?(profile_ref, prompt) do
     profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
-      String.contains?(prompt, @plan_exhaust_marker)
+      String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_marker)
   end
 
   defp plan_exhaust_revision_packet(prompt) do
-    if String.contains?(prompt, @plan_exhaust_steer_marker) do
+    if String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_steer_marker) do
       plan_exhaust_resume_packet()
     else
       plan_exhaust_readonly_packet(:revision)
@@ -1801,15 +1774,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       # B23 CP5 fixture：判断①判 plan 后的首次计划起草只排只读步（无产出步）。
       profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
-          String.contains?(prompt, @plan_exhaust_marker) ->
+          String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_marker) ->
         plan_exhaust_readonly_packet(:draft)
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(prompt, "UA01D6REPLAN") ->
+          String.contains?(agent_plan_author_goal(prompt), "UA01D6REPLAN") ->
         prose_d6_agent_plan_packet()
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(prompt, "UA01NOPROGRESS") ->
+          String.contains?(agent_plan_author_goal(prompt), "UA01NOPROGRESS") ->
         prose_no_progress_agent_plan_packet(:draft)
 
       true ->
@@ -1923,12 +1896,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   end
 
-  defp agent_plan_profile_ref(prompt) do
-    case Regex.run(~r/profile_ref:\s*([a-z0-9_]+)/, prompt, capture: :all_but_first) do
-      [profile_ref] -> profile_ref
-      _ -> nil
-    end
-  end
+  defp agent_plan_profile_ref(prompt), do: scope_operation(prompt)["profile_ref"]
 
   # D6 短计划（判断纪元：诱导于 prose 创作 profile——对话 chat 判 reply 终结，
   # 计划路径只在创作 profile 内可达）：起草只排读上下文一步、漏正文步；计划走完
@@ -2207,10 +2175,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp agent_plan_author_goal(prompt) do
-    case Regex.run(~r/- author_goal:\s*(.*?)\n\s*-/su, prompt, capture: :all_but_first) do
-      [text] -> String.trim(text)
-      _ -> author_input_text(prompt)
-    end
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["goal", "text"]) || ""
   end
 
   # 与真实 LLM 的计划契约对称：「作者点名的章按『作品章节』列表精确复制全名填 target_chapter，
@@ -2640,13 +2605,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     materials = materials || recognition
     {brief, context} = creative_prompt_parts(materials)
 
-    if String.contains?(recognition, "artifact_type：prose_formatting_plan"),
+    if scope_operation(materials)["artifact_type"] == "prose_formatting_plan",
       do: formatting_plan_items(materials, context),
       else: creative_content_items(recognition, materials, brief, context)
   end
 
   defp creative_content_items(recognition, materials, brief, context) do
-    if local_quality_revision_prompt?(recognition) do
+    if local_quality_revision_prompt?(materials) do
       # B71 质量卡修订：只改 finding 命中的句段，范围外逐字节保留；不输出普通首稿。
       quality_revision_items(materials)
     else
@@ -2691,16 +2656,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
       # 在离线 provider 下也能演练「生成结构化章节计划」。
-      outline_plan_prompt?(recognition) ->
+      outline_plan_prompt?(materials) ->
         outline_chapter_items(brief, context)
 
       # AU-09：作者明确要多个角色候选（“两个/几个/候选/不同方向”）时确定性产出 2 条独立候选，
       # 让逐候选采纳 slice 在离线 provider 下也能演练；普通“设计一个角色”仍单条。
-      multi_character_candidate_prompt?(recognition, brief) ->
-        character_candidate_items(recognition, brief, context)
+      multi_character_candidate_prompt?(materials, brief) ->
+        character_candidate_items(materials, brief, context)
 
       # AU-09：角色演化记忆草稿（采纳后写角色记忆，非主档案）。
-      character_evolution_seed_prompt?(recognition) ->
+      character_evolution_seed_prompt?(materials) ->
         [character_evolution_item(brief, context)]
 
       true ->
@@ -2710,13 +2675,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         item =
           %{
             item_id: "slice_item_#{fingerprint}_1",
-            title: creative_title(recognition, brief, fingerprint),
-            body: creative_body(recognition, brief, context),
+            title: creative_title(materials, brief, fingerprint),
+            body: creative_body(materials, brief, context),
             rationale: creative_rationale(recognition, brief)
           }
-          |> maybe_put_narrative_role(recognition, brief)
+          |> maybe_put_narrative_role(materials, brief)
 
-        if prose_fragment_prompt?(recognition) do
+        if prose_fragment_prompt?(materials) do
           %{
             items: [item],
             companion_artifacts: prose_companion_artifacts(brief, fingerprint),
@@ -2860,7 +2825,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp quality_revision_ranges(prompt) do
     ~r/位置：第\s*(\d+)(?:\s*[–—\-~至]\s*(\d+))?\s*句/u
-    |> Regex.scan(prompt)
+    |> Regex.scan(scope_operation(prompt)["revision"] || "")
     |> Enum.flat_map(fn
       [_, start, stop] when stop not in [nil, ""] ->
         range(start, stop)
@@ -3087,7 +3052,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp plain(value), do: value
 
   defp character_evolution_seed_prompt?(prompt),
-    do: String.contains?(prompt, "artifact_type：character_evolution_seed")
+    do: scope_operation(prompt)["artifact_type"] == "character_evolution_seed"
 
   # 角色演化记忆草稿：从 brief 派生 memory_subtype（关系/当前状态/演化），采纳后写对应角色 MemoryType。
   defp character_evolution_item(brief, context) do
@@ -3155,10 +3120,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.map(&maybe_put_narrative_role(&1, prompt, brief))
   end
 
-  defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
+  defp outline_plan_prompt?(prompt),
+    do: scope_operation(prompt)["artifact_type"] == "outline_draft"
 
   defp character_seed_prompt?(prompt),
-    do: String.contains?(prompt, "artifact_type：character_seed")
+    do: scope_operation(prompt)["artifact_type"] == "character_seed"
 
   # character_seed 草稿按 user brief 中的角色类型词派生结构化叙事角色（确定性 fixture）。
   defp maybe_put_narrative_role(item, prompt, brief) do
@@ -3185,16 +3151,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp world_setting_prompt?(prompt),
     do:
-      contains_any?(prompt, [
-        "artifact_type：world_setting",
-        "artifact_type：foreshadowing_seed",
-        "artifact_type：world_rule_seed",
-        "artifact_type：style_rule_seed",
-        "artifact_type：constraint_seed"
-      ])
+      scope_operation(prompt)["artifact_type"] in [
+        "world_setting",
+        "foreshadowing_seed",
+        "world_rule_seed",
+        "style_rule_seed",
+        "constraint_seed"
+      ]
 
   defp prose_fragment_prompt?(prompt),
-    do: String.contains?(prompt, "artifact_type：prose_fragment")
+    do: scope_operation(prompt)["artifact_type"] == "prose_fragment"
 
   # P1 R2：仅 test/support provider 的确定性语义 fixture。真实作者请求同时明确新角色、
   # 伏笔、世界规则和后续约束时，正文调用按生产 contract 同轮返回四类 companion seed；
@@ -3639,17 +3605,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     archive_write_text?(normalized) or not is_nil(material_intent(prompt))
   end
 
-  defp judgment_verdict(prompt) do
+  defp judgment_verdict(prompt, source) do
     author_text = judgment_author_input(prompt)
     normalized = String.downcase(author_text)
 
     # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
     # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
     cond do
-      adopted_revision_request?(prompt) ->
+      adopted_revision_request?(source) ->
         {"execute", "revise_adopted_content", false}
 
-      message_state_request?(prompt) ->
+      message_state_request?(source) ->
         {"reply", nil, false}
 
       String.contains?(author_text, @awaiting_author_steer_marker) ->
@@ -3853,9 +3819,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "回答这个问题需要正文里的具体事实；我先检索「#{term}」相关的段落再回复你。"
 
         true ->
-          {action, _capability, exploratory} = judgment_verdict(prompt)
+          source = ir || prompt
+          {action, _capability, exploratory} = judgment_verdict(prompt, source)
           exploratory = exploratory or String.contains?(prompt, @malformed_candidates_marker)
-          judgment_narrative_text(action, exploratory, prompt)
+          judgment_narrative_text(action, exploratory, prompt, source)
       end
 
     Result.new(narrative, usage_for(prompt, narrative))
@@ -3899,16 +3866,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 复制**有已采纳正文**那个章（索引行无「（计划中）」= 目标章 B）的 ref；
   # 同名干扰章 A 带「（计划中）」被排除。绝不按标题直接当查询（会命中歧义观察）。
   defp full_read_chapter_ref(prompt) do
-    entries =
-      prompt
-      |> String.split("\n")
-      |> Enum.flat_map(&parse_chapter_entry_line/1)
-      |> Enum.filter(&(&1.chapter_ref != nil and &1.title == @full_read_chapter_title))
+    entries = Enum.filter(scope_chapters(prompt), &(&1["title"] == @full_read_chapter_title))
 
-    case Enum.find(entries, & &1.has_prose) || List.first(entries) do
+    case Enum.find(entries, &(&1["has_prose"] == true)) || List.first(entries) do
       nil -> nil
-      entry -> entry.chapter_ref
+      entry -> entry["ref"]
     end
+  end
+
+  defp scope_chapters(prompt) do
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "chapters"]) || []
   end
 
   # 判断 prompt 里已渲染的观察段（`### 观察 N（tool「query」）\n<observation.summary>`）。
@@ -3974,7 +3941,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     case full_read_last_observation(prompt, ir) do
       nil ->
         # 首轮：从章节索引复制唯一 chapter_ref，纯 ref 寻址（不用标题）。
-        case full_read_chapter_ref(prompt) do
+        case full_read_chapter_ref(ir || prompt) do
           nil ->
             judgment_cited_reply_decision_result(prompt)
 
@@ -4152,6 +4119,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_decision_result_for(prompt, ir, observation) do
     request = explore_request_for(prompt, ir)
+    source = ir || prompt
 
     cond do
       # B23-FOLLOWUP：两轮都探索同一个只读面（archive_read/profile），第二次观察
@@ -4176,14 +4144,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       # B30 CP4：章节结构维护（重编号）意图 → maintain_chapter_structure execute；
       # 缺卷/越界/多卷歧义 → ask_author 澄清（不猜、不生成大纲/新正文）。
-      chapter_structure_prompt?(prompt) ->
-        judgment_chapter_structure_result(prompt)
+      chapter_structure_prompt?(source) ->
+        judgment_chapter_structure_result(source)
 
       request != nil ->
         judgment_explore_decision_result(prompt, request)
 
       true ->
-        judgment_decision_verdict_result(prompt)
+        judgment_decision_verdict_result(prompt, source)
     end
   end
 
@@ -4219,13 +4187,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   作品预约卷数/章节目录决定 execute 或澄清。返回 nil（非维护意图）或
   %{mode: :execute | :clarify, ...}。仅 fixture 使用，不参与产品协议字段。
   """
-  def chapter_structure_arguments(prompt) when is_binary(prompt) do
+  def chapter_structure_arguments(%RequestIR{} = prompt) do
     author_text = judgment_author_input(prompt)
 
     if chapter_structure_maintenance_intent?(author_text) do
       build_chapter_structure_decision(
         author_text,
-        String.contains?(prompt, "## 章节列表"),
+        scope_chapters(prompt) != [],
         chapter_volume_number(author_text),
         planned_volumes_from_prompt(prompt)
       )
@@ -4284,10 +4252,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp planned_volumes_from_prompt(prompt) do
-    case Regex.run(~r/预计卷数[=:：]\s*(\d+)/u, prompt) do
-      [_, n] -> String.to_integer(n)
-      _ -> nil
-    end
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "work", "planned_volumes"])
   end
 
   defp chapter_volume_number(text) do
@@ -4358,7 +4323,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   %{mode: :execute|:clarify, capability, character_ref, dialogue_goal, question, options}。
   只做对象绑定，不产出 changes/old/new（候选由产品 CharacterProfile 生成）。
   """
-  def character_profile_arguments(prompt) when is_binary(prompt) do
+  def character_profile_arguments(%RequestIR{} = prompt) do
     author_text = judgment_author_input(prompt)
     characters = character_index_from_prompt(prompt)
 
@@ -4526,7 +4491,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   B29 CP3 test-support：「谁是主角」问题的确定性回答，只读判断 prompt 的「角色索引」
   中当前 narrative_role（主档案事实）。多主角全列；无主角诚实；无索引诚实说明。
   """
-  def character_role_answer(prompt) when is_binary(prompt) do
+  def character_role_answer(%RequestIR{} = prompt) do
     case character_index_from_prompt(prompt) do
       [] -> empty_character_index_answer(prompt)
       characters -> protagonist_answer(characters)
@@ -4540,21 +4505,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   #   角色/无主角，按 AU09 诚实缺口回答（不要误报“没有可核对的角色索引”）；
   # - 有索引段但为空/无法解析，或上下文本身缺失 => 诚实说明无法核对，不引用旧记忆。
   defp empty_character_index_answer(prompt) do
-    if String.contains?(prompt, "## 角色索引") do
-      no_character_index_answer()
-    else
-      if roster_context_present?(prompt),
-        do: protagonist_answer([]),
-        else: no_character_index_answer()
+    case get_in(TestProviderPrompt.scope_content(prompt) || %{}, [
+           "coverage",
+           "characters",
+           "status"
+         ]) do
+      "complete" -> protagonist_answer([])
+      _ -> "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
     end
-  end
-
-  defp no_character_index_answer do
-    "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
-  end
-
-  defp roster_context_present?(prompt) do
-    String.contains?(prompt, ["## 作品事实", "## 章节列表", "## 当前作品上下文"])
   end
 
   defp protagonist_answer(characters) do
@@ -4583,61 +4541,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp character_index_from_prompt(prompt) do
-    case String.split(prompt, "## 角色索引", parts: 2) do
-      [_, rest] ->
-        section = rest |> String.split(~r/\n##\s/u, parts: 2) |> List.first() || ""
-
-        section
-        |> String.split("\n")
-        |> Enum.flat_map(&parse_character_index_line/1)
-
-      _ ->
-        []
-    end
-  end
-
-  defp parse_character_index_line(line) do
-    trimmed = String.trim(line)
-
-    if String.starts_with?(trimmed, "- ") do
-      parse_character_index_fields(trimmed |> String.split("｜") |> Enum.map(&String.trim/1))
-    else
-      []
-    end
-  end
-
-  defp parse_character_index_fields(fields) do
-    name = Enum.at(fields, 1)
-    ref = fields |> List.first() |> to_string() |> String.trim_leading("- ") |> String.trim()
-    role_field = Enum.find(fields, &String.starts_with?(&1, "narrative_role="))
-    alias_field = Enum.find(fields, &String.starts_with?(&1, "别名："))
-
-    with true <- is_binary(name) and name != "",
-         true <- String.starts_with?(ref, "character:"),
-         true <- is_binary(role_field),
-         [_, role_value] <- String.split(role_field, "=", parts: 2) do
-      [
-        %{
-          character_ref: ref,
-          name: name,
-          aliases: parse_alias_field(alias_field),
-          narrative_role: String.trim(role_value),
-          role: List.last(fields) |> String.trim()
-        }
-      ]
-    else
-      _ -> []
-    end
-  end
-
-  defp parse_alias_field(nil), do: []
-
-  defp parse_alias_field(field) do
-    field
-    |> String.replace_prefix("别名：", "")
-    |> String.split(["、", ",", "，"], trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
+    (get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "characters"]) || [])
+    |> Enum.map(fn entry ->
+      %{
+        character_ref: entry["ref"],
+        name: entry["name"],
+        aliases: entry["aliases"] || [],
+        narrative_role: entry["narrative_role"],
+        role: entry["role"]
+      }
+    end)
   end
 
   defp judgment_character_design_result(prompt) do
@@ -4690,8 +4603,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp explore_request_for(prompt, ir) do
     author_text = judgment_author_input(prompt)
 
-    with true <- explore_context?(prompt, ir),
-         tool when is_binary(tool) <- explore_tool_for(author_text),
+    with tool when is_binary(tool) <- explore_tool_for(author_text),
+         true <- explore_context?(prompt, ir, tool),
          query when is_binary(query) <- explore_query_for(tool, author_text) do
       %{"tool" => tool, "query" => query}
     else
@@ -4701,14 +4614,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 旧观察段标记与 content 回声只属于 legacy 文本协议；canonical 的作者原文可能
   # 引用这些字面量，不能据此判定本轮已探索。
-  defp explore_context?(prompt, nil) do
+  defp explore_context?(prompt, nil, _tool) do
     (String.contains?(prompt, "## 探索目录") and
        not String.contains?(prompt, "## 探索观察")) or
       String.contains?(prompt, "我先检索「")
   end
 
-  defp explore_context?(prompt, %NovelCommon.RequestIR{}),
-    do: String.contains?(prompt, "## 探索目录")
+  defp explore_context?(_prompt, %RequestIR{} = ir, tool) do
+    exploration = scope_operation(ir)["exploration"] || %{}
+    exploration["allowed"] == true and tool in (exploration["tools"] || [])
+  end
 
   # archive_read 的 query 是档案面名（VS-00F CP1：账面问句固定读 ledgers 面）；
   # 其余工具沿用引用词。
@@ -4758,8 +4673,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     )
   end
 
-  defp judgment_decision_verdict_result(prompt) do
-    {action, capability, exploratory} = judgment_verdict(prompt)
+  defp judgment_decision_verdict_result(prompt, source) do
+    {action, capability, exploratory} = judgment_verdict(prompt, source)
 
     directions = judgment_verdict_directions(exploratory, prompt)
 
@@ -4803,11 +4718,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     arguments =
       arguments
-      |> message_state_arguments(prompt)
+      |> message_state_arguments(source)
       |> candidate_semantics_arguments(prompt)
-      |> pending_lifecycle_arguments(prompt)
-      |> adopted_revision_arguments(prompt)
-      |> chapter_revision_arguments(prompt)
+      |> pending_lifecycle_arguments(source)
+      |> adopted_revision_arguments(source)
+      |> chapter_revision_arguments(source)
 
     reasoning = judgment_reason_code(action)
 
@@ -4880,7 +4795,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp judgment_narrative_text("reply", exploratory, prompt) do
+  defp judgment_narrative_text("reply", exploratory, prompt, source) do
     cond do
       String.contains?(judgment_author_input(prompt), "岑舟今年多少岁") ->
         if String.contains?(prompt, "三十岁") do
@@ -4889,8 +4804,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "我当前没有读到已保存的岑舟年龄。"
         end
 
-      message_state_request?(prompt) ->
-        message_state_narrative(prompt)
+      message_state_request?(source) ->
+        message_state_narrative(source)
 
       archive_write_prompt?(prompt) ->
         "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。" <>
@@ -4901,19 +4816,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp judgment_narrative_text("execute", _exploratory, prompt) do
-    if adopted_revision_request?(prompt) do
+  defp judgment_narrative_text("execute", _exploratory, _prompt, source) do
+    if adopted_revision_request?(source) do
       "我会生成一份修订候选，保留旧版本；你确认替代后新版本才成为当前作品事实。"
     else
       "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
     end
   end
 
-  defp judgment_narrative_text("await_author", _exploratory, _prompt) do
+  defp judgment_narrative_text("await_author", _exploratory, _prompt, _source) do
     "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。"
   end
 
-  defp judgment_narrative_text(_action, _exploratory, _prompt) do
+  defp judgment_narrative_text(_action, _exploratory, _prompt, _source) do
     "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
   end
 
@@ -5193,9 +5108,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   schema 不接受 modification_scope；产品按 dialogue_goal/作者原话确定性推导范围）。
   """
   def chapter_revision_arguments(prompt) when is_binary(prompt) or is_map(prompt) do
-    prompt_text = prompt_to_text(prompt)
-    targets = chapter_revision_targets_from_prompt(prompt_text)
-    author_text = judgment_author_input(prompt_text)
+    targets = chapter_revision_targets_from_prompt(prompt)
+    author_text = judgment_author_input(prompt)
 
     if targets != [] and chapter_revision_intent?(author_text) do
       %{
@@ -5211,26 +5125,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   def chapter_revision_arguments(_prompt), do: nil
 
-  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
-
-  defp prompt_to_text(%{messages: messages}) do
-    messages
-    |> List.wrap()
-    |> Enum.map_join("\n", fn
-      %{content: content} when is_binary(content) -> content
-      _ -> ""
-    end)
-  end
-
   defp chapter_revision_targets_from_prompt(prompt) do
-    ~r/^\s*-\s*(chapter:[0-9a-fA-F-]+)｜([^｜\n]+)｜片段数\s*(\d+)｜覆盖\s*([^\s｜]+)/mu
-    |> Regex.scan(prompt)
-    |> Enum.map(fn [_, ref, title, count, coverage] ->
+    (scope_operation(prompt)["chapter_revision_targets"] || [])
+    |> Enum.map(fn entry ->
       %{
-        ref: String.trim(ref),
-        title: String.trim(title),
-        fragment_count: String.to_integer(count),
-        coverage: String.trim(coverage)
+        ref: entry["chapter_ref"],
+        title: entry["chapter_title"],
+        seq: entry["seq"],
+        fragment_count: entry["fragment_count"],
+        coverage: entry["coverage"]
       }
     end)
   end
@@ -5328,8 +5231,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     title_matches = Enum.filter(targets, &chapter_title_matches?(&1.title, text))
 
     cond do
-      seq != nil and Enum.count(targets, &(chapter_seq(&1.title) == seq)) == 1 ->
-        Enum.find(targets, &(chapter_seq(&1.title) == seq)).ref
+      seq != nil and Enum.count(targets, &(&1.seq == seq)) == 1 ->
+        Enum.find(targets, &(&1.seq == seq)).ref
 
       length(title_matches) == 1 ->
         hd(title_matches).ref
@@ -5366,19 +5269,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   }
 
   defp cn_chapter_seq(raw), do: Map.get(@cn_chapter_digits, raw)
-
-  defp chapter_seq(title) do
-    case Regex.run(~r/第\s*([0-9一二三四五六七八九十]+)\s*章/u, to_string(title)) do
-      [_, raw] ->
-        case Integer.parse(raw) do
-          {n, ""} -> n
-          _ -> cn_chapter_seq(raw)
-        end
-
-      _ ->
-        nil
-    end
-  end
 
   defp chapter_title_matches?(title, text) do
     title = to_string(title)
@@ -5440,27 +5330,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 单调用判断 prompt 同时携带「已采纳可修订对象」目录与消息处置事实；两处都必须能
   # 取到真实 accepted ref，不能靠猜最新一条。
   defp accepted_revision_ref(prompt) do
-    case Regex.run(
-           ~r/##\s*已采纳可修订对象[^\n]*\n\s*-\s*([^：\n]+)：revise_adopted_content/u,
-           prompt
-         ) do
-      [_, ref] -> String.trim(ref)
-      _ -> accepted_revision_ref_from_facts(prompt)
-    end
-  end
-
-  defp accepted_revision_ref_from_facts(prompt) do
-    prompt
-    |> message_state_facts()
-    |> Map.get("resolved_adoptions", [])
-    |> Enum.find(fn entry ->
-      entry["status"] in ["ACCEPTED", "EDITED_ACCEPTED"] and
-        "revise_adopted_content" in (entry["available_operations"] || [])
+    scope_operation(prompt)
+    |> Map.get("adopted_content_targets", %{})
+    |> Enum.find_value(fn {ref, operations} ->
+      if "revise_adopted_content" in operations, do: ref
     end)
-    |> case do
-      nil -> nil
-      entry -> entry["artifact_ref"]
-    end
   end
 
   # 仅在 test/support 注入错误模型决定，供外部真实页面验证业务拒绝与纠正路径。
@@ -5478,7 +5352,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         Map.merge(arguments, %{"action" => "execute", "capability" => "world_building"})
 
       String.contains?(input, "一次纠正样例") and
-          not String.contains?(prompt, "本次响应未通过契约校验：") ->
+          not String.contains?(TestProviderPrompt.text(prompt), "本次响应未通过契约校验：") ->
         Map.put(arguments, "author_content_source_ref", nil)
 
       true ->
@@ -6268,46 +6142,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 旧兼容行（无 `第 N 章「」` 前缀）整行即 title，seq/chapter_ref 为 nil。
   # 返回 `[%{title, seq, chapter_ref, has_prose}]`。
   defp accepted_chapters_in_prompt(prompt) do
-    # planner 段头为「## 作品章节（…含已规划但还没写正文的章）」，章节列表取自此段。
-    case Regex.run(~r/##\s*作品章节[^\n]*\n(.*?)(?:\n##|\z)/su, prompt) do
-      [_, block] ->
-        block
-        |> String.split("\n")
-        |> Enum.flat_map(&parse_chapter_entry_line/1)
-
-      _ ->
-        []
-    end
-  end
-
-  # `- 第 N 章「title」[chapter_ref=chapter:<uuid>]（计划中）` → 结构化条目；
-  # 非章节列表行返回 []。判断/planner/探索面章节索引共用同一行格式。
-  defp parse_chapter_entry_line(line) do
-    case Regex.run(~r/^\s*-\s*(.*\S)\s*$/u, line) do
-      [_, body] ->
-        planned = String.contains?(body, "（计划中）")
-
-        case Regex.run(
-               ~r/^第\s*(\d+)\s*章「(.+?)」\[chapter_ref=(chapter:[0-9a-fA-F-]{36})\]/u,
-               body
-             ) do
-          [_, seq, title, ref] ->
-            [
-              %{
-                title: title,
-                seq: String.to_integer(seq),
-                chapter_ref: String.downcase(ref),
-                has_prose: not planned
-              }
-            ]
-
-          _ ->
-            [%{title: body, seq: nil, chapter_ref: nil, has_prose: not planned}]
-        end
-
-      _ ->
-        []
-    end
+    Enum.map(scope_chapters(prompt), fn entry ->
+      %{
+        title: entry["title"],
+        seq: entry["seq"],
+        chapter_ref: entry["ref"],
+        has_prose: entry["has_prose"]
+      }
+    end)
   end
 
   # checkpoint 1 单章续写：默认归第一章（与 driver 续写第 1 章一致）。
@@ -6454,27 +6296,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # B27 CP3d：creative prompt 以稳定段标记（SharedRules）识别；anchor 文本仍用于
   # brief/context 抽取，但不再依赖旧模板固定位置。无标记时回退 author_input 抽取。
-  defp task_aware_creative_prompt?(text), do: String.contains?(text, "## 创作协作共同规则")
 
-  defp creative_prompt_parts(prompt) do
-    case creative_anchor_parts(prompt) do
-      {brief, context} ->
-        {brief, context}
-
-      nil ->
-        {author_input_text_from_prompt(prompt), ""}
-    end
+  defp scope_operation(prompt) do
+    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["operation"]) || %{}
   end
 
-  defp creative_anchor_parts(prompt) do
-    if task_aware_creative_prompt?(prompt) or String.contains?(prompt, "用户创作简述：") do
-      case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt) do
-        [_, brief, context] -> {String.trim(brief), String.trim(context)}
-        _ -> nil
-      end
-    else
-      nil
-    end
+  defp creative_prompt_parts(prompt) do
+    operation = scope_operation(prompt)
+
+    {Map.get(operation, "creative_brief", TestProviderPrompt.author_text(prompt)),
+     Map.get(operation, "context_text", "")}
   end
 
   # 章节正文 item 标题取章节计划标题（"第N章：标题"，止于下一个分隔符），让采纳后的章节名
@@ -6567,16 +6398,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp prompt_setting_kind(prompt) do
     cond do
-      String.contains?(prompt, "artifact_type：foreshadowing_seed") ->
+      scope_operation(prompt)["artifact_type"] == "foreshadowing_seed" ->
         :foreshadowing
 
-      String.contains?(prompt, "artifact_type：style_rule_seed") ->
+      scope_operation(prompt)["artifact_type"] == "style_rule_seed" ->
         :style_rule
 
-      String.contains?(prompt, "artifact_type：world_rule_seed") ->
+      scope_operation(prompt)["artifact_type"] == "world_rule_seed" ->
         :world_rule
 
-      String.contains?(prompt, "artifact_type：constraint_seed") ->
+      scope_operation(prompt)["artifact_type"] == "constraint_seed" ->
         :constraint
 
       true ->

@@ -20,7 +20,7 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
           # 缺席（旧调用/单场章）时场归因诚实不做。
           scene_units: [map()],
           # B27 CP3：评审任务语义（材料覆盖/版本/范围，见 AuthoringTask）；
-          # 迁移期 nil 保持旧行为。
+          # evaluator 在派发前拒绝缺失任务；nil 仅表示调用方尚未提供。
           task: NovelCommon.Contracts.AuthoringTask.t() | nil,
           run: map() | nil,
           request_ir: map() | nil

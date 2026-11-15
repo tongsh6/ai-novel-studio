@@ -19,7 +19,11 @@ defmodule NovelDomain.DialogueContextTest do
 
   describe "to_prompt_text/1" do
     test "includes work snapshot" do
-      ctx = %DialogueContext{current_work_snapshot: %{title: "Cyberpunk", genre: "Sci-Fi"}}
+      ctx = %DialogueContext{
+        current_work_snapshot: %{title: "Cyberpunk", genre: "Sci-Fi"},
+        source_status: %{work: :ok}
+      }
+
       text = DialogueContext.to_prompt_text(ctx)
       assert text =~ "## 当前作品上下文"
       assert text =~ "- title: Cyberpunk"
@@ -40,8 +44,14 @@ defmodule NovelDomain.DialogueContextTest do
       assert text =~ "User prefers dark tone."
     end
 
+    test "missing work source status is unknown rather than an empty work" do
+      text = DialogueContext.to_prompt_text(%DialogueContext{})
+      assert text =~ "当前作品事实未知"
+      refute text =~ "无——这是新对话"
+    end
+
     test "shows empty work message when no snapshot" do
-      ctx = %DialogueContext{current_work_snapshot: nil}
+      ctx = %DialogueContext{current_work_snapshot: nil, source_status: %{work: :empty}}
       text = DialogueContext.to_prompt_text(ctx)
       assert text =~ "（无——这是新对话或尚未创建作品）"
     end

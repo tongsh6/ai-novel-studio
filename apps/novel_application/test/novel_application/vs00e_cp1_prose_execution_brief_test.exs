@@ -13,6 +13,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTest.TestProviderPrompt
 
   @work "work-vs00e-cp1"
 
@@ -20,7 +21,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
     {turn_result, prompt} =
       run(
         %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: ["第02章：旧服务器里的残诀"],
           structured_chapters: [
             %{
@@ -43,16 +44,18 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
         "第02章：旧服务器里的残诀"
       )
 
-    # 1. 章方向被展开为场级执行简述并进入 provider 请求（在三锚点之后）
-    assert prompt =~ "## 场级执行简述"
-    assert prompt =~ "目标变化：chapter_projection：主角第一次主动冒险"
-    assert prompt =~ "终：紧张中带兴奋"
-    assert prompt =~ "读者得知：残诀来源指向公司旧实验"
+    # 1. 场级执行简述由现役原生 Scope 字段传递，材料字符串保留实际换行。
+    scope = TestProviderPrompt.scope_content(prompt)
+    brief = get_in(scope, ["operation", "execution_brief"])
+    assert brief =~ "## 场级执行简述"
+    assert brief =~ "目标变化：chapter_projection：主角第一次主动冒险"
+    assert brief =~ "终：紧张中带兴奋"
+    assert brief =~ "读者得知：残诀来源指向公司旧实验"
 
-    # 2. 三锚点未被破坏（仍可被 stub/slice_verify 解析）
-    assert prompt =~ "用户创作简述："
-    assert prompt =~ "上下文："
-    assert prompt =~ "重要："
+    # 2. 专业能力、上下文和原作者输入各自保留所属字段。
+    assert get_in(scope, ["operation", "capability"]) == "prose_writing"
+    assert get_in(scope, ["operation", "context_text"]) =~ "第02章：旧服务器里的残诀"
+    assert TestProviderPrompt.author_text(prompt) == "写正文首稿"
 
     # 3. brief 来源进入 trace（稳定 ref）
     ref = turn_result.trace_summary[:prose_execution_brief_ref]
@@ -73,7 +76,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
     {_turn_result, prompt} =
       run(
         %DialogueContext{
-          workspace_id: @work,
+          work_id: @work,
           current_chapters: ["第05章"],
           structured_chapters: [
             %{title: "第05章", seq: 5, summary: "主角与师父对峙。", has_prose: false}
@@ -83,10 +86,11 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
         "第05章"
       )
 
-    assert prompt =~ "## 场级执行简述"
-    assert prompt =~ "主角与师父对峙"
-    # 无结构化方向时不伪造因果脊
-    refute prompt =~ "因果"
+    brief = get_in(TestProviderPrompt.scope_content(prompt), ["operation", "execution_brief"])
+    assert brief =~ "## 场级执行简述"
+    assert brief =~ "主角与师父对峙"
+    # 无结构化方向时不伪造因果脊。
+    refute brief =~ "因果"
   end
 
   defp run(context, target_chapter) do
@@ -122,10 +126,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    {turn_result,
-     agent
-     |> Agent.get(& &1)
-     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)}
+    {turn_result, Agent.get(agent, &List.last/1)}
   end
 
   defp frame do

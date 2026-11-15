@@ -15,11 +15,12 @@ defmodule NovelCommon.RequestIR do
 
   alias NovelCommon.CapabilityProfile
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.Scope
   alias NovelCommon.RequestIR.SystemEnvelope
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)
-  @block_types ~w(text tool_call observation validation_result tentative_artifact author_exit checkpoint)
+  @block_types ~w(text scope tool_call observation validation_result tentative_artifact author_exit checkpoint)
   @forbidden_tool_names ~w(adopt canon_write accept_candidate confirm_candidate self_approve)
   @run_fields ~w(run_id work_id workspace_id session_id parent_turn_ref profile_ref goal)a
   @goal_fields ~w(text source_ref version)a
@@ -87,38 +88,16 @@ defmodule NovelCommon.RequestIR do
   @spec application_base_text() :: String.t()
   defdelegate application_base_text(), to: SystemEnvelope
 
-  @doc """
-  非 AgentRun 的独立文本操作请求（章摘要、设定盘点、工具结果叙述等）。
+  @doc "只从显式原文/输入引用配对构造作者消息；不从运行或材料来源补值。"
+  @spec author_input_messages(String.t() | nil, String.t() | nil) ::
+          {:ok, [map()]} | {:error, :invalid_author_input}
+  def author_input_messages(nil, nil), do: {:ok, []}
 
-  这些操作没有 AgentRun 的 run 事实：只携带真实操作 profile 与来源 refs，不伪造
-  run_id/session_id，也不伪造作者消息。材料由应用作为 `application_base` 提供，
-  作者原话仍以独立 `author` provenance 构造。请求仍走同一 canonical IR 投影边界
-  （VS-00L §19.1），不再经 giant prompt 形态转译。
-  """
-  @spec text_operation(map()) :: t()
-  def text_operation(attrs) when is_map(attrs) do
-    text = Map.fetch!(attrs, :text)
-    profile_ref = Map.fetch!(attrs, :profile_ref)
-    refs = Map.get(attrs, :source_refs, [])
-
-    request =
-      new(%{
-        run: Map.get(attrs, :run) || %{profile_ref: profile_ref},
-        system: system_envelope(Map.get(attrs, :system, [])),
-        messages: [
-          message(:application_base, :application, [text_block(text)], %{source_refs: refs})
-        ],
-        tools: [],
-        projection: %{},
-        refs: %{base_refs: refs, observation_refs: [], used_refs: []}
-      })
-
-    case validate(request) do
-      :ok ->
-        request
-
-      {:error, reason} ->
-        raise ArgumentError, "invalid text operation request: #{inspect(reason)}"
+  def author_input_messages(text, ref) do
+    if Enum.all?([text, ref], &(is_binary(&1) and String.trim(&1) != "")) do
+      {:ok, [message(:user, :author, [text_block(text)], %{source_refs: [%{ref: ref}]})]}
+    else
+      {:error, :invalid_author_input}
     end
   end
 
@@ -202,6 +181,9 @@ defmodule NovelCommon.RequestIR do
 
   @doc "文本块。"
   def text_block(text) when is_binary(text), do: %{type: "text", text: text}
+
+  @doc "当前应用范围的纯结构值；事实来源校验仍由读取它们的应用 owner 负责。"
+  defdelegate scope_block(content), to: Scope, as: :block
 
   @doc "assistant 工具调用块（call_id 关联后续 observation/validation）。"
   def tool_call_block(name, arguments, call_id, schema_version \\ "tools/v1") do
@@ -314,6 +296,7 @@ defmodule NovelCommon.RequestIR do
       true ->
         with :ok <- SystemEnvelope.validate(ir.system),
              :ok <- validate_messages(ir.messages),
+             :ok <- Scope.validate_bindings(ir),
              :ok <- validate_tools(ir.tools),
              :ok <- validate_call_bindings(ir.messages),
              :ok <- Compaction.validate(ir.messages) do
@@ -337,10 +320,19 @@ defmodule NovelCommon.RequestIR do
 
   defp validate_message(%{role: role, provenance: provenance, blocks: blocks} = message) do
     cond do
-      role not in @roles -> {:error, {:invalid_message_role, role}}
-      provenance not in @provenances -> {:error, {:invalid_message_provenance, provenance}}
-      not is_list(blocks) -> {:error, :invalid_message_blocks}
-      true -> with :ok <- validate_execution_refs(message), do: validate_blocks(blocks)
+      role not in @roles ->
+        {:error, {:invalid_message_role, role}}
+
+      provenance not in @provenances ->
+        {:error, {:invalid_message_provenance, provenance}}
+
+      not is_list(blocks) ->
+        {:error, :invalid_message_blocks}
+
+      true ->
+        with :ok <- validate_execution_refs(message),
+             :ok <- validate_blocks(blocks),
+             do: Scope.validate_owner(message)
     end
   end
 
@@ -403,6 +395,7 @@ defmodule NovelCommon.RequestIR do
   defp validate_block(%{type: type} = block) when type in @block_types do
     case type do
       "text" -> validate_text_block(block)
+      "scope" -> Scope.validate_block(block)
       "tool_call" -> validate_tool_call_block(block)
       "observation" -> validate_observation_block(block)
       "validation_result" -> validate_validation_block(block)
@@ -766,28 +759,13 @@ defmodule NovelCommon.RequestIR do
 
   @doc "按最近一次 scope 计算下一个 revision，与消息数量无关。"
   @spec next_scope_revision(t()) :: pos_integer()
-  def next_scope_revision(%__MODULE__{} = ir) do
-    ir.messages
-    |> Enum.reverse()
-    |> Enum.find_value(1, fn message ->
-      if message.role == "scope_update" do
-        versions = Map.get(message, :versions, %{})
-        Map.get(versions, "scope_revision", Map.get(versions, :scope_revision, 0)) + 1
-      end
-    end)
-  end
+  def next_scope_revision(%__MODULE__{} = ir), do: Scope.next_revision(ir)
 
   @doc "追加当前运行事实；旧 scope 只保留为证据。"
-  @spec append_scope_update(t(), String.t(), map(), [map()]) :: t()
-  def append_scope_update(%__MODULE__{} = ir, text, versions \\ %{}, source_refs \\ []) do
-    message =
-      message(:scope_update, :application, [text_block(text)], %{
-        versions: versions,
-        source_refs: source_refs
-      })
-
-    %{ir | messages: ir.messages ++ [message]}
-  end
+  @spec append_scope_update(t(), map(), map(), [map()]) :: t()
+  def append_scope_update(%__MODULE__{} = ir, content, versions \\ %{}, source_refs \\ [])
+      when is_map(content),
+      do: Scope.append_update(ir, content, versions, source_refs)
 
   @doc "追加真实工具校验结果，保留 call_id 关联。"
   @spec append_validation_result(t(), String.t(), String.t(), String.t(), map()) :: t()
@@ -848,7 +826,8 @@ defmodule NovelCommon.RequestIR do
   defp provider_tool_call_block(name, _arguments, call_id),
     do: tool_call_block(name, %{}, call_id)
 
-  defp valid_source_id?(id), do: String.valid?(id) and String.trim(id) != ""
+  defp valid_source_id?(id) when is_binary(id), do: String.valid?(id) and String.trim(id) != ""
+  defp valid_source_id?(_id), do: false
 
   defp fetch_field(map, key) when is_map(map) do
     case Map.fetch(map, key) do

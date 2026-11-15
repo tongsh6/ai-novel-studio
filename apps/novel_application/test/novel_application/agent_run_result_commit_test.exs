@@ -47,6 +47,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     WorkSessionRepo
   }
 
+  @author_text "核对普通结果原子交付"
   @success_text "候选已生成，等待作者审阅。"
   @private_marker "private-result-commit-marker"
 
@@ -644,7 +645,7 @@ defmodule NovelApplication.AgentRunResultCommitTest do
       origin_frame_ref: "frame_#{run_id}",
       profile_ref: "conversation_turn_v1",
       trigger: %{kind: "user_message"},
-      goal: %{text: "核对普通结果原子交付", version: 1},
+      goal: %{text: @author_text, version: 1},
       authority_scope: %{production_write: false, allowed_tools: ["readonly_batch"]}
     }
   end
@@ -653,7 +654,8 @@ defmodule NovelApplication.AgentRunResultCommitTest do
     base =
       AuthoringTranscript.new(attrs,
         base_text: "B71 普通结果原子交付 Base",
-        author_text: attrs.goal.text
+        author_text: @author_text,
+        author_turn_ref: "input:result:#{attrs.run_id}"
       )
 
     transcript =
@@ -936,7 +938,10 @@ defmodule NovelApplication.AgentRunResultCommitTest do
   # ── runtime hygiene ────────────────────────────────────────────────────────
 
   defp start_bounded!(attrs, opts) do
-    opts = Keyword.put_new(opts, :interaction_store, &InteractionLifecycle.call/2)
+    opts =
+      opts
+      |> Keyword.put_new(:interaction_store, &InteractionLifecycle.call/2)
+      |> Keyword.put_new(:interaction_input, %{text: @author_text})
 
     assert {:ok, run_id} = AgentRunService.start_bounded(attrs, opts)
     track_run(run_id)
@@ -944,7 +949,10 @@ defmodule NovelApplication.AgentRunResultCommitTest do
   end
 
   defp start_durable!(attrs, opts) do
-    opts = Keyword.put_new(opts, :interaction_store, &InteractionLifecycle.call/2)
+    opts =
+      opts
+      |> Keyword.put_new(:interaction_store, &InteractionLifecycle.call/2)
+      |> Keyword.put_new(:interaction_input, %{text: @author_text})
 
     assert {:ok, run_id} = AgentRunService.start_durable(attrs, opts)
     track_run(run_id)

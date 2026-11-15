@@ -1,119 +1,49 @@
 defmodule NovelAgent.Test.Support.PendingDialogueInput do
   @moduledoc """
-  仅测试支持：把模型实际收到的判断请求规范化为“当前操作材料视图”。
+  仅测试支持：读取当前原生 Scope 的候选/处置事实与独立作者消息。
 
-  判断 prompt 有两类待采纳信息来源：
-
-    * 当前原生 scope：`NovelApplication.DialoguePlanningService.pending_candidate_line/1`
-      渲染的 `## 待采纳候选` 目录；
-    * 显式旧格式状态段：当前 scope 的 `## 消息处置与已有产物` 段内 JSON 的
-      `pending_adoptions[].body_preview`。这是非写判断的现役上下文段
-      （`TurnInteractionService.context_section/1`）；没有该段时不再接受裸 facts JSON。
-
-  这里只读模型实际收到的 prompt，不读 DB 或应用 ctx，也不补造 prompt 里没有的字段。
-  关键边界：
-
-    * 候选和旧格式状态只从“当前操作”的当前 scope 读取；旧 scope 只作历史，
-      当前 scope 缺目录/空目录时绝不回退到旧 scope；
-    * 当前作者原话与当前 scope 分开读取，不用 scope 里的旧用户片段代替作者消息；
-    * native scope 内旧格式 JSON 只认明确的 `## 消息处置与已有产物` 段；
-      资料原文等其它材料里的 JSON 不构成授权状态；
-    * 原生目录优先；旧格式只与同一当前 scope、同一 ref 的目录项合并
-      `revision_of`，不跨 scope 补，也不把缺失当原稿。
-
-  状态区分：`candidate_state` 为 `:parsed` / `:explicit_empty` / `:missing` /
-  `:bad_format`，调用方对坏格式或歧义应诚实询问作者。
-
-  `material_state/1` 在同一个当前 scope 视图上汇总“本轮实际供给”的待采纳与
-  已处置条目：目录/旧格式 pending 取规范化候选，resolved 只取当前明确状态段
-  JSON。它不跨 scope 回退，也不读 DB/ctx；`supplied?` 为 false 时调用方必须
-  如实说明状态未知，不能用历史材料或章节统计补状态。
+  唯一状态来源是最新 scope.content.context.interaction_state；操作授权取同一
+  scope.content.operation.pending_artifact_targets。旧 Scope、作者引用的 JSON、
+  文本段落和普通 wire 文本都不升级为当前应用事实。这里只消费实际请求，不读 DB。
   """
 
-  @author_heading ~r/##\s*作者输入\s*\n/u
-  @author_section ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
-  @directory_heading "## 待采纳候选"
-  @facts_heading "## 消息处置与已有产物"
-  @application_marker "【应用数据"
-  @empty_session_state ~r/会话候选处置[：:]\s*pending\s*0/u
-  @directory_line ~r/^- ref=(?<ref>[^|]+?)\s*\|\s*type=(?<type>[^|]*?)\s*\|\s*status=(?<status>[^|]*?)\s*\|\s*title=(?<title>.*?)\s*\|\s*operations=(?<operations>[^|]*?)\s*\|\s*body_preview=(?<body_preview>.*)$/su
-
-  @type candidate :: %{
-          ref: String.t(),
-          artifact_type: String.t() | nil,
-          status: String.t() | nil,
-          title: String.t() | nil,
-          operations: [String.t()],
-          body_preview: String.t() | nil,
-          revision_of: String.t() | nil,
-          origin: :native_directory | :legacy_message_state
-        }
+  alias NovelTest.TestProviderPrompt
 
   @type candidate_state :: :parsed | :explicit_empty | :missing | :bad_format
-
-  @type material_entry :: %{
-          ref: String.t() | nil,
-          status: String.t() | nil,
-          title: String.t() | nil,
-          body_preview: String.t() | nil,
-          source: :candidate | :resolved_facts
-        }
-
-  @type material_state :: %{
-          state: candidate_state(),
-          supplied?: boolean(),
-          pending: [material_entry()],
-          resolved: [material_entry()],
-          pending_count: non_neg_integer(),
-          resolved_count: non_neg_integer(),
-          omitted_count: non_neg_integer()
-        }
-
-  @type normalized :: %{
-          author_text: String.t(),
-          candidates: [candidate()],
-          request_scope: :native | :legacy | :none,
-          candidate_source: :native_directory | :legacy_message_state | :none,
-          candidate_state: candidate_state(),
-          message_state_facts: map()
-        }
-
   @type prompt :: String.t() | map() | [map()]
 
-  @spec normalize(prompt()) :: normalized()
+  @spec normalize(prompt()) :: map()
   def normalize(prompt) do
-    view = current_view(prompt)
-    directory = directory_candidates(view.state_text)
-    facts = message_state_facts_from_text(view.state_text)
-    legacy = legacy_candidates(facts.map)
-    candidates = merge_candidates(directory.candidates, legacy)
+    scope = TestProviderPrompt.scope_content(prompt)
+    facts = get_in(scope || %{}, ["context", "interaction_state"])
+    targets = get_in(scope || %{}, ["operation", "pending_artifact_targets"])
+    {state, candidates} = candidates_from_facts(facts, targets)
 
     %{
-      author_text: view.author_text,
+      author_text: author_text(prompt),
       candidates: candidates,
-      request_scope: request_scope(view, directory, facts),
-      candidate_source: candidate_source(directory.candidates, legacy),
-      candidate_state: candidate_state(view, directory, facts, candidates),
-      message_state_facts: facts.map
+      request_scope: if(is_map(scope), do: :native, else: :none),
+      candidate_source: if(candidates == [], do: :none, else: :interaction_state),
+      candidate_state: state,
+      message_state_facts: if(is_map(facts), do: facts, else: %{})
     }
   end
 
-  @spec material_state(prompt()) :: material_state()
+  @spec material_state(prompt()) :: map()
   def material_state(prompt) do
     normalized = normalize(prompt)
     facts = normalized.message_state_facts
-
     pending = Enum.map(normalized.candidates, &material_entry_from_candidate/1)
 
     resolved =
       facts
-      |> Map.get("resolved_adoptions")
+      |> Map.get("resolved_adoptions", [])
       |> List.wrap()
       |> Enum.flat_map(&material_entry_from_facts/1)
 
     %{
       state: normalized.candidate_state,
-      supplied?: material_facts_supplied?(normalized, facts),
+      supplied?: normalized.candidate_state != :missing or material_facts_supplied?(facts),
       pending: pending,
       resolved: resolved,
       pending_count: count_from_facts(facts, "pending_adoption_count", length(pending)),
@@ -122,318 +52,113 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
     }
   end
 
-  @doc """
-  返回只含当前操作材料的文本视图：当前 scope（或本轮无 scope 请求）+ 当前作者原话。
-  供真实 consumer 消费，避免把整段历史扁平化后再搜索授权状态。
-  """
-  @spec material_text(prompt(), String.t()) :: String.t()
+  @doc "通用文本观测仅展示实际 Scope JSON 和独立作者原字节；不重建旧中文材料协议。"
+  @spec material_text(prompt(), String.t() | nil) :: String.t()
   def material_text(prompt, fallback \\ nil)
-
   def material_text(prompt, _fallback) when is_binary(prompt), do: prompt
 
   def material_text(prompt, _fallback) when is_map(prompt) or is_list(prompt) do
-    view = current_view(prompt)
-    state_text = String.trim_trailing(view.state_text)
-
-    case String.trim(view.author_text) do
-      "" ->
-        state_text
-
-      author ->
-        case explicit_author_section(state_text) do
-          ^author -> state_text
-          _ -> state_text <> "\n## 作者输入\n" <> author
-        end
-    end
+    scope = TestProviderPrompt.latest_scope(prompt) || ""
+    author = author_text(prompt)
+    if author == "", do: scope, else: scope <> "\n## 作者输入\n" <> author
   end
 
   def material_text(_prompt, fallback), do: fallback || ""
 
   @spec author_text(prompt()) :: String.t()
-  def author_text(prompt), do: normalize(prompt).author_text
+  def author_text(prompt) when is_binary(prompt) do
+    # 只拆通用文本观测的作者边界，后续全部字节都属于作者（包括标题/JSON/空白）。
+    case String.split(prompt, "## 作者输入\n", parts: 2) do
+      [_view, author] -> author
+      _ -> prompt
+    end
+  end
 
-  @spec candidates(prompt()) :: [candidate()]
+  def author_text(prompt), do: TestProviderPrompt.author_text(prompt)
+
+  @spec candidates(prompt()) :: [map()]
   def candidates(prompt), do: normalize(prompt).candidates
 
   @spec message_state_facts(prompt()) :: map()
   def message_state_facts(prompt), do: normalize(prompt).message_state_facts
 
-  @spec request_scope(prompt()) :: :native | :legacy | :none
+  @spec request_scope(prompt()) :: :native | :none
   def request_scope(prompt), do: normalize(prompt).request_scope
 
   @spec candidate_state(prompt()) :: candidate_state()
   def candidate_state(prompt), do: normalize(prompt).candidate_state
 
-  # ── 当前操作材料：结构优先，文本只在无结构时作为本轮请求读取 ────────────────
+  defp candidates_from_facts(nil, _targets), do: {:missing, []}
+  defp candidates_from_facts(facts, _targets) when not is_map(facts), do: {:bad_format, []}
 
-  defp current_view(prompt) when is_binary(prompt) do
-    %{
-      state_text: text_before_author(prompt),
-      author_text: author_text_from_text(prompt),
-      # 只按文本里仍然存在的应用材料标记判定；扁平视图丢掉 scope 结构时保持
-      # 非 native，且不再扫描裸 JSON，不靠猜测补回状态。
-      native_scope?: String.contains?(prompt, @application_marker)
-    }
-  end
+  defp candidates_from_facts(facts, targets) do
+    case Map.fetch(facts, "pending_adoptions") do
+      :error ->
+        {:missing, []}
 
-  defp current_view(prompt) when is_map(prompt) or is_list(prompt) do
-    operation_text = NovelTest.TestProviderPrompt.operation_text(prompt)
-    state_text = text_before_author(operation_text)
+      {:ok, []} ->
+        {:explicit_empty, []}
 
-    author =
-      case String.trim(NovelTest.TestProviderPrompt.author_text(prompt)) do
-        "" -> explicit_author_section(operation_text) || ""
-        text -> text
-      end
+      {:ok, entries} when is_list(entries) ->
+        parsed = Enum.map(entries, &candidate(&1, targets || %{}))
 
-    %{
-      state_text: state_text,
-      author_text: author,
-      native_scope?:
-        not is_nil(NovelTest.TestProviderPrompt.latest_scope(prompt)) or
-          String.contains?(operation_text, @application_marker)
-    }
-  end
-
-  # 作者段在 prompt 末尾；状态只读它之前的当前 scope 材料。
-  # 用字符串切分而不是正则字节索引：中文多字节偏移与 grapheme 索引不同。
-  defp text_before_author(text) do
-    case String.split(text, @author_heading, parts: 2) do
-      [before, _after] -> String.trim_trailing(before)
-      _ -> text
-    end
-  end
-
-  defp author_text_from_text(text) do
-    explicit_author_section(text) || String.trim(text)
-  end
-
-  defp explicit_author_section(text) do
-    case Regex.run(@author_section, text) do
-      [_, section] ->
-        section = String.trim(section)
-        if section == "", do: nil, else: section
+        if Enum.any?(parsed, &(&1 == :error)),
+          do: {:bad_format, []},
+          else: {:parsed, Enum.map(parsed, fn {:ok, entry} -> entry end)}
 
       _ ->
-        nil
+        {:bad_format, []}
     end
   end
 
-  # ── 原生目录 ────────────────────────────────────────────────────────────────
+  defp candidate(entry, targets) when is_map(entry) and is_map(targets) do
+    ref = Map.get(entry, "artifact_ref")
+    operations = Map.get(targets, ref, [])
 
-  defp directory_candidates(state_text) do
-    case prompt_section(state_text, @directory_heading) do
-      nil ->
-        %{candidates: [], state: :missing}
-
-      section ->
-        lines =
-          section
-          |> String.split("\n")
-          |> Enum.map(&String.trim/1)
-          |> Enum.filter(&String.starts_with?(&1, "- ref="))
-
-        parsed = Enum.map(lines, &parse_directory_line/1)
-        candidates = for {:ok, candidate} <- parsed, do: candidate
-
-        state =
-          cond do
-            Enum.any?(parsed, &(&1 == :error)) -> :bad
-            candidates == [] -> :empty
-            true -> :ok
-          end
-
-        %{candidates: if(state == :bad, do: [], else: candidates), state: state}
-    end
-  end
-
-  defp parse_directory_line(line) do
-    case Regex.run(@directory_line, line) do
-      [_, ref, type, status, title, operations, body_preview] ->
-        {:ok, build_candidate(ref, type, status, title, operations, body_preview)}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp build_candidate(ref, type, status, title, operations, body_preview) do
-    %{
-      ref: String.trim(ref),
-      artifact_type: blank_to_nil(type),
-      status: blank_to_nil(status),
-      title: blank_to_nil(title, "（无标题）"),
-      operations:
-        operations
-        |> String.split("/", trim: true)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == "")),
-      body_preview: preview_or_nil(body_preview),
-      revision_of: nil,
-      origin: :native_directory
-    }
-  end
-
-  # ── 显式旧格式状态段 ─────────────────────────────────────────────────────────
-
-  # 唯一来源决策：只认当前 scope 内明确的 `## 消息处置与已有产物` 段。
-  # 无该段时保持 missing，不扫描裸 facts JSON，也不把资料原文里的 JSON 当授权。
-  defp message_state_facts_from_text(state_text) do
-    case prompt_section(state_text, @facts_heading) do
-      nil ->
-        %{map: %{}, state: :missing}
-
-      section ->
-        case facts_from_section(section) do
-          {:ok, facts} -> %{map: facts, state: :ok}
-          :empty -> %{map: %{}, state: :empty}
-          :bad -> %{map: %{}, state: :bad}
-        end
-    end
-  end
-
-  defp facts_line(line) do
-    case Jason.decode(String.trim(line)) do
-      {:ok, %{} = map} -> if facts_map?(map), do: map
-      _ -> nil
-    end
-  end
-
-  defp facts_from_section(section) do
-    case section |> String.split("\n") |> Enum.find_value(&facts_line/1) do
-      nil -> if String.trim(section) == "", do: :empty, else: :bad
-      facts -> {:ok, facts}
-    end
-  end
-
-  defp facts_map?(map) do
-    is_list(Map.get(map, "author_inputs")) or is_list(Map.get(map, "pending_adoptions"))
-  end
-
-  defp legacy_candidates(facts) do
-    facts
-    |> Map.get("pending_adoptions")
-    |> List.wrap()
-    |> Enum.flat_map(&legacy_candidate/1)
-  end
-
-  defp legacy_candidate(candidate) when is_map(candidate) do
-    ref = Map.get(candidate, "artifact_ref") || Map.get(candidate, "artifact_id")
-
-    if is_binary(ref) and String.trim(ref) != "" do
-      [
-        %{
-          ref: String.trim(ref),
-          artifact_type: blank_to_nil(Map.get(candidate, "artifact_type")),
-          status: blank_to_nil(Map.get(candidate, "status")),
-          title: blank_to_nil(Map.get(candidate, "title"), "（无标题）"),
-          operations:
-            candidate
-            |> Map.get("available_operations")
-            |> List.wrap()
-            |> Enum.map(&to_string/1)
-            |> Enum.map(&String.trim/1)
-            |> Enum.reject(&(&1 == "")),
-          body_preview: preview_or_nil(Map.get(candidate, "body_preview")),
-          revision_of: blank_to_nil(Map.get(candidate, "revision_of")),
-          origin: :legacy_message_state
-        }
-      ]
+    if is_binary(ref) and String.trim(ref) != "" and is_list(operations) and
+         Enum.all?(operations, &is_binary/1) do
+      {:ok,
+       %{
+         ref: ref,
+         artifact_type: text_or_nil(Map.get(entry, "artifact_type")),
+         status: text_or_nil(Map.get(entry, "status")),
+         title: text_or_nil(Map.get(entry, "title")),
+         operations: operations,
+         body_preview: text_or_nil(Map.get(entry, "body_preview")),
+         revision_of: text_or_nil(Map.get(entry, "revision_of")),
+         origin: :interaction_state
+       }}
     else
-      []
+      :error
     end
   end
 
-  defp legacy_candidate(_candidate), do: []
+  defp candidate(_entry, _targets), do: :error
 
-  # 只在同一当前 scope 的目录与旧格式之间、按同一 ref 合并 revision_of。
-  defp merge_candidates([], legacy), do: legacy
-
-  defp merge_candidates(directory, legacy) do
-    legacy_by_ref = Map.new(legacy, &{&1.ref, &1})
-
-    Enum.map(directory, fn candidate ->
-      case Map.get(legacy_by_ref, candidate.ref) do
-        nil ->
-          candidate
-
-        legacy_entry ->
-          %{candidate | revision_of: candidate.revision_of || legacy_entry.revision_of}
-      end
-    end)
-  end
-
-  # ── 状态汇总 ────────────────────────────────────────────────────────────────
-
-  defp request_scope(view, directory, facts) do
-    cond do
-      view.native_scope? -> :native
-      directory.state != :missing -> :native
-      facts.state != :missing -> :legacy
-      true -> :none
-    end
-  end
-
-  defp candidate_source([], []), do: :none
-  defp candidate_source([], _legacy), do: :legacy_message_state
-  defp candidate_source(_directory, _legacy), do: :native_directory
-
-  defp candidate_state(view, directory, facts, candidates) do
-    cond do
-      directory.state == :bad or facts.state == :bad ->
-        :bad_format
-
-      candidates != [] ->
-        :parsed
-
-      directory.state == :empty or facts.state == :empty or explicit_empty_facts?(facts.map) ->
-        :explicit_empty
-
-      Regex.match?(@empty_session_state, view.state_text) ->
-        :explicit_empty
-
-      true ->
-        :missing
-    end
-  end
-
-  defp explicit_empty_facts?(%{"pending_adoptions" => []}), do: true
-  defp explicit_empty_facts?(_facts), do: false
-
-  # ── 当前 scope 的实际材料供给 ────────────────────────────────────────────────
-
-  defp material_facts_supplied?(normalized, facts) do
-    normalized.candidate_state != :missing or
-      Enum.any?(
-        [
-          "pending_adoptions",
-          "resolved_adoptions",
-          "pending_adoption_count",
-          "resolved_adoption_count"
-        ],
-        &Map.has_key?(facts, &1)
-      )
+  defp material_facts_supplied?(facts) do
+    Enum.any?(
+      [
+        "pending_adoptions",
+        "resolved_adoptions",
+        "pending_adoption_count",
+        "resolved_adoption_count"
+      ],
+      &Map.has_key?(facts, &1)
+    )
   end
 
   defp material_entry_from_candidate(candidate) do
-    %{
-      ref: candidate.ref,
-      status: candidate.status,
-      title: candidate.title,
-      body_preview: candidate.body_preview,
-      source: :candidate
-    }
+    Map.take(candidate, [:ref, :status, :title, :body_preview])
+    |> Map.put(:source, :candidate)
   end
 
   defp material_entry_from_facts(entry) when is_map(entry) do
-    ref = Map.get(entry, "artifact_ref") || Map.get(entry, "artifact_id")
-
     [
       %{
-        ref: blank_to_nil(ref),
-        status: blank_to_nil(Map.get(entry, "status")),
-        title: blank_to_nil(Map.get(entry, "title"), "（无标题）"),
-        body_preview: preview_or_nil(Map.get(entry, "body_preview")),
+        ref: text_or_nil(Map.get(entry, "artifact_ref")),
+        status: text_or_nil(Map.get(entry, "status")),
+        title: text_or_nil(Map.get(entry, "title")),
+        body_preview: text_or_nil(Map.get(entry, "body_preview")),
         source: :resolved_facts
       }
     ]
@@ -448,42 +173,9 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
     end
   end
 
-  defp prompt_section(text, heading) do
-    case String.split(text, heading, parts: 2) do
-      [_before, rest] ->
-        rest
-        |> String.split(~r/\n##\s/u, parts: 2)
-        |> List.first()
-        |> to_string()
-        |> String.trim()
-
-      _ ->
-        nil
-    end
+  defp text_or_nil(text) when is_binary(text) do
+    if String.trim(text) == "", do: nil, else: text
   end
 
-  defp preview_or_nil(nil), do: nil
-
-  defp preview_or_nil(preview) do
-    preview = preview |> to_string() |> String.trim()
-
-    cond do
-      preview == "" -> nil
-      String.starts_with?(preview, "（空：") -> nil
-      true -> preview
-    end
-  end
-
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(value), do: blank_to_nil(value, nil)
-
-  defp blank_to_nil(value, blank_marker) do
-    value = value |> to_string() |> String.trim()
-
-    if value == "" or value == blank_marker do
-      nil
-    else
-      value
-    end
-  end
+  defp text_or_nil(_text), do: nil
 end

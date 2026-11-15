@@ -14,6 +14,7 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.AuxTaskBuilder
   alias NovelApplication.LedgerReconciliationService
+  alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
@@ -234,7 +235,7 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
              work_id: run.work_id,
              trigger: :agent_run,
              scanned_at_seq: Map.get(summary_map, :scanned_at_seq),
-             author_words: run.goal.text
+             author_words: TurnInteractionService.author_text(Map.get(spec, :author_input), run)
            }) do
         {:ok, task} ->
           summary_map = Map.put(summary_map, :authoring_task, AuthoringTask.to_map(task))

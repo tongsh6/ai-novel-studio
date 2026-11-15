@@ -69,12 +69,20 @@ defmodule I2VariationDriver do
     text =
       "请基于以下主题生成创作产物。主题：#{c.topic}。请按 direction 要求返回 items。"
 
-    input = %{
-      text: text,
-      workspace_id: "i2-driver-#{c.name}"
-    }
-
     try do
+      {:ok, work} =
+        NovelApplication.WorkService.create(%{"title" => "I2 scenario fixture #{c.name}"})
+
+      {:ok, session} =
+        NovelApplication.WorkSessionService.create(work.id, %{"title" => "I2 #{c.name}"})
+
+      input = %{
+        text: text,
+        workspace_id: "i2-driver-#{c.name}",
+        work_id: work.id,
+        session_id: session.id
+      }
+
       case run_main_chain(input, Execution.dependency(purpose: :conversation)) do
         {:ok, turn_result} ->
           items = collect_items(turn_result)
@@ -130,6 +138,8 @@ defmodule I2VariationDriver do
          {:ok, _run_id} <-
            AgentRunService.start_bounded(
              spec.run_attrs,
+             interaction_input: spec.interaction_input,
+             interaction_store: spec.interaction_store,
              next_step_planner: spec.next_step_planner
            ) do
       await_turn_result(nil)
@@ -211,6 +221,7 @@ defmodule I2VariationDriver do
 
   defp summary_line(cases, pairwise, case_failures) do
     case_count = length(cases)
+
     "[I2] cases=#{case_count} pairs=#{pairwise.pair_count} disjoint=#{pairwise.pair_count - length(pairwise.violations)} violations=#{length(pairwise.violations)} case_failures=#{length(case_failures)}"
   end
 

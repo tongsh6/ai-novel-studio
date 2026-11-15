@@ -36,7 +36,9 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
 
   setup do
     previous_persistence = Application.fetch_env(:novel_web, :persistence)
-    previous_facts = Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
+
+    previous_facts =
+      Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
 
     Application.put_env(
       :novel_web,
@@ -562,17 +564,28 @@ defmodule NovelWeb.WorkspaceChannelConfirmationAcceptanceTest do
                Enum.any?(text_blocks(message), &String.contains?(&1, "需要作者确认后才能生成角色设定"))
            end)
 
-    # 应用生成的 scope/goal 事实与作者原字节分离，作者原话逐字可追溯。
+    # 应用目标与作者原文字节分别保留；原生 Scope 不再复制作者原文段落。
+    child_run = AgentRunLog.get_run(child_run_id)
+    author = Enum.find(messages, &(&1.role == "user" and &1.provenance == "author"))
+    assert author.source_refs == [%{ref: source.user_turn_id}]
+
     scope_message =
-      Enum.find(messages, fn message ->
-        message.role == "scope_update" and
-          Enum.any?(text_blocks(message), &String.contains?(&1, @author_text))
+      Enum.find(messages, fn
+        %{role: "scope_update", blocks: [%{type: "scope", content: %{"operation" => operation}}]} ->
+          operation["role"] == "creative_execution" and
+            operation["capability"] == "character_design"
+
+        _message ->
+          false
       end)
 
-    assert scope_message
-    assert scope_message.provenance == "application"
+    assert %{provenance: "application", blocks: [%{type: "scope", content: content}]} =
+             scope_message
 
-    child_run = AgentRunLog.get_run(child_run_id)
+    assert content["work_id"] == ctx.work.id
+    assert get_in(content, ["authoring_task", "kind"]) == "character_design"
+    refute Map.has_key?(content["authoring_task"], "author_words")
+    assert scope_message.versions["change_reason"] == "creative_execution"
     assert child_run.goal["text"] =~ "应用层操作"
     refute child_run.goal["text"] == @author_text
   end

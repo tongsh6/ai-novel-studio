@@ -41,7 +41,13 @@ defmodule NovelAgent.Provider.StubTest do
       TestRequestIR.ir(
         [
           TestRequestIR.base("## 创作协作共同规则"),
-          TestRequestIR.scope("版本：{}\n用户创作简述：标识符 EMPTYCTX9 必须保留\n上下文：\n重要：保留标识")
+          TestRequestIR.scope(%{
+            operation: %{
+              artifact_type: "prose_fragment",
+              creative_brief: "  标识符 EMPTYCTX9 必须保留\n",
+              context_text: ""
+            }
+          })
         ],
         tools: [TestRequestIR.tool("submit_tentative_artifact")]
       )
@@ -56,8 +62,10 @@ defmodule NovelAgent.Provider.StubTest do
     test "#{tool} 按当前单工具进入专业阶段，不被旧判断与续行历史覆盖", %{stub: stub} do
       tool = unquote(tool)
 
-      scope =
-        "- profile_ref: character_design_with_context_v1\n- author_goal: 设计当前角色\n- goal_version: 2"
+      scope = %{
+        goal: %{text: "设计当前角色", version: 2},
+        operation: %{profile_ref: "character_design_with_context_v1"}
+      }
 
       assert {:ok, result} =
                Stub.complete(stub, nil, operation_prompt(tool, scope), %InferenceParams{})
@@ -74,7 +82,18 @@ defmodule NovelAgent.Provider.StubTest do
   for tool <- ["chapter_mission", "planning_mission"] do
     test "#{tool} 以当前工具决定使命种类，只引用最新材料", %{stub: stub} do
       tool = unquote(tool)
-      scope = "当前应用目标：推进当前线索。\n[ledger:information:foreshadow_current] 当前伏笔\n[plan:current] 当前计划"
+
+      scope = %{
+        goal: %{text: "推进当前线索。"},
+        operation: %{
+          mission_inputs: %{
+            items: [
+              %{ref: "ledger:information:foreshadow_current", group: "information", text: "当前伏笔"},
+              %{ref: "plan:current", group: "plan", text: "当前计划"}
+            ]
+          }
+        }
+      }
 
       assert {:ok, result} =
                Stub.complete(stub, nil, operation_prompt(tool, scope), %InferenceParams{})
@@ -95,8 +114,15 @@ defmodule NovelAgent.Provider.StubTest do
   end
 
   defp operation_prompt(tool, scope) do
-    history =
-      "本次你承担创作判断器的角色。你的两种续行方式使用 continuation_decision。旧阶段曾使用规划前推理器。\n- profile_ref: fact_inventory_v1\n[ledger:information:foreshadow_old] 旧材料"
+    history = %{
+      goal: %{text: "旧阶段材料"},
+      operation: %{
+        profile_ref: "fact_inventory_v1",
+        mission_inputs: %{
+          items: [%{ref: "ledger:information:foreshadow_old", text: "旧材料", group: "information"}]
+        }
+      }
+    }
 
     TestRequestIR.ir(
       [

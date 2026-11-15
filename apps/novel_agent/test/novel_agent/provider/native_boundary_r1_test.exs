@@ -682,7 +682,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
       %{
         role: "planner",
         instructions: "计划规则",
-        scope: "计划范围",
+        scope: %{work_id: "work-native"},
         tool: %{
           name: "agent_plan_draft",
           description: "计划",

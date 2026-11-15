@@ -16,6 +16,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTest.TestProviderPrompt
 
   @work "work-facts"
 
@@ -84,7 +85,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
       plan: plan(target_ref),
       decision: allow_decision(),
       context: %DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         assembly_policy: AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "创作"},
@@ -97,7 +98,13 @@ defmodule NovelApplication.CreativeFactsContextTest do
 
     agent
     |> Agent.get(& &1)
-    |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)
+    |> Enum.map_join("\n\n", fn request ->
+      assert %{"operation" => %{"context_text" => context_text}} =
+               TestProviderPrompt.scope_content(request)
+
+      assert is_binary(context_text)
+      context_text
+    end)
   end
 
   defp run_with_target(chapter_id, memory_reader) do
@@ -133,7 +140,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
       },
       decision: allow_decision(),
       context: %DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         assembly_policy: AssemblyPolicy.for_tier(:floor),
         structured_chapters: [
           %{id: chapter_id, seq: 3, title: "第3章", status: "DRAFTING"}
@@ -149,8 +156,13 @@ defmodule NovelApplication.CreativeFactsContextTest do
 
     {agent
      |> Agent.get(& &1)
-     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1),
-     turn_result.trace_summary}
+     |> Enum.map_join("\n\n", fn request ->
+       assert %{"operation" => %{"context_text" => context_text}} =
+                TestProviderPrompt.scope_content(request)
+
+       assert is_binary(context_text)
+       context_text
+     end), turn_result.trace_summary}
   end
 
   test "B64：有明确目标章时 memory_reader 收到 at_chapter_id（/2）" do
@@ -299,7 +311,7 @@ defmodule NovelApplication.CreativeFactsContextTest do
       plan: plan("prose_writing"),
       decision: allow_decision(),
       context: %DialogueContext{
-        workspace_id: @work,
+        work_id: @work,
         assembly_policy: AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "创作"},
@@ -310,10 +322,10 @@ defmodule NovelApplication.CreativeFactsContextTest do
 
     {_turn_result, _trace, _transcript} = TurnExecutionService.execute(input)
 
-    evaluator_prompt =
-      seen |> Agent.get(& &1) |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
+    evaluator_scope = seen |> Agent.get(& &1) |> TestProviderPrompt.scope_content()
+    evaluator_prompt = get_in(evaluator_scope, ["operation", "facts_context"])
 
-    assert evaluator_prompt =~ "作品事实基线"
+    assert evaluator_prompt =~ "## 作品事实（作者已确认，写作必须保持一致）"
     assert evaluator_prompt =~ "灵气交易需契约"
     assert evaluator_prompt =~ "对白优先"
   end

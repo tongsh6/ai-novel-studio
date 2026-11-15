@@ -270,6 +270,7 @@ defmodule NovelAgent.ToolboxSessionTest do
         input: %{
           "creative_brief" => "设计一个角色",
           "context_text" => "上下文",
+          "source_input_ref" => "turn:test",
           "authoring_task" => AuthoringTask.to_map(AuthoringTaskFixtures.task(:character_design))
         }
       )
@@ -554,6 +555,7 @@ defmodule NovelAgent.ToolboxSessionTest do
       input: %{
         "creative_brief" => "写第一章开篇",
         "context_text" => "上下文",
+        "source_input_ref" => "turn:test",
         "authoring_task" => AuthoringTask.to_map(AuthoringTaskFixtures.prose_task())
       },
       read_scope_grants: [],

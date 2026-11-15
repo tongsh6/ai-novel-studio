@@ -95,13 +95,29 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
       end
     }
 
-    context_fetcher = fn _workspace_id ->
+    context_fetcher = fn workspace_id, _author_text, _session_id ->
       {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
 
-      {:ok, nil, nil, nil, nil, [], [],
-       %{
-         pending_adoptions: shown.pending_adoptions,
-         resolved_adoptions: shown.resolved_adoptions
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: nil,
+         conversation_summary: nil,
+         memory_summary: nil,
+         open_behavior_summary: nil,
+         structured_chapters: [],
+         interaction_state: %{
+           pending_adoptions: shown.pending_adoptions,
+           resolved_adoptions: shown.resolved_adoptions
+         },
+         source_status: %{
+           work: :empty,
+           conversation: :empty,
+           memory: :empty,
+           behavior: :empty,
+           chapters: :empty,
+           interaction: :ok
+         }
        }}
     end
 
@@ -120,6 +136,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -146,15 +163,25 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     assert Enum.count(tool_names, &(&1 == "submit_tentative_artifact")) == 2
 
     revision_scope =
-      Enum.find(transcript.messages, fn message ->
-        Map.get(message, :role) == "scope_update" and
-          canonical_text(message) =~ "本轮修订已有候选"
-      end)
+      for %{
+            role: "scope_update",
+            provenance: "application",
+            blocks: [%{type: "scope", content: content}]
+          } <- transcript.messages,
+          get_in(content, ["authoring_task", "kind"]) == "revision",
+          do: content
 
-    assert revision_scope, "真实 run 的内部 stage_state 必须保留本轮修订 scope"
-    scope_text = canonical_text(revision_scope)
-    assert scope_text =~ "本轮修订已有候选"
-    assert scope_text =~ goal
+    assert [scope | _] = revision_scope
+    assert scope["operation"]["revision"] =~ "本轮修订已有候选"
+    assert scope["operation"]["creative_brief"] =~ goal
+
+    assert Enum.any?(
+             transcript.messages,
+             &match?(
+               %{role: "user", provenance: "author", blocks: [%{type: "text", text: ^goal}]},
+               &1
+             )
+           )
 
     validations =
       for message <- transcript.messages,
@@ -245,13 +272,29 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
       end
     }
 
-    context_fetcher = fn _workspace_id ->
+    context_fetcher = fn workspace_id, _author_text, _session_id ->
       {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
 
-      {:ok, nil, nil, nil, nil, [], [],
-       %{
-         pending_adoptions: shown.pending_adoptions,
-         resolved_adoptions: shown.resolved_adoptions
+      {:ok,
+       %NovelDomain.DialogueContext{
+         work_id: workspace_id,
+         current_work_snapshot: nil,
+         conversation_summary: nil,
+         memory_summary: nil,
+         open_behavior_summary: nil,
+         structured_chapters: [],
+         interaction_state: %{
+           pending_adoptions: shown.pending_adoptions,
+           resolved_adoptions: shown.resolved_adoptions
+         },
+         source_status: %{
+           work: :empty,
+           conversation: :empty,
+           memory: :empty,
+           behavior: :empty,
+           chapters: :empty,
+           interaction: :ok
+         }
        }}
     end
 
@@ -270,6 +313,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                  send(parent, {:agent_event, event.event_type, event})
                end),
+               interaction_input: spec.interaction_input,
                next_step_planner: spec.next_step_planner
              )
 
@@ -351,13 +395,29 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
           purpose: :planner
         )
 
-      context_fetcher = fn _workspace_id ->
+      context_fetcher = fn workspace_id, _author_text, _session_id ->
         {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
 
-        {:ok, nil, nil, nil, nil, [], [],
-         %{
-           pending_adoptions: shown.pending_adoptions,
-           resolved_adoptions: shown.resolved_adoptions
+        {:ok,
+         %NovelDomain.DialogueContext{
+           work_id: workspace_id,
+           current_work_snapshot: nil,
+           conversation_summary: nil,
+           memory_summary: nil,
+           open_behavior_summary: nil,
+           structured_chapters: [],
+           interaction_state: %{
+             pending_adoptions: shown.pending_adoptions,
+             resolved_adoptions: shown.resolved_adoptions
+           },
+           source_status: %{
+             work: :empty,
+             conversation: :empty,
+             memory: :empty,
+             behavior: :empty,
+             chapters: :empty,
+             interaction: :ok
+           }
          }}
       end
 
@@ -377,6 +437,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                  NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
                    send(parent, {:agent_event, event.event_type, event})
                  end),
+                 interaction_input: spec.interaction_input,
                  next_step_planner: spec.next_step_planner
                )
 
@@ -484,12 +545,6 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     reasoning_content provider_state raw_arguments call_ids base_refs
     observation_refs used_refs
   )
-
-  defp canonical_text(%{blocks: blocks}) do
-    blocks
-    |> Enum.filter(&(Map.get(&1, :type) == "text"))
-    |> Enum.map_join("", &Map.get(&1, :text, ""))
-  end
 
   defp refute_private_keys(value, path \\ []) do
     cond do

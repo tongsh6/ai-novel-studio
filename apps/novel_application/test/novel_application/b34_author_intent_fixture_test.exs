@@ -5,13 +5,13 @@ defmodule NovelApplication.B34AuthorIntentFixtureTest do
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.JudgmentProtocol
   alias NovelCommon.Contracts.ProviderOutput
+  alias NovelDomain.AgentRun
 
-  @chapters """
-  ## 章节列表（共 3 章：已写 2 章，计划中 1 章）
-  - 第 1 章「潮声之前」[chapter_ref=chapter:aaa]
-  - 第 2 章「旧钱与旧名」[chapter_ref=chapter:bbb]
-  - 第 3 章「外门名册上的空白」[chapter_ref=chapter:ccc]（计划中）
-  """
+  @chapters [
+    %{ref: "chapter:aaa", title: "潮声之前", seq: 1, has_prose: true},
+    %{ref: "chapter:bbb", title: "旧钱与旧名", seq: 2, has_prose: true},
+    %{ref: "chapter:ccc", title: "外门名册上的空白", seq: 3, has_prose: false}
+  ]
 
   defp execution do
     %Execution{
@@ -34,10 +34,45 @@ defmodule NovelApplication.B34AuthorIntentFixtureTest do
   end
 
   defp request(author_text, opts \\ []) do
+    fixture_id = System.unique_integer([:positive])
+    author_turn_ref = "turn-b34-#{fixture_id}"
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-b34-#{fixture_id}",
+        workspace_id: "work-b34",
+        work_id: "work-b34",
+        session_id: "session-b34",
+        parent_turn_ref: author_turn_ref,
+        origin_frame_ref: "frame-b34-#{fixture_id}",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: author_text, version: 1},
+        authority_scope: %{
+          production_write: false,
+          allowed_tools: ["prose_writing", "character_design", "world_building"]
+        }
+      })
+
     input = %{
       author_text: author_text,
-      context_block: Keyword.get(opts, :context_block, ""),
+      scope: %{
+        work_id: run.work_id,
+        facts: %{chapters: Keyword.get(opts, :chapters, [])},
+        context: %{},
+        coverage: %{
+          chapters: %{
+            status: "complete",
+            total: length(Keyword.get(opts, :chapters, [])),
+            returned: length(Keyword.get(opts, :chapters, [])),
+            written_count: Enum.count(Keyword.get(opts, :chapters, []), & &1.has_prose),
+            planned_count: Enum.count(Keyword.get(opts, :chapters, []), &(not &1.has_prose))
+          }
+        }
+      },
+      source_input_ref: author_turn_ref,
+      supplied_context_refs: Enum.map(Keyword.get(opts, :chapters, []), & &1.ref),
       options: [
+        plan_run: run,
         capabilities: [
           "prose_writing",
           "character_design",
@@ -53,7 +88,7 @@ defmodule NovelApplication.B34AuthorIntentFixtureTest do
 
   test "B34 progress_query 真实链路：章节统计→reply，零候选/零写入" do
     for wording <- ["第几章写到哪了？", "草稿在哪？", "执行完了么？"] do
-      assert {:ok, judgment} = request(wording, context_block: @chapters)
+      assert {:ok, judgment} = request(wording, chapters: @chapters)
 
       assert judgment.action == "reply"
       assert judgment.candidate_directions == []

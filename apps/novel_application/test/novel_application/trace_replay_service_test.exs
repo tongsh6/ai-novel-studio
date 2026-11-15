@@ -281,6 +281,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
           parent_turn_ref: turn_id
         },
         base_text: "作者决定作品事实",
+        author_turn_ref: turn_id,
         author_text: "设计灵源矿区"
       )
       |> NovelApplication.AuthoringTranscript.append_assistant("", [
@@ -489,6 +490,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
     {:ok, transcript} =
       NovelApplication.AuthoringTranscript.new(run,
         base_text: "作者主权",
+        author_turn_ref: "turn-history-safe",
         author_text: "检查旧誓"
       )
       |> NovelApplication.AuthoringTranscript.append_assistant("", [
@@ -551,7 +553,7 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert report.replay_report.provider_called == false
   end
 
-  defp history_checkpoint(run_id, work_id, session_id, parent_turn_ref) do
+  defp history_checkpoint(run_id, work_id, session_id, input_turn_ref) do
     {:ok, compacted} =
       NovelApplication.AuthoringTranscript.new(
         %{
@@ -559,9 +561,10 @@ defmodule NovelApplication.TraceReplayServiceTest do
           work_id: work_id,
           workspace_id: work_id,
           session_id: session_id,
-          parent_turn_ref: parent_turn_ref
+          parent_turn_ref: input_turn_ref
         },
         base_text: "作者决定作品事实",
+        author_turn_ref: input_turn_ref,
         author_text: "设计角色"
       )
       |> NovelApplication.AuthoringTranscript.append_assistant("", [

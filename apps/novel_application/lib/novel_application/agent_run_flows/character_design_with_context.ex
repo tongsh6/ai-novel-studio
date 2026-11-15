@@ -14,6 +14,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelApplication.TurnInteractionService
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
@@ -303,6 +304,8 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
     tool_name = tool_name(plan)
 
+    author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
     {turn_result, trace, transcript} =
       TurnExecutionService.execute(%{
         frame: frame,
@@ -313,9 +316,11 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
         candidates: [],
         context: Map.get(spec, :context),
         author_input: %{
-          text: author_input_text(run, plan, observations),
+          text: author_input && author_input.text,
+          turn_id: author_input && author_input.turn_id,
           author_goal_text: run.goal.text
         },
+        creative_brief: creative_brief_text(run, plan, observations),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(tool_name, spec, snapshot),
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
@@ -363,7 +368,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
 
   defp provider_execution(_tool_name, _spec, _snapshot), do: nil
 
-  defp author_input_text(run, plan, observations) do
+  defp creative_brief_text(run, plan, observations) do
     observation_text =
       observations
       |> Enum.map(& &1.summary)

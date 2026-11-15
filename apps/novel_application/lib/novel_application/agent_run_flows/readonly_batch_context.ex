@@ -11,6 +11,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentRunFlows.TurnBinding
+  alias NovelApplication.TurnInteractionService
   alias NovelApplication.WorkArchiveService
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
@@ -44,11 +45,15 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
     if model_plan_ready?(run.plan) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
+      author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
       with {:ok, plan, meta} <-
              AgenticPlanDraftPlanner.draft_plan_with_meta(
                run,
                planner_provider_execution(spec),
-               snapshot
+               snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id
              ) do
         {:ok, plan, Map.put(meta, :agent_plan, plan)}
       end
@@ -88,11 +93,15 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
 
   defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
     if replan_available?(run) do
+      author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
+
       with {:ok, revised_plan, revision_meta} <-
              AgenticPlanDraftPlanner.revise_plan_with_meta(
                run,
                planner_provider_execution(spec),
                snapshot,
+               author_text: author_input && author_input.text,
+               source_input_ref: author_input && author_input.turn_id,
                revision_reason: @plan_exhausted_replan_reason
              ) do
         execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)

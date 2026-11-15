@@ -69,6 +69,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   defp first_round_transcript do
     AuthoringTranscript.new(identity("run-cp2-1"),
       base_text: "CP2 历史 Base",
+      author_turn_ref: "turn-run-cp2-1",
       author_text: @first_author_text,
       base_refs: [%{ref: "ctx:base-1"}]
     )
@@ -95,12 +96,14 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   end
 
   defp protocol_input(session_history) do
+    run = current_run()
+
     %{
       author_text: @second_author_text,
-      context_block: "章计划/当前 scope",
+      scope: %{work_id: run.work_id, facts: %{}, context: %{}, coverage: %{}},
       source_input_ref: "author-turn-2",
       supplied_context_refs: ["ctx:base-2"],
-      options: [],
+      options: [plan_run: run],
       session_history: session_history
     }
   end
@@ -177,7 +180,9 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
         end)
 
       assert_received {:canonical_request, request}
-      assert_history_request!(request, "agent_plan_draft", ["## 本轮目标", @goal_text])
+      scope = assert_history_request!(request, "agent_plan_draft")
+      assert scope["goal"] == RequestIR.json_value(run.goal)
+      assert scope["operation"]["profile_ref"] == run.profile_ref
       assert_segment_only!(result, "agent_plan_draft", "agent_plan_validated")
     end
 
@@ -203,10 +208,17 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
 
       assert_received {:canonical_request, request}
 
-      assert_history_request!(request, "planning_mission", [
-        "当前应用目标：" <> @goal_text,
-        "[#{@mission_ref}]"
-      ])
+      scope = assert_history_request!(request, "planning_mission")
+      assert scope["goal"] == RequestIR.json_value(run.goal)
+      assert scope["operation"]["mission_inputs"]["mode"] == "planning"
+
+      assert scope["operation"]["mission_inputs"]["items"] == [
+               %{
+                 "ref" => @mission_ref,
+                 "group" => "foreshadow",
+                 "text" => "伏笔：旧账牌（预期第2章回收）"
+               }
+             ]
 
       assert Enum.any?(request.refs.base_refs, &(&1.ref == @mission_ref))
       assert_segment_only!(result, "planning_mission", "planning_mission_validated")
@@ -290,7 +302,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   end
 
   # result_fn 实际收到的请求：当前 base → 历史作者/调用/观察原序 → 最新 scope。
-  defp assert_history_request!(request, tool_name, scope_markers) do
+  defp assert_history_request!(request, tool_name) do
     assert %RequestIR{messages: messages, refs: refs, tools: tools} = request
     assert [base, user, assistant, tool, scope] = messages
 
@@ -313,12 +325,13 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
              ]
            } = tool
 
-    assert %{role: "scope_update", blocks: [%{text: scope_text}]} = scope
-    Enum.each(scope_markers, &assert(scope_text =~ &1))
+    assert %{role: "scope_update", blocks: [%{type: "scope", content: content}]} = scope
+    assert content["work_id"] == request.run.work_id
 
     assert Enum.map(tools, & &1.name) == [tool_name]
     assert Enum.any?(refs.observation_refs, &(&1.ref == "chapter:01"))
     assert Enum.any?(refs.base_refs, &(&1.ref == "ctx:base-1"))
+    content
   end
 
   # 写回本段：base → 当前 scope → 本次 tool_call 与同 call_id 的校验结果，无历史。

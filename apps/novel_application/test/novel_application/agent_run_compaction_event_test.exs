@@ -92,7 +92,8 @@ defmodule NovelApplication.AgentRunCompactionEventTest do
   defp compactable_transcript(run_id, call_id) do
     AuthoringTranscript.new(transcript_identity(run_id),
       base_text: "压缩整理记录边界",
-      author_text: "核对角色"
+      author_text: "核对角色",
+      author_turn_ref: "input:compaction:#{run_id}"
     )
     |> AuthoringTranscript.append_assistant("", [
       RequestIR.tool_call_block("read_character", %{}, call_id)

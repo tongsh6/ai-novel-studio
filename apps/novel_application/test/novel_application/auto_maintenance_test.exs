@@ -81,7 +81,8 @@ defmodule NovelApplication.AutoMaintenanceTest do
     transcript =
       AuthoringTranscript.new(transcript_identity(run_id),
         base_text: "作者保留最终裁决",
-        author_text: "第二轮"
+        author_text: "第二轮",
+        author_turn_ref: "input:maintenance-second:#{run_id}"
       )
       |> AuthoringTranscript.append_author_turn("继续。", "author_turn:turn-2b")
 
@@ -386,7 +387,8 @@ defmodule NovelApplication.AutoMaintenanceTest do
     transcript =
       AuthoringTranscript.new(transcript_identity(run_id),
         base_text: "作者保留最终裁决",
-        author_text: "第一回合"
+        author_text: "第一回合",
+        author_turn_ref: "input:maintenance-first:#{run_id}"
       )
       |> append_completed_exchanges(1, earlier)
 

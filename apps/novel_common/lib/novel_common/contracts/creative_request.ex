@@ -3,8 +3,9 @@ defmodule NovelCommon.Contracts.CreativeRequest do
   Provider-facing creative generation request.
 
   This envelope carries the creative task, material scope, and an optional preceding
-  Request IR for canonical multi-turn authoring. It does not carry author UI text,
-  adoption authorization, or provider-session data for display.
+  Request IR for canonical multi-turn authoring. Original author words belong to task
+  and pair with source_input_ref; the application-derived creative brief stays separate.
+  It does not authorize adoption or carry provider-session data for display.
   """
 
   @type t :: %__MODULE__{
@@ -14,6 +15,7 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           creative_brief: String.t(),
           context_text: String.t(),
           source_turn_ref: String.t(),
+          source_input_ref: String.t() | nil,
           decision_packet: map() | nil,
           execution_brief: String.t() | nil,
           progress_state: String.t() | nil,
@@ -32,10 +34,10 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     :artifact_type,
     :creative_brief,
     :source_turn_ref,
+    source_input_ref: nil,
     context_text: "",
     # VS-00E：execution_brief 为已渲染的场级执行简述文本（进 provider message），
-    # decision_packet 为决策包摘要（trace 用）。默认 nil，向后兼容现有 provider /
-    # stub / slice_verify 与「用户创作简述：/上下文：/重要：」三锚点解析。
+    # decision_packet 为决策包摘要（trace 用）；动态材料由原生 Scope 字段承载。
     decision_packet: nil,
     execution_brief: nil,
     # VS-00F CP1（ADR-0026）：progress_state 为账面投影文本（progress_state_packet
@@ -48,7 +50,7 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # 支持质量发现重写和已有候选修订。默认 nil 保持原有新建内容路径。
     revision: nil,
     # B27 CP3：专业调用共同任务语义（作者目标/来源、对象与范围、材料完整性、保留项、
-    # 输出契约）。迁移期 nil 保持旧行为；迁移完成后所有专业调用必须携带。
+    # 输出契约）。专业 Provider 在派发前校验 task 必须存在。
     task: nil,
     run: nil,
     request_ir: nil,

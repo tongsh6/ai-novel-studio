@@ -46,13 +46,13 @@ defmodule NovelTest.TestProviderPrompt do
         canonical_text(messages)
 
       index ->
-        scope = messages |> Enum.at(index) |> canonical_text_of()
+        scope = Enum.at(messages, index)
         previous = Enum.take(messages, index)
 
         if Enum.any?(previous, &(&1.role == "assistant")) do
-          scope
+          canonical_text_of(scope)
         else
-          canonical_text(previous ++ [canonical_scope_message(scope)])
+          canonical_text(previous ++ [scope])
         end
     end
   end
@@ -60,7 +60,7 @@ defmodule NovelTest.TestProviderPrompt do
   def operation_text(prompt) when is_list(prompt) or is_map(prompt), do: wire_text(prompt)
   def operation_text(_prompt), do: ""
 
-  @doc "最新 canonical scope 的原始文本；非 IR 请求没有 scope_update 事实，返回 nil。"
+  @doc "最新 canonical Scope 的通用文本视图；结构字段以实际 JSON 表示，不重建旧段落协议。"
   @spec latest_scope(prompt()) :: String.t() | nil
   def latest_scope(%RequestIR{messages: messages}) do
     case last_index(messages, &canonical_scope?/1) do
@@ -70,6 +70,17 @@ defmodule NovelTest.TestProviderPrompt do
   end
 
   def latest_scope(_prompt), do: nil
+
+  @doc "读取最新 canonical Scope 的原生内容；历史文本和非 IR 请求不升级为结构事实。"
+  @spec scope_content(prompt()) :: map() | nil
+  def scope_content(%RequestIR{messages: messages}) do
+    case messages |> Enum.filter(&canonical_scope?/1) |> List.last() do
+      %{blocks: [%{type: "scope", content: content}]} when is_map(content) -> content
+      _ -> nil
+    end
+  end
+
+  def scope_content(_prompt), do: nil
 
   @doc "最后一个 canonical 作者消息的原始文本字节；非 IR 请求没有 provenance，返回空。"
   @spec author_text(prompt()) :: String.t()
@@ -162,6 +173,7 @@ defmodule NovelTest.TestProviderPrompt do
     blocks
     |> Enum.flat_map(fn
       %{type: "text", text: text} when is_binary(text) -> [text]
+      %{type: "scope", content: content} when is_map(content) -> [Jason.encode!(content)]
       _block -> []
     end)
     |> Enum.join("")
@@ -170,12 +182,8 @@ defmodule NovelTest.TestProviderPrompt do
   defp canonical_author?(%{role: "user", provenance: "author"}), do: true
   defp canonical_author?(_message), do: false
 
-  defp canonical_scope?(%{role: "scope_update"}), do: true
+  defp canonical_scope?(%{role: "scope_update", provenance: "application"}), do: true
   defp canonical_scope?(_message), do: false
-
-  defp canonical_scope_message(text) do
-    %{role: "scope_update", provenance: "application", blocks: [%{type: "text", text: text}]}
-  end
 
   # ── 真实非 IR 文本分支（只读实际 role/content）─────────────────────────────
 

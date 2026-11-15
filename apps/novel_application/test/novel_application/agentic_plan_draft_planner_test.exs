@@ -4,6 +4,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   alias NovelApplication.{
     AgenticPlanDraftPlanner,
@@ -358,32 +359,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       {:ok, provider_result("")}
     end
 
-    titles_reader = fn "ws_plan_draft" -> ["第01章：开端", "第02章：矿区追击战"] end
-
-    assert {:ok, _plan, _meta} =
-             AgenticPlanDraftPlanner.draft_plan_with_meta(
-               probe_run(),
-               %Execution{result_fn: result_fn},
-               %{},
-               chapter_titles_reader: titles_reader
-             )
-
-    assert_received {:prompt, plan_prompt}
-
-    # 单调用 prompt 必须携带「作品章节」列表：target_chapter 契约要求模型精确复制列表全名，
-    # 缺了列表点名章请求只能填 null → 被缺失策略误判"点名了不存在的章"（本回归的根因）。
-    text = prompt_text(plan_prompt)
-    assert text =~ "## 作品章节"
-    assert text =~ "- 第02章：矿区追击战"
-    assert text =~ "精确复制全名"
-  end
-
-  test "planning prompts omit the chapter section when the work has no chapters" do
-    test_pid = self()
-
-    result_fn = fn prompt ->
-      send(test_pid, {:prompt, prompt})
-      {:ok, provider_result("")}
+    index_reader = fn "work_plan_draft" ->
+      [
+        %{id: "chapter-one", seq: 1, title: "第01章：开端", has_prose: true},
+        %{id: "chapter-two", seq: 2, title: "第02章：矿区追击战", has_prose: false}
+      ]
     end
 
     assert {:ok, _plan, _meta} =
@@ -391,11 +371,44 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                probe_run(),
                %Execution{result_fn: result_fn},
                %{},
-               chapter_titles_reader: fn _workspace_id -> [] end
+               chapter_index_reader: index_reader
              )
 
     assert_received {:prompt, plan_prompt}
-    refute prompt_text(plan_prompt) =~ "## 作品章节"
+
+    scope = scope_content(plan_prompt)
+
+    assert Enum.map(scope["facts"]["chapters"], & &1["title"]) ==
+             ["第01章：开端", "第02章：矿区追击战"]
+
+    assert Enum.map(scope["facts"]["chapters"], & &1["ref"]) ==
+             ["chapter:chapter-one", "chapter:chapter-two"]
+
+    assert Enum.all?(scope["facts"]["chapters"], &(&1["work_id"] == "work_plan_draft"))
+
+    assert scope["coverage"]["chapters"] == %{
+             "status" => "complete",
+             "returned" => 2,
+             "total" => 2
+           }
+
+    assert prompt_text(plan_prompt) =~ "按 facts.chapters 精确复制 title"
+  end
+
+  test "章节实际为空与索引读取失败保持不同覆盖事实" do
+    for {reader, expected} <- [
+          {fn _ -> [] end, %{"status" => "complete", "returned" => 0, "total" => 0}},
+          {fn _ -> raise "read failed" end, %{"status" => "unavailable"}},
+          {fn _ -> [%{title: "没有可寻址身份"}] end, %{"status" => "unavailable"}}
+        ] do
+      prompt = capture_plan_prompt(:draft, %{}, chapter_index_reader: reader)
+      scope = scope_content(prompt)
+      assert scope["coverage"]["chapters"] == expected
+
+      if expected["status"] == "complete",
+        do: assert(scope["facts"]["chapters"] == []),
+        else: refute(Map.has_key?(scope["facts"], "chapters"))
+    end
   end
 
   # 写作坐标解析（自帧纪元 Planner.form_micro_plan 载体迁移，2026-07 帧退役批次 2）：
@@ -795,43 +808,37 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
   end
 
-  # B71：角色、规则、输出协议先于动态 scope，目标和章节不得改写稳定前缀。
+  # 稳定能力、规则和输出协议位于 system；动态目标与事实只进入 Scope。
   test "B71 起草请求把稳定输出契约与动态章节目标分层" do
-    prompt =
-      captured_draft_prompt(["第01章：开端"])
+    prompt = captured_draft_prompt(chapter_fixture())
+    system_text = Projection.system_text(prompt.system)
+    scope = scope_content(prompt)
 
-    text = prompt_text(prompt)
-
-    assert_ordered(text, [
-      "## 计划要求",
-      "## 输出契约",
-      "## 可用能力说明",
-      "## 作品章节",
-      "## 本轮目标"
-    ])
-
-    refute text =~ "## 当前 AgentRun"
+    assert_ordered(system_text, ["## 可用能力说明", "## 计划要求", "## 输出契约"])
+    refute system_text =~ "第01章：开端"
+    refute system_text =~ probe_run().goal.text
+    assert scope["goal"] == RequestIR.json_value(probe_run().goal)
+    assert scope["operation"]["profile_ref"] == probe_run().profile_ref
+    assert scope["facts"]["chapters"] |> Enum.map(& &1["title"]) == ["第01章：开端"]
+    refute Map.has_key?(scope, "instructions")
   end
 
   # B25 CP2b：计划协议把章节 ref 暴露为 prose 步坐标，并在 schema/prompt 中要求逐字复制。
-  test "B25：计划 schema 含 target_chapter_ref 且 prompt 要求逐字复制 chapter_ref" do
-    chapters = %{
-      titles: ["灰烬中的手印"],
-      entries: [
-        %{
-          title: "灰烬中的手印",
-          seq: 2,
-          id: "11111111-1111-4111-8111-111111111111",
-          has_prose: true
-        }
-      ]
-    }
+  test "B25：计划 schema 含 target_chapter_ref 且规则要求逐字复制事实 ref" do
+    chapters = [
+      %{
+        title: "灰烬中的手印",
+        seq: 2,
+        id: "11111111-1111-4111-8111-111111111111",
+        has_prose: true
+      }
+    ]
 
     reasoning_prompt = captured_draft_prompt(chapters)
     text = prompt_text(reasoning_prompt)
 
     assert text =~ "target_chapter_ref"
-    assert text =~ "逐字复制该条索引里的 chapter_ref"
+    assert text =~ "逐字复制该条索引里的 ref"
 
     structure_prompt =
       captured_draft_prompt(chapters)
@@ -849,43 +856,34 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert Map.has_key?(step_properties, :target_chapter_ref)
   end
 
-  # B24 CP2（I-EXPLORE-READ-9）：计划章节段同批渲染 chapter_ref（探索寻址）+
-  # seq/title（target_chapter 仍精确复制标题）。
-  test "B24：计划章节段渲染 chapter_ref + seq/title 双面身份" do
-    chapters = %{
-      titles: ["灰烬中的手印"],
-      entries: [
-        %{
-          title: "灰烬中的手印",
-          seq: 2,
-          id: "11111111-1111-4111-8111-111111111111",
-          has_prose: true
-        }
-      ]
+  test "B24：结构化章节同时保留来源 ref 与原始 seq/title，未知正文状态不造 true" do
+    chapter = %{
+      id: "11111111-1111-4111-8111-111111111111",
+      seq: 2,
+      title: "  灰烬中的手印\n"
     }
 
-    text =
-      captured_draft_prompt(chapters)
-      |> prompt_text()
+    prompt = captured_draft_prompt([chapter])
+    scope = scope_content(prompt)
+    assert [actual] = scope["facts"]["chapters"]
 
-    assert text =~
-             "- 第 2 章「灰烬中的手印」[chapter_ref=chapter:11111111-1111-4111-8111-111111111111]"
+    assert actual == %{
+             "id" => chapter.id,
+             "ref" => "chapter:" <> chapter.id,
+             "work_id" => "work_plan_draft",
+             "seq" => 2,
+             "title" => chapter.title
+           }
 
-    assert text =~ "target_chapter 精确复制标题；chapter_read 优先复制 chapter_ref"
-
-    # 无 seq/id 的旧标题列表仍退回旧行格式（兼容手工上下文/测试夹具）。
-    legacy = captured_draft_prompt(["第01章：开端"])
-
-    legacy_text = prompt_text(legacy)
-    assert legacy_text =~ "- 第01章：开端"
-    refute legacy_text =~ "[chapter_ref="
+    refute Map.has_key?(actual, "has_prose")
+    assert [%{ref: "chapter:" <> _}] = List.last(prompt.messages).source_refs
   end
 
   test "B24：draft_plan_with_meta 通过 chapter_index_reader 注入带 ref 的章节索引" do
     parent = self()
 
     result_fn = fn prompt ->
-      send(parent, {:planner_prompt, prompt_text(prompt)})
+      send(parent, {:planner_prompt, prompt})
       {:ok, act_provider_result(prose_act_step())}
     end
 
@@ -903,12 +901,19 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                probe_run(),
                %Execution{result_fn: result_fn},
                %{},
-               chapter_index_reader: fn _workspace_id -> chapters end
+               chapter_index_reader: fn _work_id -> chapters end
              )
 
-    assert_received {:planner_prompt, text}
-    assert text =~ "[chapter_ref=chapter:22222222-2222-4222-8222-222222222222]"
-    assert text =~ "第 1 章「灰烬中的手印」"
+    assert_received {:planner_prompt, prompt}
+
+    assert [
+             %{
+               "ref" => "chapter:22222222-2222-4222-8222-222222222222",
+               "seq" => 1,
+               "title" => "灰烬中的手印",
+               "has_prose" => true
+             }
+           ] = scope_content(prompt)["facts"]["chapters"]
   end
 
   defp feedback_text(%RequestIR{messages: messages}) do
@@ -939,6 +944,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   defp feedback_from_message(_message), do: nil
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
+  defp scope_content(prompt), do: NovelTest.TestProviderPrompt.scope_content(prompt)
+
+  defp chapter_fixture do
+    [%{id: "chapter-one", seq: 1, title: "第01章：开端", has_prose: true}]
+  end
 
   defp captured_draft_prompt(chapters) do
     capture_plan_prompt(:draft, %{}, chapter_opts(chapters))
@@ -948,16 +958,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     capture_plan_prompt(:revision, snapshot, [revision_reason: reason] ++ chapter_opts(chapters))
   end
 
-  defp chapter_opts(chapters) when is_list(chapters) do
-    [chapter_titles_reader: fn _workspace_id -> chapters end]
-  end
-
-  defp chapter_opts(%{entries: entries}) when is_list(entries) do
-    [chapter_index_reader: fn _workspace_id -> entries end]
-  end
-
-  defp chapter_opts(%{titles: titles}) when is_list(titles) do
-    [chapter_titles_reader: fn _workspace_id -> titles end]
+  defp chapter_opts(entries) when is_list(entries) do
+    [chapter_index_reader: fn _work_id -> entries end]
   end
 
   defp capture_plan_prompt(kind, snapshot, opts) do
@@ -988,21 +990,16 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   end
 
   test "B71 修订请求把稳定协议与动态计划观察分层" do
-    prompt =
-      captured_revision_prompt(["第01章：开端"], %{}, "质量复核要求补足步骤")
+    prompt = captured_revision_prompt(chapter_fixture(), %{}, "质量复核要求补足步骤")
+    system_text = Projection.system_text(prompt.system)
+    scope = scope_content(prompt)
 
-    text = prompt_text(prompt)
-
-    assert_ordered(text, [
-      "## 修订要求",
-      "## 输出契约",
-      "## 可用能力说明",
-      "## 作品章节",
-      "## 本轮目标",
-      "## 修订触发原因",
-      "## 当前计划",
-      "## 最近观察"
-    ])
+    assert_ordered(system_text, ["## 可用能力说明", "## 修订要求", "## 输出契约"])
+    refute system_text =~ "质量复核要求补足步骤"
+    assert scope["operation"]["revision_reason"] == "质量复核要求补足步骤"
+    assert scope["operation"]["current_plan"] == nil
+    assert scope["coverage"]["observations"] == %{"status" => "not_read"}
+    refute Map.has_key?(scope["context"], "observations")
   end
 
   test "T4 修订 prompt 渲染 finding 的 gate/severity/summary，超限显式标省略" do
@@ -1025,15 +1022,31 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     ]
 
     prompt =
-      captured_revision_prompt(["第01章：开端"], %{observations: observations}, "质量复核要求补足步骤")
+      captured_revision_prompt(chapter_fixture(), %{observations: observations}, "质量复核要求补足步骤")
 
-    text = prompt_text(prompt)
+    scope = scope_content(prompt)
+    assert [observation] = scope["context"]["observations"]
+    assert observation["observation_id"] == "obs_finding_group"
+    assert observation["observation_type"] == "quality_review"
+    assert length(observation["findings"]) == 5
 
-    assert text =~ "finding [quality_gate.style_fit, severity=warn]"
-    assert text =~ "第1项：对白推进不足"
-    assert text =~ "finding …(+2)"
-    # summary-only 不能冒充完整 observation：finding 明细必须出现。
-    assert text =~ "## 最近观察"
+    assert hd(observation["findings"]) == %{
+             "quality_gate_ref" => "quality_gate.style_fit",
+             "severity" => "warn",
+             "summary" => "第1项：对白推进不足，需补充人物反应。"
+           }
+
+    assert %{
+             "source" => "observation:obs_finding_group:findings",
+             "reason" => "budget_limited",
+             "count" => 2
+           } in scope["omissions"]
+
+    assert scope["coverage"]["observations"] == %{
+             "status" => "complete",
+             "returned" => 1,
+             "total" => 1
+           }
   end
 
   defp assert_ordered(text, markers) do
@@ -1061,10 +1074,13 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       prompt =
         RequestIR.new(%{
           run: %{run_id: "run-plan-profile"},
-          system: %{identity_ref: "identity:authoring/v1"},
+          system: RequestIR.system_envelope(instructions: title, run_role: tool),
           messages: [
-            RequestIR.message(:application_base, :application, [
-              RequestIR.text_block("#{title}\nprofile_ref: #{profile}\n作者目标：推进当前创作请求")
+            RequestIR.message(:scope_update, :application, [
+              RequestIR.scope_block(%{
+                goal: %{text: "推进当前创作请求"},
+                operation: %{profile_ref: profile}
+              })
             ])
           ],
           tools: [AgentPlanToolContract.tool(tool)],
@@ -1188,7 +1204,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   test "P1 可达性：draft/revision prompt 显式声明 arguments 顶层四字段骨架与 plan.steps 最小示例" do
     draft =
-      captured_draft_prompt(["第01章：开端"])
+      captured_draft_prompt(chapter_fixture())
 
     draft_text = prompt_text(draft)
 
@@ -1203,7 +1219,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     revision =
       captured_revision_prompt(
-        ["第01章：开端"],
+        chapter_fixture(),
         %{},
         "计划步骤已走完但完成条件未满足"
       )
@@ -1250,7 +1266,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   test "P1 复验：draft/revision 骨架含 prose_writing 的 authoring_intent（写新章也显式 null/值）" do
     draft =
-      captured_draft_prompt(["第01章：开端"])
+      captured_draft_prompt(chapter_fixture())
 
     draft_text = prompt_text(draft)
 
@@ -1260,7 +1276,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert draft_text =~ ~s("target_tool_ref":"prose_writing")
 
     revision =
-      captured_revision_prompt(["第01章：开端"], %{}, "补足正文产出步")
+      captured_revision_prompt(chapter_fixture(), %{}, "补足正文产出步")
 
     revision_text = prompt_text(revision)
     assert revision_text =~ ~s("authoring_intent":"continuation")

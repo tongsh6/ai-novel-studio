@@ -65,11 +65,12 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     prompt =
       NovelTest.TestRequestIR.ir(
         [
-          NovelTest.TestRequestIR.base("""
-          你是小说创作系统的 AgentRun 计划起草器。
-          - profile_ref: fact_inventory_v1
-          - plan_step_targets: fact_inventory
-          """)
+          NovelTest.TestRequestIR.base("你是小说创作系统的 AgentRun 计划起草器。"),
+          NovelTest.TestRequestIR.scope(%{
+            goal: %{text: "", version: 1},
+            operation: %{profile_ref: "fact_inventory_v1", plan_step_targets: ["fact_inventory"]},
+            facts: %{chapters: []}
+          })
         ],
         tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
@@ -199,67 +200,44 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     end
 
     test "设计主角的 character_seed 携带结构化 narrative_role=PROTAGONIST" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_seed
-      用户创作简述：帮我设计一个主角，名字就叫林烬，是灵气稽查官。
-      上下文：当前作品背景。
-      重要：保留随机标识符。
-      """
+      creative_prompt = creative_prompt("character_seed", "帮我设计一个主角，名字就叫林烬，是灵气稽查官。", "当前作品背景。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [item] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [item]}}] = result.tool_calls
       assert item["narrative_role"] == "PROTAGONIST"
     end
 
     test "设计反派的 character_seed 携带 narrative_role=ANTAGONIST" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_seed
-      用户创作简述：再设计一个反派。
-      上下文：当前作品背景。
-      重要：保留随机标识符。
-      """
+      creative_prompt = creative_prompt("character_seed", "再设计一个反派。", "当前作品背景。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [item] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [item]}}] = result.tool_calls
       assert item["narrative_role"] == "ANTAGONIST"
     end
 
     test "AU09 回归：设计主角（brief 含候选词触发多候选）时每条 character_seed 都带 narrative_role" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_seed
-      用户创作简述：帮我设计一个主角候选，作为这部作品的核心人物。
-      上下文：当前作品背景与候选方向说明。
-      重要：保留随机标识符。
-      """
+      creative_prompt =
+        creative_prompt("character_seed", "帮我设计一个主角候选，作为这部作品的核心人物。", "当前作品背景与候选方向说明。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [a, b] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [a, b]}}] = result.tool_calls
       assert a["narrative_role"] == "PROTAGONIST"
       assert b["narrative_role"] == "PROTAGONIST"
     end
 
     test "要求多个角色候选时确定性产出 2 条独立候选（item_id/标题互不相同）" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_seed
-      用户创作简述：请给我设计两个不同方向的新角色候选，让我挑一个。
-      上下文：当前作品背景。
-      重要：保留随机标识符。
-      """
+      creative_prompt = creative_prompt("character_seed", "请给我设计两个不同方向的新角色候选，让我挑一个。", "当前作品背景。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [a, b] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [a, b]}}] = result.tool_calls
       assert a["item_id"] != b["item_id"]
       assert a["title"] != b["title"]
     end
@@ -282,34 +260,22 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     end
 
     test "角色演化 character_evolution_seed 携带 memory_subtype（关系→RELATIONSHIP）" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_evolution_seed
-      用户创作简述：林烬和苏晚的关系从结盟转为反目。
-      上下文：当前作品背景。
-      重要：保留随机标识符。
-      """
+      creative_prompt = creative_prompt("character_evolution_seed", "林烬和苏晚的关系从结盟转为反目。", "当前作品背景。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [item] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [item]}}] = result.tool_calls
       assert item["memory_subtype"] == "RELATIONSHIP"
     end
 
-    test "设计单个角色时仍只产出 1 条候选（向后兼容 dossier / 主角语义 slice）" do
-      creative_prompt = """
-      JSON 数组
-      artifact_type：character_seed
-      用户创作简述：和我一起设计一个新角色。
-      上下文：当前作品背景。
-      重要：保留随机标识符。
-      """
+    test "设计单个角色时只产出 1 条候选" do
+      creative_prompt = creative_prompt("character_seed", "和我一起设计一个新角色。", "当前作品背景。")
 
       assert {:ok, result} =
                SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
-      assert [_only] = Jason.decode!(result.content)
+      assert [%{arguments: %{items: [_only]}}] = result.tool_calls
     end
   end
 
@@ -317,24 +283,21 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     prompt =
       NovelTest.TestRequestIR.ir(
         [
-          NovelTest.TestRequestIR.base("""
-          你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
-
-          ## 当前 AgentRun
-          - run_id: run_plan_chapter_match
-          - profile_ref: prose_drafting_with_quality_v1
-          - goal_version: 1
-          - author_goal: 请根据已采纳章节计划生成第02章的正文草稿
-          - plan_step_targets: context_assemble, prose_writing
-
-          ## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）
-          - 第01章：底层灵气账单
-          - 第02章：矿区追击战
-          - 第03章：黑市调频师
-
-          ## 计划要求
-          - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
-          """)
+          NovelTest.TestRequestIR.base("你是小说创作系统的 AgentRun 计划起草器。"),
+          NovelTest.TestRequestIR.scope(%{
+            goal: %{text: "请根据已采纳章节计划生成第02章的正文草稿", version: 1},
+            operation: %{
+              profile_ref: "prose_drafting_with_quality_v1",
+              plan_step_targets: ["context_assemble", "prose_writing"]
+            },
+            facts: %{
+              chapters: [
+                %{ref: "chapter:test-01", seq: 1, title: "第01章：底层灵气账单"},
+                %{ref: "chapter:test-02", seq: 2, title: "第02章：矿区追击战"},
+                %{ref: "chapter:test-03", seq: 3, title: "第03章：黑市调频师"}
+              ]
+            }
+          })
         ],
         tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
@@ -358,22 +321,15 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     prompt =
       NovelTest.TestRequestIR.ir(
         [
-          NovelTest.TestRequestIR.base("""
-          你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
-
-          ## 当前 AgentRun
-          - run_id: run_plan_chapter_miss
-          - profile_ref: prose_drafting_with_quality_v1
-          - goal_version: 1
-          - author_goal: 请生成第99章的正文草稿
-          - plan_step_targets: context_assemble, prose_writing
-
-          ## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）
-          - 第01章：底层灵气账单
-
-          ## 计划要求
-          - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
-          """)
+          NovelTest.TestRequestIR.base("你是小说创作系统的 AgentRun 计划起草器。"),
+          NovelTest.TestRequestIR.scope(%{
+            goal: %{text: "请生成第99章的正文草稿", version: 1},
+            operation: %{
+              profile_ref: "prose_drafting_with_quality_v1",
+              plan_step_targets: ["context_assemble", "prose_writing"]
+            },
+            facts: %{chapters: [%{ref: "chapter:test-01", seq: 1, title: "第01章：底层灵气账单"}]}
+          })
         ],
         tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")],
         projection: %{tool_choice: "agent_plan_draft"}
@@ -397,9 +353,13 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
       NovelTest.TestRequestIR.ir(
         [
           NovelTest.TestRequestIR.author("上一轮使用 continuation_decision；历史目录曾提到整章正文修订。"),
-          NovelTest.TestRequestIR.scope(
-            "用户创作简述：写第01章：底层灵气账单正文草稿\n上下文：本章已有计划。\n重要：保留作者输入。\nartifact_type：prose_fragment"
-          )
+          NovelTest.TestRequestIR.scope(%{
+            operation: %{
+              artifact_type: "prose_fragment",
+              creative_brief: "写第01章：底层灵气账单正文草稿",
+              context_text: "本章已有计划。"
+            }
+          })
         ],
         tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
         projection: %{tool_choice: "submit_tentative_artifact"}
@@ -432,16 +392,28 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert [action] = plan_body["proposed_actions"]
     assert action["summary"] =~ "AU04FAILTOOL"
 
-    creative_prompt = """
-    JSON 数组
-    artifact_type：prose_fragment
-    创作简述：AU04FAILTOOL 生成一段正文草稿
-    """
+    creative_prompt = creative_prompt("prose_fragment", "AU04FAILTOOL 生成一段正文草稿", "")
 
     assert {:error, %{type: :provider_error, message: message}} =
              SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
 
     assert message == "AU04FAILTOOL fixture provider failure"
+  end
+
+  defp creative_prompt(artifact_type, brief, context) do
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.author(brief),
+        NovelTest.TestRequestIR.scope(%{
+          operation: %{
+            artifact_type: artifact_type,
+            creative_brief: brief,
+            context_text: context
+          }
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")]
+    )
   end
 end
 
@@ -451,39 +423,50 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
 
-  @history """
-  本次你承担创作判断器的角色。你的两种续行方式使用 continuation_decision。
-  旧调用曾使用写前推理器和规划前推理器。
-  - profile_ref: fact_inventory_v1
-  - author_goal: 盘点旧材料，第01章。
-  - goal_version: 1
-  [ledger:information:foreshadow_old] 旧伏笔
-  [ledger:arc:old] 旧弧光
-  [plan:old] 旧章计划
-  """
+  @history %{
+    goal: %{text: "盘点旧材料，第01章。", version: 1},
+    operation: %{
+      profile_ref: "fact_inventory_v1",
+      artifact_type: "outline_draft",
+      creative_brief: "旧章计划 OLDPLAN82Q",
+      context_text: "VS00EEVALFAIL 旧阶段的评审故障。",
+      mission_inputs: %{
+        items: [
+          %{ref: "ledger:information:foreshadow_old", group: "information", text: "旧伏笔"},
+          %{ref: "ledger:arc:old", group: "arc", text: "旧弧光"},
+          %{ref: "plan:old", group: "plan", text: "旧章计划"}
+        ]
+      }
+    }
+  }
 
-  @plan_scope """
-  ## 调用点参数
-  - profile_ref: prose_drafting_with_quality_v1
-  - plan_step_targets: context_assemble, chapter_mission, prose_writing, quality_review
+  @plan_scope %{
+    goal: %{text: "请续写第02章：当前码头。", version: 2},
+    operation: %{
+      profile_ref: "prose_drafting_with_quality_v1",
+      plan_step_targets: [
+        "context_assemble",
+        "chapter_mission",
+        "prose_writing",
+        "quality_review"
+      ],
+      current_plan_version: 1
+    },
+    facts: %{chapters: [%{ref: "chapter:current", seq: 2, title: "第02章：当前码头"}]}
+  }
 
-  ## 作品章节
-  - 第02章：当前码头
-
-  ## 本轮目标
-  - author_goal: 请续写第02章：当前码头。
-  - goal_version: 2
-  - current_plan_version: 1
-  """
-
-  @mission_scope """
-  当前应用目标：推进当前码头的线索。
-  目标版本：2
-  材料：
-  [ledger:information:foreshadow_current] 当前伏笔
-  [ledger:arc:current] 当前弧光
-  [plan:current] 当前章计划
-  """
+  @mission_scope %{
+    goal: %{text: "推进当前码头的线索。", version: 2},
+    operation: %{
+      mission_inputs: %{
+        items: [
+          %{ref: "ledger:information:foreshadow_current", group: "information", text: "当前伏笔"},
+          %{ref: "ledger:arc:current", group: "arc", text: "当前弧光"},
+          %{ref: "plan:current", group: "plan", text: "当前章计划"}
+        ]
+      }
+    }
+  }
 
   for tool <- ["agent_plan_draft", "agent_plan_revision"] do
     test "#{tool} 由当前工具决定，计划只读取最新 scope 的 profile、目标和章节" do
@@ -522,42 +505,17 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
     end
   end
 
-  test "没有 scope 的单请求仍使用自身材料" do
-    for {tool, text} <- [
-          {"agent_plan_draft", "你是小说创作系统的 AgentRun 计划起草器。\n" <> @plan_scope},
-          {"planning_mission", "你是规划前推理器。\n" <> @mission_scope}
-        ] do
-      prompt =
-        NovelTest.TestRequestIR.ir(
-          [NovelTest.TestRequestIR.base(text)],
-          tools: [NovelTest.TestRequestIR.tool(tool)],
-          projection: %{tool_choice: tool}
-        )
-
-      assert {:ok, result} = complete(prompt)
-      assert [%{"name" => ^tool}] = result.tool_calls
-    end
-  end
-
   test "后续 writer 的种类与材料只来自本阶段，不受旧章计划污染" do
-    scope = """
-    ## 创作协作共同规则
-    本次你承担角色设计助手的角色。
-    capability：character_design
-    artifact_type：character_seed
-    用户创作简述：标识符 CURCHAR73X。帮我设计一个主角，是灵气稽查官。
-    上下文：当前作品背景。
-    重要：保留作者输入。
-    """
+    scope = %{
+      operation: %{
+        capability: "character_design",
+        artifact_type: "character_seed",
+        creative_brief: "标识符 CURCHAR73X。帮我设计一个主角，是灵气稽查官。",
+        context_text: "当前作品背景。"
+      }
+    }
 
     prompt = native_prompt("submit_tentative_artifact", scope)
-
-    prompt =
-      NovelTest.TestRequestIR.append_message_text(
-        prompt,
-        0,
-        "\nartifact_type：outline_draft\n用户创作简述：旧章计划 OLDPLAN82Q\n上下文：旧目录\n重要：旧要求。"
-      )
 
     assert {:ok, result} = complete(prompt)
     assert [%{name: "submit_tentative_artifact", arguments: %{items: [item]}}] = result.tool_calls
@@ -571,15 +529,8 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
   end
 
   test "后续 quality 不消费旧阶段的故障标记与过期正文" do
-    scope = "本次只读评审当前正文。\n待评审正文：林烬把账单放在桌上。"
+    scope = %{operation: %{role: "quality_evaluation", prose_text: "林烬把账单放在桌上。"}}
     prompt = native_prompt("report_quality_findings", scope)
-
-    prompt =
-      NovelTest.TestRequestIR.append_message_text(
-        prompt,
-        0,
-        "\nVS00EEVALFAIL 旧阶段的评审故障。"
-      )
 
     assert {:ok, result} = complete(prompt)
 
@@ -610,7 +561,14 @@ defmodule NovelAgent.Provider.SliceVerifyWriterFaultScopeTest do
   alias NovelAgent.Test.Provider.SliceVerify
 
   @timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
-  @prose_scope "capability：prose_writing\nartifact_type：prose_fragment\n用户创作简述：生成正文\n上下文：已有计划\n重要：保留作者输入。"
+  @prose_scope %{
+    operation: %{
+      capability: "prose_writing",
+      artifact_type: "prose_fragment",
+      creative_brief: "生成正文",
+      context_text: "已有计划"
+    }
+  }
 
   setup do
     previous = System.get_env(@timeout_env)
@@ -629,29 +587,37 @@ defmodule NovelAgent.Provider.SliceVerifyWriterFaultScopeTest do
     assert {:error, %{type: :timeout}} =
              complete(native_prompt("submit_tentative_artifact", @prose_scope))
 
-    retry_scope = @prose_scope <> "\n先只写当前章的第一个场景，500 字以内；写完就停。"
+    retry_scope =
+      put_in(@prose_scope, [:operation, :creative_brief], "先只写当前章的第一个场景，500 字以内；写完就停。")
+
     assert {:ok, _result} = complete(native_prompt("submit_tentative_artifact", retry_scope))
   end
 
   test "历史正文不得让续行或质量工具误超时" do
     for {tool, scope} <- [
-          {"continuation_decision", "你的两种续行方式：继续或等待作者。"},
-          {"report_quality_findings", "本次进行质量复核。待评审正文：夜色落在城门上。"}
+          {"continuation_decision", %{operation: %{summary: "你的两种续行方式：继续或等待作者。"}}},
+          {"report_quality_findings", %{operation: %{prose_text: "夜色落在城门上。"}}}
         ] do
       assert {:ok, _result} = complete(native_prompt(tool, scope, [@prose_scope]))
     end
   end
 
   test "后续角色创作只按最新 scope 判定，不受历史正文或正文内容字段污染" do
-    current =
-      "capability：character_design\nartifact_type：character_seed\n用户创作简述：设计一个配角\n上下文：既有正文记录 artifact_type：prose_fragment，只是背景。\n重要：保留作者输入。"
+    current = %{
+      operation: %{
+        capability: "character_design",
+        artifact_type: "character_seed",
+        creative_brief: "设计一个配角",
+        context_text: "既有正文记录 artifact_type：prose_fragment，只是背景。"
+      }
+    }
 
     assert {:ok, _result} =
              complete(native_prompt("submit_tentative_artifact", current, [@prose_scope]))
   end
 
   test "历史缩小范围不能免除当前新正文请求的超时" do
-    old_retry = @prose_scope <> "\n先只写当前章的第一个场景，500 字以内；写完就停。"
+    old_retry = put_in(@prose_scope, [:operation, :creative_brief], "先只写当前章的第一个场景，500 字以内；写完就停。")
 
     assert {:error, %{type: :timeout}} =
              complete(native_prompt("submit_tentative_artifact", @prose_scope, [old_retry]))
@@ -661,11 +627,6 @@ defmodule NovelAgent.Provider.SliceVerifyWriterFaultScopeTest do
     prompt = native_prompt("submit_tentative_artifact", @prose_scope)
     assert {:ok, _result} = complete(%{prompt | projection: %{tool_choice: "none"}})
     assert {:ok, _result} = complete(%{prompt | tools: [], projection: %{tool_choice: nil}})
-  end
-
-  test "无工具的 legacy 正文 fixture 保持原有超时与缩小范围恢复" do
-    assert {:error, %{type: :timeout}} = complete("JSON 数组\n" <> @prose_scope)
-    assert {:ok, _result} = complete("JSON 数组\n" <> @prose_scope <> "\n先只写当前章的第一个场景")
   end
 
   defp native_prompt(tool, scope, history \\ []) do
@@ -692,20 +653,29 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
   defp judgment_prompt(author_text, targets \\ nil) do
     targets =
       targets ||
-        "- #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求选择：format_only=仅排版 / target_segments=指定片段 / whole_chapter=整章"
+        [
+          %{
+            chapter_ref: @chapter_ref,
+            chapter_title: "第01章：夜潮",
+            seq: 1,
+            fragment_count: 2,
+            coverage: "complete"
+          }
+        ]
 
-    """
-    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
-
-    ## 可选章级修订目标（只读；ref 唯一，title 仅展示）
-    #{targets}
-
-    ## 已采纳可修订对象（只用于 revise_adopted_content）
-    - as_q1c_setting：revise_adopted_content
-
-    ## 作者输入
-    #{author_text}
-    """
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(%{
+          operation: %{
+            chapter_revision_targets: targets,
+            adopted_content_targets: %{"as_q1c_setting" => ["revise_adopted_content"]}
+          }
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
   defp chapter_arguments(author_text) do
@@ -761,10 +731,22 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
   end
 
   test "同名/多目标不猜：无唯一章序号匹配 → chapter ref nil（交产品守卫）" do
-    targets = """
-    - #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求
-    - chapter:22222222-2222-2222-2222-222222222222｜第01章：夜潮｜片段数 1｜覆盖 complete｜modification_scope 按作者要求
-    """
+    targets = [
+      %{
+        chapter_ref: "#{@chapter_ref}",
+        chapter_title: "第01章：夜潮",
+        seq: 1,
+        fragment_count: 2,
+        coverage: "complete"
+      },
+      %{
+        chapter_ref: "chapter:22222222-2222-2222-2222-222222222222",
+        chapter_title: "第01章：夜潮",
+        seq: 1,
+        fragment_count: 1,
+        coverage: "complete"
+      }
+    ]
 
     revision = SliceVerify.chapter_revision_arguments(judgment_prompt("整理已保存的正文。", targets))
 
@@ -773,10 +755,22 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
   end
 
   test "原话唯一章序号匹配多目标时仍可绑定" do
-    targets = """
-    - #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求
-    - chapter:22222222-2222-2222-2222-222222222222｜第02章：井底｜片段数 1｜覆盖 complete｜modification_scope 按作者要求
-    """
+    targets = [
+      %{
+        chapter_ref: "#{@chapter_ref}",
+        chapter_title: "第01章：夜潮",
+        seq: 1,
+        fragment_count: 2,
+        coverage: "complete"
+      },
+      %{
+        chapter_ref: "chapter:22222222-2222-2222-2222-222222222222",
+        chapter_title: "第02章：井底",
+        seq: 2,
+        fragment_count: 1,
+        coverage: "complete"
+      }
+    ]
 
     revision =
       SliceVerify.chapter_revision_arguments(judgment_prompt("把第一章正文整理一下，只调整排版，不改字句。", targets))
@@ -786,15 +780,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
   end
 
   test "旧 Q1c 单片段已采纳分支保持可用（不回归）" do
-    prompt = """
-    本次你承担创作判断器的角色。
-
-    ## 已采纳可修订对象（只用于 revise_adopted_content）
-    - as_q1c_setting：revise_adopted_content
-
-    ## 作者输入
-    把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。
-    """
+    prompt = judgment_prompt("把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。", [])
 
     assert SliceVerify.chapter_revision_arguments(prompt) == nil
 
@@ -846,43 +832,29 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
 
   @base_text "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。\n\n续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
 
-  defp fixture_body(content) do
-    decoded = Jason.decode!(content)
-
-    items =
-      cond do
-        is_list(decoded) -> decoded
-        is_map(decoded) -> Map.get(decoded, "items", [])
-        true -> []
-      end
-
-    items |> hd() |> Map.fetch!("body")
+  defp fixture_body(result) do
+    [call] = result.tool_calls
+    items = Map.get(call.arguments, :items) || Map.get(call.arguments, "items")
+    hd(items)["body"]
   end
 
   defp writer_prompt(revision_heading, author_words) do
-    """
-    本次你承担小说正文写作助手的角色。请严格按本任务输出契约返回，不要附加任何额外文字。
-
-    ## 创作协作共同规则
-    作者是唯一裁决者。
-
-    ## 本轮任务语义：修订
-    本轮为修订。
-
-    #{revision_heading}
-
-    写作要求：保持冷峻克制。
-
-    capability：prose_writing
-    artifact_type：prose_fragment
-    用户创作简述：修订第01章正文。作者原话：#{author_words}
-    上下文：第01章：夜潮当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
-    #{@base_text}
-
-    重要：保留随机标识符。
-    输出契约（只返回 JSON，不要附加 JSON 以外的文字）：
-    - 只返回 JSON 数组，或一个含 "items" 非空数组的 JSON 对象。
-    """
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.system("本次你承担小说正文写作助手的角色。\n## 创作协作共同规则\n" <> revision_heading),
+        NovelTest.TestRequestIR.author(author_words),
+        NovelTest.TestRequestIR.scope(%{
+          operation: %{
+            capability: "prose_writing",
+            artifact_type: "prose_fragment",
+            creative_brief: "修订第01章正文。作者原话：" <> author_words,
+            context_text: "第01章：夜潮当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：\n" <> @base_text
+          }
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
+      projection: %{tool_choice: "submit_tentative_artifact"}
+    )
   end
 
   test "target_segments writer prompt 命中章级修订 fixture 并只落实明确改动" do
@@ -893,7 +865,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
       )
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
-    body = fixture_body(result.content)
+    body = fixture_body(result)
 
     assert body =~ "三十岁"
     refute body =~ "二十五岁"
@@ -903,19 +875,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
 
   test "首个 canonical writer 保留 Base 中的修订规则，不能只取 scope 当成普通起草" do
     author = "把二十五岁改成三十岁，其余逐字不变。"
-    legacy = writer_prompt("## 指定片段/段落内容修订", author)
-    [base, dynamic] = String.split(legacy, "capability：", parts: 2)
-
-    prompt =
-      NovelTest.TestRequestIR.ir(
-        [
-          NovelTest.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n" <> base),
-          NovelTest.TestRequestIR.author(author),
-          NovelTest.TestRequestIR.scope("capability：" <> dynamic)
-        ],
-        tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
-        projection: %{tool_choice: "submit_tentative_artifact"}
-      )
+    prompt = writer_prompt("## 指定片段/段落内容修订", author)
 
     corrections = [
       NovelTest.TestRequestIR.assistant("前一次响应格式错误。"),
@@ -943,7 +903,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
       writer_prompt("## 整章内容修订", "把第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。")
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, content_prompt, %InferenceParams{})
-    body = fixture_body(result.content)
+    body = fixture_body(result)
     assert body =~ "三十岁"
 
     format_prompt =
@@ -952,7 +912,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
     assert {:ok, format_result} =
              SliceVerify.complete(nil, nil, format_prompt, %InferenceParams{})
 
-    format_body = fixture_body(format_result.content)
+    format_body = fixture_body(format_result)
 
     assert format_body == @base_text
   end
@@ -966,36 +926,27 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
 
   defp judgment_prompt(author_text, opts) do
     planned = Keyword.get(opts, :planned_volumes)
-    directory = Keyword.get(opts, :directory, true)
-
-    facts =
-      if planned,
-        do: "- 全书：全书目标=未登记；目标总字数=60000；预计卷数=#{planned}；连载形态=SERIALIZED；正文统计：4 章中已写 3 章、计划中 1 章",
-        else: "- 全书：全书目标=未登记；目标总字数=未登记；正文统计：4 章中已写 3 章"
 
     chapters =
-      if directory do
-        """
+      if Keyword.get(opts, :directory, true),
+        do: [
+          %{ref: "chapter:11111111-1111-1111-1111-111111111111", seq: 1, title: "潮声之前"},
+          %{ref: "chapter:22222222-2222-2222-2222-222222222222", seq: 3, title: "外门名册上的空白"},
+          %{ref: "chapter:33333333-3333-3333-3333-333333333333", seq: 4, title: "旧钱与旧名"}
+        ],
+        else: []
 
-        ## 章节列表（共 4 章：已写 3 章，计划中 1 章）
-        - 第 1 章「潮声之前」[chapter_ref=chapter:11111111-1111-1111-1111-111111111111]
-        - 第 3 章「外门名册上的空白」[chapter_ref=chapter:22222222-2222-2222-2222-222222222222]
-        - 第 4 章「旧钱与旧名」[chapter_ref=chapter:33333333-3333-3333-3333-333333333333]
-        """
-      else
-        ""
-      end
-
-    """
-    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
-
-    ## 作品事实（持久化只读投影）
-    #{facts}
-    #{chapters}
-
-    ## 作者输入
-    #{author_text}
-    """
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(%{
+          facts: %{work: %{ref: "work:test", planned_volumes: planned}, chapters: chapters},
+          operation: %{}
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
   defp arguments_of(result) do
@@ -1205,27 +1156,45 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
 
-  defp prompt(author_text, index_lines) do
-    """
-    本次你承担创作判断器的角色。
-
-    ## 作品事实（持久化只读投影）
-    - 全书：正文统计：1 章中已写 1 章
-
-    ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
-    #{index_lines}
-
-    ## 作者输入
-    #{author_text}
-    """
+  defp prompt(author_text, characters) do
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(%{
+          facts: %{characters: characters},
+          coverage: %{characters: %{status: "complete"}},
+          operation: %{}
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
   test "B29 CP3：「谁是主角」从角色索引当前 narrative_role 回答（多主角全列）" do
-    index = """
-    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=PROTAGONIST｜查账人
-    - character:22222222-2222-2222-2222-222222222222｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
-    - character:33333333-3333-3333-3333-333333333333｜阿鸢｜别名：｜narrative_role=SUPPORTING｜线人
-    """
+    index = [
+      %{
+        ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "PROTAGONIST",
+        role: "查账人"
+      },
+      %{
+        ref: "character:22222222-2222-2222-2222-222222222222",
+        name: "顾青",
+        aliases: [],
+        narrative_role: "PROTAGONIST",
+        role: "巡夜人"
+      },
+      %{
+        ref: "character:33333333-3333-3333-3333-333333333333",
+        name: "阿鸢",
+        aliases: [],
+        narrative_role: "SUPPORTING",
+        role: "线人"
+      }
+    ]
 
     assert {:ok, result} =
              SliceVerify.complete(nil, nil, prompt("现在谁是主角？", index), %InferenceParams{})
@@ -1239,18 +1208,7 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
   end
 
   test "AU09 回归：作品上下文存在但 roster 为空（无角色索引段）→ 诚实缺主角，不误报无法核对" do
-    empty_roster = """
-    本次你承担创作判断器的角色。
-
-    ## 作品事实（持久化只读投影）
-    - 全书：全书目标=未登记；正文统计：0 章中已写 0 章
-
-    ## 章节列表（共 0 章：已写 0 章，计划中 0 章）
-    （当前作品还没有章节）
-
-    ## 作者输入
-    现在谁是主角？
-    """
+    empty_roster = prompt("现在谁是主角？", [])
 
     answer = SliceVerify.character_role_answer(empty_roster)
     assert answer =~ "目前还没有谁被标记为主角"
@@ -1265,26 +1223,47 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
   end
 
   test "B29 CP3：单主角显示姓名；无主角诚实；无索引不引用记忆/不编造" do
-    one = """
-    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=PROTAGONIST｜查账人
-    - character:22222222-2222-2222-2222-222222222222｜顾青｜别名：｜narrative_role=SUPPORTING｜巡夜人
-    """
+    one = [
+      %{
+        ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "PROTAGONIST",
+        role: "查账人"
+      },
+      %{
+        ref: "character:22222222-2222-2222-2222-222222222222",
+        name: "顾青",
+        aliases: [],
+        narrative_role: "SUPPORTING",
+        role: "巡夜人"
+      }
+    ]
 
     assert SliceVerify.character_role_answer(prompt("现在谁是主角？", one)) =~ "当前作品的主角是 沈砚"
 
-    no_protagonist = """
-    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜查账人
-    """
+    no_protagonist = [
+      %{
+        ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "ENSEMBLE_POV",
+        role: "查账人"
+      }
+    ]
 
     assert SliceVerify.character_role_answer(prompt("有没有主角？", no_protagonist)) =~
              "目前还没有谁被标记为主角"
 
-    no_index = """
-    本次你承担创作判断器的角色。
-
-    ## 作者输入
-    现在谁是主角？
-    """
+    no_index =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+          NovelTest.TestRequestIR.author("现在谁是主角？"),
+          NovelTest.TestRequestIR.scope(%{operation: %{}})
+        ],
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+      )
 
     answer = SliceVerify.character_role_answer(no_index)
     assert answer =~ "没有可核对的角色索引"
@@ -1305,34 +1284,46 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
 
   defp index(entries \\ nil) do
     entries ||
-      """
-      - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜灯楼查账人
-      - #{@gu}｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
-      - #{@ayuan}｜阿鸢｜别名：小鸢｜narrative_role=SUPPORTING｜线人
-      """
+      [
+        %{
+          ref: "#{@shen}",
+          name: "沈砚",
+          aliases: ["老沈"],
+          narrative_role: "ENSEMBLE_POV",
+          role: "灯楼查账人"
+        },
+        %{ref: "#{@gu}", name: "顾青", aliases: [], narrative_role: "PROTAGONIST", role: "巡夜人"},
+        %{ref: "#{@ayuan}", name: "阿鸢", aliases: ["小鸢"], narrative_role: "SUPPORTING", role: "线人"}
+      ]
   end
 
   defp ambiguous_index do
-    """
-    - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜灯楼查账人
-    - #{@shen2}｜沈砚｜别名：小沈｜narrative_role=MINOR｜账房学徒
-    - #{@gu}｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
-    """
+    [
+      %{
+        ref: "#{@shen}",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "ENSEMBLE_POV",
+        role: "灯楼查账人"
+      },
+      %{ref: "#{@shen2}", name: "沈砚", aliases: ["小沈"], narrative_role: "MINOR", role: "账房学徒"},
+      %{ref: "#{@gu}", name: "顾青", aliases: [], narrative_role: "PROTAGONIST", role: "巡夜人"}
+    ]
   end
 
-  defp prompt(author_text, index_lines) do
-    """
-    本次你承担创作判断器的角色。
-
-    ## 作品事实（持久化只读投影）
-    - 全书：正文统计：1 章中已写 1 章
-
-    ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
-    #{index_lines}
-
-    ## 作者输入
-    #{author_text}
-    """
+  defp prompt(author_text, characters) do
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(%{
+          facts: %{characters: characters},
+          coverage: %{characters: %{status: "complete"}},
+          operation: %{}
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
   defp args(prompt) do
@@ -1422,12 +1413,15 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     assert %{mode: :clarify, question: q} = SliceVerify.character_profile_arguments(no_match)
     assert q =~ "没有找到"
 
-    no_index = """
-    本次你承担创作判断器的角色。
-
-    ## 作者输入
-    指定沈砚为主角
-    """
+    no_index =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+          NovelTest.TestRequestIR.author("指定沈砚为主角"),
+          NovelTest.TestRequestIR.scope(%{operation: %{}})
+        ],
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+      )
 
     assert %{mode: :clarify, question: no_index_question} =
              SliceVerify.character_profile_arguments(no_index)
@@ -1473,32 +1467,25 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterDesignJudgmentTest do
   @shen "character:11111111-1111-1111-1111-111111111111"
 
   defp prompt(author_text, opts \\ []) do
-    roster = Keyword.get(opts, :roster)
+    characters =
+      if Keyword.get(opts, :roster),
+        do: [
+          %{ref: @shen, name: "沈砚", aliases: ["老沈"], narrative_role: "ENSEMBLE_POV", role: "查账人"}
+        ],
+        else: []
 
-    roster_section =
-      if roster do
-        """
-
-        ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
-        - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜查账人
-        """
-      else
-        ""
-      end
-
-    """
-    本次你承担创作判断器的角色。
-
-    ## 作品事实（持久化只读投影）
-    - 全书：正文统计：0 章中已写 0 章
-
-    ## 章节列表（共 0 章：已写 0 章，计划中 0 章）
-    （当前作品还没有章节）
-    #{roster_section}
-
-    ## 作者输入
-    #{author_text}
-    """
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(%{
+          facts: %{characters: characters},
+          coverage: %{characters: %{status: "complete"}},
+          operation: %{}
+        })
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
   test "AU09 回归：设计主角 → execute/character_design（空 roster 也能产候选）" do
@@ -1542,31 +1529,32 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
   alias NovelAgent.Test.Provider.SliceVerify
 
   defp judgment_prompt(author_text, context) do
-    """
-    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
-
-    ## 当前作品与实际观察
-    #{context}
-
-    ## 作者输入
-    #{author_text}
-
-    ## 决策与输出契约
-    只输出一个工具或作者可见回复。
-    """
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
+        NovelTest.TestRequestIR.author(author_text),
+        NovelTest.TestRequestIR.scope(context)
+      ],
+      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+    )
   end
 
-  defp complete(author_text, context \\ "") do
+  defp complete(author_text, context \\ %{operation: %{}}) do
     SliceVerify.complete(nil, nil, judgment_prompt(author_text, context), %InferenceParams{})
   end
 
   test "真实语料 progress_query：按章节统计回答，零候选零写入" do
-    context = """
-    ## 章节列表（共 3 章：已写 2 章，计划中 1 章）
-    - 第 1 章「潮声之前」[chapter_ref=chapter:aaa]
-    - 第 2 章「旧钱与旧名」[chapter_ref=chapter:bbb]
-    - 第 3 章「外门名册上的空白」[chapter_ref=chapter:ccc]（计划中）
-    """
+    context = %{
+      operation: %{},
+      coverage: %{
+        chapters: %{
+          status: "complete",
+          total: 3,
+          written_count: 2,
+          planned_count: 1
+        }
+      }
+    }
 
     for wording <- ["第几章写到哪了？", "草稿在哪？", "执行完了么？", "后面还有哪些章节？"] do
       assert {:ok, result} = complete(wording, context)
@@ -1759,36 +1747,38 @@ defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
   end
 
   defp source_writer_scope do
-    """
-    capability：prose_writing
-    artifact_type：prose_fragment
-    用户创作简述：写第02章：矿区追击战正文草稿，短促动作追击
-    上下文：## 目标章结构
-    - 计划摘要：主角在废弃矿区遭遇巡检傀儡，短促的动作追击中且战且退。
-    重要：保留作者输入。
-    """
+    %{
+      operation: %{
+        capability: "prose_writing",
+        artifact_type: "prose_fragment",
+        creative_brief: "写第02章：矿区追击战正文草稿，短促动作追击",
+        context_text: "## 目标章结构\n- 计划摘要：主角在废弃矿区遭遇巡检傀儡，短促的动作追击中且战且退。"
+      }
+    }
   end
 
   defp quality_scope do
-    """
-    capability：prose_writing
-    artifact_type：prose_fragment
-    用户创作简述：请基于下文给出的原正文进行局部修订：保留原有情节走向、人物状态与作品设定，只修改证据位置命中的句段。
-    上下文：原正文（第02章：矿区追击战正文草稿，短促动作追击）：
-    #{@body}
-    重要：保留作者输入与随机标识符 ABC123。
+    %{
+      operation: %{
+        capability: "prose_writing",
+        artifact_type: "prose_fragment",
+        creative_brief: "请基于下文给出的原正文进行局部修订：保留原有情节走向、人物状态与作品设定，只修改证据位置命中的句段。",
+        context_text: "原正文（第02章：矿区追击战正文草稿，短促动作追击）：\n" <> @body,
+        revision: """
+        [质量修订要求]
+        本次修订范围：局部修订。
+        只修改证据位置命中的句段，命中范围外的文字应尽量逐字保持不变。
+        请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
+        1. 连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。
+           位置：第 1–3 句
+           原句：他猛地侧身。他一刀劈下。他反手格挡。
+           判断理由：这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。
+           修订策略：只改命中句段，让动作在风险、后果或视角上形成递进。
+        修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
 
-    [质量修订要求]
-    本次修订范围：局部修订。
-    只修改证据位置命中的句段，命中范围外的文字应尽量逐字保持不变。
-    请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
-    1. 连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。
-       位置：第 1–3 句
-       原句：他猛地侧身。他一刀劈下。他反手格挡。
-       判断理由：这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。
-       修订策略：只改命中句段，让动作在风险、后果或视角上形成递进。
-    修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
-    """
+        """
+      }
+    }
   end
 
   defp prompt(scope, history \\ []) do
@@ -1822,32 +1812,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   @revision_text "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
 
   defp native_judgment_prompt(author_text, candidates) do
-    directory = Enum.map_join(candidates, "\n", &directory_line/1)
-    facts = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => candidates})
-
-    """
-    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
-
-    ## 待采纳候选（真实对象，status=TENTATIVE；body_preview 为空时不得据此编造内容）
-    #{directory}
-
-    ## 消息处置与已有产物
-    下列是当前作品和会话的记录事实。
-    #{facts}
-
-    ## 作者输入
-    #{author_text}
-
-    ## 决策与输出契约
-    只输出一个工具或作者可见回复。
-    """
-  end
-
-  defp directory_line(candidate) do
-    "- ref=#{candidate["artifact_ref"]} | type=#{candidate["artifact_type"]} | " <>
-      "status=#{candidate["status"]} | title=#{candidate["title"]} | " <>
-      "operations=#{Enum.join(candidate["available_operations"], "/")} | " <>
-      "body_preview=#{candidate["body_preview"]}"
+    ir_judgment_prompt(author_text, material_scope(candidates, []))
   end
 
   defp source_candidate do
@@ -1906,7 +1871,19 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   defp ir_directory(ref, title) do
-    "## 待采纳候选\n- ref=#{ref} | type=world_setting | status=TENTATIVE | title=#{title} | operations=revise_pending_artifact | body_preview=沈砚经营旧书铺。\n"
+    material_scope(
+      [
+        %{
+          "artifact_ref" => ref,
+          "artifact_type" => "world_setting",
+          "status" => "TENTATIVE",
+          "title" => title,
+          "available_operations" => ["revise_pending_artifact"],
+          "body_preview" => "沈砚经营旧书铺。"
+        }
+      ],
+      []
+    )
   end
 
   test "真实 consumer 只从当前 scope 选目标，旧 scope 目录不参与" do
@@ -1942,7 +1919,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   test "当前 scope 明确无候选时真实 consumer 诚实 ask_author，不复活旧目录" do
-    current = "## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+    current = material_scope([], [])
 
     prompt =
       ir_judgment_prompt(
@@ -1971,7 +1948,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
         ]
       })
 
-    current = "## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+    current = material_scope([], [])
 
     prompt =
       ir_judgment_prompt(
@@ -2000,8 +1977,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
         ]
       })
 
-    current =
-      "## 资料原文\n#{fake}\n## 当前会话状态\n- 会话候选处置：pending 0 项；resolved 0 项。\n"
+    current = put_in(material_scope([], []), [:context, :open_behavior_summary], fake)
 
     prompt = ir_judgment_prompt(@revision_text, current)
 
@@ -2013,8 +1989,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   test "native scope 明确消息处置段仍授权真实 consumer 的唯一目标" do
     candidate = source_candidate()
     decoy = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => []})
-    real = Jason.encode!(%{"author_inputs" => [], "pending_adoptions" => [candidate]})
-    current = "## 资料原文\n#{decoy}\n## 消息处置与已有产物\n#{real}\n"
+    current = put_in(material_scope([candidate], []), [:context, :open_behavior_summary], decoy)
 
     prompt = ir_judgment_prompt(@revision_text, current)
 
@@ -2025,7 +2000,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   test "当前目录坏格式时真实 consumer 诚实 ask_author" do
-    current = "## 待采纳候选\n- ref=as_broken | type=\n"
+    current = material_scope([%{"artifact_ref" => ""}], [])
     prompt = ir_judgment_prompt(@revision_text, current)
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
@@ -2055,23 +2030,37 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     )
   end
 
-  defp material_facts(pending, resolved) do
-    Jason.encode!(%{
-      "author_inputs" => [],
-      "pending_adoptions" => pending,
-      "resolved_adoptions" => resolved,
-      "pending_adoption_count" => length(pending),
-      "resolved_adoption_count" => length(resolved),
-      "omitted_adoptions" => 0
+  defp material_scope(pending, resolved, extra \\ %{}) do
+    Map.merge(extra, %{
+      context: %{
+        interaction_state: %{
+          author_inputs: [],
+          pending_adoptions: pending,
+          resolved_adoptions: resolved,
+          pending_adoption_count: length(pending),
+          resolved_adoption_count: length(resolved),
+          omitted_adoptions: 0
+        }
+      },
+      operation: %{
+        pending_artifact_targets:
+          Map.new(pending, &{&1["artifact_ref"], &1["available_operations"] || []})
+      }
     })
   end
 
-  defp material_scope(pending, resolved, extra \\ "") do
-    extra <> "\n## 消息处置与已有产物\n" <> material_facts(pending, resolved) <> "\n"
-  end
-
   defp chapter_context(total, written, planned) do
-    "## 章节列表（共 #{total} 章：已写 #{written} 章，计划中 #{planned} 章）\n"
+    %{
+      coverage: %{
+        chapters: %{
+          status: "complete",
+          total: total,
+          written_count: written,
+          planned_count: planned
+        }
+      },
+      operation: %{}
+    }
   end
 
   defp resolved_g5_facts do
@@ -2156,7 +2145,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   test "当前 scope 目录坏格式时资料状态查询如实说无法解析" do
-    current = "## 待采纳候选\n- ref=as_broken | type=\n" <> chapter_context(0, 0, 0)
+    current = material_scope([%{"artifact_ref" => ""}], [], chapter_context(0, 0, 0))
     prompt = ir_judgment_prompt("资料处理进度怎么样？", current)
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
@@ -2285,29 +2274,12 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     refute tool_call(result, "judgment_decision")
   end
 
-  test "旧格式仅提供消息处置 JSON 时仍按同一解析结果唯一选目标" do
-    candidate = source_candidate()
-
-    facts =
-      Jason.encode!(%{
-        "author_inputs" => [],
-        "pending_adoptions" => [candidate]
-      })
-
-    prompt = """
-    本次你承担创作判断器的角色。
-
-    ## 消息处置与已有产物
-    #{facts}
-
-    ## 作者输入
-    #{@revision_text}
-    """
-
+  test "旧文本消息处置 JSON 不能授权现役消费者" do
+    facts = Jason.encode!(%{"pending_adoptions" => [source_candidate()]})
+    prompt = "本次你承担创作判断器的角色。\n## 消息处置与已有产物\n#{facts}\n## 作者输入\n#{@revision_text}"
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
-
-    assert decision = tool_call(result, "judgment_decision")
-    assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
+    assert tool_call(result, "ask_author")
+    refute tool_call(result, "judgment_decision")
   end
 
   test "非法 ref 注入需要 env 与作者标记同时出现，正常修订不触发" do
@@ -2403,13 +2375,19 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       NovelTest.TestRequestIR.ir([
         NovelTest.TestRequestIR.base("Base"),
         author,
-        NovelTest.TestRequestIR.scope("当前 scope"),
+        NovelTest.TestRequestIR.scope(%{operation: %{summary: "当前 scope"}}),
         NovelTest.TestRequestIR.assistant("已响应"),
         NovelTest.TestRequestIR.notice("通知")
       ])
 
     assert NovelTest.TestProviderPrompt.author_text(ir) == "  第一段\n第二段"
-    assert NovelTest.TestProviderPrompt.latest_scope(ir) == "当前 scope"
+
+    assert NovelTest.TestProviderPrompt.scope_content(ir) == %{
+             "operation" => %{"summary" => "当前 scope"}
+           }
+
+    assert Jason.decode!(NovelTest.TestProviderPrompt.latest_scope(ir)) ==
+             NovelTest.TestProviderPrompt.scope_content(ir)
 
     history = NovelTest.TestProviderPrompt.current_operation_messages(ir)
     assert Enum.map(history, & &1.role) == ["assistant", "application_notice"]

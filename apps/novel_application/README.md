@@ -26,7 +26,8 @@ be found at <https://hexdocs.pm/novel_application>.
 
 ## 消息闭环索引（ADR-0027）
 
-- [lib/novel_application/turn_interaction_service.ex](lib/novel_application/turn_interaction_service.ex)：ADR-0027 消息接收、运行结果记录与历史来源校验入口。
+- [lib/novel_application/turn_interaction_service.ex](lib/novel_application/turn_interaction_service.ex)：ADR-0027 消息接收、receipt、运行结果记录与当前作者输入选择。
+- [lib/novel_application/author_content_registration.ex](lib/novel_application/author_content_registration.ex)：作者原文登记的纯应用来源选择、合法性与已有物化规则；持久事务防重仍归 persistence 登记边界。
 - [test/novel_application/turn_interaction_service_test.exs](test/novel_application/turn_interaction_service_test.exs)：消息幂等、失败发布边界与来源回归。
 - 完整切片：`tasks/slices/Q3D-message-outcome-roundtrip.md`。
 
