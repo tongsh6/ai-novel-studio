@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-15：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口并分组提交，证据与限制见 §11.21；R02 跨层实现与本轮工程验证已收口并分组提交，原生验收判据已补强并验证，真实原生验收受宿主屏幕录制权限阻塞，执行与恢复见 §13.3/§13.6，未签 PASS；R03–R19 未实施，远端 CI 与既有全仓质量缺口仍开放）**。
+**状态**：**doing（2026-11-15：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -191,7 +191,7 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 
 ## 8. 当前决定、开放问题和恢复入口
 
-**生效**：用户明确要求未发布**不兼容历史**、彻底重审、实体存在性红线与软件原则；本文件完成**规划/契约建议文档修订**，不改生产代码。保留原产品既有作者采纳、权限、证据、安全约束。
+**初始设计阶段记录（当前实施状态见 §13.10）**：用户明确要求未发布**不兼容历史**、彻底重审、实体存在性红线与软件原则；当时本文件完成**规划/契约建议文档修订**，未改生产代码。保留原产品既有作者采纳、权限、证据、安全约束。后续实施授权见本文开头，实际实现与验收按唯一任务状态维护。
 
 **需由 R00/对应批在代码和 Frozen 合同上确认**：
 - 旧 Scope 与纯讨论覆盖究竟能否用现有 `Compaction` 精确表达；不能时先补唯一契约再迁消费者；
@@ -200,7 +200,7 @@ R00 需先对本设计提出的差异给出有效裁决；若 VS-00L/ADR-0035 �
 - `capability_lookup` 是否真有新增的业务消费者，避免平行探索工具；
 - B71 的 G3/G5/实模遗留与本任务最终 R19 的证据边界，分别归各自任务维护。
 
-**当前执行入口**：R00 事实审计已交付（§9），R01 真实测量基线及工程收口见 §11.21；下一批 R02 在独立编码上下文内先冻结结构化 Scope 字段与来源，再完整实现和验收。其它批次依实际依赖推进，不能跳过实体查重、冻结契约和完整验收。
+**当前执行入口**：R00 事实审计已交付（§9），R01 真实测量基线及工程收口见 §11.21，R02 最终验收与开放反例见 §13.10；下一独立批次 R03 按共享 README 在全新编码上下文启动，先审查显式覆盖、Checkpoint 与恢复的现役 owner/契约，再完整实现和验收。其它批次依实际依赖推进，不能跳过实体查重、冻结契约和完整验收。
 
 **历史证据与计划修订**：旧 B87 R00–R10 的编号/任务范围已整体替换，Git 历史可回查；不保留旧任务卡副本或把旧批次标 done；未上线的产品无旧 API/旧 Schema 兼容承诺。
 
@@ -691,7 +691,7 @@ leader独立读取原始Phoenix发送帧，并在DB/WAL字节副本中只读对�
 
 ## 13. R02 源头结构化实施（2026-11-14）
 
-开工基线 `ecf29a75ae73967f9dcbab03b2f8fb8a624de0ec`，R01 已按 §11.21 闭环；5 项既有 AGENTS/B84/扫描处置 WIP 保留。R02 使用独立实施上下文，先在 VS-00M §5.2.1 / VS-00L §19.2 冻结字段与来源，并同步 R02 卡的实际跨层边界，再改代码。本节当前为 doing，不代签机制、实页或模型行为验收。
+开工基线 `ecf29a75ae73967f9dcbab03b2f8fb8a624de0ec`，R01 已按 §11.21 闭环；5 项既有 AGENTS/B84/扫描处置 WIP 保留。R02 使用独立实施上下文，先在 VS-00M §5.2.1 / VS-00L §19.2 冻结字段与来源，并同步 R02 卡的实际跨层边界，再改代码。R02 当前已 PASS，最终裁决与后继边界见 §13.10；§13.1–§13.9 保留实施过程、原失败及恢复记录，不以最终通过覆盖历史。
 
 | 七问 / 存在性 | 本批边界 |
 |---|---|
@@ -826,3 +826,104 @@ Contract 仍为 VS-00L/VS-00M 的同一 IR 与来源契约；Invariant 为来源
 | 剩余 Top 10 | 仍为 **7** 条：gitleaks 六条的 Fingerprint/RuleID/File/StartLine/Commit 与原记录全同，沿用 **5 false_positive + 1 既有 accepted_risk**；另 **1 pending/blocking** 是旧 task-done manifest 过期，尚未进入原生证据核验。`native-hardening-scan-review.json` 保留逐项结果；没有改长期处置台账或将整体扫描标绿。 |
 
 13:39 的第二次只读检查仍为 `ax_trusted=true / post_access=true / screen_capture=false`，证据 `native-permission-preflight-20261115T053941Z.json`。当前需由作者为 §13.3 已证实的实际宿主开启「屏幕录制/屏幕与系统音频录制」，按系统提示重启。新 B26 批次与 Splash 三轮均未启动，未发送新作者输入；**R02 仍未完成真实原生/实模验收，不签 PASS，不推进 R03**。权限恢复后，先核对本节源码 fence，再使用全新 `native-question-02` 目录执行 B26；其通过后才运行 §13.3 的冻结 Splash 三轮。
+
+### 13.7 原生恢复与跨 run 会话前缀存在性审核（2026-11-15，Asia/Shanghai）
+
+14:34 已实测 `AX/Post/Screen=true`，最终 198 个代码路径与外部编排哈希均匹配 §13.6，原五份 WIP 未变。`native-question-02` 首图成功，但系统 `UserNotificationCenter` 占据前台，实际 activate returned=true/confirmed=false；驱动按既有边界停在首个作者输入之前，发送作者事件为 0，runner exit=1，精确批次进程清理 remaining=[]。提示进程退出后重新创建 `native-question-03`，没有覆盖 02。
+
+03 的真实选择答复已完成；自由答复也已 accepted 并完成同 run 继续执行，但逐调用 Scope 对账失败，整个批次仍为失败、不能签 PASS。12 个实际请求的 ProviderRun/canonical 绑定均无失败；第一 run 的 Scope 数量是 1–6 对 1–6，第二 run 则为当前段 1–6 对实际请求 7–12。原因已由源码与持久记录交叉确认：产品按 ADR-0035 合成会话历史，外部 reader 却只把当前 run 段交给完整 Scope 序列核验。只读诊断改用正确的会话前缀后，12 calls 的 Scope 与完整作者原文字节均匹配；该诊断不是新原生 PASS。
+
+实现前存在性审核与设计决议：
+
+| 职责 | 现有唯一 owner / 决议 |
+|---|---|
+| 产品请求会话视图 | `AuthoringSessionLog.fetch_session/1`、`AuthoringSessionHistory.compose/2`、`AuthoringSession.with_request_view/2` 已存在；当前 base 一次、已提交非 base 全序、当前尾部。保持此契约，不能删除合法历史以迁就验收。 |
+| 外部历史读取 | 复用 `authoring_history_evidence.mjs`，保留 `transcript` 为当前 run 段，增加由同一只读事务和现役消息表派生的 `sessionMessages` 数组。它不是新持久实体或 RequestIR，不携带累计 refs。核身份、消息版本和序号；截至目标段末，再按唯一 pcall/prun 的 canonical assistant 截调用前缀。 |
+| Scope / 作者前缀 | 复用既有 `scopeForProviderCall` 与真实来源 refs；迁移现役消费者使用会话消息，run 工具/预算/回执归属仍只消费当前段。完整数量、顺序、内容、版本、来源判据保持严格。并发导致无法证明同次快照时仍失败关闭，不从请求反推预期。 |
+| 夹具与回归 | 复用现有 history/call/live/revision 的 fixture 和测试 owner，修正多 run 夹具的全会话 sequence，覆盖跨 run 正例、漏失/额外/乱序/篡改历史、未来行与异作品/会话、坏版本与序号反例；不创建平行测试框架。 |
+
+当前整改仅位于外部验收层；没有新增产品实体或历史兼容层。03 的原失败、截图、输入回读、DB、12 条 captured fixture IR 和 cleanup 保留。修复后先验证及独立审查，再用全新批次重跑 B26；通过后才启动冻结 Splash 三轮。L7 缺同调用 Base refs 仍按原约定记 unknown，不以会话累计 refs 补证。
+
+### 13.8 会话证据修复与真实 B26 闭环（2026-11-15，Asia/Shanghai）
+
+本节基线为 `5fc9c8d2ceca65a566214df28bef2dcb10a3622d`。§13.7 的存在性审核在实现前落盘；修复收敛于既有外部证据/fixture owner，没有更改 `apps/`、前端或产品存储，也没有新增产品实体、平行 RequestIR、兼容层或验收专用产品入口。
+
+**设计落地**：`readAuthoringHistory` 在同一只读事务内校验本会话的 run、segment 与 canonical 消息身份/版本/role/count/bounds/连续序号，派生 `sessionMessages`。当前 base 至多一次；历史非 base 保持会话全序，目标段之后的消息不倒灌。当前 `transcript`、调用/预算与自报继续限于该 run。pending、revision、mission、full-read、live/behavior 与 L7 消费者全部改为显式会话前缀；完整 Scope 判据没有降级，缺前缀不回退。L7 的同调用 Base refs 仍只来自真实请求的明确登记，累计段头与 Scope 来源均不补证。并发造成请求读取水位无法证明时仍失败关闭。
+
+**工程证据**（根目录 `artifacts/model-contracts/b87-r02/20261114/`）：
+
+| 验证 | 实际结果与证据 |
+|---|---|
+| 相关 Node 回归 | `quality/session-prefix-node-r2.log`：51 文件、1030 tests、1030 pass、0 fail、0 skip；owned run `fc53732c2f4923c3`，进程树已清。R1 的旧 header 身份负例失败保留；修复仅精确构造 header 错绑，没有放宽拒绝判据。 |
+| 最后 fixture 清理 | 将重复版本字符串改回既有 `MESSAGE_FORMAT_VERSION` 常量；值仍为 `authoring-session-message/v1`。唯一消费者 `authoring_run_evidence_io.test.mjs` 13/13 通过，证据 `quality/session-prefix-final-fixture.log`，这是上述测试的子集，不累加。 |
+| 源码 fence | B26/1030 tests 对应 `quality/session-prefix-source-manifest-r2.json`，209 路径；最终 `session-prefix-source-manifest-final.json` SHA=`3634dbb01d607b5565fe4ab44f061f92f8594a9b08a58a5c4c84e6c50c74150e`。两者仅上述 fixture 常量引用不同；产品、reader、driver 和原五份 WIP 均未漂移。 |
+| 默认完整完成门 | `quality/session-prefix-task-done.log`，owned run `b740c00d8169333f`，exit 0；快照 `quality/session-prefix-static-scan/`：21 runs、20 passed、1 failed、0 skipped、blocking=0。编译 warnings-as-errors、架构/xref/Credo/模块门、不变量、前端 typecheck/lint/53 files 492 tests、NEXT、task-done 与 Semgrep 均通过。 |
+| 安全原始结果 | gitleaks 原始 exit 1、6 条历史命中。与上一轮逐项比较 Fingerprint/RuleID/File/StartLine/Commit 完全一致：5 个既有 false_positive、1 个既有 accepted_risk，0 条触及本批文件；没有修改处置台账，不声称扫描器全绿或凭证已撤销。 |
+
+完成门生成 `artifacts/task-done/20261115T071135Z/manifest.json`。本轮 worktree 没有产品 UI 变更，因此它记录 `ui_required=false`；真实 B26 的证明来自下面独立 runner/checker 与原始证据，不把完成门的“不需要 UI”当作页面 PASS。此前全量 Mix 的 3238/0 与其后 110/0/no-warning 子集证据仍按 §13.4 的源码边界保留，本轮没有重复声称新的全量 Mix 运行。
+
+**真实 B26 第 04 批**：`native-question-04/` 的 runner `wc_job_H9l4ArjV85glowKx` 和外部 driver `wc_job_4QdeyCg2m71jvcXx` 均 exit 0，统一 harness=`55203d10-0633-4896-8f1f-0c3915690e83`。两轮分别为选择“保留悬念”与自由答复，各 6 个调用、终局 completed；6 次必需截图全部成功，独立逐图复核通过。逐份原始 WS 核对初始请求/ACK、问题帧、回答动作/accepted ACK 和完成帧各唯一；每轮 receipt、Interaction 与当前 run canonical answer 各一条，问题已关闭为 answered。
+
+自由答复原文为 `"  结尾有希望，也保留悬念。Ω é 雪。  "`，两端双空格与分解形式 `e + U+0301` 在 AX 回读、WS、Interaction、canonical 和请求中一致；UTF-8 SHA-256=`48385837b84026f7b93619546a7e5be35684b67fc3b1b9e45a99156002ac151f`。当前单行入口不证明 LF/CRLF，后端与机械投影覆盖仍独立表述。
+
+12 个实际记录的五字段 run 身份、pcall/prun、request body hash、完整作者前缀与 Scope 内容/来源/版本/顺序逐项匹配。第一 run 的 Scope 数量 1–6，第二 run 7–12；没有删除合法历史或只比最后一份 Scope。每轮第一个请求尚无本轮回答，随后五次均恰好包含一次本轮回答。第 02/03 批原失败结论与全部现场保留，修复后的诊断不回签旧批次。
+
+| 核心产物 | SHA-256 / 边界 |
+|---|---|
+| `native-question-04/summary.json` | `eb3ead78b2f15cd614df08715cabdb32de11470f2afe1a6726eb1230242f6776` |
+| `native-question-04/native-app-cleanup.json` | `8c1608e395729cce23a75ee7299695c6cdbe5db518ef025b9de95c59aeb27edc`；PID 29825 SIGTERM，remaining=[]，4657/4661 已关闭。 |
+| `native-question-04/r02-derived-wires-report.json` | `352fb2278239f414dbea48155526d98206f585773a4756cb4832f1d1c0c3a5ad`；12 calls × 3 targets = 36 份离线投影，raw answer 保留。 |
+
+B26 使用 `provider=slice_verify`，捕获的是 `fixture_request_ir`；离线三 wire 复用现役 AuthoringTranscript codec / RequestIR / Projection。所有产物明确 `observed_provider_http=false`，不是三家供应商实测或网络原始 HTTP 字节。作者原文与产品真实原生链路机制验收已闭环，冻结 Splash 的模型行为验收仍单列。
+
+代码与索引提交：`9025200128fc4a3b9b85c966b4fff7cd17936908`（25 文件，完整同批迁移）。原本地未发布提交 `c3c1c1af9b98c8d31e3c33391fb9e78133f633f1` 仅按 AGENTS 规范改为中文 message，tree 同为 `3bc6a4b7c75cf60af49e50d3a42542d9b209586c`；既有证据中的原 SHA 与源码 fence 不改写，映射见 `quality/session-prefix-commit-message-closure.json`。普通 Git hooks 执行；无 lefthook 配置的提示不能代替上述显式验证。原五份 AGENTS/B84/扫描处置 WIP 未纳入，哈希保持不变；未 push。
+
+### 13.9 冻结 Splash 三轮的启动与 seed 字节边界审核（2026-11-15，Asia/Shanghai）
+
+首次启动请求被自动审批在执行前拒绝，理由是未确认具体 provider 的私有作品数据发送授权；当时没有创建批次或 Job。项目既有 Splash 授权记录仍保留，但个人上下文检索未找到可定位的用户原句，因此没有据文档概括直接重复该请求。随后只读核实本次环境的实际 endpoint 为 `http://127.0.0.1:8000/v1`，并核对现装 Splash 1.6.1、本地现有权重与离线入口；重审后的本机受控启动获执行，但端口已被现有服务占用，保护检查在启动第二服务前拒绝。没有接管或关闭该服务。15:22 的实际 `/v1/models` 证实 `local/Q4-PLE4`、context_length/max_model_len 均为 262144，随后按原冻结参数复用该本机服务；证据 `quality/splash-endpoint-preflight.json`、`splash-existing-service-models.json`、`splash-three-01-preflight.json`。
+
+`splash-three-01`（Job `wc_job_ZkkAZt7iSG5Zl0la`）在 `prepareBatch` 的 seed title 严格相等判据处失败，尚未启动外部 native driver，未发送冻结作者输入。隔离库实际 work.title 为正确的“未命名作品·副本”、revision=2；但 seed.log 中中文被输出为字面 `\x{...}`，中点是单字节 `0xb7`，被 Node 按 UTF-8 读成替换字符。该批次保持 exit 1；`native-app-cleanup.json` 为 remaining=[]，不覆盖其 seed/prepare/DB 现场。
+
+**修改前存在性审核与最终裁决**：B87 现有 producer 是 `scripts/seed_request_cost_work.exs` 的 `[request-cost-seed]` 机器记录；现有 `scenario_evidence.seedFields → request_cost_capture.readSeed/prepareBatch` 固定以 UTF-8 解析并核对冻结标题。实际同环境的 `quality/seed-stdio-diagnostic.bin` 证明 Erlang stdio 为 `encoding: :latin1`：`IO.puts` 重现坏字节，`IO.binwrite` 保留正确 UTF-8。初步 producer 局部方案经独立全现役审计修正：B28 等 seed 也输出中文标题，责任属于现有 `tauri_slice_verify.sh` 的共用 seed 启动边界；全 scripts 没有另一个通用 IO writer。最终 **reuse/refactor 共用 runner**：在同一 Mix 进程中先 `:io.setopts(:standard_io, encoding: :unicode)`，再 `--require` 原 seed；原 producer 业务/记录格式与严格 reader 不变，未验证的局部 binwrite 改动撤回。当前安装的 Mix 1.19.5 BEAM 源码证明 eval/require 按选项原序执行且 `System.argv=[]` 保持；`--eval` 后直接放文件名反而不会执行文件，明确拒绝该错误接法。没有新 helper/module/schema/env/config，不改全局 locale、不反解乱码、不增加旧格式兼容、不放宽 seed/DB 对账。后续用现役 owned scope 验证实际 Mix 字节边界，再复用原 prepare 与全新原生批次；原失败保留。
+
+### 13.10 R02 最终验收与后继边界（2026-11-15，Asia/Shanghai）
+
+**R02：PASS。** 按原 R02 卡 §DoD 与真实用户效果，当前作品结构事实、作者原文、目标与真实工具校验身份已从实际来源贯通到真实请求和 Tauri 作者可见回答；章数问题与结构异议均能取得真实结构信息。两名独立只读审核者分别复核页面/源数据和原任务边界。没有修改 R02 完成定义；**B87/Issue #4 仍 doing**，不能把本批判定扩大为三轮业务目标全部实现。
+
+**共用 seed 修复**：`quality/seed-utf8-boundary-result.json`（SHA-256=`1f0ee8fcaf700b5cfe555587af8122dbe36713290985b83312a61c3b771b9d03`）保留原 Latin-1 失败字节与新入口的精确 UTF-8 对比，前后 `System.argv=[]`；owned run `3eb94a12a1ea58ae` 已收尾。独立审查确认异常/非零退出仍由原 `set -euo pipefail` 传播，replay/无 seed 分支和业务 seed 不变。修复单独提交 `3c66fc91b85a7273df8cd527c52a0aee9475ddf4`（1 文件、3 增 1 删）。
+
+**冻结 Splash 第 02 批**：`splash-three-02/`，Job `wc_job_5HEgIt260t-Ly1ve`，exit 0；沿用原 manifest 的三条原文、完整隔离快照及参数，本机现有 `local/Q4-PLE4` 服务。实际 3 轮、3 次 Provider 调用，全部捕获并绑定。前序 `splash-three-01` 的 seed 失败原样保留，不覆盖、不修改分母；没有重跑 20 轮或换输入。
+
+| 冻结作者原文 | 当前事实与作者可见结果 | 实际业务结果 |
+|---|---|---|
+| `当前有几章内容` | 2 个章节条目、1 个有正文；计划条目 0 字，正文章记录 3204 字/4183 字符、2 个已采纳片段 | `reply / reply_only` |
+| `第一章是 卷纲，这不对吧` | 能取得 seq=1/PLANNED/阅读可见/0 字与 seq=2/DRAFTING/正文的真实对照；未擅自改结构 | `goal_unfulfilled / capability_gap`；自动报缺口是 R08 的未通过反例 |
+| `不能接受卷纲在阅读里显示，应该在作品档案显示` | 当前 `visible_in_reading=true` 与独立作者目标保持分离；没有伪造已经隐藏或迁移 | `goal_unfulfilled / capability_gap`；archive-only 效果未实现 |
+
+三个 run 为 `run_mwhir6es_5`、`run_mwhirfyb_8h`、`run_mwhisouq_ot`，session=`ef453170-df25-4f5c-96ef-07c0dba5cc6b`。run 的 completed 只表示执行结束；第 2/3 轮 outcome 并非成功。三轮 `production_write_performed=false`、`artifact_adopted=false`、`durable_behavior_opened=false`。页面回复、截图、实际 WS 与 Provider 记录共同核验，没有用采集器 PASS 代签业务效果。
+
+| 独立证据（相对本节 `artifacts/model-contracts/b87-r02/20261114/`） | 结果 / SHA-256 |
+|---|---|
+| `splash-three-02/summary.json` | 原生采集 checks 全通过，failures=[]；`4ed110b2f181d582c7f0c8c901f459b8f3cfe2139762fd580a4a70d9e5b84c7b` |
+| `quality/splash-three-02-binding-audit.json` | 3 captured / 3 proven；完整作者前缀、会话 Scope、pcall/prun/请求身份逐调用匹配；`ebbf79598d7ada2df1f12267e8f24ab88c6022e4a7ba844e89dc14ae060521b5` |
+| `quality/reading-source-r2.json` | 独立冻结库经既有 ReadingProjectionRepo/Service 取得真实 TOC/章节事实，先于批次 start；`57fa4fe8ee71f7421aae00bdada419361b3af9a1b993e15c8b5f54c88bed8aa7` |
+| `quality/splash-three-02-source-facts-audit.json` | 3 calls 中 6 处 Scope 的完整章节对象、真实 refs、work v2、goal 逐项对账；`ecc90ff24cc571af9ca7e0f1932a5e41bb24558a5b98a9fd07981fc2640270d5` |
+| `splash-three-02/native-app-cleanup.json` | 本批 PID 49785 精确 SIGTERM，remaining=[]，4657/4661 关闭；`8a379ac1a6dc304a4de0de43005227e4c350893d1ff0161ee7cdaa506e26c655`。既有 8000 模型服务未接管/停止。 |
+
+源对账复用现有 reader、call join、request facts 与 L7 checker；一次性断言只放 ignored evidence 目录，不新增产品模块/工具/持久模型或平行来源。冻结源到本批 final 的 volumes/chapters/scenes/drafts/chapter_summaries/characters 原始行完全相同（`quality/splash-three-02-source-rows.json`）；Work 副本标题/revision 2 属于输入前的既有 setup，并逐字段对账。start/final 的 9 张业务表 canon 及 business hash 均稳定；只有 5 条 memory 的引用计数/时间记账变化，reference log 240→248 的 8 条均绑定本作品三条真实输入，不计作正文或结构修改。
+
+**证据限度**：章节 coverage=complete（2/2，written=1、planned=1、unknown=0），正文 coverage=`not_read`；不能声称模型实读全部正文。`request-cost-report.json` 保持 `signed:false / r01_measurement_only`，未把其原格式改作 R02 签收。实模记录是应用 decoded request body 与解码响应/WS，raw HTTP/SSE 未采；L7 三调用均为 `ok=null, reason=used_context_refs_unavailable`，不补造 self-report/Base 证据、不签 L7。B26 的 36 份三 wire 离线投影仍是机械证明，不冒充三个供应商网络实测。
+
+**当前源码与工程门**：最终 `quality/native-final-utf8-source-manifest.json` 覆盖 211 路径（含已删除路径的 null fence），SHA-256=`99f1983f29d7e422c83ed281630f4ef5c86b62a715267537c3dca07beb0dc1ba`，实模及最终门禁前后均匹配。完整默认 `task_done.sh --slice b26-author-question-roundtrip --ui-summary <native-question-04/summary.json> --top 10` 已在独立 DB/owned run `39b2ebdd52aa3d0f` 执行 exit 0、tree_finalized=true；`quality/r02-final-code-task-done.log` SHA-256=`f0a80436f3b2851f7b51a87c4b9ac980db48072e81bb256abc91b672e354b9ff`，完成清单 `artifacts/task-done/20261115T075258Z/manifest.json`。完整扫描快照 `quality/r02-final-code-static-scan/` 为 **21 runs / 20 passed / 1 raw failed / 0 skipped / 0 blocking**；唯一 raw fail 是原六条 gitleaks（5 既有 false_positive、1 既有 accepted_risk），Fingerprint/RuleID/File/StartLine/Commit 与 §13.6 完全相同，未改台账，不声称安全历史已清零。相关 Node 1030/0、末次 fixture 13/0 和既有 Mix 3238/0、随后 110/0 各按 §13.4/§13.8 的实际源码边界保留，不相加、不冒充本次重跑。文档与 NEXT 调度修改后的默认完成门另以 `quality/r02-closeout-task-done.log`、`r02-closeout-gate-result.json`、`r02-closeout-static-scan/` 留存实际结果。
+
+**保持开放的现有后继责任**：
+
+| 原责任 | 本批真实反例 / 尚未完成的效果 |
+|---|---|
+| R06 内部身份出口 | 第三页出现 `chapter:19d52d44…`，以及技术字段/工具名；作者呈现仍不 clean。 |
+| R07 状态与效果 | 第 2/3 轮 `goal_unfulfilled` 对应 UI 通用“已完成”，执行结束与目标实现的呈现混淆仍待修复。 |
+| R08 意图语义 | 原卡已要求第二轮讨论不能自动缺口/修改；此次第二轮仍自动报能力缺口，不能签该语义通过。 |
+| R08/R09 真实能力 | 第三轮建议在界面删除/隐藏/转卷级计划，但这批没有对应入口/合法操作证据，不能作为可执行后路。 |
+| 既有领域数据/采纳映射缺陷、R19 总验 | 卷纲仍在阅读中，archive-only 目标未达成；原始 Markdown/表格与重复、冗长技术答复的页面质量问题也保留。整体模型交互与最终产品验收未完成。 |
+
+**提交与恢复**：外部会话证据修复为 `9025200128fc4a3b9b85c966b4fff7cd17936908`，共用 seed 修复为 `3c66fc91b85a7273df8cd527c52a0aee9475ddf4`；文档/排期另组提交。原五份 WIP 哈希不变，不纳入提交；无 push。NEXT 仍为 B87，下一独立批次为 R03，按共享 README §1 使用全新上下文读取 README + R03 卡 + 本节及其唯一设计契约，重新完成七问/存在性审计再实现；本会话不滚动实现 R03，也不借本批 PASS 关闭 R06–R09 或 R19。
