@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-15：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口并分组提交，证据与限制见 §11.21；R02 跨层实现与本轮工程验证已收口并分组提交，真实原生验收受宿主系统权限阻塞，执行与恢复见 §13，未签 PASS；R03–R19 未实施，远端 CI 与既有全仓质量缺口仍开放）**。
+**状态**：**doing（2026-11-15：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口并分组提交，证据与限制见 §11.21；R02 跨层实现与本轮工程验证已收口并分组提交，原生验收判据已补强并验证，真实原生验收受宿主屏幕录制权限阻塞，执行与恢复见 §13.3/§13.6，未签 PASS；R03–R19 未实施，远端 CI 与既有全仓质量缺口仍开放）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -745,13 +745,19 @@ Contract 仍为 VS-00L/VS-00M 的同一 IR 与来源契约；Invariant 为来源
 
 `artifacts/model-contracts/b87-r02/20261114/native-question-01/` 是本批第一次真实 B26 原生尝试，源码绑定见 `quality/final-gate-code-manifest-pre-native.json`。debug `.app` 已成功构建并启动，但第一个 `activate` 在既有 NativeInputBoundary 被 `ax_trust_required` 拒绝，`ax_trusted=false / post_access=false`，截图也未成功。13 条 transport 记录中只发送 join/review/coordinate 查询，作者 `user_message/author_action/agent_command` 为 **0**，完成 roundtrip 为 **0**；没有 summary、native-ui-complete 或 derived wire 输出。不能称页面已通过，也不以启动或种子历史冒充新作者输入。
 
-- 原始 runner `wc_job_R65w7o7v5yJRyABM` 已终止，exit 1；cleanup `remaining=[]`，受控端口 4657/4661 已关闭。没有重发作者请求或重跑 R01 的 20 轮。Splash 三轮尚未启动；同宿主/同驱动的首个受保护动作仍会遇到相同权限边界，这是由已观测失败得出的限制，不是一次三轮实测结果。
-- macOS unified log 将责任主体绑定到 `dev.webcodex.runner`，路径为 `/Users/loong/.local/share/webcodex-pkg/node_modules/@yyjeqhc/webcodex/vendor/bin/webcodex-runner`。应由作者在系统设置「隐私与安全性」为该实际宿主开启「辅助功能」及「屏幕录制」（系统名称可能为「屏幕与系统音频录制」），按系统提示重新启动宿主。未访问或修改 TCC 数据库，未绕过系统授权；未把更新时刻推断成未经证明的故障根因。
+- 原始 runner `wc_job_R65w7o7v5yJRyABM` 已终止，exit 1；cleanup `remaining=[]`，受控端口 4657/4661 已关闭。没有重发作者请求或重跑 R01 的 20 轮。Splash 三轮尚未启动；该次尝试时，同宿主/同驱动的首个受保护动作受到相同权限边界限制，不是一次三轮实测结果。
+- macOS unified log 将责任主体绑定到 `dev.webcodex.runner`，路径为 `/Users/loong/.local/share/webcodex-pkg/node_modules/@yyjeqhc/webcodex/vendor/bin/webcodex-runner`。首次失败后的恢复要求是在系统设置「隐私与安全性」为该实际宿主开启「辅助功能」及「屏幕录制」（系统名称可能为「屏幕与系统音频录制」），按系统提示重新启动宿主；当前仅屏幕录制未恢复，最新复查见下文及 §13.6。未访问或修改 TCC 数据库，未绕过系统授权；未把更新时刻推断成未经证明的故障根因。
 - 精确证据：`quality/b26-r02-native-blocker.json`，SHA-256 `4e0e1d01c11297302c937a1525eb4263259643a925a1f3623382674eed3ab729`；对应 `quality/b26-r02-ax-authorization.log` 保留原始授权日志。日志未出现模型调用标记，但一次 DB 查询未打开其假设路径，因此 **不声明数据库 provider_runs=0**。
 - 恢复时先确认正常系统权限，再对当时最终源码建立新 fence，在全新 B26 目录重跑现有问题选择与自由答复脚本；原失败目录只读保留。自由答复沿当前真实单行入口验证首尾空格及 Unicode，实际 ACK/action/question/submission/run/source 必须同源绑定，LF/CRLF 仍只由独立后端/机械投影证明。
 - B26 真实回路通过后，沿 R01 不可变 manifest 与完整副本运行既有 `b87-r01-request-cost` 驱动的 R02 三轮：首次三条冻结输入、Splash Q4-PLE4、thinking high、max 32000、timeout 300000、context 262144、retry 0；使用新 R02 artifact 路径，不覆盖 R01。真实 HTTP 缺同调用 `IR.refs.base_refs` 的 L7 保持 `request_base_refs_unavailable / unknown`，最终累计 Base、确定性前缀或 derived wire 均不代签。
 
 本轮默认完整静态扫描的 task-done 直接失败是旧 `20261114T161400Z` manifest 已过期，检查尚未进入 Native evidence；不能把该 raw failure 改写成直接 AX 失败。真实 AX 阻塞与 stale manifest 分别保留。没有成功原生 summary 时，不复用旧成功材料或生成通过 manifest；R02 不签 PASS、不推进 R03。
+
+**恢复前复核（2026-11-15 13:24，Asia/Shanghai）**：在提交 `d16b59424d8f209c1f0816093f35cb0fea7c01b8` 上重新核对，193 个代码路径与最终 fence 一致，5 份作者既有 WIP 未变。只读系统 preflight 得到 `ax_trusted=true / post_access=true / screen_capture=false`；unified log 将三项检查都归到上述同一 `dev.webcodex.runner`。辅助功能已恢复，当前阻塞收窄为屏幕录制。证据为 `quality/native-permission-preflight-20261115T052436Z.json` 及同名前缀的 `-tcc.log`；本次未启动新 B26/Splash 批次、未发送作者输入。
+
+恢复前独立审查发现既有 B26 checker 允许 `screenshots=[]` 空集合通过，准备的外部编排也未要求每次 capture 成功、未排除续行再次停等，并未调用已存在的完整 Scope 序列判据。修复前裁决：Contract 仍为 B26 的同源作者问题闭环与 R02 的来源/Scope 契约；Invariant 是新鲜且非空的截图、真实回复之后同 run 的最终 completed、同调用 canonical Scope/来源/版本一致；Boundary 限于外部验收脚本和测试，不改产品或权限边界。Existence audit 已确认 `scenario_evidence.assertCommonEvidence` 持有截图数量/文件/新鲜度/格式规则，提取至同 owner 的 `assertScreenshots`，供原调用与 B26 checker 共同消费，删除复制实现，不新增模块；外部编排复用 `assertRecordFresh` 与 `authoring_call_evidence.scopeForProviderCall`，不复制判据。现有 `scenario_evidence_io.test.mjs`/fixture 承接截图负例；B26 暂无 CLI 验收测试 owner，代理故障与 manifest scanner 的测试职责不同，仅新增直接对应 checker 的 `native_question_evidence_check.test.mjs` 并登记既有索引。Proof 要求空/缺失/过期/坏截图，以及 awaiting_author、回复前旧 completed、错 run/方向等真实文件/帧反例，成功例必须保留完整问题/作者动作/持久输入绑定；局部测试不能代签页面。Acceptance Driver 仍是本节既有真实 B26 后接冻结 Splash 三轮；Exploration 不新增作品材料、实体或供应商行为。系统屏幕录制未恢复前不消耗真实样本，不生成成功 summary。
+
+截图驱动的进一步查重确认 `NativeScenarioHarness.screenshotSafe` 已有 `allowFullScreenFallback` 选项；只让现有 `capture` 透传该选项，R02 必需截图显式禁用整屏回退并由现有 `assertRecordFresh` 拒绝失败。原故障现场的尽力采证语义保留，其当前消费者仍存在；不建立第二截图实现。`wireTerminal` 的 awaiting_author 分类供真实模型场景使用，保持该通用语义，B26 的 completed 要求在 B26 自身断言。
 
 ### 13.4 工程验证与独立复核（2026-11-15）
 
@@ -799,3 +805,24 @@ Contract 仍为 VS-00L/VS-00M 的同一 IR 与来源契约；Invariant 为来源
 分组清单 `read_only_closeout_groups-r2.json` 与 `closeout-final-group-{1..4}.paths0` 合计 204 条路径，逐组 index/commit 路径精确核对，原 5 份 WIP 与已提交的 `99b8b15e` 28 个样式路径均无交集。使用普通 Git hooks，无 `--no-verify`；全局 hook 提示本项目无 lefthook 配置而退出 0，真实验证以 §13.4 的显式执行为准。
 
 本轮提交完成的是 R02 工程实现与对应验证，**没有完成 R02 原生/实模验收，也没有推进 R03 或改写其他批次状态**。当前恢复条件是 §13.3 的实际宿主系统权限；解除后先对最终源码运行新 B26 真实选择/自由答复，再执行冻结副本的 Splash 三轮，核对全部证据后才能签 R02 并进入后继新上下文。
+
+### 13.6 原生验收判据收紧与权限复查（2026-11-15，Asia/Shanghai）
+
+恢复审查完成后，外部验收修复已按独立粒度提交为 `526160dccf98d4803d284914000f8321b547085b`（8 个脚本、测试与索引文件）；本节和权限状态另作任务文档提交，没有 push。未改变 `apps/` 或 `frontend/` 产品代码，原五份 WIP 保持逐文件 SHA-256 不变。
+
+- 截图校验复用同一 `assertScreenshots`：拒绝空集合、非法最小数量、缺失/陈旧/坏格式图片，按真实路径检查批次边界和去重，路径别名或外部符号链接不能凑截图数。R02 六个必需采集点全部禁止整屏回退，并在首个作者输入前及每次采集后检查实际 AX/文本/图片文件。
+- 回答类型来自唯一持久源动作，question/submission 必须唯一；复制一次回复改标签不能冒充两个分支。绑定源问题的真实 submission、goal、source turn、action、run，以及作者输入的角色、原文字节和创建时间；free_text 对照实际 payload，choice 对照源 label/candidate。只接受首次未 dropped 的发送之后、同 topic/run 的真实接收状态，最后状态必须 completed 且消费本次 goal +1；旧 completed、再次等待、错 run/topic、发送方向或 dropped 状态均拒绝。ACK 丢失重传的合法正例保持通过。
+- R02 编排继续使用现有 `actionAck` 核 accepted 回执全身份；逐 call 新接入已有 `scopeForProviderCall`，核完整 Scope 序列/来源/版本，逐字段核五个 run 身份，并比对完整 canonical 作者前缀。没有第二来源 owner、产品验收 hook 或旧接口兼容层。
+- 独立源码复核已从现役 AuthorQuestion、AuthorQuestionService、AuthorQuestionRepo、WorkSessionService 和外部 transport proxy 核实全部公共字段及时间顺序；这些是产品当前契约，不从测试输出反推预期。新 CLI 测试的源动作与 turn_result 形状也按真实 producer 修正。
+
+本节证据仍在 `artifacts/model-contracts/b87-r02/20261114/quality/`。源码清单为 `native-acceptance-hardening-source-manifest.json`：原 193 个代码路径加本轮相关路径，共 **198** 条，source_hash=`53b218f45018804bdc1520298dd77af34761661ca117adffca7548e5cfe9d927`；外部编排 SHA-256=`f4782e38bbbb928040b7f0bf7f028decb888e1238f6970b84e4bf14d3e99519b`。两项最终门禁前后没有源码漂移。
+
+| 验证 | 最终结果 / 证据 |
+|---|---|
+| 外部驱动定向 | `scenario_driver.test.mjs` **23/0**；首跑因子进程 PATH 缺 Node 造成两个旧用例 ENOENT，补执行环境后原样通过，未为此改源码。 |
+| 截图与 B26 CLI 定向 | **11 + 22 = 33** 个不同测试通过；CLI producer 形状修正后单独复验 **22/0**。`b26-evidence-tests-closure.json` 保留两次日志与 owned run。 |
+| 相关原生证据回归 | 冻结源码上 **50 个测试文件 / 975 tests / 0 failures / 0 skipped**；`native-hardening-node-regression.log`，SHA-256=`04b89fc676f413c1690d5e624eb5394aa75321fa6426004c148bce93f3947044`。这是本轮相关测试集合，不与 §13.4 的不同集合计数相加。 |
+| 默认完整静态扫描 | `bash scripts/ai_static_scan.sh --top 10`，**21 项 / 19 passed / 2 failed / 0 skipped**，raw exit **1**；归档 `static-scan-native-hardening/`，日志 SHA-256=`f80cb912270f300b9791b28692b6f4b908e0cce9c646870f68af0c2a68f785bf`。编译、架构、规模、Credo、场景不变量、前端与 NEXT 等通过。 |
+| 剩余 Top 10 | 仍为 **7** 条：gitleaks 六条的 Fingerprint/RuleID/File/StartLine/Commit 与原记录全同，沿用 **5 false_positive + 1 既有 accepted_risk**；另 **1 pending/blocking** 是旧 task-done manifest 过期，尚未进入原生证据核验。`native-hardening-scan-review.json` 保留逐项结果；没有改长期处置台账或将整体扫描标绿。 |
+
+13:39 的第二次只读检查仍为 `ax_trusted=true / post_access=true / screen_capture=false`，证据 `native-permission-preflight-20261115T053941Z.json`。当前需由作者为 §13.3 已证实的实际宿主开启「屏幕录制/屏幕与系统音频录制」，按系统提示重启。新 B26 批次与 Splash 三轮均未启动，未发送新作者输入；**R02 仍未完成真实原生/实模验收，不签 PASS，不推进 R03**。权限恢复后，先核对本节源码 fence，再使用全新 `native-question-02` 目录执行 B26；其通过后才运行 §13.3 的冻结 Splash 三轮。
