@@ -24,7 +24,8 @@ import {
   sseBase,
   sseExchange,
 } from "./fixtures/authoring_call_fixture.mjs";
-import { joinNativeCallEvidence } from "./authoring_call_evidence.mjs";
+import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 // 正式夹具一律携带真实 transcript.run 身份；缺/错 run 的负例仍直接调用纯入口。
 const result = (patch = {}) => {
@@ -41,6 +42,99 @@ const sseResult = (patch = {}) => {
   value.transcript = { run: scope(), ...value.transcript };
   return joinNativeCallEvidence(value);
 };
+
+test("Scope 按同次 pcall/prun 绑定 canonical 当前前缀，IR 与 wire 保留原值", () => {
+  const content = { operation: { context_text: "首行\n  雪❄️\t", revision: "保留原句" } };
+  const versions = { scope_revision: 2 };
+  const sourceRefs = [{ ref: "chapter:bound", version: 3 }];
+  const canonicalScope = {
+    role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content }], source_refs: sourceRefs, versions,
+  };
+  const author = {
+    role: "user", provenance: "author",
+    blocks: [{ type: "text", text: "  作者\n" }], source_refs: [], versions: {},
+  };
+  const messages = [author, canonicalScope];
+  const transcript = {
+    messages: [...structuredClone(messages), assistant(1, []),
+      { ...structuredClone(canonicalScope), versions: { scope_revision: 3 } }, assistant(2, [])],
+  };
+  const canonical = exchange(1, {});
+  canonical.request_body.messages = structuredClone(messages);
+  const native = sseExchange(1);
+  const projected = scopeWireMessage(content, { versions, sourceRefs });
+  native.request.body.messages = [{ role: "user", content: "  作者\n" }, projected];
+
+  for (const record of [canonical, native]) {
+    const scope = scopeForProviderCall(record, transcript);
+    assert(scope);
+    assert.deepEqual(scope.scopeContent, content);
+    assert.deepEqual(scope.versions, versions);
+    assert.deepEqual(scope.sourceRefs, sourceRefs);
+  }
+  assert.equal(scopeForProviderCall(native, transcript).text, projected.content);
+  assert.equal(native.request.body.messages[0].content, "  作者\n");
+
+  // 同值 Scope 可在合法历史中再次出现；逐项来源与原序不因语义重复而消失。
+  const repeatedTranscript = { messages: [...structuredClone(messages), structuredClone(canonicalScope), assistant(1, [])] };
+  canonical.request_body.messages.push(structuredClone(canonicalScope));
+  native.request.body.messages.push(structuredClone(projected));
+  for (const record of [canonical, native]) {
+    assert.deepEqual(scopeForProviderCall(record, repeatedTranscript)?.scopeContent, content);
+  }
+});
+
+test("Scope 调用绑定拒绝错配、旧文本、投影篡改、多义与完整作者标记碰撞", () => {
+  const content = { operation: { context_text: "实读原文", revision: "局部修订" } };
+  const versions = { scope_revision: 2 };
+  const sourceRefs = [{ ref: "chapter:bound" }];
+  const canonicalScope = {
+    role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content }], source_refs: sourceRefs, versions,
+  };
+  const projected = scopeWireMessage(content, { versions, sourceRefs });
+  const originalRecord = sseExchange(1);
+  originalRecord.request.body.messages = [projected];
+  const originalTranscript = { messages: [canonicalScope, assistant(1, [])] };
+  assert(scopeForProviderCall(originalRecord, originalTranscript));
+
+  const cases = [
+    (record) => { delete record.provider_call_ref; },
+    (record) => { record.provider_run_ref = "other"; },
+    (_record, transcript) => { transcript.messages.push(assistant(1, [])); },
+    (_record, transcript) => { transcript.messages.push(assistant(1, [], { provider_run_ref: "other" })); },
+    (_record, transcript) => { transcript.messages[1].provenance = "author"; },
+    (_record, transcript) => { transcript.messages[0].blocks = [{ type: "text", text: projected.content }]; },
+    (record) => { record.request.body.messages = [scopeWireMessage({ operation: { context_text: "被改写" } }, { versions, sourceRefs })]; },
+    (record) => { record.request.body.messages = [scopeWireMessage(content, { versions: { scope_revision: 3 }, sourceRefs })]; },
+    (record) => { record.request.body.messages = [scopeWireMessage(content, { versions, sourceRefs: [] })]; },
+    (record) => { record.request.body.messages.push(structuredClone(projected)); },
+    (record) => { record.request.body.messages.push(scopeWireMessage({ operation: {} }, { versions, sourceRefs })); },
+    (record, transcript) => {
+      const earlierContent = { operation: { context_text: "早一版" } };
+      const earlierScope = { ...structuredClone(canonicalScope), blocks: [{ type: "scope", content: earlierContent }] };
+      transcript.messages.unshift(earlierScope);
+      record.request.body.messages.push(scopeWireMessage(earlierContent, { versions, sourceRefs }));
+    },
+    (_record, transcript) => {
+      transcript.messages.unshift({
+        role: "user", provenance: "author",
+        blocks: [{ type: "text", text: projected.content.slice(0, 20) }, { type: "text", text: projected.content.slice(20) }],
+      });
+    },
+  ];
+  for (const change of cases) {
+    const record = structuredClone(originalRecord);
+    const transcript = structuredClone(originalTranscript);
+    change(record, transcript);
+    assert.equal(scopeForProviderCall(record, transcript), null, change.toString());
+  }
+  assert.equal(scopeForProviderCall(null, originalTranscript), null);
+  assert.equal(scopeForProviderCall(originalRecord, {}), null);
+  assert.equal(scopeForProviderCall(originalRecord, { messages: [assistant(1, [])] }), null);
+  assert.equal(scopeForProviderCall({ ...originalRecord, request: { body: null } }, originalTranscript), null);
+});
 
 test("显式 pcall+prun 唯一配对时逐调用与 canonical 原文一致", () => {
   const value = result();

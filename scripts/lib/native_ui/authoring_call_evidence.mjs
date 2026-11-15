@@ -4,7 +4,7 @@
 // ProviderRun.provider_call_ref === pcall。turn/time/tool name/hash 都不参与绑定；
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
-import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { NATIVE_CHAT_WIRE, requestFactsFromRecord, scopeContentOf } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
 
 export const FIXTURE_RESPONSE_FORMAT = "fixture_provider_result/v1";
@@ -341,16 +341,21 @@ function compareCall(call, block, refs, add, nativeIdState) {
   compareCallArguments(call, block, refs, add);
 }
 
+function canonicalText(message) {
+  const blocks = Array.isArray(message?.blocks) ? message.blocks : [];
+  const textBlocks = blocks.filter((block) => block?.type === "text");
+  if (textBlocks.some((block) => typeof block.text !== "string")) return null;
+  return textBlocks.map((block) => block.text).join("");
+}
+
 function compareAssistantText(message, body, refs, add) {
-  const blocks = Array.isArray(message.blocks) ? message.blocks : [];
-  const textBlocks = blocks.filter((block) => block.type === "text");
-  if (textBlocks.some((block) => typeof block.text !== "string")) {
+  const text = canonicalText(message);
+  if (text === null) {
     add("encode_failed", "success", { ...refs, field: "assistant_text" });
     return;
   }
-  const canonicalText = textBlocks.map((block) => block.text).join("");
   const responseText = body.content === null || body.content === undefined ? "" : body.content;
-  if (canonicalText !== responseText) {
+  if (text !== responseText) {
     add("mismatched", "success", { ...refs, field: "assistant_text" });
   }
 }
@@ -546,6 +551,63 @@ function assistantMatches(assistantMessages, pcall, prun) {
         (message.provider_call_ref === pcall) !== (message.provider_run_ref === prun),
     ),
   };
+}
+
+// 绑定已经配对的同次请求与 canonical Scope；不从 wire 文本推定应用身份。
+// ProviderRun/作品归属仍由 joinNativeCallEvidence 校验，这里复用其 pcall/prun 定位。
+function canonicalReplyForCall(record, assistants) {
+  const { pcall, prun } = recordRefs(record);
+  if (!pcall || !prun) return null;
+  const { matching, partial } = assistantMatches(assistants, pcall, prun);
+  if (matching.length !== 1 || partial.length !== 0) return null;
+  return matching[0].provenance === "model" ? matching[0] : null;
+}
+
+function canonicalPrefixForCall(record, transcript) {
+  if (!isRecord(record) || !Array.isArray(transcript?.messages)) return null;
+  const assistants = transcript.messages.filter((message) => message?.role === "assistant");
+  const reply = canonicalReplyForCall(record, assistants);
+  return reply === null ? null : transcript.messages.slice(0, transcript.messages.indexOf(reply));
+}
+
+function sameScope(message, canonical, content) {
+  return message.scopeContent !== null &&
+    jsonEqual(message.scopeContent, content) &&
+    jsonEqual(message.versions, canonical.versions) &&
+    jsonEqual(message.sourceRefs, canonical.source_refs);
+}
+
+function scopeIsAuthorText(scope, prefix) {
+  return prefix.some((message) => message?.role === "user" && message.provenance === "author" &&
+    canonicalText(message) === scope.text);
+}
+
+function sameScopeSequence(scopes, prefix) {
+  const canonicalScopes = prefix.filter((message) => scopeContentOf(message) !== null);
+  const projectedScopes = scopes.filter((message) => message.scopeContent !== null);
+  return canonicalScopes.length === projectedScopes.length && canonicalScopes.every(
+    (canonical, index) => sameScope(projectedScopes[index], canonical, scopeContentOf(canonical)),
+  );
+}
+
+function projectedScopeForPrefix(facts, prefix) {
+  const canonical = prefix.findLast((message) => message?.role === "scope_update");
+  const content = scopeContentOf(canonical);
+  const latest = facts.scopeMessages.at(-1);
+  if (content === null || !latest || !sameScope(latest, canonical, content)) return null;
+  // R02 保留同内容历史 Scope；只拒绝无 canonical 来源的额外、漏失或乱序投影。
+  return sameScopeSequence(facts.scopeMessages, prefix) ? latest : null;
+}
+
+export function scopeForProviderCall(record, transcript) {
+  const prefix = canonicalPrefixForCall(record, transcript);
+  if (prefix === null) return null;
+  const facts = requestFactsFromRecord(record);
+  if (!facts.ok) return null;
+  const latest = projectedScopeForPrefix(facts, prefix);
+  if (latest === null) return null;
+  if (facts.format === NATIVE_CHAT_WIRE && scopeIsAuthorText(latest, prefix)) return null;
+  return latest;
 }
 
 // SSE 日志不记录正文，只对账 decoder 交付的工具事实；fixture 仍核对完整正文。

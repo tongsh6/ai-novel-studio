@@ -30,8 +30,35 @@ function parsedArguments(value) {
   }
 }
 
-function applicationRole(text) {
-  return text.startsWith(SCOPE_PREFIX) ? "scope_update" : "application_base";
+// 现役 Scope 的测试 producer；与生产 reader 独立，直接按冻结投影协议构造。
+export function scopeWireMessage(content, { versions = {}, sourceRefs = [] } = {}) {
+  if (!isRecord(content)) throw new Error("scope fixture content must be an object");
+  return {
+    role: "user",
+    content: [
+      "【应用数据 · scope_update · 以最新版本为准】",
+      `版本：${JSON.stringify(versions)}`,
+      `来源：${JSON.stringify(sourceRefs)}`,
+      JSON.stringify(content),
+    ].join("\n"),
+  };
+}
+
+function scopeFromWire(text) {
+  const [header, versions, sources, ...payload] = text.split("\n");
+  if (header !== "【应用数据 · scope_update · 以最新版本为准】" ||
+      !versions?.startsWith("版本：") || !sources?.startsWith("来源：")) {
+    throw new Error("scope fixture requires the current structured projection");
+  }
+  const content = JSON.parse(payload.join("\n"));
+  if (!isRecord(content)) throw new Error("scope fixture content must be an object");
+  return {
+    role: "scope_update",
+    provenance: "application",
+    blocks: [{ type: "scope", content }],
+    source_refs: JSON.parse(sources.slice("来源：".length)),
+    versions: JSON.parse(versions.slice("版本：".length)),
+  };
 }
 
 function textBlocks(message) {
@@ -100,9 +127,10 @@ function irMessage(message) {
     };
   }
   if (message.role === "user") {
+    if (text.startsWith(SCOPE_PREFIX)) return scopeFromWire(text);
     if (text.startsWith(APPLICATION_PREFIX)) {
       return {
-        role: applicationRole(text),
+        role: "application_base",
         provenance: "application",
         blocks: [{ type: "text", text }],
         source_refs: [],

@@ -8,6 +8,7 @@
 //   继承第一请求并只追加 assistant+tool(native result)，不允许伪 user 纠错。
 // - artifact 字节只与 child 最后合法响应的同 item_id 字段逐字比较。
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import {
   broadcastFrames,
   frameBody,
@@ -422,13 +423,15 @@ function appendedNativeResult(appendedFacts, first, firstResponseCall, format) {
   );
 }
 
-function requestCarries(facts, originalBody, findingInstruction) {
-  const contents = facts?.allText ?? "";
+function requestCarries(scope, originalBody, findingInstruction) {
+  const operation = scope?.scopeContent?.operation;
+  if (typeof operation?.context_text !== "string" || typeof operation.revision !== "string") {
+    return false;
+  }
   return allTrue(
     nonBlank(originalBody),
-    contents.includes(originalBody),
-    !nonBlank(findingInstruction) || contents.includes(findingInstruction),
-    contents.includes("质量修订要求"),
+    operation.context_text.includes(originalBody),
+    !nonBlank(findingInstruction) || operation.revision.includes(findingInstruction),
   );
 }
 
@@ -517,7 +520,7 @@ export function retryExchangeChecks({ transcript, records, originalBody, finding
         get(secondValidation, "call_id") === get(second, "call_id"),
       ),
       revision_request_carries_source_bytes_and_findings:
-        requestCarries(firstFacts, originalBody, findingInstruction),
+        requestCarries(scopeForProviderCall(firstRecord, transcript), originalBody, findingInstruction),
     },
     measured: {
       revision_call_count: calls.length,

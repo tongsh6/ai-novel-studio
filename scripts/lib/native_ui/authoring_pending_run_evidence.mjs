@@ -25,9 +25,9 @@ import {
   withDb,
   write,
 } from "./scenario_evidence.mjs";
-import { requestBodiesOf } from "./authoring_scenario_evidence.mjs";
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
-import { joinNativeCallEvidence, readProviderRuns } from "./authoring_call_evidence.mjs";
+import { joinNativeCallEvidence, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { planningCanonSnapshot, readConfig } from "./authoring_capture_evidence.mjs";
 import {
   assistantCalls,
@@ -443,11 +443,16 @@ function readActionEvidence(evidence, checkpoints, source, revision, sourceArtif
 }
 
 function readFollowupEvidence(followup, sourceArtifact, revisionArtifact, sourceItem, revisionItem) {
-  const bodies = requestBodiesOf(followup.calls.records);
+  const requests = followup.calls.records.map(requestFactsFromRecord).filter((request) => request.ok);
+  const bodies = requests.map((request) => request.rawBody);
   assert(bodies.length > 0, "followup 缺少同次真实请求");
-  const factsList = bodies.map(scopeFactsFromRequest).filter(Boolean);
+  const factsList = requests
+    .map((request) => [request, scopeFactsFromRequest(request.rawBody)])
+    .filter(([, facts]) => facts !== null);
   assert.equal(factsList.length, 1, `followup scope facts 必须唯一，实测 ${factsList.length}`);
-  const facts = factsList[0];
+  const [request, facts] = factsList[0];
+  assert(scopeForProviderCall(request.record, followup.history.transcript),
+    "followup Scope 必须绑定同次 pcall/prun 的 canonical 应用来源");
   const scopeChecks = scopeFactsChecks(facts, {
     source: {
       artifact_id: sourceArtifact.artifact_id,

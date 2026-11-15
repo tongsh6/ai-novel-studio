@@ -28,7 +28,12 @@ import {
   observationQuery,
 } from "./authoring_scenario_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
-import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+
+const explorationScope = ({ allowed = false, tools = [] } = {}) => scopeWireMessage(
+  { operation: { exploration: { allowed, tools } } },
+  { versions: { scope_revision: 1, change_reason: "exploration_budget_exhausted" } },
+);
 
 const ANCHOR = "井底浮现第七枚手印";
 
@@ -81,7 +86,7 @@ function nativeBodies() {
     ...two,
     assistantCall(toolCall("call-3")),
     observationMessage(third),
-    { role: "user", content: "【应用数据 · scope_update】只读探索当前允许：false；只读探索预算已用尽" },
+    explorationScope(),
   ];
   return [one, two, three].map((messages) => ({ messages, tools }));
 }
@@ -165,7 +170,7 @@ test("续读查询、章节来源、严格前缀、scope 与 application_base �
   assert.equal(nativeRequestChecks(changedTools).checks.request_messages_keep_strict_prefix, false);
 
   const openScope = nativeBodies();
-  openScope[2].messages.at(-1).content = "【应用数据 · scope_update】只读探索当前允许：true";
+  openScope[2].messages[openScope[2].messages.length - 1] = explorationScope({ allowed: true });
   assert.equal(nativeRequestChecks(openScope).checks.latest_scope_closes_exploration, false);
   const noScope = nativeBodies();
   noScope[2].messages.pop();
@@ -817,7 +822,7 @@ function mixedExchangeBodies() {
   ];
   const three = [
     ...two,
-    { role: "user", content: "【应用数据 · scope_update】只读探索当前允许：false；只读探索预算已用尽" },
+    explorationScope(),
   ];
   return [one, two, three].map((messages) => ({ messages, tools }));
 }
@@ -971,13 +976,16 @@ test("未知结果类型、空白 call id、畸形 tool_calls 与缺先调用都
   );
 });
 
-test("scope 只含一半收口文本、单个 base、多个 scope 时仍按最后一条判断", () => {
+test("scope 缺结构字段、单个 base、多个 scope 时仍按最后一条判断", () => {
   const halfScope = nativeBodies();
-  halfScope[2].messages.at(-1).content = "【应用数据 · scope_update】只读探索当前允许：false";
+  halfScope[2].messages[halfScope[2].messages.length - 1] = scopeWireMessage(
+    { operation: { exploration: { allowed: false } } },
+    { versions: { change_reason: "exploration_budget_exhausted" } },
+  );
   assert.equal(nativeRequestChecks(halfScope).checks.latest_scope_closes_exploration, false);
 
   const twoScopes = nativeBodies();
-  twoScopes[2].messages.splice(-1, 0, { role: "user", content: "【应用数据 · scope_update】只读探索当前允许：true" });
+  twoScopes[2].messages.splice(-1, 0, explorationScope({ allowed: true }));
   assert.equal(nativeRequestChecks(twoScopes).checks.latest_scope_closes_exploration, true);
 
   const oneBase = [{
@@ -1299,21 +1307,13 @@ test("canonical IR 请求与原生 wire 对同一事实给出相同判据", () =
 
 test("canonical IR 的 scope/provenance 不靠应用数据 marker 推断", () => {
   const ir = nativeBodies().map((body) => irBodyFromWire({ messages: body.messages, tools: body.tools }));
-  ir.at(-1).messages = ir.at(-1).messages.map((message) =>
-    message.role === "scope_update"
-      ? {
-          ...message,
-          blocks: message.blocks.map((block) => ({
-            ...block,
-            text: block.text.replace("【应用数据 · scope_update】", ""),
-          })),
-        }
-      : message,
-  );
+  const scope = ir.at(-1).messages.find((message) => message.role === "scope_update");
+  assert.equal(scope.blocks[0].type, "scope");
+  assert.equal(Object.hasOwn(scope.blocks[0], "text"), false);
   assert.equal(nativeRequestChecks(ir).checks.latest_scope_closes_exploration, true);
-});
-
-test("canonical IR 续航/角色阶段按 blocks 读取工具调用与结果", () => {
+  scope.provenance = "author";
+  assert.equal(nativeRequestChecks(ir).checks.latest_scope_closes_exploration, false);
+});test("canonical IR 续航/角色阶段按 blocks 读取工具调用与结果", () => {
   const { records, durable } = continuationFixture();
   const irRecords = records.map((record) => ({
     ...record,

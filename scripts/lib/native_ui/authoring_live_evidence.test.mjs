@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { b71LiveModelBehavior } from "./authoring_live_evidence.mjs";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 const AUTHOR = "先看看第01章现在的设定和正文，再写一段更紧张的开场：主角在雨夜收到一封没有署名的信。";
 const TURN = "message_live_1";
@@ -271,29 +272,35 @@ test("L5/L6：只有 messages 回放、无实时响应 tool_calls 时不伪造�
   assert.equal(checks.model_behavior.tool_call_count, 0);
 });
 
-test("L7：used 按 pcall/prun 配对同次请求——越界失败、合法通过、不可提取记 null", () => {
+test("L7：原生 wire 已绑定 Scope 但缺同次 Base 登记时明确缺证", () => {
+  const nativeScope = {
+    role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content: { context: {} } }],
+    source_refs: [{ ref: "observation:obs_1" }], versions: { scope_revision: 1 },
+  };
   const messages = [
     system(),
     appBase("材料：chapter:ch-1；执行简述：execution_brief:chapter:ch-1"),
     author(),
-    { role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n- [observation:obs_1]" },
+    scopeWireMessage(nativeScope.blocks[0].content, { versions: nativeScope.versions, sourceRefs: nativeScope.source_refs }),
   ];
   const records = [record(messages)];
-  const outOfBoundary = evaluate({
-    llmRecords: records,
-    dbFacts: designDbFacts({ usedRefs: ["observation:obs_out_of_boundary"] }),
-  });
-  assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, false);
-  assert(outOfBoundary.measured.refs.violations.length > 0);
+  const outFacts = designDbFacts({ usedRefs: ["observation:obs_out_of_boundary"] });
+  outFacts.segment_transcript.messages.unshift(structuredClone(nativeScope));
+  const outOfBoundary = evaluate({ llmRecords: records, dbFacts: outFacts });
+  assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, null);
+  assert.equal(outOfBoundary.measured.refs.reason, "request_base_refs_unavailable");
+  assert.deepEqual(outOfBoundary.measured.refs.violations, []);
   assert.equal(outOfBoundary.measured.refs.reports[0].provider_call_ref, "pcall_1");
   assert.equal(outOfBoundary.measured.refs.reports[0].provider_run_ref, "prun_1");
-  const legal = evaluate({
-    llmRecords: records,
-    dbFacts: designDbFacts({ usedRefs: ["observation:obs_1", "execution_brief:chapter:ch-1"] }),
-  });
-  assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, true);
+  const legalFacts = designDbFacts({ usedRefs: ["observation:obs_1", "execution_brief:chapter:ch-1"] });
+  legalFacts.segment_transcript.messages.unshift(structuredClone(nativeScope));
+  const legal = evaluate({ llmRecords: records, dbFacts: legalFacts });
+  assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, null);
+  assert.equal(legal.measured.refs.reason, "request_base_refs_unavailable");
   assert.equal(legal.measured.refs.reports.length, 1);
-  assert(legal.measured.refs.reports[0].observation_refs.includes("observation:obs_1"));
+  assert.deepEqual(legal.measured.refs.reports[0].base_refs, []);
+  assert.deepEqual(legal.measured.refs.reports[0].observation_refs, []);
   const unknown = evaluate({ llmRecords: records });
   assert.equal(unknown.checks.mechanism.used_context_refs_within_boundary, null);
 });

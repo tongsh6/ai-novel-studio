@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { chapterMissionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 const WORK = "22222222-2222-4222-8222-222222222222";
 const OTHER_WORK = "33333333-3333-4333-8333-333333333333";
@@ -118,34 +119,34 @@ function scopeMessage() {
       { ref: "plan:2:scene:1" },
     ],
     blocks: [{
-      type: "text",
-      text: [
-        "本次你承担写前推理器的角色。",
-        "- [plan:2:rule_example] 规则示例：这不是正式材料声明。",
-        "材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：",
-        "",
-        "目标章：第02章：矿区追击战（chapter:chapter-2）",
-        "",
-        "### 本章计划（设计态）",
-        `- [plan:2:chapter_role] ${LABEL_ADVANCE}`,
-        `- [plan:2:scene:1] ${LABEL_OTHER}`,
-        "",
-        "### 后续章计划信息（不得提前揭示）",
-        `- [ledger:information:plan_info_4] ${LABEL_AVOID}`,
-        "",
-        "## 当前运行权限与预算（不是执行批准）",
-        "- [plan:rule_example] 这不是正式材料声明。",
-      ].join("\n"),
+      type: "scope",
+      content: {
+        work_id: WORK,
+        goal: { text: "推导本章使命", version: 1 },
+        operation: {
+          mission_inputs: {
+            mode: "prose",
+            chapter: { seq: 2, title: TITLE, chapter_ref: TARGET_REF },
+            items: [
+              { ref: "plan:2:chapter_role", group: "plan", text: LABEL_ADVANCE },
+              { ref: "plan:2:scene:1", group: "plan", text: LABEL_OTHER },
+              { ref: "ledger:information:plan_info_4", group: "secrecy", text: LABEL_AVOID },
+            ],
+            undated_foreshadow_count: 0,
+            written_progress: { chapter_seq: 1, volume_seq: 1 },
+          },
+          runtime: {},
+        },
+      },
     }],
   };
 }
 
 function scopeProjection(scope = scopeMessage()) {
-  return [
-    "【应用数据 · scope_update · 以最新版本为准】",
-    `版本：${JSON.stringify(scope.versions)}`,
-    ...scope.blocks.map((block) => block.text),
-  ].join("\n");
+  return scopeWireMessage(scope.blocks[0].content, {
+    versions: scope.versions,
+    sourceRefs: scope.source_refs,
+  }).content;
 }
 
 function transcript(messages) {
@@ -220,13 +221,7 @@ function records({ arguments: args, record = {}, scope } = {}) {
           source_refs: [],
           versions: {},
         },
-        {
-          role: "scope_update",
-          provenance: "application",
-          blocks: [{ type: "text", text: scopeText(scope ?? scopeMessage()) }],
-          source_refs: scopeSourceRefs(scope ?? scopeMessage()),
-          versions: (scope ?? scopeMessage()).versions,
-        },
+        structuredClone(scope ?? scopeMessage()),
       ],
       tools: [],
       projection: { tool_choice: null },
@@ -247,16 +242,6 @@ function records({ arguments: args, record = {}, scope } = {}) {
   }];
 }
 
-function scopeText(scope) {
-  return (Array.isArray(scope?.blocks) ? scope.blocks : [])
-    .map((block) => block?.text)
-    .filter((text) => typeof text === "string" && text.trim() !== "")
-    .join("\n");
-}
-
-function scopeSourceRefs(scope) {
-  return Array.isArray(scope?.source_refs) ? scope.source_refs : [];
-}
 
 function missionEvent(overrides = {}) {
   return {
@@ -317,7 +302,7 @@ function input(overrides = {}) {
 
 function wireRecordWithScope(emptyMarker = false) {
   const scope = scopeMessage();
-  const content = emptyMarker ? scopeText(scope) : scopeProjection(scope);
+  const content = emptyMarker ? JSON.stringify(scope.blocks[0].content) : scopeProjection(scope);
   const record = structuredClone(records()[0]);
   delete record.request_format;
   delete record.request_body;
@@ -372,15 +357,14 @@ test("canonical 仍保留材料但实际请求删掉 scope 投影时必须失败
   assert.equal(checks.mission_id_and_event_are_bound, false);
 });
 
-test("请求投影的版本/原文/唯一性不符时失败", () => {
+test("请求投影的版本/材料字节/来源/唯一性不符时失败", () => {
   const versionMismatch = records();
   versionMismatch[0].request_body.messages[2].versions.scope_revision = 4;
   assert.equal(checksOf({ records: versionMismatch }).mission_call_is_fully_joined, false);
 
   const textMismatch = records();
-  textMismatch[0].request_body.messages[2].blocks[0].text =
-    textMismatch[0].request_body.messages[2].blocks[0].text
-      .replace(LABEL_ADVANCE, "请求里被改过的标签");
+  textMismatch[0].request_body.messages[2].blocks[0].content.operation.mission_inputs.items[0].text =
+    "请求里被改过的标签";
   assert.equal(checksOf({ records: textMismatch }).mission_call_is_fully_joined, false);
 
   const duplicate = records();
@@ -389,19 +373,18 @@ test("请求投影的版本/原文/唯一性不符时失败", () => {
   );
   assert.equal(checksOf({ records: duplicate }).mission_call_is_fully_joined, false);
 
-  // canonical IR 的作者身份来自 role/provenance，不再依赖应用数据 marker。
-  const noMarker = records();
-  noMarker[0].request_body.messages[2].blocks[0].text = scopeMessage().blocks[0].text;
-  assert.equal(checksOf({ records: noMarker }).mission_call_is_fully_joined, true);
+  const sourceMismatch = records();
+  sourceMismatch[0].request_body.messages[2].source_refs[0].ref = "unbound:request-source";
+  assert.equal(checksOf({ records: sourceMismatch }).mission_call_is_fully_joined, false);
 });
 
 test("同一 basis_ref 的冲突标签是歧义来源，不能后者覆盖前者", () => {
   const scope = scopeMessage();
-  const previous = `- [plan:2:chapter_role] ${LABEL_ADVANCE}`;
-  scope.blocks[0].text = scope.blocks[0].text.replace(
-    previous,
-    `- [plan:2:chapter_role] 冲突的来源标签\n${previous}`,
-  );
+  scope.blocks[0].content.operation.mission_inputs.items.push({
+    ref: "plan:2:chapter_role",
+    group: "plan",
+    text: "冲突的来源标签",
+  });
   const checks = checksOf({
     transcript: transcriptWithScope(scope),
     records: records({ scope }),
@@ -410,23 +393,23 @@ test("同一 basis_ref 的冲突标签是歧义来源，不能后者覆盖前者
   assert.equal(checks.mission_retained_basis_and_labels_match, false);
 });
 
-test("只解析材料声明区：缺表头或材料 ref 超出 operation source_refs 均失败", () => {
-  const noHeaderScope = scopeMessage();
-  noHeaderScope.blocks[0].text = noHeaderScope.blocks[0].text
-    .replace("材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：\n", "");
+test("使命材料必须来自结构 Scope，历史文本或超出 source_refs 的材料不能确权", () => {
+  const oldText = scopeMessage();
+  oldText.blocks = [{ type: "text", text: "- [plan:2:chapter_role] 看似合法的旧材料" }];
   assert.equal(
     checksOf({
-      transcript: transcriptWithScope(noHeaderScope),
-      records: records({ scope: noHeaderScope }),
+      transcript: transcriptWithScope(oldText),
+      records: records({ scope: oldText }),
     }).mission_call_is_fully_joined,
     false,
   );
 
   const extraRefScope = scopeMessage();
-  extraRefScope.blocks[0].text = extraRefScope.blocks[0].text.replace(
-    `- [plan:2:scene:1] ${LABEL_OTHER}`,
-    `- [plan:2:scene:1] ${LABEL_OTHER}\n- [plan:2:not_in_metadata] 未登记的来源`,
-  );
+  extraRefScope.blocks[0].content.operation.mission_inputs.items.push({
+    ref: "plan:2:not_in_metadata",
+    group: "plan",
+    text: "未登记的来源",
+  });
   assert.equal(
     checksOf({
       transcript: transcriptWithScope(extraRefScope),
@@ -486,24 +469,13 @@ test("mission 未变化、无事件但仍有成功调用时，不能把消失当
   assert.equal(present.checks.mission_id_and_event_are_bound, false);
 });
 
-test("材料表头位于首行时仍解析；表头前的规则示例 ref 不进入来源映射", () => {
-  const headerFirst = scopeMessage();
-  const text = headerFirst.blocks[0].text;
-  headerFirst.blocks[0].text = text.slice(text.indexOf("材料（每条以 [ref] 开头"));
-  const value = chapterMissionSourceChecks(input({
-    transcript: transcriptWithScope(headerFirst),
-    records: records({ scope: headerFirst }),
-  }));
-  assert.ok(Object.values(value.checks).every(Boolean), JSON.stringify(value.checks));
-});
 
-test("单一材料行也是完整声明区，不因数量为 1 被当成空", () => {
+test("单一真实材料也必须完整绑定 ref 与原标签", () => {
   const scope = scopeMessage();
   scope.source_refs = [{ ref: "plan:2:chapter_role" }];
-  scope.blocks[0].text = [
-    "材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：",
-    `- [plan:2:chapter_role] ${LABEL_ADVANCE}`,
-  ].join("\n");
+  scope.blocks[0].content.operation.mission_inputs.items = [
+    { ref: "plan:2:chapter_role", group: "plan", text: LABEL_ADVANCE },
+  ];
   const args = {
     author_reasoning: "只依据唯一提供的本章计划材料。",
     statement: missionMap().statement,
@@ -749,6 +721,7 @@ test("字符串 arguments 仍按同次响应解析，坏 JSON/缺 scope 前帧�
     scopeMessage(),
     {
       role: "assistant",
+      provenance: "model",
       provider_call_ref: PCALL,
       provider_run_ref: PRUN,
       blocks: [{
@@ -997,12 +970,8 @@ test("model mission 在有调用/事件时仍是模型版，不会被误判为�
 });
 
 test("scope 帧缺 versions、材料块为 null、source_refs 含 null 项都关闭而不崩溃", () => {
-  const missingVersions = {
-    role: "scope_update",
-    provenance: "application",
-    source_refs: [{ ref: "plan:2:chapter_role" }],
-    blocks: [{ type: "text", text: "材料（每条以 [ref] 开头）\n- [plan:2:chapter_role] 标签" }],
-  };
+  const missingVersions = scopeMessage();
+  delete missingVersions.versions;
   const t1 = transcript([missingVersions, ...transcript().messages.slice(1)]);
   assert.equal(checksOf({ transcript: t1 }).mission_call_is_fully_joined, false);
 
@@ -1013,7 +982,7 @@ test("scope 帧缺 versions、材料块为 null、source_refs 含 null 项都关
       transcript: transcriptWithScope(nullBlockScope),
       records: records(),
     }).mission_call_is_fully_joined,
-    true,
+    false,
   );
 
   const nullRefScope = scopeMessage();
@@ -1023,20 +992,18 @@ test("scope 帧缺 versions、材料块为 null、source_refs 含 null 项都关
       transcript: transcriptWithScope(nullRefScope),
       records: records({ scope: nullRefScope }),
     }).mission_call_is_fully_joined,
-    true,
+    false,
   );
 });
 
 test("实际请求材料比 canon 多出未声明的 ref 时必须关闭", () => {
   const scope = scopeMessage();
-  scope.blocks[0].text = [
-    "材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：",
-    `- [plan:2:chapter_role] ${LABEL_ADVANCE}`,
-    `- [plan:2:scene:1] ${LABEL_OTHER}`,
-    `- [ledger:information:plan_info_4] ${LABEL_AVOID}`,
-  ].join("\n");
   const recs = records({ scope });
-  recs[0].request_body.messages[2].blocks[0].text += "\n- [plan:2:extra] 请求中额外材料";
+  recs[0].request_body.messages[2].blocks[0].content.operation.mission_inputs.items.push({
+    ref: "plan:2:extra",
+    group: "plan",
+    text: "请求中额外材料",
+  });
   assert.equal(
     checksOf({
       transcript: transcriptWithScope(scope),
@@ -1123,7 +1090,18 @@ test("joinedRefs 只有 pcall 没有 prun 时关闭而不是崩溃", () => {
 });
 
 
-test("真实 wire scope 仍按原应用数据 marker 与版本行读取，缺 marker 不放行", () => {
+test("真实 wire 与 canonical 共享结构 Scope 判据，重复历史保留，缺来源协议不放行", () => {
   assert.ok(Object.values(checksOf({ records: [wireRecordWithScope()] })).every(Boolean));
   assert.equal(checksOf({ records: [wireRecordWithScope(true)] }).mission_call_is_fully_joined, false);
+
+  const repeated = input({ records: [wireRecordWithScope()] });
+  repeated.transcript.messages.unshift(scopeMessage());
+  repeated.records[0].request.body.messages.push({ role: "user", content: scopeProjection() });
+  assert.ok(Object.values(chapterMissionSourceChecks(repeated).checks).every(Boolean));
+
+  const collision = input({ records: [wireRecordWithScope()] });
+  collision.transcript.messages.unshift({
+    role: "user", provenance: "author", blocks: [{ type: "text", text: scopeProjection() }],
+  });
+  assert.equal(chapterMissionSourceChecks(collision).checks.mission_call_is_fully_joined, false);
 });

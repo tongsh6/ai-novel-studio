@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { scopeForProviderCall } from "./lib/native_ui/authoring_call_evidence.mjs";
 import {
   LAST_PAGE_ANCHOR,
   nativeCallFailureSummary,
@@ -291,6 +292,8 @@ function verifyFullRead(dir) {
   const request = nativeRequestChecks(requestBodiesOf(run.calls.records));
   const gap = nativeCallFailureSummary(run.calls);
   const checks = {
+    latest_scope_bound_to_canonical:
+      scopeForProviderCall(run.calls.records.at(-1), run.history.transcript) !== null,
     ...fullReadOutcomeChecks({
       visible: authoringVisibleText(dir, "02-final"),
       lastPageAnchor: LAST_PAGE_ANCHOR,

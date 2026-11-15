@@ -5,18 +5,11 @@
 import { isDeepStrictEqual } from "node:util";
 import { parseUtcTimestamp } from "./authoring_canon_evidence.mjs";
 import { assistantCalls } from "./authoring_revision_evidence.mjs";
-import {
-  NATIVE_CHAT_WIRE,
-  requestFactsFromRecord,
-} from "./authoring_request_facts.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
 const TOOL_NAME = "chapter_mission";
 const TENTATIVE = "TENTATIVE";
 const MISSION_ITEM_KEYS = Object.freeze(["text", "basis_ref"]);
-// 真实 Provider 请求把 operation scope 投影成一条 user 消息：固定标记 + 版本行 + 原文。
-const SCOPE_PROJECTION_MARKER = "【应用数据 · scope_update · 以最新版本为准】";
-const MATERIAL_HEADER = "材料（每条以 [ref] 开头";
-const MATERIAL_LINE = /^- \[([^\]\r\n]+)\] (.+)$/u;
 const AGENT_STEP_TURN = /:agent:[1-9][0-9]*$/u;
 
 const isRecord = (value) =>
@@ -108,45 +101,25 @@ function scopeMessageFor(transcript, call) {
 }
 
 function sourceRefsOf(scope) {
-  const refs = list(scope.source_refs).map((item) => item?.ref).filter(nonBlank);
+  // shape 已由共享 Scope/call 边界验证；本 owner 只要求材料来源唯一。
+  const refs = scope.source_refs.map((item) => item.ref);
   return new Set(refs).size === refs.length ? refs : null;
 }
 
-function materialLine(line) {
-  const match = MATERIAL_LINE.exec(line.trim());
-  if (!match) return null;
-  // 空 ref/空 label 无法匹配任何 canon 合法 basis，交给 metadata/标签一致性边界关闭。
-  return { ref: clean(match[1]), label: clean(match[2]) };
+function validMissionMaterial(item) {
+  return isRecord(item) && ["ref", "group", "text"].every((key) => nonBlank(item[key]));
 }
 
-// 只解析本次 operation 真正的材料声明区：从材料表头后开始，到下一个二级标题为止。
-// 规则示例、作者引用或其它历史文本不在该区，不能成为正式来源映射。
-function materialDeclaration(text) {
-  if (typeof text !== "string") return null;
-  const lines = text.split("\n");
-  const start = lines.findIndex((line) => line.trim().startsWith(MATERIAL_HEADER));
-  if (start < 0) return null;
-  const refs = [];
+function missionMaterials(content) {
+  const items = content?.operation?.mission_inputs?.items;
+  if (!Array.isArray(items) || items.length === 0) return null;
   const labels = new Map();
-  const body = lines.slice(start);
-  body.shift(); // 表头本身不是材料行
-  for (const line of body) {
-    if (line.trim().startsWith("## ")) break;
-    const item = materialLine(line);
-    if (!item) continue;
-    // 同一 ref 出现两次即歧义来源，不能靠后写覆盖前写。
-    if (labels.has(item.ref)) return null;
-    refs.push(item.ref);
-    labels.set(item.ref, item.label);
+  for (const item of items) {
+    if (!validMissionMaterial(item) || labels.has(item.ref)) return null;
+    // Domain ChapterMissionInputs.label/2 直接取原 item.text；不 trim、不重建标签。
+    labels.set(item.ref, item.text);
   }
-  if (!refs.length) return null;
-  return { refs, labels };
-}
-
-function materialOfScope(scope) {
-  return materialDeclaration(
-    list(scope.blocks).map((block) => block?.text).filter(nonBlank).join("\n"),
-  );
+  return { refs: [...labels.keys()], labels };
 }
 
 function sameRefSet(left, right) {
@@ -154,62 +127,13 @@ function sameRefSet(left, right) {
   return left.length === right.length && left.every((ref) => rightSet.has(ref));
 }
 
-function sameMaterial(left, right) {
-  // operationRequest 只在两侧都解析出材料后调用。
-  if (!sameRefSet(left.refs, right.refs)) return false;
-  return left.refs.every((ref) => left.labels.get(ref) === right.labels.get(ref));
-}
-
-function versionLineMatches(content, versions) {
-  const prefix = `${SCOPE_PROJECTION_MARKER}\n版本：`;
-  if (!content.startsWith(prefix)) return false;
-  const rest = content.slice(prefix.length);
-  const line = rest.split("\n", 1)[0].trim();
-  const parsed = parsedObject(line);
-  return Boolean(parsed && isDeepStrictEqual(parsed, versions));
-}
-
-function irProjectedScope(message, versions, texts) {
-  return isRecord(message) &&
-    message.role === "scope_update" &&
-    message.provenance === "application" &&
-    isDeepStrictEqual(message.versions, versions) &&
-    texts.every((text) => message.text.includes(text));
-}
-
-function wireProjectedScope(message, versions, texts) {
-  return isRecord(message) &&
-    message.role === "user" &&
-    typeof message.text === "string" &&
-    versionLineMatches(message.text, versions) &&
-    texts.every((text) => message.text.includes(text));
-}
-
-// 在本次 pcall 自己的实际请求中定位调用前当前 scope 的唯一投影：
-// canonical IR 直接按 role/provenance/blocks + versions/source_refs 读取；真实 wire
-// 仍按原应用数据标记与版本行读取。不能按时间/latest/全 run 搜旧 scope。
-function projectedScope(record, scope) {
-  // operationRequest 只在 canonical 材料非空后调用，scope 必为对象且有材料文本。
-  const texts = list(scope.blocks).map((block) => block?.text).filter(nonBlank);
-  if (!isRecord(scope.versions)) return null;
-  const facts = requestFactsFromRecord(record);
-  if (!facts.ok) return null;
-  const matches = facts.scopeMessages.filter((message) =>
-    facts.format === NATIVE_CHAT_WIRE
-      ? wireProjectedScope(message, scope.versions, texts)
-      : irProjectedScope(message, scope.versions, texts));
-  return matches.length === 1 ? matches[0].text : null;
-}
-
-function operationRequest(scope, record) {
-  if (!isRecord(scope)) return null;
+function operationRequest(scope, record, transcript) {
+  const projected = scopeForProviderCall(record, transcript);
+  if (!scope || !projected) return null;
   const metadata = sourceRefsOf(scope);
-  const canonical = materialOfScope(scope);
-  if (!metadata || !canonical || !sameRefSet(metadata, canonical.refs)) return null;
-  const projected = projectedScope(record, scope);
-  if (!projected) return null;
-  const supplied = materialDeclaration(projected);
-  return sameMaterial(canonical, supplied) ? supplied : null;
+  const materials = missionMaterials(projected.scopeContent);
+  if (!metadata || !materials || !sameRefSet(metadata, materials.refs)) return null;
+  return materials;
 }
 
 function missionCalls(transcript) {
@@ -545,7 +469,7 @@ function checksFor(input, active, changedFacts, calls) {
 function callFacts(input, call) {
   const scope = call ? scopeMessageFor(input.transcript, call) : null;
   const record = recordForCall(input, call);
-  const request = operationRequest(scope, record);
+  const request = operationRequest(scope, record, input.transcript);
   const response = responseMission(responseCall(record, call));
   return { request, response };
 }

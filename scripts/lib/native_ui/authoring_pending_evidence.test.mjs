@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 // 真实批次 cp4b-pending-02 的原始 AX dump（nonce 脱敏）：Why/候选 article/动作按钮是
 // 同一 AXWebArea 下的同级兄弟，用于锁定扁平树定位语义，不用合成完美树替代真实形状。
 const FLAT_AX = JSON.parse(
@@ -477,15 +478,12 @@ test("scope facts 只解析消息处置 section 的 JSON，并逐 ref/status/bod
     resolved_adoption_count: 2,
     omitted_adoptions: 0,
   };
-  const text = [
-    "【应用数据 · scope_update】",
-    "## 消息处置与已有产物",
-    JSON.stringify(facts),
-    "## 已采纳可修订对象",
-    '{"pending_adoptions":[],"resolved_adoptions":[]}',
-  ].join("\n");
-  const request = { messages: [{ role: "user", content: text }] };
-  assert.deepEqual(scopeFactsFromRequest(request), facts);
+  const request = { messages: [scopeWireMessage({
+    context: {
+      interaction_state: facts,
+      conversation_summary: '{"pending_adoptions":[],"resolved_adoptions":[]}',
+    },
+  })] };  assert.deepEqual(scopeFactsFromRequest(request), facts);
   const checks = scopeFactsChecks(facts, {
     source: { artifact_id: SOURCE_ID, status: "DISCARDED", title: SOURCE_TITLE, body: SOURCE_BODY, revision_of: null },
     revision: { artifact_id: REVISION_ID, status: "ACCEPTED", title: REVISION_TITLE, body: REVISION_BODY, revision_of: SOURCE_ID },
@@ -516,21 +514,19 @@ test("scope facts 只认最新 applied scope_update，作者引用和历史 scop
     omitted_adoptions: 0,
   };
   const oldFacts = { ...facts, resolved_adoptions: [], resolved_adoption_count: 0 };
-  const scope = (version, body) => ({
-    role: "user",
-    content: `【应用数据 · scope_update · 以最新版本为准】\n版本：{"scope_revision":${version}}\n${body}`,
-  });
-  const section = (value) => `## 消息处置与已有产物\n${JSON.stringify(value)}\n`;
+  const scope = (version, state) => scopeWireMessage(
+    { context: { interaction_state: state } },
+    { versions: { scope_revision: version } },
+  );
   const authorQuote = {
     role: "user",
-    content: `资料处理进度怎么样？\n以下是引用材料：\n${section(facts)}`,
+    content: `资料处理进度怎么样？\n以下是引用材料：\n${JSON.stringify(facts)}`,
   };
   assert.equal(scopeFactsFromRequest({ messages: [authorQuote] }), null);
-  assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, section(oldFacts)), scope(2, section(facts))] }), facts);
-  assert.equal(scopeFactsFromRequest({ messages: [scope(1, section(facts)), scope(2, "## 当前范围\n本次没有状态供给。")] }), null);
-  assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, "## 当前范围\n本次没有状态供给。"), scope(2, section(facts)), authorQuote] }), facts);
-  assert.equal(scopeFactsFromRequest({ messages: [scope(1, `${section(facts)}\n${JSON.stringify(facts)}`)] }), null);
-});
+  assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, oldFacts), scope(2, facts)] }), facts);
+  assert.equal(scopeFactsFromRequest({ messages: [scope(1, facts), scope(2, null)] }), null);
+  assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, null), scope(2, facts), authorQuote] }), facts);
+  assert.equal(scopeFactsFromRequest({ messages: [scope(1, { ...facts, pending_adoptions: {} })] }), null);});
 
 test("followup 回复必须等于同次 Provider 原字节并消费真实状态/已采纳全文", () => {
   const facts = {
@@ -597,17 +593,6 @@ test("空值与缺字段矩阵：定位/动作/事实/回复都 fail closed", ()
   assert.equal(isPendingWaitMiss({ code: "B71_PENDING_NOT_FOUND" }), true);
   assert.equal(followupReplyChecks({}).reply_present, false);
   assert.equal(followupReplyChecks({ turnResult: { assistant_message: { text: "" }, truthfulness: {} }, providerContent: null, facts: null }).reply_exact_provider, false);
-});
-
-test("scope facts 同 section 多个合法 JSON 或跨 section 多义都拒绝", () => {
-  const facts = { pending_adoptions: [], resolved_adoptions: [] };
-  const one = `## 消息处置与已有产物\n${JSON.stringify(facts)}`;
-  const two = `${one}\n${JSON.stringify(facts)}`;
-  assert.equal(scopeFactsFromRequest({ messages: [{ role: "user", content: two }] }), null);
-  assert.equal(scopeFactsFromRequest({ messages: [
-    { role: "user", content: one },
-    { role: "user", content: one },
-  ] }), null);
 });
 
 test("action 冲突/重复/错状态边界", () => {
@@ -678,28 +663,6 @@ test("AX 可见性按 frame 的 y/宽/高判定，x=0 仍可见，零高度不�
   );
 });
 
-test("真实 scope producer 的说明文字+标准 JSON 行只取唯一事实", () => {
-  const facts = {
-    pending_adoptions: [],
-    resolved_adoptions: [
-      { status: "DISCARDED", title: SOURCE_TITLE, body_preview: SOURCE_BODY, artifact_ref: SOURCE_ID, revision_of: null },
-      { status: "ACCEPTED", title: REVISION_TITLE, body_preview: REVISION_BODY, artifact_ref: REVISION_ID, revision_of: SOURCE_ID },
-    ],
-    pending_adoption_count: 0,
-    resolved_adoption_count: 2,
-    omitted_adoptions: 0,
-  };
-  const content = [
-    "【应用数据 · scope_update · 以最新版本为准】",
-    '版本：{"scope_revision":3}',
-    "## 消息处置与已有产物",
-    "本消息已处理以下候选：",
-    JSON.stringify(facts),
-    "## 已采纳可修订对象",
-    '{"pending_adoptions":[],"resolved_adoptions":[]}',
-  ].join("\n");
-  assert.deepEqual(scopeFactsFromRequest({ messages: [{ role: "user", content }] }), facts);
-});
 
 test("scope facts 允许省略 title/revision_of，但出现时必须精确", () => {
   const facts = {
@@ -902,7 +865,7 @@ test("canonical IR scope_update 直接按 role/provenance/blocks 读取，未知
     resolved_adoption_count: 0,
     omitted_adoptions: 0,
   };
-  const text = ["## 消息处置与已有产物", JSON.stringify(facts), "## 当前范围", "无"].join("\n");
+  const content = { context: { interaction_state: facts } };
   const ir = {
     ir_version: "authoring-request-ir/v1",
     messages: [
@@ -916,7 +879,7 @@ test("canonical IR scope_update 直接按 role/provenance/blocks 读取，未知
       {
         role: "scope_update",
         provenance: "application",
-        blocks: [{ type: "text", text }],
+        blocks: [{ type: "scope", content }],
         source_refs: [],
         versions: { scope_revision: 1 },
       },

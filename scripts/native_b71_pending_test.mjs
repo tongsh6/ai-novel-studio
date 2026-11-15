@@ -22,7 +22,7 @@ import {
 import { capturePending, verifyPendingBatch } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
 import { createWorkingCopy, openTestRunScope } from "./lib/test_env.mjs";
 
-import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 const SLICE_ID = "b71-authoring-pending";
 const WORK = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = WORK;
@@ -256,13 +256,7 @@ function llmRecord({ pcall, prun, runId, parentTurn, promptText, response }) {
 }
 
 function scopeText(facts) {
-  return [
-    "【应用数据 · scope_update · 以最新版本为准】",
-    "## 消息处置与已有产物",
-    JSON.stringify(facts),
-    "## 已采纳可修订对象",
-    "{}",
-  ].join("\n");
+  return scopeWireMessage({ context: { interaction_state: facts } }).content;
 }
 
 function followupFacts() {
@@ -913,21 +907,28 @@ async function buildBatch(workRoot) {
 
   // followup：新 run 的真实请求消费 ACCEPTED/DISCARDED，回复等于同次 Provider 原文。
   const reply = followupReply();
+  const followupTranscript = transcript(runIdentity(FOLLOWUP_RUN, FOLLOWUP_TURN), [
+    { role: "user", provenance: "author", blocks: [{ type: "text", text: FOLLOWUP_TEXT }] },
+    {
+      role: "scope_update",
+      provenance: "application",
+      versions: {},
+      source_refs: [],
+      blocks: [{ type: "scope", content: { context: { interaction_state: followupFacts() } } }],
+    },
+    assistant("pcall-followup", "prun-followup", null, null, null, reply),
+  ]);
   const followupRun = agentRunRow(
     FOLLOWUP_RUN,
     FOLLOWUP_TURN,
-    transcript(runIdentity(FOLLOWUP_RUN, FOLLOWUP_TURN), [
-      assistant("pcall-followup", "prun-followup", null, null, null, reply),
-    ]),
+    followupTranscript,
     1,
     { allowed_tools: ["judgment"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
   );
   const followupResponse = { status: "ok", body: { content: reply, tool_calls: [] } };
   insertRunFacts(dir, {
     run: followupRun,
-    transcript: transcript(runIdentity(FOLLOWUP_RUN, FOLLOWUP_TURN), [
-      assistant("pcall-followup", "prun-followup", null, null, null, reply),
-    ]),
+    transcript: followupTranscript,
     providerRuns: [providerRunRow("prun-followup", "pcall-followup", FOLLOWUP_RUN, FOLLOWUP_TURN, "planner")],
     records: [llmRecord({
       pcall: "pcall-followup",
@@ -1136,9 +1137,8 @@ test("followup 请求缺少真实处置状态不能通过", (t) => {
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   const last = rows.at(-1);
-  last.request_body.messages = last.request_body.messages.filter(
-    (message) => !(message.blocks ?? []).some((block) => String(block.text).includes("## 消息处置与已有产物")),
-  );
+  const scope = last.request_body.messages.findLast((message) => message.role === "scope_update");
+  delete scope.blocks[0].content.context.interaction_state;
   writeJsonl(file, rows);
   assert.throws(() => verifyPendingBatch(dir), /scope facts/);
 });

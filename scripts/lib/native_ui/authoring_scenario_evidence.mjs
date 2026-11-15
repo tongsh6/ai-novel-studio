@@ -201,8 +201,10 @@ function chapterRefObserved(continuation, query) {
 }
 
 function scopeClosesExploration(finalScope) {
-  const content = text(finalScope?.text);
-  return content.includes("只读探索当前允许：false") && content.includes("只读探索预算已用尽");
+  const exploration = finalScope?.scopeContent?.operation?.exploration;
+  return exploration?.allowed === false &&
+    Array.isArray(exploration.tools) && exploration.tools.length === 0 &&
+    finalScope.versions.change_reason === "exploration_budget_exhausted";
 }
 
 function applicationBaseIsClean(bases) {

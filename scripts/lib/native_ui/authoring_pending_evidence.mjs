@@ -648,50 +648,15 @@ export function writerArtifactMatch({ artifact, records } = {}) {
   return { ok: true, reason: null, provider_call_ref: providerCallRef, writer_item_count: writer.items.length };
 }
 
-function sectionText(content) {
-  if (typeof content !== "string") return null;
-  const match = content.match(/## 消息处置与已有产物([\s\S]*?)(?=\n##\s|$)/u);
-  return match === null ? null : match[1];
-}
-
-
-
-function parseFacts(value) {
-  try {
-    const parsed = JSON.parse(value);
-    return allOf(
-      isObject(parsed),
-      Array.isArray(parsed.pending_adoptions),
-      Array.isArray(parsed.resolved_adoptions),
-    ) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function factsInSection(section) {
-  const trimmed = section.trim();
-  const whole = parseFacts(trimmed);
-  if (whole) return whole;
-  const lines = trimmed
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("{") && line.endsWith("}"));
-  const parsed = lines.map(parseFacts).filter(Boolean);
-  return parsed.length === 1 ? parsed[0] : null;
-}
-
-// 状态只属于最新一条真实应用的 scope_update 消息；作者原话、历史 scope、其它
-// 位置引用的同名 JSON 都不授权。最新 scope 缺 section/非法 JSON 就是缺证据。
+// 只提取请求末次结构化 Scope 的 interaction_state 候选；不从自然语言 section 回退。
+// 原生 wire 本身不证明应用来源；真实运行 caller 还须按 pcall/prun 绑定 canonical Scope。
 export function scopeFactsFromRequest(requestBody) {
-  // 请求只按 source format 读一次：IR 直接用 scope_update 的 blocks/versions，
-  // 原生 wire 保留原应用数据 marker 边界；未知/坏 body 返回 null 令调用方缺证据。
   const facts = requestFactsFromBody(requestBody);
   if (!facts.ok || facts.scopeMessages.length === 0) return null;
-  const section = sectionText(facts.scopeMessages.at(-1).text);
-  return section === null ? null : factsInSection(section);
+  const state = facts.scopeMessages.at(-1).scopeContent?.context?.interaction_state;
+  return isObject(state) && Array.isArray(state.pending_adoptions) &&
+    Array.isArray(state.resolved_adoptions) ? state : null;
 }
-
 function resolvedByRefAll(facts) {
   return list(get(facts, "resolved_adoptions")).filter(isObject);
 }

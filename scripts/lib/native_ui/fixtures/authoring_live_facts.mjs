@@ -4,6 +4,8 @@
 // import fs/os/path、不建目录/DB、不 import 被测 SUT。时间字段固定为历史批次值，
 // 使同一规格在 run 内只物化一次；纯 verifier 判据在
 // `../authoring_live_evidence.test.mjs` 不消费本文件。
+import { scopeWireMessage } from "./authoring_request_ir.mjs";
+
 export const AUTHOR =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
 export const G2_MESSAGE =
@@ -96,7 +98,15 @@ export const appBase = () => ({
   content: "【应用数据 · application_base · 非作者原话】\n创作判断器规则。\n- [observation:obs_1]",
 });
 export const author = () => ({ role: "user", content: AUTHOR });
-export const scope = () => ({ role: "user", content: "【应用数据 · scope_update · 以最新版本为准】\n版本：{\"scope_revision\":1}" });
+const canonicalScope = () => ({
+  role: "scope_update", provenance: "application",
+  blocks: [{ type: "scope", content: { facts: {}, coverage: {}, omissions: [] } }],
+  source_refs: [], versions: { scope_revision: 1 },
+});
+export const scope = () => {
+  const message = canonicalScope();
+  return scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs });
+};
 
 export const requestMessages = [system(), appBase(), author(), scope()];
 
@@ -260,7 +270,7 @@ export function canonicalRunFacts({
     used_refs: [],
     call_ids: [],
   };
-  return { run, messages, header };
+  return { run, messages: [canonicalScope(), ...messages], header };
 }
 
 // B82：两轮真实 SSE 执行的 canonical 段 + 同 run 的 ProviderRun 行。
@@ -297,7 +307,7 @@ export function nativeRunFacts() {
   };
   return {
     run,
-    messages,
+    messages: [canonicalScope(), ...messages],
     header,
     providerRuns: [SSE_CALL.first, SSE_CALL.second].map((ref) => ({
       id: ref.prun,

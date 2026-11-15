@@ -11,7 +11,7 @@ const evidence = read("native-ui-complete.json");
 assert.equal(evidence.harness_run_ref, ready.run_ref, "原生证据必须属于本次启动");
 assert.equal(ready.browser_driver_started, false);
 assert.equal(fs.existsSync(path.join(dir, "ui-frames.json")), false, "原生证据不能混入 Chromium driver");
-assert.equal(evidence.driver, "cua-native-system-ui");
+assert.equal(evidence.driver, "ax-native-system-ui");
 assert.equal(evidence.app_bundle, "com.ai-novel-studio.app");
 assert(evidence.roundtrips?.length >= 2, "至少覆盖选项与自由回复");
 assert(evidence.roundtrips.some((round) => round.reply_kind === "choice"));
@@ -153,7 +153,7 @@ if (evidence.scope_switch) {
   extraAssertions.push("native_historical_question_readonly", "native_cross_work_rejection_preserves_both_scopes");
 }
 fs.writeFileSync(path.join(dir, "verified-session.json"), JSON.stringify(snapshot, null, 2));
-const summary = { slice_id: "b26-author-question-roundtrip", surface: "tauri", driver: "cua-native-system-ui",
+const summary = { slice_id: "b26-author-question-roundtrip", surface: "tauri", driver: "ax-native-system-ui",
   verified_at: new Date().toISOString(), harness_run_ref: ready.run_ref, work_id: evidence.work_id,
   session_id: evidence.session_id, roundtrips: evidence.roundtrips, screenshots: evidence.screenshots,
   assertions: ["native_window_operated", "no_chromium_driver", "real_author_action", "answer_bytes_persisted_once", "answered_questions_closed", ...extraAssertions] };

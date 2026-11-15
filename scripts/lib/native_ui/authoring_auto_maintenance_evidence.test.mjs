@@ -3,7 +3,7 @@
 // `authoring_auto_maintenance_evidence_io.test.mjs`；两者共享同一组 facts。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateAutoMaintenance } from "./authoring_auto_maintenance_evidence.mjs";
+import { evaluateAutoMaintenance, verifyInterleavedResumeFacts } from "./authoring_auto_maintenance_evidence.mjs";
 import {
   AFTER_STARTED_AT,
   CALL_ID,
@@ -20,6 +20,7 @@ import {
   checkpointMessage,
   dbFactsFor,
   driverLogFor,
+  interleavedResumeFacts,
   llmRecords,
 } from "./fixtures/authoring_auto_maintenance_facts.mjs";
 
@@ -39,6 +40,75 @@ function evaluate(overrides = {}) {
     multiTurn: overrides.multiTurn ?? null,
   });
 }
+
+
+
+test("交错恢复：同次 Scope、原答复、折叠范围及保留观察由各自来源闭合", () => {
+  const scenario = interleavedResumeFacts();
+  const result = verifyInterleavedResumeFacts(
+    scenario.trace, scenario.db, scenario.wire, scenario.llmRecords,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.waiting_run_id, RUN);
+  assert.equal(result.later_run_id, RECOVERY_RUN);
+  assert.equal(result.goal_version, 2);
+  assert.equal(result.provider_call_ref, "pcall-after");
+  assert.deepEqual(result.covered_call_ids, [CALL_ID]);
+  assert.equal(result.retained_exchanges, 1);
+  assert.equal(result.exact_author_messages, 3);
+  assert.equal(result.observations_with_refs, 1);
+  assert.equal(result.observations_with_versions, 1);
+});
+
+test("交错恢复：来源、原字节或请求证据被替换时失败关闭", () => {
+  const cases = [
+    ["无 canonical Scope", (s) => {
+      s.db.authoring_session_messages = s.db.authoring_session_messages
+        .filter((row) => row.role !== "scope_update");
+    }],
+    ["Scope 伪作者", (s) => {
+      const row = s.db.authoring_session_messages.find((entry) => entry.role === "scope_update");
+      const message = JSON.parse(row.message);
+      message.provenance = "author";
+      row.message = JSON.stringify(message);
+    }],
+    ["历史 text 不升级为当前 Scope", (s) => {
+      const row = s.db.authoring_session_messages.find((entry) => entry.role === "scope_update");
+      const message = JSON.parse(row.message);
+      message.blocks = [{ type: "text", text: "探索预算关闭" }];
+      row.message = JSON.stringify(message);
+    }],
+    ["请求篡改版本", (s) => {
+      const scope = s.llmRecords[0].request.body.messages.at(-1);
+      const lines = scope.content.split("\n");
+      lines[1] = '版本：{"goal":3,"scope_revision":1}';
+      scope.content = lines.join("\n");
+    }],
+    ["请求丢失 Scope", (s) => s.llmRecords[0].request.body.messages.pop()],
+    ["错误 provider pair", (s) => { s.llmRecords[0].provider_run_ref = "foreign"; }],
+    ["作者原文被 trim", (s) => {
+      const messages = s.llmRecords[0].request.body.messages;
+      messages.at(-2).content = messages.at(-2).content.trim();
+    }],
+    ["保留观察缺失", (s) => {
+      const request = s.llmRecords[0].request.body;
+      request.messages = request.messages.filter((message) => message.role !== "tool");
+    }],
+    ["后续 run 不是同一会话", (s) => { s.db.agent_runs[1].session_id = OTHER_SESSION; }],
+    ["回答前未观察到 B 完成", (s) => { s.wire[0].at = "2026-11-04T10:00:03.000Z"; }],
+    ["回复归属错误目标版本", (s) => { s.wire[1].frame[4].action.payload.expected_goal_version = 2; }],
+    ["首次恢复请求多义", (s) => {
+      s.db.provider_events.push({ ...s.db.provider_events.at(-1), id: "duplicate-start" });
+    }],
+  ];
+  for (const [name, mutate] of cases) {
+    const scenario = interleavedResumeFacts();
+    mutate(scenario);
+    assert.throws(() => verifyInterleavedResumeFacts(
+      scenario.trace, scenario.db, scenario.wire, scenario.llmRecords,
+    ), name);
+  }
+});
 
 test("A3 反例：压力不足/无事件 分别 fail", () => {
   const noPressure = evaluate({

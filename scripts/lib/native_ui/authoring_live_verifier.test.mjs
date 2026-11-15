@@ -104,7 +104,7 @@ function assertVisiblePreregistration(copy, mode) {
   });
 }
 
-test("live verifier：完整 provider=strata 批次通过机制判据并写 summary", () => {
+test("live verifier：provider=strata 批次记录已测机制与 L7 Base 缺证", () => {
   withWorkingCopy(liveTemplate(), (copy) => {
     const { checks, summary } = verifyLiveBatch(copy.dir);
     assert.deepEqual(checks.failed_mechanism, []);
@@ -119,7 +119,10 @@ test("live verifier：完整 provider=strata 批次通过机制判据并写 summ
     assert(summary.not_signed.includes("I10_literary_quality_not_signed"));
     assert.equal(summary.tentative_design_derivations.length, 1);
     assert.equal(summary.tentative_design_derivations[0].provider_call_ref, "pcall_live_1");
-    assert.equal(summary.refs.ok, true);
+    assert.equal(summary.refs.ok, null);
+    assert.equal(summary.refs.reason, "request_base_refs_unavailable");
+    assert.equal(summary.mechanism.used_context_refs_within_boundary, null);
+    assert(!summary.required_mechanism.includes("used_context_refs_within_boundary"));
     assert(fs.existsSync(path.join(copy.dir, "summary.json")));
     assert(fs.existsSync(path.join(copy.dir, "native-b71-checks.json")));
     assert(fs.existsSync(path.join(copy.dir, "native-ws-frames.json")));

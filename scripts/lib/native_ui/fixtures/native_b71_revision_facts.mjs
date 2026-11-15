@@ -3,7 +3,7 @@
 // 测试与 IO fixture 共享同一组事实，避免各自复制期望。本模块不 import 被测 SUT
 // （canon 快照由消费者用既有纯函数合成后作为规格输入传入）。
 import { TRACE as COPY_TRACE } from "../../../../frontend/src/lib/copy.ts";
-import { irBodyFromWire } from "./authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage } from "./authoring_request_ir.mjs";
 
 export const WORK = "11111111-1111-4111-8111-111111111111";
 export const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -117,6 +117,13 @@ export function transcripts() {
   const childMessages = [
     { role: "system", blocks: [{ type: "text", text: "system" }] },
     { role: "application_base", blocks: [{ type: "text", text: "revision" }] },
+    {
+      role: "scope_update",
+      provenance: "application",
+      versions: {},
+      source_refs: [],
+      blocks: [{ type: "scope", content: revisionScopeContent() }],
+    },
     assistant("pcall-1", "prun-1", "call-1", "submit_tentative_artifact", {}),
     validation("call-1", "failed", "invalid_items"),
     assistant("pcall-2", "prun-2", "call-2", "submit_tentative_artifact", {
@@ -239,13 +246,19 @@ export function appLogRecords() {
   }));
 }
 
+function revisionScopeContent() {
+  return {
+    operation: {
+      context_text: `原正文：\n${ORIGINAL_BODY}`,
+      revision: "只改命中句段，让动作在风险、后果或视角上形成递进。",
+    },
+  };
+}
+
 function firstRequest() {
   return [
     { role: "system", content: "system" },
-    {
-      role: "application_base",
-      content: `原正文：\n${ORIGINAL_BODY}\n[质量修订要求]\n只改命中句段，让动作在风险、后果或视角上形成递进。`,
-    },
+    scopeWireMessage(revisionScopeContent()),
   ];
 }
 

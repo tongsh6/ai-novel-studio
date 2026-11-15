@@ -9,6 +9,7 @@ import {
   requestFactsFromBody,
   requestFactsFromRecord,
   requestFactsOf,
+  scopeContentOf,
 } from "./authoring_request_facts.mjs";
 
 const irMessage = (role, provenance, blocks, extra = {}) => ({
@@ -66,7 +67,7 @@ test("canonical IR 直接按 role/provenance/blocks 读取作者、应用 Base�
     irMessage(
       "scope_update",
       "application",
-      [{ type: "text", text: "## 消息处置与已有产物\n{}" }],
+      [{ type: "scope", content: { context: { interaction_state: { pending_adoptions: [] } } } }],
       { versions: { change_reason: "chapter_mission", scope_revision: 2 }, source_refs: [{ ref: "plan:1" }] },
     ),
     irMessage("tool", "tool_result", [
@@ -85,6 +86,8 @@ test("canonical IR 直接按 role/provenance/blocks 读取作者、应用 Base�
   assert.equal(facts.applicationMessages.length, 2);
   assert.equal(facts.scopeMessages[0].versions.scope_revision, 2);
   assert.deepEqual(facts.scopeMessages[0].sourceRefs, [{ ref: "plan:1" }]);
+  assert.deepEqual(facts.scopeMessages[0].scopeContent, { context: { interaction_state: { pending_adoptions: [] } } });
+  assert.equal(facts.scopeMessages[0].text, "");
   assert.deepEqual(facts.toolCalls.map((call) => [call.callId, call.nativeId, call.name]), [
     ["call-1", "native-1", "read_chapter"],
   ]);
@@ -93,6 +96,75 @@ test("canonical IR 直接按 role/provenance/blocks 读取作者、应用 Base�
   assert.equal(facts.toolResults[0].callId, "call-1");
   assert.equal(facts.malformedCalls, 0);
   assert.equal(facts.malformedToolMessages, 0);
+});
+
+test("结构化 Scope 在 canonical 与现役 wire 中保持原值、版本、来源和作者字节", () => {
+  const content = {
+    work_id: "work-1",
+    facts: { chapters: [] },
+    operation: { context_text: "首行\n  第二行：雪❄️\t", revision: '保留“原话”\\路径' },
+    coverage: { chapters: { status: "not_read" } },
+  };
+  const versions = { work: 4, scope_revision: 2 };
+  const sourceRefs = [{ ref: "work:work-1", version: 4 }];
+  const canonical = irMessage("scope_update", "application", [{ type: "scope", content }], {
+    versions, source_refs: sourceRefs,
+  });
+  const author = "  作者\n原文 🌙\t";
+  const projected = [
+    "【应用数据 · scope_update · 以最新版本为准】",
+    `版本：${JSON.stringify(versions)}`,
+    `来源：${JSON.stringify(sourceRefs)}`,
+    JSON.stringify(content),
+  ].join("\n");
+  const native = requestFactsFromBody({ messages: [
+    { role: "user", content: author }, { role: "user", content: projected },
+  ] });
+  const ir = requestFactsFromBody(irBody([
+    irMessage("user", "author", [{ type: "text", text: author }]), canonical,
+  ]));
+  assert.strictEqual(scopeContentOf(canonical), content);
+  assert.strictEqual(ir.scopeMessages[0].scopeContent, content);
+  assert.deepEqual(native.scopeMessages[0].scopeContent, content);
+  assert.deepEqual(native.scopeMessages[0].versions, versions);
+  assert.deepEqual(native.scopeMessages[0].sourceRefs, sourceRefs);
+  assert.equal(native.scopeMessages[0].text, projected);
+  assert.equal(ir.authorMessages[0].text, author);
+  assert.equal(native.authorMessages[0].text, author);
+
+  for (const bad of [
+    { ...canonical, role: "user", provenance: "author" },
+    { ...canonical, role: "tool", provenance: "tool_result" },
+    { ...canonical, blocks: [...canonical.blocks, { type: "text", text: "混合来源" }] },
+    { ...canonical, blocks: [{ type: "scope", content: [] }] },
+    ...[undefined, null, []].map((versions) => ({ ...canonical, versions })),
+    ...[undefined, null, {}, [null], [{ ref: "" }], [{ ref: 4 }]].map((source_refs) => ({
+      ...canonical, source_refs,
+    })),
+  ]) {
+    assert.equal(scopeContentOf(bad), null);
+    assert.equal(requestFactsFromBody(irBody([bad])).status, "malformed");
+  }
+
+  const old = "【应用数据 · scope_update】只读探索当前允许：false";
+  const malformed = projected.replace(JSON.stringify(content), "{坏 JSON");
+  for (const rawContent of [
+    projected.replace(`版本：${JSON.stringify(versions)}`, "版本：null"),
+    ...[null, {}, [null], [{ ref: "" }]].map((refs) =>
+      projected.replace(`来源：${JSON.stringify(sourceRefs)}`, `来源：${JSON.stringify(refs)}`)),
+    [{ type: "text", text: projected }],
+    [{ type: "image_url", text: projected }],
+  ]) {
+    const facts = requestFactsFromBody({ messages: [{ role: "user", content: rawContent }] });
+    assert.equal(facts.scopeMessages[0].scopeContent, null);
+    assert.strictEqual(facts.scopeMessages[0].raw.content, rawContent);
+  }
+
+  for (const value of [old, malformed]) {
+    const facts = requestFactsFromBody({ messages: [{ role: "user", content: value }] });
+    assert.equal(facts.scopeMessages[0].scopeContent, null);
+    assert.equal(facts.scopeMessages[0].text, value);
+  }
 });
 
 test("真实原生 Chat wire 仍按原格式读取，应用数据 marker 只在该来源生效", () => {

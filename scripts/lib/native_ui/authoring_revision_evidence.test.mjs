@@ -21,7 +21,7 @@ import {
   sourceMissionEvents,
 } from "./authoring_revision_evidence.mjs";
 
-import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 const TOPIC = "workspace:owned";
 const FOREIGN = "workspace:foreign";
 const AT = "2026-11-02T03:40:01.000Z";
@@ -1019,26 +1019,37 @@ test("retryExchangeChecks 在 firstRequest 缺失而 secondRequest 存在时关�
 });
 
 test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失时关闭", () => {
+  const content = { operation: { context_text: "原文", revision: "" } };
+  const scope = {
+    role: "scope_update",
+    provenance: "application",
+    source_refs: [],
+    versions: {},
+    blocks: [{ type: "scope", content }],
+  };
   const call = {
     role: "assistant",
+    provenance: "model",
     provider_call_ref: "pcall-1",
     provider_run_ref: "prun-1",
     blocks: [{ type: "tool_call", call_id: "call-1", name: "submit_tentative_artifact" }],
   };
   const record = {
     provider_call_ref: "pcall-1",
-    request: { body: { messages: [{ role: "user", content: "原文\n质量修订要求" }] } },
+    provider_run_ref: "prun-1",
+    request: { body: { messages: [scopeWireMessage(content)] } },
     response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: {} }] } },
   };
+  const transcript = { messages: [scope, call] };
   const accepted = retryExchangeChecks({
-    transcript: { messages: [call] },
+    transcript,
     records: [record],
     originalBody: "原文",
     findingInstruction: undefined,
   });
   assert.equal(accepted.checks.revision_request_carries_source_bytes_and_findings, true);
   const rejected = retryExchangeChecks({
-    transcript: { messages: [call] },
+    transcript,
     records: [record],
     originalBody: "原文",
     findingInstruction: "具体要求",
@@ -1287,9 +1298,10 @@ test("v2 receipt 必须携带 run/receipt 身份且与 row/source/child 一致",
 test("第二请求必须逐字携带第一轮 assistant tool_calls 与关联 validation", () => {
   const originalBody = "他猛地侧身。";
   const legal = { items: [{ item_id: "item-1", title: "标题", body: "改后。", rationale: "理由" }] };
-  const firstRequest = [{ role: "system", content: `原正文：${originalBody}\n质量修订要求` }];
+  const firstRequest = [scopeWireMessage({ operation: { context_text: `原正文：${originalBody}`, revision: "" } })];
   const call = (id, pcall, prun, args) => ({
     role: "assistant",
+    provenance: "model",
     provider_call_ref: pcall,
     provider_run_ref: prun,
     blocks: [{ type: "tool_call", call_id: id, name: "submit_tentative_artifact", arguments: args }],
@@ -1491,7 +1503,7 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
   const originalBody = "他猛地侧身。";
   const legal = { items: [{ item_id: "item-1", title: "标题", body: "改后。", rationale: "理由" }] };
   const firstBody = irBodyFromWire({
-    messages: [{ role: "user", content: `原文：${originalBody}\n质量修订要求` }],
+    messages: [scopeWireMessage({ operation: { context_text: `原文：${originalBody}`, revision: "" } })],
   });
   const appendedAssistant = {
     role: "assistant",
@@ -1520,6 +1532,7 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
   };
   const call = (id, pcall, prun, args) => ({
     role: "assistant",
+    provenance: "model",
     provider_call_ref: pcall,
     provider_run_ref: prun,
     blocks: [{ type: "tool_call", call_id: id, name: "submit_tentative_artifact", arguments: args }],
@@ -1532,6 +1545,7 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
     originalBody,
     transcript: {
       messages: [
+        ...structuredClone(firstBody.messages),
         call("call-1", "pcall-1", "prun-1", {}),
         validation("call-1", "failed", "invalid_items"),
         call("call-2", "pcall-2", "prun-2", legal),
@@ -1541,12 +1555,14 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
     records: [
       {
         provider_call_ref: "pcall-1",
+        provider_run_ref: "prun-1",
         request_format: "authoring-request-ir/v1",
         request_body: firstBody,
         response: { body: { tool_calls: [{ id: "call-1", name: "submit_tentative_artifact", arguments: {} }] } },
       },
       {
         provider_call_ref: "pcall-2",
+        provider_run_ref: "prun-2",
         request_format: "authoring-request-ir/v1",
         request_body: secondBody,
         response: { body: { tool_calls: [{ id: "call-2", name: "submit_tentative_artifact", arguments: legal }] } },

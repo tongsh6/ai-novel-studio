@@ -24,6 +24,7 @@ import {
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 import { actionAck } from "./authoring_pending_evidence.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
 export const AUTO_MAINTENANCE_SCHEMA = "b71-auto-maintenance-checks/v1";
 export const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
@@ -52,6 +53,7 @@ import {
   NATIVE_CHAT_WIRE,
   plannedExplorationLeaves,
   requestFactsFromRecord,
+  scopeContentOf,
 } from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -296,22 +298,33 @@ export function verifyInterleavedResume(dir) {
   return verifyInterleavedResumeFacts(trace, readAutoMaintenanceDbFacts(dir), transport(dir), readLogs(path.join(dir, "llm-calls")));
 }
 
-function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
-  const { agent_runs, agent_events, authoring_session_messages, provider_runs, provider_events } = db;
-  const a = agent_runs.find((run) => run.id === trace?.waiting_run_id);
-  const b = agent_runs.find((run) => run.id === trace?.later_run_id);
+function interleavedRuns(trace, agentRuns) {
+  const a = agentRuns.find((run) => run.id === trace?.waiting_run_id);
+  const b = agentRuns.find((run) => run.id === trace?.later_run_id);
   assert(a?.session_id && b && a.id !== b.id && a.session_id === b.session_id, "A/B 必须是同会话的不同 run");
   assert.equal(a.status, "completed");
   assert.equal(b.status, "completed");
   assert.equal(a.goal_version, trace.waiting_goal_version + 1);
+  return { a, b };
+}
 
-  const actions = wire.filter((record) => {
-    const action = frameBody(record)?.action;
-    return record.direction === "sent" && frameEvent(record) === "author_action" &&
-      action?.action_type === "author_choice" && action.target_ref === a.id &&
-      action.payload?.question_ref === trace.waiting_question_ref &&
-      action.payload?.expected_goal_version === trace.waiting_goal_version;
-  });
+function isWaitingAnswer(record, trace, runId) {
+  const action = frameBody(record)?.action;
+  if (action?.action_type !== "author_choice") return false;
+  const payload = action.payload ?? {};
+  return record.direction === "sent" && frameEvent(record) === "author_action" &&
+    action.target_ref === runId && payload.question_ref === trace.waiting_question_ref &&
+    payload.expected_goal_version === trace.waiting_goal_version;
+}
+
+function completedBefore(record, runId, sentAt) {
+  const run = frameBody(record)?.agent_run;
+  return record.direction === "received" && frameEvent(record) === "turn_result" &&
+    run?.run_id === runId && run.status === "completed" && timeValue(record.at) < sentAt;
+}
+
+function interleavedAnswer(trace, a, b, wire) {
+  const actions = wire.filter((record) => isWaitingAnswer(record, trace, a.id));
   assert.equal(actions.length, 1, "必须有唯一的 A 原问题回答帧");
   const { response } = actionAck(wire, actions[0], { actionStatus: "accepted" });
   assert.equal(response.action_id, frameBody(actions[0]).action.action_id);
@@ -319,33 +332,44 @@ function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
   assert.equal(response.question_ref, trace.waiting_question_ref);
   assert.equal(response.goal_version, a.goal_version);
   const sentAt = timeValue(actions[0].at);
-  assert(wire.some((record) => record.direction === "received" && frameEvent(record) === "turn_result" &&
-    frameBody(record)?.agent_run?.run_id === b.id && frameBody(record).agent_run.status === "completed" &&
-    timeValue(record.at) < sentAt), "必须先观察到 B 完成，再回答 A");
+  assert(wire.some((record) => completedBefore(record, b.id, sentAt)), "必须先观察到 B 完成，再回答 A");
+  return { response, sentAt };
+}
 
-  const rows = transcriptMessages(authoring_session_messages)
+function checkpointCoversRun(checkpoint, rows, runId, covered) {
+  const exchanges = checkpointExchange(checkpoint, rows.filter((row) => row.run_id === runId));
+  return covered.some((id) => exchanges.calls.get(id)?.length === 1 &&
+    exchanges.results.get(id)?.length === 1 &&
+    exchanges.calls.get(id)[0] < exchanges.results.get(id)[0]);
+}
+
+function interleavedCheckpoint(a, b, db, sentAt) {
+  const rows = transcriptMessages(db.authoring_session_messages)
     .filter((row) => row.session_id === a.session_id)
     .sort((left, right) => left.sequence - right.sequence);
   const checkpoints = rows.filter((row) => row.run_id === b.id && row.role === "checkpoint");
-  const events = checkpointEvents(agent_events).filter((event) => event.run_id === b.id);
+  const events = checkpointEvents(db.agent_events).filter((event) => event.run_id === b.id);
   assert.equal(checkpoints.length, 1, "B 必须持有可唯一绑定的 checkpoint");
   assert.equal(events.length, 1, "B 必须持有可唯一绑定的整理事件");
   assert(timeValue(events[0].inserted_at) < sentAt, "B 的整理必须发生在 A 回答前");
   const checkpoint = checkpoints[0];
   const covered = checkpointCallIds(checkpoint);
-  const aExchanges = checkpointExchange(checkpoint, rows.filter((row) => row.run_id === a.id));
-  assert(covered.some((id) => aExchanges.calls.get(id)?.length === 1 &&
-    aExchanges.results.get(id)?.length === 1 &&
-    aExchanges.calls.get(id)[0] < aExchanges.results.get(id)[0]), "B 必须覆盖 A 已落库的闭合交换");
+  assert(checkpointCoversRun(checkpoint, rows, a.id, covered), "B 必须覆盖 A 已落库的闭合交换");
+  return { rows, checkpoint, covered };
+}
 
-  const providers = new Map(provider_runs.filter((run) => run.agent_run_id === a.id &&
+function resumedProviderRun(a, db, sentAt) {
+  const providers = new Map(db.provider_runs.filter((run) => run.agent_run_id === a.id &&
     run.session_id === a.session_id && run.provider_id === "strata").map((run) => [run.id, run]));
-  const starts = provider_events.filter((event) => event.event_type === "started" &&
+  const starts = db.provider_events.filter((event) => event.event_type === "started" &&
     providers.has(event.provider_run_id) && timeValue(event.emitted_at) >= sentAt)
     .sort((left, right) => timeValue(left.emitted_at) - timeValue(right.emitted_at));
   assert(starts.length > 0, "缺少 A 恢复后的 Provider 请求");
   assert.notEqual(timeValue(starts[0].emitted_at), timeValue(starts[1]?.emitted_at), "首个请求不能多义");
-  const run = providers.get(starts[0].provider_run_id);
+  return providers.get(starts[0].provider_run_id);
+}
+
+function resumedRequest(run, llmRecords, checkpoint, covered) {
   const records = llmRecords
     .filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
   assert.equal(records.length, 1, "A 恢复请求须按 Provider run/call 唯一绑定");
@@ -354,38 +378,64 @@ function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
   const canonicalCover = checkpoint.blocks.find((block) => block.type === "checkpoint")?.covers;
   assert(wireCheckpoints(facts).some((entry) => entry.turn_range === canonicalCover?.turn_range &&
     sameIdSet(entry.call_ids, covered)), "A 的请求缺 B 的精确折叠范围");
+  return { record: records[0], facts };
+}
 
+function retainedHistoryBlocks(history, role, types, folded) {
+  return history.filter((row) => row.role === role)
+    .flatMap((row) => list(row.blocks))
+    .filter((block) => types.includes(block.type) && !folded.has(block.call_id));
+}
+
+function canonicalAnswer(rows, a, trace, checkpoint) {
   const answer = rows.find((row) => row.run_id === a.id && row.role === "user" &&
     row.sequence > checkpoint.sequence && row.author_turn?.question_ref === trace.waiting_question_ref);
   assert(answer, "缺少 A 的 canonical 回答");
+  return answer;
+}
+
+function resumedHistory(rows, answer, facts) {
   const history = rows.filter((row) => row.sequence <= answer.sequence);
   const folded = new Set(history.filter((row) => row.role === "checkpoint").flatMap(checkpointCallIds));
-  const toolBlocks = (role, types) => history.filter((row) => row.role === role)
-    .flatMap((row) => list(row.blocks)).filter((block) => types.includes(block.type));
-  const retainedCalls = toolBlocks("assistant", ["tool_call"]).map((block) => block.call_id)
-    .filter((id) => !folded.has(id));
-  const retainedResults = toolBlocks("tool", ["observation", "validation_result"])
-    .filter((block) => !folded.has(block.call_id));
+  const retainedCalls = retainedHistoryBlocks(history, "assistant", ["tool_call"], folded).map((block) => block.call_id);
+  const retainedResults = retainedHistoryBlocks(history, "tool", ["observation", "validation_result"], folded);
   assert.deepEqual(facts.toolCalls.map((call) => call.callId), retainedCalls);
   assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults);
   assert(facts.toolResults.some((result) => list(result.payload.source_refs).length > 0), "缺少带来源的保留观察");
   const textOf = (row) => list(row.blocks).filter((block) => block.type === "text").map((block) => block.text).join("");
   const authorTexts = history.filter((row) => row.role === "user").map(textOf).filter(Boolean);
   assert.deepEqual(facts.authorMessages.map((message) => message.text), authorTexts);
+  return { retainedCalls, retainedResults, authorTexts };
+}
+
+function resumedScope(rows, answer, a, response, record) {
   const scope = rows.find((row) => row.sequence > answer.sequence && row.run_id === a.id &&
     row.role === "scope_update" && row.versions?.goal === response.goal_version);
-  const [scopeHeader, versionLine, ...scopeLines] = (facts.scopeMessages.at(-1)?.text ?? "").split("\n");
-  assert(scope && scopeHeader, "A 恢复后必须生成当前 scope");
-  assert.deepEqual(parseJson(versionLine?.replace(/^版本：/u, "")), scope.versions);
-  assert.equal(scopeLines.join("\n"), textOf(scope));
+  const projectedScope = scopeForProviderCall(record, { messages: rows });
+  const canonicalScope = scopeContentOf(scope);
+  assert(canonicalScope && projectedScope?.scopeContent, "A 恢复后必须生成当前结构化 scope");
+  assert.deepEqual(projectedScope.versions, scope.versions);
+  assert.deepEqual(projectedScope.sourceRefs, scope.source_refs);
+  assert.deepEqual(projectedScope.scopeContent, canonicalScope);
+}
+
+// 与普通批次相同，纯判据只消费读侧事实；IO 入口保持上面的独立 wrapper。
+export function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
+  const { a, b } = interleavedRuns(trace, db.agent_runs);
+  const { response, sentAt } = interleavedAnswer(trace, a, b, wire);
+  const { rows, checkpoint, covered } = interleavedCheckpoint(a, b, db, sentAt);
+  const run = resumedProviderRun(a, db, sentAt);
+  const { record, facts } = resumedRequest(run, llmRecords, checkpoint, covered);
+  const answer = canonicalAnswer(rows, a, trace, checkpoint);
+  const { retainedCalls, retainedResults, authorTexts } = resumedHistory(rows, answer, facts);
+  resumedScope(rows, answer, a, response, record);
   return {
     ok: true, session_id: a.session_id, waiting_run_id: a.id, later_run_id: b.id,
     checkpoint_sequence: checkpoint.sequence, covered_call_ids: covered,
     provider_run_id: run.id, provider_call_ref: run.provider_call_ref,
     retained_exchanges: retainedCalls.length, exact_author_messages: authorTexts.length,
     observations_with_refs: retainedResults.filter((block) => list(block.source_refs).length > 0).length,
-    // 仍按保留的原生父结果计数：历史直接 observation 看自身 versions；planned_exploration
-    // 聚合父块有一次内任一叶带真实版本即算 1，父块自身不重复计数。
+    // 仍按保留的原生父结果计数；planned_exploration 只取带真实版本的叶。
     observations_with_versions: retainedResults.filter((block) =>
       block.type === "observation" &&
       (plannedExplorationLeaves(block) ?? [block]).some((entry) =>

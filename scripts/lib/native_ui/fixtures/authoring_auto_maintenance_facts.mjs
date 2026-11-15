@@ -1,6 +1,8 @@
 // B71 auto-maintenance 证据族的纯事实 owner：只提供内存字节/行，不创建目录、DB
 // 或子进程。真实文件与 7 表 SQLite 模板在 `authoring_auto_maintenance_io_fixture.mjs`；
 // 纯评估测试与 IO 测试共享本文件的同一组事实，避免各自复制期望。
+import { scopeWireMessage } from "./authoring_request_ir.mjs";
+
 export const WORK = "work-auto-1";
 export const SESSION = "session-auto-1";
 export const OTHER_SESSION = "session-auto-2";
@@ -278,5 +280,104 @@ export function driverLogFor() {
       recovery_request: { index: 4, run_id: RECOVERY_RUN, settled: true, run_status: "completed" },
     },
     termination: { llm_calls: 2 },
+  };
+}
+
+// 交错 A/B 续行：A 的闭合交换由 B 整理；A 的原问题回答随后触发真实归属的新请求。
+// 纯事实同时持有原 canonical 与独立 native wire，不从被测读取器生成期望。
+export function interleavedResumeFacts() {
+  const answerText = "\n  保留悬念，使用「青龙𝄞」\\尾声。\n  ";
+  const firstText = "先核对第一章。";
+  const laterText = "再检查一次。";
+  const keepCall = "call-kept";
+  const questionRef = "question-waiting-a";
+  const startedAt = "2026-11-04T10:00:02.000Z";
+  const sourceRefs = [{ ref: "chapter:kept", version: 2 }];
+  const observation = {
+    type: "observation", call_id: keepCall, status: "ok",
+    source_refs: sourceRefs, versions: { chapter: 2 }, content: { summary: "已核对原章。" },
+  };
+  const scope = {
+    role: "scope_update", provenance: "application",
+    versions: { goal: 2, scope_revision: 1 }, source_refs: sourceRefs,
+    blocks: [{
+      type: "scope",
+      content: {
+        work_id: WORK,
+        facts: { chapters: [{ ref: "chapter:kept", work_id: WORK, seq: 1, title: "第一章" }] },
+        operation: { exploration: { allowed: false, tools: [] } },
+      },
+    }],
+  };
+  const scopeWire = scopeWireMessage(scope.blocks[0].content, {
+    versions: scope.versions, sourceRefs,
+  });
+  const entries = [
+    [RUN, { role: "user", provenance: "author", blocks: [{ type: "text", text: firstText }] }],
+    [RUN, { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: CALL_ID, name: "chapter_read", arguments: {} }] }],
+    [RUN, { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: CALL_ID, status: "ok", source_refs: [] }] }],
+    [RECOVERY_RUN, { role: "user", provenance: "author", blocks: [{ type: "text", text: laterText }] }],
+    [RECOVERY_RUN, { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: keepCall, name: "chapter_read", arguments: {} }] }],
+    [RECOVERY_RUN, { role: "tool", provenance: "tool_result", blocks: [observation] }],
+    [RECOVERY_RUN, checkpointMessage()],
+    [RUN, {
+      role: "user", provenance: "author", author_turn: { question_ref: questionRef },
+      source_refs: [{ ref: "turn-a:steer:2" }], blocks: [{ type: "text", text: answerText }],
+    }],
+    [RUN, scope],
+    [RUN, {
+      role: "assistant", provenance: "model", provider_call_ref: "pcall-after", provider_run_ref: "prun-after",
+      blocks: [{ type: "text", text: "已核对。" }],
+    }],
+  ];
+  const perRun = new Map();
+  const rows = entries.map(([runId, message], index) => {
+    const runSequence = (perRun.get(runId) ?? 0) + 1;
+    perRun.set(runId, runSequence);
+    return {
+      id: "interleaved-message-" + (index + 1), run_id: runId, session_id: SESSION,
+      sequence: index + 1, run_sequence: runSequence,
+      role: message.role, message: JSON.stringify(message),
+    };
+  });
+  const topic = "workspace:" + WORK;
+  const action = {
+    action_id: "answer-a", action_type: "author_choice", target_ref: RUN,
+    payload: { question_ref: questionRef, expected_goal_version: 1 },
+  };
+  return {
+    trace: { waiting_run_id: RUN, later_run_id: RECOVERY_RUN, waiting_question_ref: questionRef, waiting_goal_version: 1 },
+    db: {
+      agent_runs: [
+        { id: RUN, status: "completed", session_id: SESSION, goal_version: 2 },
+        { id: RECOVERY_RUN, status: "completed", session_id: SESSION, goal_version: 1 },
+      ],
+      agent_events: [{ id: "event-b-checkpoint", run_id: RECOVERY_RUN, event_type: "checkpoint_created", inserted_at: EVENT_AT }],
+      authoring_session_messages: rows,
+      provider_runs: providerRunsFor(),
+      provider_events: providerEventsFor({ afterEmittedAt: startedAt }),
+    },
+    wire: [
+      { at: "2026-11-04T10:00:00.700Z", direction: "received", frame: ["join-a", null, topic, "turn_result", { agent_run: { run_id: RECOVERY_RUN, status: "completed" } }] },
+      { at: "2026-11-04T10:00:01.000Z", direction: "sent", frame: ["join-a", "reply-a", topic, "author_action", { action }] },
+      { at: "2026-11-04T10:00:01.100Z", direction: "received", frame: ["join-a", "reply-a", topic, "phx_reply", {
+        status: "ok", response: {
+          received: true, duplicate: false, action_status: "accepted",
+          action_id: action.action_id, run_id: RUN, question_ref: questionRef, goal_version: 2,
+        },
+      }] },
+    ],
+    llmRecords: [{
+      provider_run_ref: "prun-after", provider_call_ref: "pcall-after",
+      request: { body: { messages: [
+        { role: "user", content: firstText },
+        { role: "user", content: laterText },
+        { role: "assistant", content: "", tool_calls: [{ id: keepCall, type: "function", function: { name: "chapter_read", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: keepCall, content: JSON.stringify(observation) },
+        wireCheckpointMessage(),
+        { role: "user", content: answerText },
+        scopeWire,
+      ], tools: [] } },
+    }],
   };
 }

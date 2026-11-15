@@ -216,13 +216,22 @@ test("错误或重复 ACK 必须失败", async (t) => {
 test("没有重试/未闭合 validation 必须失败", async (t) => {
   const dir = writableBatch(t);
   withDb(dir, (db) => {
-    const row = db.prepare("SELECT message FROM authoring_session_messages WHERE run_id = ? AND run_sequence = ?").get(CHILD_RUN, 4);
-    const message = JSON.parse(row.message);
-    message.blocks[0].status = "passed";
+    const matches = db.prepare("SELECT run_sequence, message FROM authoring_session_messages WHERE run_id = ?")
+      .all(CHILD_RUN)
+      .map((row) => ({ ...row, message: JSON.parse(row.message) }))
+      .filter((row) => row.message.role === "tool" && row.message.blocks.some(
+        (block) => block.type === "validation_result" && block.call_id === "call-1",
+      ));
+    assert.equal(matches.length, 1);
+    const row = matches[0];
+    const validation = row.message.blocks.find(
+      (block) => block.type === "validation_result" && block.call_id === "call-1",
+    );
+    validation.status = "passed";
     db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
-      JSON.stringify(message),
+      JSON.stringify(row.message),
       CHILD_RUN,
-      4,
+      row.run_sequence,
     );
   });
   await assert.rejects(() => main(["verify", dir]), /原生断言失败/);

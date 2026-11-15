@@ -1,12 +1,13 @@
 // L7 真实 refs 证据纯判据测试：唯一正判来源是 canonical assistant(model) 的
 // tool_call.arguments.self_report.used_context_refs，按顶层 provider_call_ref +
 // provider_run_ref 配对同一次真实 llm record；base/observation 只从该 record 的
-// 明确 application_base/scope 正式条目与唯一成功 observation 读取。段头 used_refs /
+// 明确 application_base/同次 IR.refs.base_refs 与唯一成功 observation 读取。段头累计 refs /
 // decision_traces / agent_events 不参与正判，也不做整批并集；缺配对键、重复匹配、
 // 请求不可解析记 null，已证越界优先 false，ref 按完整字符串精确匹配。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extractRefTokens, liveRefsCheck } from "./authoring_live_refs.mjs";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 const AUTHOR = "请为第01章写一段约300字的开篇正文。";
 const AUTHOR_INPUT = "继续：按你刚才的判断，把下一个场景的开头写出来。";
@@ -17,34 +18,20 @@ const appBase = (text) => ({
   role: "user",
   content: `【应用数据 · application_base · 非作者原话】\n${text}`,
 });
-const scope = (text) => ({
-  role: "user",
-  content: `【应用数据 · scope_update · 以最新版本为准】\n${text}`,
-});
 
-// B81 真实验收请求形状（c7-c8-03/c5-c6-resume-02）：正式材料只在「## 材料与覆盖」；
-// 「## 当前作者输入」之后还会重复「已完成观察」，checkpoint 的「省略：」也会提到旧记录。
+// 当前请求沿用真实 application_base；Scope 由独立共享 fixture 按原生结构构造。
+// 旧文本仅作为负例证据，不再重建旧材料区或作者输入区。
 const REAL_APP_BASE =
   "【应用数据 · application_base · 非作者原话】\n" +
   "本 run 的应用数据：目标、坐标、权限、预算与 Base refs 由本消息的结构化字段与后续 " +
   "scope_update 给出；作者原话在独立 user 消息中。角色规则与输出协议见 system。";
 const realAppBase = () => ({ role: "user", content: REAL_APP_BASE });
-const realScope = ({ materials = [], objectRefs = [], authorInput = AUTHOR, trailing = [] } = {}) => ({
-  role: "user",
-  content: [
-    "【应用数据 · scope_update · 以最新版本为准】",
-    '版本：{"change_reason":"run_scope_refreshed","scope_revision":2}',
-    "## 对象与范围",
-    ...(objectRefs.length > 0 ? [`- 目标对象 refs：${objectRefs.join("、")}`] : []),
-    "",
-    "## 材料与覆盖",
-    ...materials.map(([kind, ref]) => `- ${kind}：${ref}（完整；省略说明：单次只读观察）`),
-    "",
-    "## 当前作者输入",
-    authorInput,
-    ...trailing,
-  ].join("\n"),
-});
+const realScope = ({ sourceRefs = [], content = {} } = {}) => irMessage(
+  "scope_update", "application", [{ type: "scope", content }], {
+    versions: { change_reason: "run_scope_refreshed", scope_revision: 2 },
+    source_refs: sourceRefs.map((ref) => ({ ref })),
+  },
+);
 const checkpoint = (text) => ({
   role: "user",
   content: `【应用数据 · checkpoint · 覆盖 ["materials"]】\n来源：[]\n版本：{}\n省略：${text}\n`,
@@ -57,7 +44,9 @@ function nativeRecord({ providerCallRef = "pcall_1", providerRunRef = "prun_1", 
     turn_id: "turn_1",
     provider_call_ref: providerCallRef,
     provider_run_ref: providerRunRef,
-    request: { body: { messages } },
+    request: { body: { messages: messages.map((message) => message.role === "scope_update"
+      ? scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs })
+      : message) } },
   };
 }
 
@@ -142,7 +131,7 @@ function nativePlannedObservation({ callId = "call_1", outerCallId = callId, sta
   };
 }
 
-function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", messages } = {}) {
+function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", messages, baseRefs } = {}) {
   return {
     provider: "slice_verify",
     provider_call_ref: providerCallRef,
@@ -153,7 +142,7 @@ function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", me
       messages,
       tools: [],
       projection: { tool_choice: null },
-      refs: {},
+      refs: baseRefs === undefined ? {} : { base_refs: baseRefs },
     },
   };
 }
@@ -170,7 +159,20 @@ const irMessage = (role, provenance, blocks, extra = {}) => ({
 function resultOf({ messages, usedRefs, pcall = "pcall_1", prun = "prun_1" }) {
   return liveRefsCheck({
     llmRecords: [nativeRecord({ messages })],
-    transcript: { messages: [assistantCall({ pcall, prun, refs: usedRefs })] },
+    transcript: { messages: [
+      ...structuredClone(messages.filter((message) => message.role === "scope_update")),
+      assistantCall({ pcall, prun, refs: usedRefs }),
+    ] },
+  });
+}
+
+function irResultOf({ messages, baseRefs, usedRefs }) {
+  return liveRefsCheck({
+    llmRecords: [irRecord({ messages, baseRefs })],
+    transcript: { messages: [
+      ...structuredClone(messages),
+      assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: usedRefs }),
+    ] },
   });
 }
 
@@ -248,13 +250,10 @@ test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → 
   assert.equal(unparseable.reports[0].request_reason, "retired_provider_prompt_request");
 });
 
-test("L7 同次：Base/scope 正式条目/成功 observation 通过，多 report 合并，来源可查", () => {
+test("L7 同次：既有 application_base/成功 observation 通过，多 report 合并，来源可查", () => {
   const messages = [
     system("chapter:system-not-base"),
     appBase("材料 chapter:ch-1；artifact as_live_1；执行简述 execution_brief:chapter:ch-1"),
-    realScope({
-      materials: [["observation", "observation:obs_scope"], ["plan", "plan:1:plot_progress"]],
-    }),
     author(),
     assistantToolCall({ callId: "call_1" }),
     nativeObservation({ callId: "call_1", sourceRefs: ["chapter:obs_tool", "observation:obs_tool"] }),
@@ -263,8 +262,6 @@ test("L7 同次：Base/scope 正式条目/成功 observation 通过，多 report
     "chapter:ch-1",
     "as_live_1",
     "execution_brief:chapter:ch-1",
-    "observation:obs_scope",
-    "plan:1:plot_progress",
     "chapter:obs_tool",
     "observation:obs_tool",
   ];
@@ -274,36 +271,29 @@ test("L7 同次：Base/scope 正式条目/成功 observation 通过，多 report
   assert.equal(result.sources.self_report_count, 1);
   const report = result.reports[0];
   assert.deepEqual(report.used_refs, [...used].sort());
-  assert(report.base_refs.includes("plan:1:plot_progress"));
-  assert(!report.base_refs.includes("observation:obs_scope"));
-  assert(report.observation_refs.includes("observation:obs_scope"));
   assert(report.observation_refs.includes("chapter:obs_tool"));
   assert.equal(report.matched_refs.length, used.length);
   const matched = Object.fromEntries(report.matched_refs.map((entry) => [entry.ref, entry.sources[0]]));
-  assert.deepEqual(
-    [matched["observation:obs_scope"].message_index, matched["observation:obs_scope"].channel],
-    [2, "materials"],
-  );
   assert.deepEqual(
     [matched["chapter:obs_tool"].call_id, matched["chapter:obs_tool"].status, matched["chapter:obs_tool"].channel],
     ["call_1", "ok", "source_refs"],
   );
 
   const structuredScope = realScope({
-    objectRefs: ["chapter:ch-object"],
-    materials: [["observation", "observation:obs_real_1"]],
+    sourceRefs: ["chapter:ch-object", "observation:obs_real_1"],
+    content: {
+      goal: { text: "作者引用 chapter_ref=chapter:ch-goal" },
+      operation: { context_text: "正文材料 chapter_ref=chapter:ch-inline" },
+    },
   });
-  structuredScope.content = structuredScope.content.replace(
-    "## 当前作者输入",
-    "正文材料 chapter_ref=chapter:ch-inline\n\n## 当前作者输入",
-  );
   const structured = resultOf({
     messages: [system(), realAppBase(), structuredScope, author()],
-    usedRefs: ["chapter:ch-object", "chapter:ch-inline", "observation:obs_real_1"],
+    usedRefs: ["chapter:ch-object", "chapter:ch-inline", "chapter:ch-goal", "observation:obs_real_1"],
   });
-  assert.equal(structured.ok, true);
-  assert(structured.reports[0].base_refs.includes("chapter:ch-object"));
-  assert(structured.reports[0].base_refs.includes("chapter:ch-inline"));
+  assert.equal(structured.ok, null);
+  assert.equal(structured.reason, "request_base_refs_unavailable");
+  assert.deepEqual(structured.reports[0].base_refs, []);
+  assert.deepEqual(structured.reports[0].observation_refs, []);
 
   const merged = liveRefsCheck({
     llmRecords: [nativeRecord({ messages: [system(), appBase("材料 chapter:ch-1"), author()] })],
@@ -369,13 +359,60 @@ test("L7 不授信来源：system/author/history assistant/失败 observation/va
   for (const [label, messages, ref] of cases) assertViolation(messages, ref, label);
 });
 
-test("L7 真实 scope：checkpoint 省略/notice/作者输入与已完成观察不授信，正式材料条目可通过", () => {
-  const legal = resultOf({
-    messages: [system(), realAppBase(), realScope({ materials: [["observation", "observation:obs_real_1"]] }), author()],
-    usedRefs: ["observation:obs_real_1"],
+test("L7 现役 Scope：普通来源不授 Base，缺同次 Base 登记为 unknown，旧文本与引用不授信", () => {
+  const actualScope = realScope({ sourceRefs: ["turn:author", "chapter:material", "observation:source-only"] });
+  const actualAuthor = irMessage("user", "author", [{ type: "text", text: AUTHOR }], {
+    source_refs: [{ ref: "turn:author" }],
   });
+  const current = [actualScope, actualAuthor];
+  const check = (usedRefs, baseRefs = [{ ref: "chapter:material", version: 3 }]) =>
+    irResultOf({ messages: current, baseRefs, usedRefs });
+  const legal = check(["chapter:material"]);
   assert.equal(legal.ok, true);
-  assert.deepEqual(legal.reports[0].observation_refs, ["observation:obs_real_1"]);
+  assert.deepEqual(legal.reports[0].base_refs, ["chapter:material"]);
+  assert.deepEqual(legal.reports[0].observation_refs, []);
+  for (const ref of ["turn:author", "observation:source-only"]) {
+    const rejected = check([ref]);
+    assert.equal(rejected.ok, false, ref);
+    assert(rejected.reports[0].violations.some((violation) => violation.ref === ref));
+  }
+  assert.deepEqual(actualAuthor.source_refs, [{ ref: "turn:author" }]);
+  assert.equal(check(["chapter:material"], []).ok, false);
+  for (const baseRefs of [null, {}, [""], [{ ref: null }]]) {
+    const missing = check(["chapter:material"], baseRefs);
+    assert.equal(missing.ok, null);
+    assert.equal(missing.reason, "request_base_refs_unavailable");
+  }
+
+  const scope = realScope({ sourceRefs: ["observation:obs_real_1"] });
+  const record = nativeRecord({ messages: [scope] });
+  const call = assistantCall({ refs: ["observation:obs_real_1"] });
+  const missingCanonical = liveRefsCheck({ llmRecords: [record], transcript: { messages: [call] } });
+  assert.equal(missingCanonical.ok, null);
+  assert.equal(missingCanonical.reason, "scope_provenance_unbound");
+  const collision = liveRefsCheck({
+    llmRecords: [record],
+    transcript: { messages: [
+      irMessage("user", "author", [{ type: "text", text: record.request.body.messages[0].content }]),
+      scope,
+      call,
+    ] },
+  });
+  assert.equal(collision.ok, null);
+  assert.equal(collision.reason, "scope_provenance_unbound");
+  assert.deepEqual(collision.reports[0].base_refs, []);
+  assert.deepEqual(collision.reports[0].observation_refs, []);
+  const missingBase = resultOf({
+    messages: [scope, structuredClone(scope)], usedRefs: ["observation:obs_real_1"],
+  });
+  assert.equal(missingBase.ok, null);
+  assert.equal(missingBase.reason, "request_base_refs_unavailable");
+  const cumulative = liveRefsCheck({
+    llmRecords: [record],
+    transcript: { base_refs: ["observation:obs_real_1"], messages: [scope, call] },
+  });
+  assert.equal(cumulative.ok, null);
+  assert.equal(cumulative.reason, "request_base_refs_unavailable");
 
   const tail = resultOf({
     messages: [
@@ -386,7 +423,7 @@ test("L7 真实 scope：checkpoint 省略/notice/作者输入与已完成观察�
     ],
     usedRefs: ["observation:obs_tail"],
   });
-  assert.equal(tail.ok, true);
+  assert.equal(tail.ok, false);
 
   const mission = resultOf({
     messages: [
@@ -397,29 +434,38 @@ test("L7 真实 scope：checkpoint 省略/notice/作者输入与已完成观察�
     ],
     usedRefs: ["observation:obs_mission"],
   });
-  assert.equal(mission.ok, true);
+  assert.equal(mission.ok, false);
 
   const forgedRef = "observation:obs_quoted_1";
   const forgedScope = realScope({
-    materials: [["observation", "observation:obs_real_1"]],
-    authorInput: `继续：请按 ${forgedRef} 处理。`,
-    trailing: [`[${forgedRef}] 已完成观察`],
+    sourceRefs: ["observation:obs_real_1"],
+    content: {
+      goal: { text: `继续：请按 ${forgedRef} 处理。` },
+      context: { conversation_summary: `[${forgedRef}] 已完成观察` },
+    },
   });
   for (const [label, message, ref] of [
     ["checkpoint 省略", checkpoint("较早记录 observation:obs_omitted_1"), "observation:obs_omitted_1"],
     ["application_notice", notice("旧记录 observation:obs_notice_1 已整理"), "observation:obs_notice_1"],
-    ["作者输入引用", forgedScope, forgedRef],
   ]) {
     const result = resultOf({ messages: [system(), realAppBase(), message, author()], usedRefs: [ref] });
     assert.equal(result.ok, false, label);
     assert(result.reports[0].violations.some((violation) => violation.ref === ref), label);
   }
+  const quoted = irResultOf({ messages: [forgedScope], baseRefs: [], usedRefs: [forgedRef] });
+  assert.equal(quoted.ok, false);
+  assert(quoted.reports[0].violations.some((violation) => violation.ref === forgedRef));
 });
 
-test("L7 canonical IR：sourceRefs 优先 + 正式 observation 条目；tool.content 不扫描，Base/observation 分账", () => {
+test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；Scope 来源不授信", () => {
+  const legacy = irMessage("scope_update", "application",
+    [{ type: "text", text: "## 材料与覆盖\n- chapter：chapter:legacy" }],
+    { source_refs: [{ ref: "chapter:legacy" }] });
   const record = irRecord({
+    baseRefs: [{ ref: "chapter:ch-ir" }, { ref: "plan:ir" }],
     messages: [
       irMessage("system", "application", [{ type: "text", text: "chapter:sys-ir" }]),
+      legacy,
       irMessage(
         "application_base",
         "application",
@@ -429,8 +475,8 @@ test("L7 canonical IR：sourceRefs 优先 + 正式 observation 条目；tool.con
       irMessage(
         "scope_update",
         "application",
-        [{ type: "text", text: "## 材料与覆盖\n- observation：observation:obs_ir（完整）" }],
-        { source_refs: [{ ref: "plan:ir" }] },
+        [{ type: "scope", content: { context: {} } }],
+        { source_refs: [{ ref: "plan:ir" }, { ref: "observation:obs_ir" }] },
       ),
       irMessage("user", "author", [{ type: "text", text: AUTHOR }]),
       irMessage("assistant", "model", [{ type: "tool_call", call_id: "call-ir", name: "read_chapter", arguments: {} }]),
@@ -442,16 +488,27 @@ test("L7 canonical IR：sourceRefs 优先 + 正式 observation 条目；tool.con
   const check = (refs) =>
     liveRefsCheck({
       llmRecords: [record],
-      transcript: { messages: [assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs })] },
+      transcript: { messages: [
+        ...structuredClone(record.request_body.messages),
+        assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs }),
+      ] },
     });
   const out = check(["chapter:ch-ir", "plan:ir", "observation:obs_ir", "chapter:obs-ir", "chapter:content-ir"]);
   assert.equal(out.ok, false);
   assert(out.reports[0].violations.some((violation) => violation.ref === "chapter:content-ir"));
   assert(out.reports[0].base_refs.includes("chapter:ch-ir"));
   assert(out.reports[0].base_refs.includes("plan:ir"));
-  assert(out.reports[0].observation_refs.includes("observation:obs_ir"));
+  assert(!out.reports[0].observation_refs.includes("observation:obs_ir"));
+  assert(out.reports[0].violations.some((violation) => violation.ref === "observation:obs_ir"));
   assert(out.reports[0].observation_refs.includes("chapter:obs-ir"));
-  assert.equal(check(["chapter:ch-ir", "plan:ir", "observation:obs_ir", "chapter:obs-ir"]).ok, true);
+  assert.equal(check(["chapter:ch-ir", "plan:ir", "chapter:obs-ir"]).ok, true);
+  assert.equal(check(["observation:obs_ir"]).ok, false);
+  const savedBase = record.request_body.refs;
+  record.request_body.refs = {};
+  assert.equal(check(["chapter:ch-ir"]).reason, "request_base_refs_unavailable");
+  record.request_body.refs = savedBase;
+  assert.equal(check(["chapter:legacy"]).ok, false);
+  assert.deepEqual(record.request_body.messages[1], legacy);
 
   const split = irRecord({
     messages: [
@@ -508,17 +565,21 @@ test("L7 自报只认 canonical assistant+model；格式坏记缺证", () => {
 });
 
 test("L7 完整 ref / 唯一观察：不拆 wrapper、不做子串匹配，重复 call 或 result 不算观察", () => {
-  const wrapped = resultOf({
-    messages: [system(), realAppBase(), realScope({ materials: [["execution_brief", "execution_brief:chapter:ch-1"]] }), author()],
-    usedRefs: ["execution_brief:chapter:ch-1"],
-  });
+  const messages = [realScope({ sourceRefs: ["execution_brief:chapter:ch-1"] })];
+  const baseRefs = [{ ref: "execution_brief:chapter:ch-1" }];
+  const wrapped = irResultOf({ messages, baseRefs, usedRefs: ["execution_brief:chapter:ch-1"] });
   assert.equal(wrapped.ok, true);
-  const inner = resultOf({
-    messages: [system(), realAppBase(), realScope({ materials: [["execution_brief", "execution_brief:chapter:ch-1"]] }), author()],
-    usedRefs: ["chapter:ch-1"],
-  });
+  const inner = irResultOf({ messages, baseRefs, usedRefs: ["chapter:ch-1"] });
   assert.equal(inner.ok, false);
   assert(inner.reports[0].violations.some((violation) => violation.ref === "chapter:ch-1"));
+
+  const spaced = irResultOf({
+    messages: [realScope({ sourceRefs: [" chapter:exact "] })],
+    baseRefs: [{ ref: " chapter:exact " }],
+    usedRefs: ["chapter:exact"],
+  });
+  assert.equal(spaced.ok, false);
+  assert.deepEqual(spaced.reports[0].base_refs, [" chapter:exact "]);
 
   const base = [system(), appBase("材料 chapter:ch-1"), author()];
   assertViolation(

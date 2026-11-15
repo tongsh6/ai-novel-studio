@@ -121,12 +121,21 @@ export function insertCanonicalRun(
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(facts.header), 1, 1, 1, SEGMENT_VERSION);
-  db.prepare(
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(facts.header), facts.messages.length, 1, facts.messages.length, SEGMENT_VERSION);
+  insertCanonicalMessages(db, facts.run, facts.messages);
+  return facts;
+}
+
+function insertCanonicalMessages(db, run, messages) {
+  const insert = db.prepare(
     "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, 1, 1, "assistant", JSON.stringify(facts.messages[0]), MESSAGE_VERSION);
-  return facts;
+  );
+  messages.forEach((message, index) => {
+    const sequence = index + 1;
+    insert.run(`msg-${run.run_id}-${sequence}`, run.workspace_id, run.work_id, run.session_id,
+      run.run_id, sequence, sequence, message.role, JSON.stringify(message), MESSAGE_VERSION);
+  });
 }
 
 function insertNativeCallRun(db) {
@@ -139,13 +148,7 @@ function insertNativeCallRun(db) {
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
   ).run(RUN, WORKSPACE, WORK, SESSION, TURN, JSON.stringify(facts.header), facts.messages.length, 1, facts.messages.length, SEGMENT_VERSION);
-  const insertMessage = db.prepare(
-    "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
-      "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  );
-  facts.messages.forEach((message, index) => {
-    insertMessage.run(`msg-${RUN}-${index + 1}`, WORKSPACE, WORK, SESSION, RUN, index + 1, index + 1, message.role, JSON.stringify(message), MESSAGE_VERSION);
-  });
+  insertCanonicalMessages(db, facts.run, facts.messages);
   const insertRun = db.prepare(
     "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) VALUES (?,?,?,?,?,?,?,?)",
   );

@@ -15,6 +15,7 @@ export const RETIRED_PROVIDER_PROMPT = "provider_prompt/v1";
 
 const APPLICATION_PREFIX = "【应用数据 · ";
 const SCOPE_PREFIX = "【应用数据 · scope_update";
+const SCOPE_HEADER = "【应用数据 · scope_update · 以最新版本为准】";
 const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";
 
 const IR_APPLICATION_ROLES = new Set([
@@ -29,6 +30,47 @@ const isRecord = (value) =>
 const list = (value) => (Array.isArray(value) ? value : []);
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
+
+function decodedJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function validScopeMetadata(versions, sourceRefs) {
+  return isRecord(versions) && Array.isArray(sourceRefs) &&
+    sourceRefs.every((source) => isRecord(source) && nonBlank(source.ref));
+}
+
+function scopeBlockContent(blocks) {
+  if (!Array.isArray(blocks) || blocks.length !== 1) return null;
+  const block = blocks[0];
+  return block?.type === "scope" && isRecord(block.content) ? block.content : null;
+}
+
+// Canonical Scope 的唯一读取；历史 text 块只保留原证据，不反向解析自然语言事实。
+export function scopeContentOf(message) {
+  if (!isRecord(message)) return null;
+  if (message.role !== "scope_update" || message.provenance !== "application") return null;
+  if (!validScopeMetadata(message.versions, message.source_refs)) return null;
+  return scopeBlockContent(message.blocks);
+}
+
+// 只接受现役公共 renderer：固定来源标记、版本、来源列表、原结构 JSON。
+// 原 wire 文本始终保留；缺失/旧文本/坏 JSON 不被升格为结构化事实。
+function wireScopeAttributes(content) {
+  if (typeof content !== "string") return null;
+  const [header, versionLine, sourceLine, ...payload] = content.split("\n");
+  if (header !== SCOPE_HEADER) return null;
+  if (!versionLine?.startsWith("版本：") || !sourceLine?.startsWith("来源：")) return null;
+  const versions = decodedJson(versionLine.slice("版本：".length));
+  const sourceRefs = decodedJson(sourceLine.slice("来源：".length));
+  const scopeContent = decodedJson(payload.join("\n"));
+  if (!validScopeMetadata(versions, sourceRefs) || !isRecord(scopeContent)) return null;
+  return { versions, sourceRefs, scopeContent };
+}
 
 function invalid(format, reason, extra = {}) {
   return {
@@ -55,7 +97,6 @@ function invalid(format, reason, extra = {}) {
     toolResults: [],
     malformedCalls: 0,
     malformedToolMessages: 0,
-    allText: "",
   };
 }
 
@@ -131,13 +172,19 @@ function irResults(blocks, messageIndex) {
       : []);
 }
 
+function validIrMessageShape(message) {
+  return isRecord(message) && nonBlank(message.role) && nonBlank(message.provenance) &&
+    Array.isArray(message.blocks) &&
+    message.blocks.every((block) => !parseIrBlock(block).malformed);
+}
+
 function parseIrMessage(message, index) {
-  if (!isRecord(message) || !nonBlank(message.role) || !nonBlank(message.provenance)) {
+  if (!validIrMessageShape(message)) return { malformed: true };
+  const blocks = message.blocks;
+  const scopeContent = scopeContentOf(message);
+  if (blocks.some((block) => block.type === "scope") && scopeContent === null) {
     return { malformed: true };
   }
-  if (!Array.isArray(message.blocks)) return { malformed: true };
-  if (message.blocks.some((block) => parseIrBlock(block).malformed)) return { malformed: true };
-  const blocks = message.blocks;
   const calls = irCalls(blocks, index);
   const results = irResults(blocks, index);
   return {
@@ -147,6 +194,7 @@ function parseIrMessage(message, index) {
       role: message.role,
       provenance: message.provenance,
       text: irText(blocks),
+      scopeContent,
       blocks,
       sourceRefs: list(message.source_refs),
       versions: isRecord(message.versions) ? message.versions : {},
@@ -222,7 +270,6 @@ function irFacts(record, body) {
     ...classified,
     malformedCalls: classified.toolCalls.filter((call) => !nonBlank(call.callId)).length,
     malformedToolMessages: parsed.filter((entry) => entry.toolMessageWithoutResult).length,
-    allText: messages.map((message) => message.text).join("\n"),
   };
 }
 
@@ -252,12 +299,7 @@ function wireToolCall(call, messageIndex, callIndex) {
 
 function wireToolResult(message, messageIndex) {
   if (typeof message.content !== "string") return null;
-  let payload;
-  try {
-    payload = JSON.parse(message.content);
-  } catch {
-    return null;
-  }
+  const payload = decodedJson(message.content);
   if (!isRecord(payload)) return null;
   if (!["observation", "validation_result"].includes(payload.type)) return null;
   if (!nonBlank(payload.call_id)) return null;
@@ -301,6 +343,7 @@ function emptyWireMessageFact(index, raw) {
     role: null,
     provenance: null,
     text: "",
+    scopeContent: null,
     blocks: null,
     sourceRefs: [],
     versions: {},
@@ -316,16 +359,14 @@ function wireMessageFact(raw, index) {
   }
   const calls = wireCallsOf(raw, index);
   const results = wireResultsOf(raw, index);
+  const text = messageTextParts(raw);
+  const scope = raw.role === "user" ? wireScopeAttributes(raw.content) : null;
   return {
     fact: {
-      index,
+      ...emptyWireMessageFact(index, raw),
       role: raw.role,
-      provenance: null,
-      text: messageTextParts(raw),
-      blocks: null,
-      sourceRefs: [],
-      versions: {},
-      raw,
+      text,
+      ...scope,
       toolCalls: calls.calls,
       toolResults: results.results,
     },
@@ -403,7 +444,6 @@ function wireFacts(record, body) {
     ...classified,
     malformedCalls: parsed.malformedCalls,
     malformedToolMessages: parsed.malformedToolMessages,
-    allText: parsed.messageFacts.map((message) => message.text).join("\n"),
   };
 }
 

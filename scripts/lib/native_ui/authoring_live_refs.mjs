@@ -3,9 +3,10 @@
 // 正判（VS-00L §7 G2/§16.9）：canonical assistant(model) 顶层 provider_call_ref +
 // provider_run_ref 配对唯一真实 llm record；used 只取该消息
 // tool_call.arguments.self_report.used_context_refs。边界只从配对 record 经
-// requestFactsFromRecord 读取：明确的 application_base 与 scope_update；scope 文本
-// 只解析真实 producer 的正式条目（「## 材料与覆盖」、「## 对象与范围」目标项、
-// 正文 chapter_ref=、「- [observation:…]」使命条目），并停在「## 当前作者输入」之前。
+// requestFactsFromRecord 读取：application_base 沿用其来源边界；现役结构化 Scope
+// 必须经同次 canonical 前缀逐项绑定，Base 只取该请求 IR.refs.base_refs 的明确登记。
+// Scope.source_refs 只是来源，prose、目标、引用和历史 text 块都不扩充 Base/observation。
+// 原生 wire 未提供同次 canonical Base 时如实缺证，最终段头的累计 refs 不能代签。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
 // 与同请求原生 content.observation_ref 身份。直接 observation 只认自身 status=ok；
 // planned_exploration 聚合父块 status=ok/partial 时只接纳各自 ok 的叶，叶 refs/身份沿用
@@ -17,6 +18,7 @@ import {
   plannedExplorationLeaves,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
 export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
 
@@ -29,10 +31,6 @@ const REF_TOKEN = new RegExp(
 const ARTIFACT_TOKEN = /(?<![A-Za-z0-9_])as_[A-Za-z0-9_]+(?![A-Za-z0-9_])/gu;
 const OBSERVATION_PREFIX = "observation:";
 const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";
-const SCOPE_PREFIX = "【应用数据 · scope_update";
-const AUTHOR_INPUT_HEADING = "## 当前作者输入";
-const MATERIALS_HEADING = "## 材料与覆盖";
-const OBJECT_SCOPE_HEADING = "## 对象与范围";
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
@@ -49,7 +47,7 @@ export function extractRefTokens(text) {
 function refValues(values) {
   return (Array.isArray(values) ? values : []).flatMap((value) => {
     const ref = typeof value === "string" ? value : isObject(value) ? value.ref : null;
-    return nonBlank(ref) ? [ref.trim()] : [];
+    return nonBlank(ref) ? [ref] : [];
   });
 }
 
@@ -62,90 +60,41 @@ function addApplicationRef(boundary, ref, source) {
   pushRef(String(ref).startsWith(OBSERVATION_PREFIX) ? boundary.observation : boundary.base, ref, source);
 }
 
-// scope 文本只看到作者输入之前；checkpoint/notice 根本不进入边界读取。
-function beforeAuthorInput(text) {
-  const value = String(text ?? "");
-  const index = value.indexOf(AUTHOR_INPUT_HEADING);
-  return index === -1 ? value : value.slice(0, index);
-}
-
-// 只取指定二级标题到下一个二级标题之间的行。
-function sectionLines(text, heading) {
-  const lines = String(text ?? "").split("\n");
-  const start = lines.findIndex((line) => line.trim() === heading);
-  if (start === -1) return [];
-  const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line));
-  return lines.slice(start + 1, end === -1 ? lines.length : end);
-}
-
-// 真实 scope 的正式 ref 形状：
-// - 「## 材料与覆盖」的 `- observation：observation:…（…）`
-// - 「## 对象与范围」的目标对象 refs / 目标章 ref / 基线对象
-// - 正文材料里的 `chapter_ref=…`
-// - 章节使命正式条目 `- [observation:…] 文本`
-function materialRefs(visible) {
-  const refs = [];
-  for (const line of sectionLines(visible, MATERIALS_HEADING)) {
-    const material = /^-\s*[^：:\s]+[：:]\s*([^\s（(]+)/u.exec(line);
-    if (material) refs.push([material[1], "materials"]);
-  }
-  return refs;
-}
-
-function objectRefs(visible) {
-  const refs = [];
-  for (const line of sectionLines(visible, OBJECT_SCOPE_HEADING)) {
-    const object = /^-\s*(?:目标对象 refs|目标章 ref|基线对象)[：:]\s*(.+)$/u.exec(line);
-    if (!object) continue;
-    for (const token of object[1].split(/[、,，\s]+/u)) {
-      const ref = token.split("=")[0].trim();
-      if (nonBlank(ref)) refs.push([ref, "scope_object"]);
-    }
-  }
-  return refs;
-}
-
-function missionRefs(visible) {
-  return visible
-    .split("\n")
-    .flatMap((line) => {
-      const item = /^-\s*\[([^\]]+)\]/u.exec(line);
-      return item ? [[item[1].trim(), "mission_item"]] : [];
-    });
-}
-
-function scopeTextRefs(text) {
-  const visible = beforeAuthorInput(text);
-  const chapterRefs = [...visible.matchAll(/chapter_ref=([A-Za-z0-9_:-]+)/gu)].map((match) => [match[1], "chapter_ref"]);
-  return [...materialRefs(visible), ...objectRefs(visible), ...chapterRefs, ...missionRefs(visible)];
-}
-
 function applicationKind(message) {
   const text = String(message.text ?? "");
   if (message.role === "application_base" || text.startsWith(APPLICATION_BASE_PREFIX)) {
     return "base";
   }
-  if (message.role === "scope_update" || text.startsWith(SCOPE_PREFIX)) return "scope";
   return null;
 }
 
-function collectApplication(boundary, message, kind) {
-  const source = { message_index: message.index };
-  if (kind === "base") {
+function collectApplication(boundary, messages) {
+  for (const message of messages) {
+    if (applicationKind(message) !== "base") continue;
+    const source = { message_index: message.index };
     const structured = refValues(message.sourceRefs);
-    // canonical IR 首选 source_refs；只有没有结构化来源时才读 application_base 文本。
+    // 非原生 Scope 请求沿用 application_base 的既有证据；不扫描 Scope 文本或来源。
     const refs = structured.length > 0
       ? structured.map((ref) => [ref, "source_refs"])
       : [...extractRefTokens(message.text)].map((ref) => [ref, "text"]);
     for (const [ref, channel] of refs) addApplicationRef(boundary, ref, { ...source, channel });
-    return;
   }
-  for (const ref of refValues(message.sourceRefs)) {
-    addApplicationRef(boundary, ref, { ...source, channel: "source_refs" });
+}
+
+function suppliedBaseRefs(facts) {
+  const refs = facts.refs?.base_refs;
+  if (!Array.isArray(refs)) return null;
+  const values = refValues(refs);
+  return values.length === refs.length ? values : null;
+}
+
+function scopeBaseEvidence(record, transcript, facts) {
+  if (scopeForProviderCall(record, transcript) === null) {
+    return { ok: false, reason: "scope_provenance_unbound" };
   }
-  for (const [ref, channel] of scopeTextRefs(message.text)) {
-    addApplicationRef(boundary, ref, { ...source, channel });
-  }
+  const refs = suppliedBaseRefs(facts);
+  if (refs === null) return { ok: false, reason: "request_base_refs_unavailable" };
+  return { ok: true, refs };
 }
 
 // 成功 observation 只认前置唯一 assistant call 与同请求唯一 result；重复声明/重复结果
@@ -212,7 +161,7 @@ function collectToolObservations(boundary, facts) {
   }
 }
 
-function requestBoundary(record) {
+function requestBoundary(record, transcript) {
   const facts = requestFactsFromRecord(record);
   if (!facts.ok) {
     return {
@@ -220,10 +169,14 @@ function requestBoundary(record) {
       request_reason: facts.reason ?? null, request_status: facts.status ?? null,
     };
   }
+  const hasNativeScope = facts.scopeMessages.some((message) => isObject(message.scopeContent));
   const boundary = { base: new Map(), observation: new Map() };
-  for (const message of facts.applicationMessages) {
-    const kind = applicationKind(message);
-    if (kind !== null) collectApplication(boundary, message, kind);
+  if (hasNativeScope) {
+    const evidence = scopeBaseEvidence(record, transcript, facts);
+    if (!evidence.ok) return evidence;
+    for (const ref of evidence.refs) pushRef(boundary.base, ref, { channel: "canonical_base_refs" });
+  } else {
+    collectApplication(boundary, facts.applicationMessages);
   }
   collectToolObservations(boundary, facts);
   return { ok: true, boundary };
@@ -334,7 +287,7 @@ function matchUsedRefs(report, usedRefs, details) {
   }
 }
 
-function evaluateGroup(group, llmRecords) {
+function evaluateGroup(group, llmRecords, transcript) {
   const usedRefs = uniqueStrings(group.used_refs);
   const report = {
     provider_call_ref: group.provider_call_ref, provider_run_ref: group.provider_run_ref,
@@ -349,7 +302,7 @@ function evaluateGroup(group, llmRecords) {
       matched_record_indexes: matches.map((entry) => entry.index),
     };
   }
-  const boundary = requestBoundary(matches[0].record);
+  const boundary = requestBoundary(matches[0].record, transcript);
   report.matched_record_index = matches[0].index;
   if (!boundary.ok) {
     return {
@@ -370,7 +323,7 @@ function evaluateGroup(group, llmRecords) {
 
 export function liveRefsCheck({ llmRecords = [], transcript = null } = {}) {
   const { groups, issues, self_report_count } = collectReports(transcript);
-  const reports = groups.map((group) => evaluateGroup(group, llmRecords));
+  const reports = groups.map((group) => evaluateGroup(group, llmRecords, transcript));
   const violations = reports.flatMap((report) =>
     report.violations.map((violation) => ({
       ...violation,
@@ -395,12 +348,12 @@ export function liveRefsCheck({ llmRecords = [], transcript = null } = {}) {
     sources: {
       used: ["authoring_session_messages.message.blocks[tool_call].arguments.self_report.used_context_refs"],
       pairing: ["canonical assistant.provider_call_ref + provider_run_ref ↔ llm_calls 同名两键"],
-      base: ["application_base.source_refs（优先）/ text；scope_update.source_refs 与正式目标项"],
+      base: ["现役 Scope：同次请求 IR.refs.base_refs；其余请求：application_base.source_refs（优先）/ text"],
       observation: [
-        "scope 正式 observation 条目；成功且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref",
+        "成功且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref；Scope.source_refs 不授信",
         "planned_exploration 聚合父块 status=ok/partial 时，只取各自 ok 叶的 source_refs 与身份，沿用父 call_id",
       ],
-      excluded: ["段头 used_refs / decision_traces / agent_events / checkpoint / notice / 省略 / 作者输入"],
+      excluded: ["段头累计 base_refs / used_refs / Scope.source_refs / decision_traces / agent_events / checkpoint / notice / 省略 / 作者输入"],
       self_report_count,
     },
   };
