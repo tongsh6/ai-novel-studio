@@ -2592,9 +2592,11 @@ if [[ -n "${TAURI_NATIVE_REPLAY_SOURCE_DIR:-}" ]]; then
 elif [[ -n "$SEED_SCRIPT" ]]; then
   # B21：只有「多场计划首次 append 场名」场景需要在共用种子上追加第01章的场次计划行；
   # 其它共用该种子的场景保持原计划字节，避免影响既有断言口径。
+  # 全部 seed 的机器记录由 Node 按 UTF-8 读取；无 locale 时也不能由 stdio 转成 Latin-1。
   MIX_ENV=test \
     P1_SCENE_PLAN_SEED="$([[ "$SLICE_ID" == "p1-chapter-adoption-reading" ]] && echo 1 || echo 0)" \
-    mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
+    mix run --eval ':ok = :io.setopts(:standard_io, encoding: :unicode)' \
+      --require "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
 else
   echo "[tauri-slice-verify] seed: none" >"$ARTIFACT_DIR/seed.log"
 fi
