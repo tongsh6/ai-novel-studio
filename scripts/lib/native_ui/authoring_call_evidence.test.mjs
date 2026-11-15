@@ -85,6 +85,93 @@ test("Scope 按同次 pcall/prun 绑定 canonical 当前前缀，IR 与 wire 保
   }
 });
 
+test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcall/prun 校验", () => {
+  const contents = [
+    { operation: { context_text: "上轮原文\n 雪❄️", revision: null }, flags: { enabled: false, refs: [] } },
+    { operation: { context_text: "本轮原文", revision: "保留旧文" } },
+    { operation: { context_text: "作者续行", revision: null } },
+    { operation: { context_text: "未来 run" } },
+  ];
+  const versions = contents.map((_, index) => ({ scope_revision: index + 1 }));
+  const sourceRefs = contents.map((_, index) => [{ ref: "chapter:" + index, version: index + 1 }]);
+  const canonicalScopes = contents.map((content, index) => ({
+    role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content }], versions: versions[index], source_refs: sourceRefs[index],
+  }));
+  const author = (text, ref) => ({
+    role: "user", provenance: "author", blocks: [{ type: "text", text }],
+    source_refs: [{ ref }], versions: {},
+  });
+  const historicalAssistant = assistant(81, [
+    { type: "tool_call", call_id: "old-call", name: "read_chapter", arguments: {} },
+  ]);
+  const historicalResult = {
+    role: "tool", provenance: "tool_result", source_refs: [], versions: {},
+    blocks: [{ type: "observation", call_id: "old-call", status: "ok", content: { text: "观察" } }],
+  };
+  const checkpoint = {
+    role: "checkpoint", provenance: "application", source_refs: [], versions: {},
+    blocks: [{
+      type: "checkpoint", covers: { call_ids: ["old-call"], turn_range: "old-author" },
+      summary: "已核对历史", omissions: [], source_refs: [], versions: {},
+    }],
+  };
+  const transcript = { messages: [
+    author("上轮作者", "old-author"), canonicalScopes[0], historicalAssistant, historicalResult,
+    author("本轮作者", "new-author"), canonicalScopes[1], checkpoint,
+    assistant(82, [{ type: "text", text: "继续询问" }]),
+    author(" 续行原文\n", "reply-author"), canonicalScopes[2], assistant(83, []),
+    canonicalScopes[3], assistant(84, []),
+  ] };
+  const projected = contents.map((content, index) =>
+    scopeWireMessage(content, { versions: versions[index], sourceRefs: sourceRefs[index] }));
+  const first = sseExchange(82);
+  // 压缩只省略已覆盖的历史交换；两个 Scope 与各自作者原话仍在原位置。
+  first.request.body.messages = [
+    { role: "user", content: "上轮作者" }, projected[0],
+    { role: "user", content: "本轮作者" }, projected[1],
+    { role: "user", content: [
+      '【应用数据 · checkpoint · 覆盖 {"call_ids":["old-call"],"turn_range":"old-author"}】',
+      "来源：[]", "版本：{}", "已核对历史",
+    ].join("\n") },
+  ];
+  const continuation = sseExchange(83);
+  continuation.request.body.messages = [
+    ...structuredClone(first.request.body.messages),
+    { role: "assistant", content: "继续询问" },
+    { role: "user", content: " 续行原文\n" }, projected[2],
+  ];
+
+  for (const [record, index] of [[first, 1], [continuation, 2]]) {
+    const found = scopeForProviderCall(record, transcript);
+    assert(found);
+    assert.deepEqual(found.scopeContent, contents[index]);
+    assert.deepEqual(found.versions, versions[index]);
+    assert.deepEqual(found.sourceRefs, sourceRefs[index]);
+  }
+  assert.equal(continuation.request.body.messages.at(-2).content, " 续行原文\n");
+
+  const changes = [
+    record => { record.request.body.messages.splice(1, 1); },
+    record => { record.request.body.messages.push(structuredClone(projected[0])); },
+    record => {
+      [record.request.body.messages[1], record.request.body.messages[3]] =
+        [record.request.body.messages[3], record.request.body.messages[1]];
+    },
+    record => { record.request.body.messages[1] = scopeWireMessage(
+      { operation: { context_text: "历史被篡改" } }, { versions: versions[0], sourceRefs: sourceRefs[0] },
+    ); },
+    record => { record.request.body.messages.push(structuredClone(projected[3])); },
+    record => { record.request.body.messages[1] = scopeWireMessage(contents[0],
+      { versions: versions[0], sourceRefs: [{ ref: "unrelated-history" }] }); },
+  ];
+  for (const change of changes) {
+    const record = structuredClone(continuation);
+    change(record);
+    assert.equal(scopeForProviderCall(record, transcript), null, change.toString());
+  }
+});
+
 test("Scope 调用绑定拒绝错配、旧文本、投影篡改、多义与完整作者标记碰撞", () => {
   const content = { operation: { context_text: "实读原文", revision: "局部修订" } };
   const versions = { scope_revision: 2 };

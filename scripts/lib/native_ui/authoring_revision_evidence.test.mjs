@@ -1018,6 +1018,41 @@ test("retryExchangeChecks 在 firstRequest 缺失而 secondRequest 存在时关�
   assert.equal(result.checks.second_request_is_strict_first_prefix, false);
 });
 
+test("修订请求核验完整会话 Scope，调用计数保持当前 run", () => {
+  const scope = (text, revision) => ({
+    role: "scope_update", provenance: "application",
+    source_refs: [], versions: { scope_revision: revision },
+    blocks: [{ type: "scope", content: { operation: { context_text: text, revision: "" } } }],
+  });
+  const oldScope = scope("上一轮原文", 1);
+  const currentScope = scope("当前原文", 2);
+  const call = (suffix) => ({
+    role: "assistant", provenance: "model",
+    provider_call_ref: "pcall-" + suffix, provider_run_ref: "prun-" + suffix,
+    blocks: [{ type: "tool_call", call_id: "call-" + suffix, name: "submit_tentative_artifact" }],
+  });
+  const currentCall = call("current");
+  const transcript = { messages: [currentScope, currentCall] };
+  const sessionMessages = [oldScope, call("previous"), ...transcript.messages, scope("未来原文", 3)];
+  const record = {
+    provider_call_ref: "pcall-current", provider_run_ref: "prun-current",
+    request: { body: { messages: [oldScope, currentScope].map((message) =>
+      scopeWireMessage(message.blocks[0].content, { versions: message.versions })) } },
+    response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: {} }] } },
+  };
+  const check = (messages) => retryExchangeChecks({
+    transcript, sessionMessages: messages, records: [record], originalBody: "当前原文",
+  });
+  const result = check(sessionMessages);
+  assert.equal(result.checks.revision_request_carries_source_bytes_and_findings, true);
+  assert.equal(result.measured.revision_call_count, 1);
+  assert.equal(check(null).checks.revision_request_carries_source_bytes_and_findings, false);
+  assert.equal(check(transcript.messages).checks.revision_request_carries_source_bytes_and_findings, false);
+  const changed = structuredClone(sessionMessages);
+  changed[0].versions.scope_revision += 1;
+  assert.equal(check(changed).checks.revision_request_carries_source_bytes_and_findings, false);
+});
+
 test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失时关闭", () => {
   const content = { operation: { context_text: "原文", revision: "" } };
   const scope = {
@@ -1043,6 +1078,7 @@ test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失
   const transcript = { messages: [scope, call] };
   const accepted = retryExchangeChecks({
     transcript,
+    sessionMessages: transcript.messages,
     records: [record],
     originalBody: "原文",
     findingInstruction: undefined,
@@ -1050,6 +1086,7 @@ test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失
   assert.equal(accepted.checks.revision_request_carries_source_bytes_and_findings, true);
   const rejected = retryExchangeChecks({
     transcript,
+    sessionMessages: transcript.messages,
     records: [record],
     originalBody: "原文",
     findingInstruction: "具体要求",
@@ -1541,17 +1578,19 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
     role: "tool",
     blocks: [{ type: "validation_result", call_id: id, status, reason_code: reason }],
   });
+  const transcript = {
+    messages: [
+      ...structuredClone(firstBody.messages),
+      call("call-1", "pcall-1", "prun-1", {}),
+      validation("call-1", "failed", "invalid_items"),
+      call("call-2", "pcall-2", "prun-2", legal),
+      validation("call-2", "passed", "tentative_artifact_validated"),
+    ],
+  };
   const result = retryExchangeChecks({
     originalBody,
-    transcript: {
-      messages: [
-        ...structuredClone(firstBody.messages),
-        call("call-1", "pcall-1", "prun-1", {}),
-        validation("call-1", "failed", "invalid_items"),
-        call("call-2", "pcall-2", "prun-2", legal),
-        validation("call-2", "passed", "tentative_artifact_validated"),
-      ],
-    },
+    transcript,
+    sessionMessages: transcript.messages,
     records: [
       {
         provider_call_ref: "pcall-1",

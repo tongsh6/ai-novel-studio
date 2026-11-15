@@ -1,10 +1,11 @@
 // B71 CP3b 实模 L7 证据：逐调用 used_context_refs ⊆ 同次 Base ∪ 同次 observation。
 //
 // 正判（VS-00L §7 G2/§16.9）：canonical assistant(model) 顶层 provider_call_ref +
-// provider_run_ref 配对唯一真实 llm record；used 只取该消息
+// provider_run_ref 配对唯一真实 llm record；used 只取当前 run transcript 中该消息
 // tool_call.arguments.self_report.used_context_refs。边界只从配对 record 经
 // requestFactsFromRecord 读取：application_base 沿用其来源边界；现役结构化 Scope
-// 必须经同次 canonical 前缀逐项绑定，Base 只取该请求 IR.refs.base_refs 的明确登记。
+// 必须经 sessionMessages 的同次 canonical 前缀逐项绑定，不能以当前 run 段代替
+// 会话前缀；历史 run 自报不计入当前 used。Base 只取该请求 IR.refs.base_refs 的明确登记。
 // Scope.source_refs 只是来源，prose、目标、引用和历史 text 块都不扩充 Base/observation。
 // 原生 wire 未提供同次 canonical Base 时如实缺证，最终段头的累计 refs 不能代签。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
@@ -88,8 +89,8 @@ function suppliedBaseRefs(facts) {
   return values.length === refs.length ? values : null;
 }
 
-function scopeBaseEvidence(record, transcript, facts) {
-  if (scopeForProviderCall(record, transcript) === null) {
+function scopeBaseEvidence(record, sessionMessages, facts) {
+  if (scopeForProviderCall(record, { messages: sessionMessages }) === null) {
     return { ok: false, reason: "scope_provenance_unbound" };
   }
   const refs = suppliedBaseRefs(facts);
@@ -161,7 +162,7 @@ function collectToolObservations(boundary, facts) {
   }
 }
 
-function requestBoundary(record, transcript) {
+function requestBoundary(record, sessionMessages) {
   const facts = requestFactsFromRecord(record);
   if (!facts.ok) {
     return {
@@ -172,7 +173,7 @@ function requestBoundary(record, transcript) {
   const hasNativeScope = facts.scopeMessages.some((message) => isObject(message.scopeContent));
   const boundary = { base: new Map(), observation: new Map() };
   if (hasNativeScope) {
-    const evidence = scopeBaseEvidence(record, transcript, facts);
+    const evidence = scopeBaseEvidence(record, sessionMessages, facts);
     if (!evidence.ok) return evidence;
     for (const ref of evidence.refs) pushRef(boundary.base, ref, { channel: "canonical_base_refs" });
   } else {
@@ -287,7 +288,7 @@ function matchUsedRefs(report, usedRefs, details) {
   }
 }
 
-function evaluateGroup(group, llmRecords, transcript) {
+function evaluateGroup(group, llmRecords, sessionMessages) {
   const usedRefs = uniqueStrings(group.used_refs);
   const report = {
     provider_call_ref: group.provider_call_ref, provider_run_ref: group.provider_run_ref,
@@ -302,7 +303,7 @@ function evaluateGroup(group, llmRecords, transcript) {
       matched_record_indexes: matches.map((entry) => entry.index),
     };
   }
-  const boundary = requestBoundary(matches[0].record, transcript);
+  const boundary = requestBoundary(matches[0].record, sessionMessages);
   report.matched_record_index = matches[0].index;
   if (!boundary.ok) {
     return {
@@ -321,9 +322,9 @@ function evaluateGroup(group, llmRecords, transcript) {
   return { ...report, status: "verified" };
 }
 
-export function liveRefsCheck({ llmRecords = [], transcript = null } = {}) {
+export function liveRefsCheck({ llmRecords = [], transcript = null, sessionMessages = null } = {}) {
   const { groups, issues, self_report_count } = collectReports(transcript);
-  const reports = groups.map((group) => evaluateGroup(group, llmRecords, transcript));
+  const reports = groups.map((group) => evaluateGroup(group, llmRecords, sessionMessages));
   const violations = reports.flatMap((report) =>
     report.violations.map((violation) => ({
       ...violation,
@@ -346,7 +347,7 @@ export function liveRefsCheck({ llmRecords = [], transcript = null } = {}) {
     issues,
     violations,
     sources: {
-      used: ["authoring_session_messages.message.blocks[tool_call].arguments.self_report.used_context_refs"],
+      used: ["当前 run authoring_session_messages.message.blocks[tool_call].arguments.self_report.used_context_refs"],
       pairing: ["canonical assistant.provider_call_ref + provider_run_ref ↔ llm_calls 同名两键"],
       base: ["现役 Scope：同次请求 IR.refs.base_refs；其余请求：application_base.source_refs（优先）/ text"],
       observation: [

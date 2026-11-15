@@ -3,7 +3,7 @@
 // 测试与 IO fixture 共享同一组事实，避免各自复制期望。本模块不 import 被测 SUT
 // （canon 快照由消费者用既有纯函数合成后作为规格输入传入）。
 import { TRACE as COPY_TRACE } from "../../../../frontend/src/lib/copy.ts";
-import { irBodyFromWire, scopeWireMessage } from "./authoring_request_ir.mjs";
+import { irBodyFromWire } from "./authoring_request_ir.mjs";
 
 export const WORK = "11111111-1111-4111-8111-111111111111";
 export const WORKSPACE = "22222222-2222-4222-8222-222222222222";
@@ -36,7 +36,7 @@ export function iso(offsetMs) {
 function transcript(run, messages) {
   return {
     run,
-    system: {},
+    system: { identity_ref: "identity:fixture-revision" },
     projection: {},
     messages,
     tools: [],
@@ -109,14 +109,15 @@ export function artifacts() {
 export function transcripts() {
   const { sourceArtifact } = artifacts();
   const sourceMessages = [
-    { role: "system", blocks: [{ type: "text", text: "source" }] },
+    { role: "application_base", provenance: "application", blocks: [{ type: "text", text: "source" }], source_refs: [], versions: {} },
+    { role: "user", provenance: "author", blocks: [{ type: "text", text: SOURCE_MESSAGE }], source_refs: [{ ref: USER_TURN }], versions: {} },
     assistant("pcall-source", "prun-source", "call-source", "submit_tentative_artifact", {
       items: [sourceItem()],
     }),
+    validation("call-source", "passed", "tentative_artifact_validated"),
   ];
   const childMessages = [
-    { role: "system", blocks: [{ type: "text", text: "system" }] },
-    { role: "application_base", blocks: [{ type: "text", text: "revision" }] },
+    { role: "application_base", provenance: "application", blocks: [{ type: "text", text: "revision" }], source_refs: [], versions: {} },
     {
       role: "scope_update",
       provenance: "application",
@@ -256,24 +257,25 @@ function revisionScopeContent() {
 }
 
 function firstRequest() {
-  return [
-    { role: "system", content: "system" },
-    scopeWireMessage(revisionScopeContent()),
-  ];
+  const { sourceTranscript, childTranscript } = transcripts();
+  const [base, currentScope] = childTranscript.messages;
+  return {
+    ...irBodyFromWire({ run: childTranscript.run, system: childTranscript.system }),
+    messages: structuredClone([
+      base,
+      ...sourceTranscript.messages.filter(message => message.role !== "application_base"),
+      currentScope,
+    ]),
+  };
 }
 
 function llmRecords() {
-  const failedTool = {
-    role: "tool",
-    tool_call_id: "call-1",
-    content: JSON.stringify({
-      type: "validation_result",
-      call_id: "call-1",
-      status: "failed",
-      reason_code: "invalid_items",
-    }),
-  };
   const request = firstRequest();
+  const { sourceTranscript } = transcripts();
+  const sourceRequest = {
+    ...irBodyFromWire({ run: sourceTranscript.run, system: sourceTranscript.system }),
+    messages: structuredClone(sourceTranscript.messages.slice(0, 2)),
+  };
   return [
     {
       provider: "slice_verify",
@@ -285,7 +287,7 @@ function llmRecords() {
       turn_id: USER_TURN,
       request_format: "authoring-request-ir/v1",
       response_format: "fixture_provider_result/v1",
-      request_body: irBodyFromWire({ messages: [{ role: "user", content: "source" }] }),
+      request_body: sourceRequest,
       response: {
         status: "ok",
         body: {
@@ -306,7 +308,7 @@ function llmRecords() {
       turn_id: SOURCE_TURN,
       request_format: "authoring-request-ir/v1",
       response_format: "fixture_provider_result/v1",
-      request_body: irBodyFromWire({ messages: request }),
+      request_body: structuredClone(request),
       response: {
         status: "ok",
         body: {
@@ -325,24 +327,17 @@ function llmRecords() {
       turn_id: SOURCE_TURN,
       request_format: "authoring-request-ir/v1",
       response_format: "fixture_provider_result/v1",
-      request_body: irBodyFromWire({
+      request_body: {
+        ...structuredClone(request),
         messages: [
-          ...request,
-          {
-            role: "assistant",
-            content: "",
-            tool_calls: [
-              {
-                id: "call-1",
-                type: "function",
-                function: { name: "submit_tentative_artifact", arguments: "{}" },
-              },
-            ],
-          },
-          failedTool,
+          ...structuredClone(request.messages),
+          assistant("pcall-1", "prun-1", "call-1", "submit_tentative_artifact", {}),
+          validation("call-1", "failed", "invalid_items"),
         ],
-        tool_choice: { type: "function", function: { name: "submit_tentative_artifact" } },
-      }),
+        projection: {
+          tool_choice: { type: "function", function: { name: "submit_tentative_artifact" } },
+        },
+      },
       response: {
         status: "ok",
         body: {

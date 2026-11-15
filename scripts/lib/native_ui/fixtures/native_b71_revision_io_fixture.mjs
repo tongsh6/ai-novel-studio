@@ -58,12 +58,12 @@ const SCHEMA_SQL = `
       long_run_task_ref TEXT, failure_ref TEXT, completed_at TEXT, inserted_at TEXT,
       updated_at TEXT, trigger TEXT
     );
-    CREATE TABLE authoring_run_segments (
-      run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER
-    );
-    CREATE TABLE authoring_session_messages (
-      run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT
-    );
+    CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT,
+      session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER,
+      last_sequence INTEGER, format_version TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT,
+      session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT,
+      format_version TEXT);
     CREATE TABLE provider_runs (
       id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT,
       workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT,
@@ -137,27 +137,42 @@ function revisionData() {
   };
 }
 
-function insertCanonicalSegment(db, runId, transcriptFacts) {
+function insertCanonicalSegment(db, runId, transcriptRecord) {
+  const transcript = transcriptRecord?.transcript ?? transcriptRecord;
+  const messages = Array.isArray(transcript.messages) ? transcript.messages : [];
+  const identity = transcript.run;
+  const offset = db.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS value FROM authoring_session_messages WHERE session_id = ?",
+  ).get(identity.session_id).value;
   const header = {
     version: SEGMENT_VERSION,
-    run: transcriptFacts.run,
-    system: transcriptFacts.system,
-    tools: transcriptFacts.tools,
-    projection: transcriptFacts.projection,
-    base_refs: transcriptFacts.base_refs,
-    observation_refs: transcriptFacts.observation_refs,
-    used_refs: transcriptFacts.used_refs,
-    call_ids: transcriptFacts.call_ids,
+    run: identity,
+    system: transcript.system,
+    tools: transcript.tools,
+    projection: transcript.projection,
+    base_refs: transcript.base_refs,
+    observation_refs: transcript.observation_refs,
+    used_refs: transcript.used_refs,
+    call_ids: transcript.call_ids,
   };
-  db.prepare("INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)").run(
-    runId,
-    JSON.stringify(header),
-    transcriptFacts.messages.length,
+  db.prepare(
+    "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    runId, identity.workspace_id, identity.work_id, identity.session_id, identity.parent_turn_ref,
+    JSON.stringify(header), messages.length,
+    messages.length === 0 ? null : offset + 1,
+    messages.length === 0 ? null : offset + messages.length,
+    SEGMENT_VERSION,
   );
-  transcriptFacts.messages.forEach((message, index) => {
+  messages.forEach((message, index) => {
     db.prepare(
-      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
-    ).run(runId, index + 1, index + 1, JSON.stringify(message), "authoring-session-message/v1");
+      "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      `msg-${runId}-${index + 1}`,
+      identity.workspace_id, identity.work_id, identity.session_id, runId,
+      offset + index + 1, index + 1, message.role, JSON.stringify(message),
+      "authoring-session-message/v1",
+    );
   });
 }
 

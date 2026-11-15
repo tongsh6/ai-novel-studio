@@ -103,6 +103,9 @@ function insertSegment(db, {
   const header = { ...segmentHeaderFor(transcript, header_overrides), version: segment_version };
   const rawMessages = message_rows ?? transcript.messages;
   const messages = Array.isArray(rawMessages) ? rawMessages : [];
+  const offset = db.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS value FROM authoring_session_messages WHERE session_id = ?",
+  ).get(transcript.run.session_id).value;
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -114,8 +117,8 @@ function insertSegment(db, {
     transcript.run.parent_turn_ref,
     JSON.stringify(header),
     messages.length,
-    1,
-    messages.length,
+    messages.length === 0 ? null : offset + 1,
+    messages.length === 0 ? null : offset + messages.length,
     SEGMENT_VERSION,
   );
   if (omit === "messages") return;
@@ -129,7 +132,7 @@ function insertSegment(db, {
       transcript.run.work_id,
       transcript.run.session_id,
       run_id,
-      index + 1,
+      offset + index + 1,
       index + 1,
       typeof message?.role === "string" ? message.role : "",
       message_json ?? JSON.stringify(message),
@@ -185,7 +188,7 @@ function insertTask(db, {
  * 按该 case 的 DB 规格构建一个真实 4 表批次；目录落在调用方 workDir（run scope）。
  * 规格不同即不同批次，不把负例合并成共享模板。
  */
-export function createHistoryBatch({ workDir, run, task, extraRuns = [], extraTasks = [], runSegment } = {}) {
+export function createHistoryBatch({ workDir, run, task, priorRuns = [], extraRuns = [], extraTasks = [], runSegment } = {}) {
   const dir = fs.mkdtempSync(path.join(workDir, "b71-history-"));
   const file = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -193,6 +196,7 @@ export function createHistoryBatch({ workDir, run, task, extraRuns = [], extraTa
   try {
     db.exec("PRAGMA journal_mode = DELETE");
     db.exec(SCHEMA_SQL);
+    for (const row of priorRuns) insertRun(db, row);
     if (run !== null) insertRun(db, run);
     if (task !== null) insertTask(db, task);
     for (const row of extraRuns) insertRun(db, row);

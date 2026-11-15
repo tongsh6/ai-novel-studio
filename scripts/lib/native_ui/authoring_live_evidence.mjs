@@ -471,6 +471,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
   const refsCheck = liveRefsCheck({
     llmRecords: strataRecords,
     transcript: dbFacts?.segment_transcript ?? null,
+    sessionMessages: dbFacts?.sessionMessages ?? null,
   });
   const l7 = refsCheck.ok;
 
@@ -751,6 +752,7 @@ export function verifyLiveBatch(dir) {
       chapters_rows: all(db, "SELECT * FROM chapters"),
       ...readRunRefFacts(db, history.record),
       segment_transcript: history.transcript,
+      sessionMessages: history.sessionMessages,
     };
   });
   const checks = b71LiveModelBehavior({
@@ -846,7 +848,11 @@ export function auditG2Batch(dir) {
     records: nativeCalls.records,
     chapterRef: pages.chapter_ref,
   });
-  const refs = liveRefsCheck({ llmRecords: nativeCalls.records, transcript: history.transcript });
+  const refs = liveRefsCheck({
+    llmRecords: nativeCalls.records,
+    transcript: history.transcript,
+    sessionMessages: history.sessionMessages,
+  });
   const usage = g2UsageReport({ config, pages, candidate, refs });
   const checks = {
     native_calls: Object.values(nativeCalls.checks).every((value) => value === true),

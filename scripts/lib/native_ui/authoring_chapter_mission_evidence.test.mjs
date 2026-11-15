@@ -290,6 +290,8 @@ function input(overrides = {}) {
       status: "completed",
     },
     transcript: effectiveTranscript,
+    sessionMessages: Object.hasOwn(overrides, "sessionMessages")
+      ? overrides.sessionMessages : effectiveTranscript.messages,
     records: overrides.records ?? records({ scope: scopeOf(effectiveTranscript) }),
     joinedRefs: overrides.joinedRefs ?? {
       provider_call_refs: [PCALL],
@@ -321,6 +323,34 @@ function wireRecordWithScope(emptyMarker = false) {
 function checksOf(overrides) {
   return chapterMissionSourceChecks(input(overrides)).checks;
 }
+
+test("跨 run 会话 Scope 用于使命请求核验，旧 run 调用不计入当前使命", () => {
+  const value = input();
+  const historicalScope = scopeMessage();
+  historicalScope.blocks[0].content.goal.text = "上一轮使命";
+  historicalScope.versions.scope_revision = 17;
+  const oldCall = {
+    ...structuredClone(value.transcript.messages[1]),
+    provider_call_ref: "pcall-previous",
+    provider_run_ref: "prun-previous",
+  };
+  oldCall.blocks[0].call_id = "call-previous";
+  value.sessionMessages = [historicalScope, oldCall, ...value.sessionMessages];
+  value.records[0].request_body.messages.splice(2, 0,
+    structuredClone(historicalScope), structuredClone(oldCall));
+  const result = chapterMissionSourceChecks(value);
+  assert.equal(result.checks.mission_call_is_fully_joined, true);
+  assert.equal(result.measured.provider_call_ref, PCALL);
+  assert.equal(chapterMissionSourceChecks({ ...value, sessionMessages: null })
+    .checks.mission_call_is_fully_joined, false);
+  assert.equal(chapterMissionSourceChecks({
+    ...value, sessionMessages: value.transcript.messages,
+  }).checks.mission_call_is_fully_joined, false);
+  const changed = structuredClone(value.sessionMessages);
+  changed[0].versions.scope_revision += 1;
+  assert.equal(chapterMissionSourceChecks({ ...value, sessionMessages: changed })
+    .checks.mission_call_is_fully_joined, false);
+});
 
 test("合法暂定使命：pcall/prun、同次响应、请求 refs、被丢弃未知 basis 与事件全部绑定", () => {
   const value = chapterMissionSourceChecks(input());

@@ -282,6 +282,7 @@ function collectChild(dir, wire, evidence, source, action) {
   assert(typeof originalBody === "string", "revision: source 候选缺正文字节");
   const retry = retryExchangeChecks({
     transcript: history.transcript,
+    sessionMessages: history.sessionMessages,
     records: calls.records,
     originalBody,
     findingInstruction: getIn(source.finding, ["suggested_revision", "instruction"]),
@@ -433,6 +434,7 @@ function collectMission(wire, source, canon) {
     sourceRunId: source.sourceRunId,
     sourceRunRecord: source.history.record,
     transcript: source.history.transcript,
+    sessionMessages: source.history.sessionMessages,
     records: source.calls.records,
     joinedRefs: source.calls.refs,
     missionEvents: sourceMissionEvents(wire, {

@@ -293,7 +293,7 @@ function verifyFullRead(dir) {
   const gap = nativeCallFailureSummary(run.calls);
   const checks = {
     latest_scope_bound_to_canonical:
-      scopeForProviderCall(run.calls.records.at(-1), run.history.transcript) !== null,
+      scopeForProviderCall(run.calls.records.at(-1), { messages: run.history.sessionMessages }) !== null,
     ...fullReadOutcomeChecks({
       visible: authoringVisibleText(dir, "02-final"),
       lastPageAnchor: LAST_PAGE_ANCHOR,

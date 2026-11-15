@@ -84,8 +84,8 @@ const SOURCE_SCHEMA_SQL = [
   ...ID_ONLY_TABLES.map((table) => `CREATE TABLE ${table} (id TEXT PRIMARY KEY)`),
   "CREATE TABLE memory_items (id TEXT PRIMARY KEY, work_id TEXT, content TEXT, reference_count INTEGER, last_referenced_at TEXT)",
   "CREATE TABLE agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, run_mode TEXT, status TEXT, consumed_budget TEXT, pending_artifact_refs TEXT)",
-  "CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER)",
-  "CREATE TABLE authoring_session_messages (run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT)",
+  "CREATE TABLE authoring_run_segments (run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, header TEXT, message_count INTEGER, first_sequence INTEGER, last_sequence INTEGER, format_version TEXT)",
+  "CREATE TABLE authoring_session_messages (id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, run_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT)",
   "CREATE TABLE provider_runs (id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT, status TEXT, purpose TEXT)",
   "CREATE TABLE long_run_tasks (id TEXT PRIMARY KEY, status TEXT)",
   "CREATE TABLE memory_reference_logs (id TEXT PRIMARY KEY, memory_id TEXT, work_id TEXT, task_id TEXT, conversation_id TEXT, reference_scene TEXT, reference_reason TEXT, inserted_at TEXT)",
@@ -450,17 +450,25 @@ function insertRun(db, turn, text) {
     used_refs: [],
     call_ids: [transcript.call1, transcript.call2],
   };
+  const identity = header.run;
+  const offset = db.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) AS value FROM authoring_session_messages WHERE session_id = ?",
+  ).get(identity.session_id).value;
+  const count = transcript.messages.length;
   db.prepare(
-    "INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)",
-  ).run(runId, JSON.stringify(header), transcript.messages.length);
+    "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    runId, identity.workspace_id, identity.work_id, identity.session_id, identity.parent_turn_ref,
+    JSON.stringify(header), count, count === 0 ? null : offset + 1,
+    count === 0 ? null : offset + count, "authoring-run-segment/v1",
+  );
   transcript.messages.forEach((message, index) => {
     db.prepare(
-      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
-      runId,
-      index + 1,
-      index + 1,
-      JSON.stringify(message),
+      `msg-${runId}-${index + 1}`,
+      identity.workspace_id, identity.work_id, identity.session_id, runId,
+      offset + index + 1, index + 1, message.role, JSON.stringify(message),
       "authoring-session-message/v1",
     );
   });

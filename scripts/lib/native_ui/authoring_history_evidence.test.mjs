@@ -5,9 +5,13 @@
 // 区并由 case 结束时回收。
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import { openTestRunScope } from "../test_env.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { assistant, exchange } from "./fixtures/authoring_call_fixture.mjs";
 import {
   HISTORY_PARENT as PARENT,
   HISTORY_RUN as RUN,
@@ -93,6 +97,163 @@ test("正确会话执行段只读取目标 run 的 canonical 历史", () => {
     },
   );
 });
+
+// 会话输入事实先独立落库；请求样本另从这些声明构造，不从被测 reader/request facts 反推期望。
+function sessionHistorySpec() {
+  const scopes = ["历史", "当前", "续行", "未来"].map((label, index) => ({
+    role: "scope_update",
+    provenance: "application",
+    blocks: [{ type: "scope", content: {
+      operation: { context_text: label + "原文\n  雪❄️\t", revision: null },
+      context: { enabled: false, pending: [] },
+    } }],
+    versions: { scope_revision: index + 1 },
+    source_refs: [{ ref: "chapter:" + label, version: index + 1 }],
+  }));
+  const base = (text) => ({
+    role: "application_base", provenance: "application",
+    blocks: [{ type: "text", text }], source_refs: [], versions: {},
+  });
+  const author = (text, ref) => ({
+    role: "user", provenance: "author",
+    blocks: [{ type: "text", text }], source_refs: [{ ref }], versions: {},
+  });
+  const run = (runId, messages, overrides = {}) => {
+    const identity = scope({ run_id: runId, parent_turn_ref: "parent-" + runId, ...overrides });
+    return {
+      id: runId, ...identity, run_mode: "bounded", long_run_task_ref: null,
+      transcript: transcriptFor({ run: identity, messages, tools: [], call_ids: [] }),
+    };
+  };
+  const prior = run("run-prior", [
+    base("历史 base"), author("历史作者", "prior-author"), scopes[0], assistant(70, []),
+  ], { workspace_id: "historical-workspace" });
+  const current = run(RUN, [
+    base("当前 base"), author("当前作者", PARENT), scopes[1], assistant(71, []),
+    author(" 作者续行原文 \n", "continuation-author"), scopes[2], assistant(72, []),
+  ], { parent_turn_ref: PARENT });
+  const future = run("run-future", [base("未来 base"), scopes[3], assistant(73, [])]);
+  const otherSession = run("run-other-session", [base("其他会话"), scopes[3], assistant(74, [])],
+    { session_id: "session-other" });
+  const otherWork = run("run-other-work", [base("其他作品"), scopes[3], assistant(75, [])],
+    { work_id: "work-other", session_id: "session-other-work" });
+  return {
+    scopes, prior, current, future,
+    options: {
+      run: current, task: null,
+      priorRuns: [otherWork, prior, otherSession],
+      extraRuns: [future],
+    },
+  };
+}
+
+test("sessionMessages 保留同会话前 run 全序、只用当前 base，原 transcript/预算仍限当前 run", () => {
+  const spec = sessionHistorySpec();
+  withCleanup(() => createBatch(spec.options), (dir) => {
+    const history = readAuthoringHistory(dir, scope());
+    const priorMessages = spec.prior.transcript.messages.slice(1);
+    const currentMessages = spec.current.transcript.messages;
+    const expected = [currentMessages[0], ...priorMessages, ...currentMessages.slice(1)];
+    assert.deepEqual(history.sessionMessages, expected);
+    assert.deepEqual(history.transcript.messages, currentMessages);
+    assert.deepEqual(history.budget, { provider_calls: 2, replans: 1 });
+    assert.deepEqual(history.pending, ["artifact-1"]);
+    assert.equal(history.task, null);
+    assert.equal(history.checkpoint, null);
+    assert.equal(history.segment.first_sequence, spec.prior.transcript.messages.length + 1);
+    assert.equal(history.segment.last_sequence, spec.prior.transcript.messages.length + currentMessages.length);
+
+    // 当前 run 两次真实 ref 分别切在自己的 assistant；未来 run 和本 run 后续 Scope 不倒灌。
+    const first = exchange(71, {});
+    first.request_body.messages = structuredClone([
+      currentMessages[0], ...priorMessages, ...currentMessages.slice(1, 3),
+    ]);
+    const second = exchange(72, {});
+    second.request_body.messages = structuredClone([
+      currentMessages[0], ...priorMessages, ...currentMessages.slice(1, 6),
+    ]);
+    for (const record of [first, second]) {
+      record.work_id = WORK;
+      record.session_id = SESSION;
+      record.turn_id = PARENT;
+      record.request_body.run = structuredClone(spec.current.transcript.run);
+    }
+    const session = { messages: history.sessionMessages };
+    assert.deepEqual(scopeForProviderCall(first, session)?.scopeContent, spec.scopes[1].blocks[0].content);
+    assert.deepEqual(scopeForProviderCall(second, session)?.scopeContent, spec.scopes[2].blocks[0].content);
+    assert.equal(scopeForProviderCall(first, history.transcript), null);
+    assert.equal(history.sessionMessages.some(message => message.provider_run_ref === "prun-73"), false);
+    assert.equal(history.sessionMessages.some(message => ["prun-74", "prun-75"].includes(message.provider_run_ref)), false);
+
+    const omitted = structuredClone(first);
+    omitted.request_body.messages = omitted.request_body.messages.filter(message =>
+      message.role !== "scope_update" || message.versions.scope_revision !== 1);
+    assert.equal(scopeForProviderCall(omitted, session), null, "保留最新 Scope 不能掩盖缺失的历史 Scope");
+  });
+});
+
+test("零消息执行段使用 null bounds，sessionMessages 不补造 base 或借用历史", () => {
+  withCleanup(() => createBatch({
+    run: { run_mode: "bounded", long_run_task_ref: null, transcript: transcriptFor({ messages: [] }) },
+    task: null,
+  }), (dir) => {
+    const history = readAuthoringHistory(dir, scope());
+    assert.deepEqual(history.transcript.messages, []);
+    assert.deepEqual(history.sessionMessages, []);
+    assert.equal(history.segment.first_sequence, null);
+    assert.equal(history.segment.last_sequence, null);
+  });
+});
+
+test("无 base 的合法多 run 会话不补造 base，历史作者与 Scope 保留原序", () => {
+  const spec = sessionHistorySpec();
+  for (const run of [spec.prior, spec.current, spec.future]) {
+    run.transcript.messages = run.transcript.messages.filter(message => message.role !== "application_base");
+  }
+  withCleanup(() => createBatch(spec.options), (dir) => {
+    const history = readAuthoringHistory(dir, scope());
+    assert.deepEqual(history.sessionMessages, [
+      ...spec.prior.transcript.messages, ...spec.current.transcript.messages,
+    ]);
+    assert.equal(history.sessionMessages.some(message => message.role === "application_base"), false);
+  });
+});
+
+const invalidSessionRows = [
+  ["历史 row 身份错绑", "UPDATE authoring_session_messages SET workspace_id = 'wrong' WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史 segment 身份错绑", "UPDATE authoring_run_segments SET workspace_id = 'wrong' WHERE run_id = 'run-prior'"],
+  ["历史 agent run 作品错绑", "UPDATE agent_runs SET work_id = 'other-work' WHERE id = 'run-prior'"],
+  ["历史 row 会话错绑", "UPDATE authoring_session_messages SET session_id = 'other-session' WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史 row 版本未知", "UPDATE authoring_session_messages SET format_version = 'unknown' WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史 segment 列版本未知", "UPDATE authoring_run_segments SET format_version = 'unknown' WHERE run_id = 'run-prior'"],
+  ["历史 header 版本未知", "UPDATE authoring_run_segments SET header = json_set(header, '$.version', 'unknown') WHERE run_id = 'run-prior'"],
+  ["历史 header 身份错绑", "UPDATE authoring_run_segments SET header = json_set(header, '$.run.run_id', 'other-run') WHERE run_id = 'run-prior'"],
+  ["历史 canonical 消息损坏", "UPDATE authoring_session_messages SET message = '{' WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史 row role 与 canonical 不符", "UPDATE authoring_session_messages SET role = 'assistant' WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史 run_sequence 缺口", "UPDATE authoring_session_messages SET run_sequence = 9 WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["会话 sequence 重复", "UPDATE authoring_session_messages SET sequence = 1 WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["会话 sequence 缺口", "UPDATE authoring_session_messages SET sequence = 100 WHERE run_id = 'run-prior' AND run_sequence = 2"],
+  ["历史段 count 错误", "UPDATE authoring_run_segments SET message_count = message_count + 1 WHERE run_id = 'run-prior'"],
+  ["历史段 bounds 错误", "UPDATE authoring_run_segments SET first_sequence = first_sequence + 1 WHERE run_id = 'run-prior'"],
+  ["历史段缺失", "DELETE FROM authoring_run_segments WHERE run_id = 'run-prior'"],
+  ["历史 agent run 缺失", "DELETE FROM agent_runs WHERE id = 'run-prior'"],
+  ["未来同会话坏事实也不能静默跳过", "UPDATE authoring_session_messages SET format_version = 'unknown' WHERE run_id = 'run-future' AND run_sequence = 2"],
+];
+
+for (const [label, sql] of invalidSessionRows) {
+  test("sessionMessages 拒绝" + label, () => {
+    const spec = sessionHistorySpec();
+    withCleanup(() => createBatch(spec.options), (dir) => {
+      const db = new DatabaseSync(path.join(dir, "database/ai_novel_studio_test.sqlite3"));
+      try {
+        db.exec(sql);
+      } finally {
+        db.close();
+      }
+      assert.throws(() => readAuthoringHistory(dir, scope()), /authoring_history:/);
+    });
+  });
+}
 
 test("bounded 成功以会话执行段为唯一源，不要求也不读取 long_run_task", () => {
   withCleanup(
@@ -307,13 +468,17 @@ test("会话执行段缺失或消息 JSON 损坏时失败", () => {
 });
 
 test("canonical 身份与 DB 行不一致时失败", () => {
-  const transcript = transcriptFor({
-    run: { run_id: RUN, workspace_id: WORKSPACE, work_id: WORK, session_id: "session-other", parent_turn_ref: PARENT },
+  withCleanup(() => createBatch(), (dir) => {
+    const db = new DatabaseSync(path.join(dir, "database/ai_novel_studio_test.sqlite3"));
+    try {
+      db.prepare(
+        "UPDATE authoring_run_segments SET header = json_set(header, '$.run.session_id', ?) WHERE run_id = ?",
+      ).run("session-other", RUN);
+    } finally {
+      db.close();
+    }
+    expectHistoryFailure(dir, {}, /canonical 身份/);
   });
-  withCleanup(
-    () => createBatch({ run: { transcript } }),
-    (dir) => expectHistoryFailure(dir, {}, /canonical 身份/),
-  );
 });
 
 const topic = `workspace:${WORKSPACE}`;

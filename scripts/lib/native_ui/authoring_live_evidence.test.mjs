@@ -107,6 +107,15 @@ function designDbFacts({
   traces = [{ trace_id: "trace_1", turn_id: TURN, context_refs: null }],
   mutations = 0,
 } = {}) {
+  const messages = usedRefs.length > 0
+    ? [{
+        role: "assistant",
+        provenance: "model",
+        provider_call_ref: providerCallRef,
+        provider_run_ref: providerRunRef,
+        blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
+      }]
+    : [];
   return {
     mutations_count: mutations,
     chapters_rows: [
@@ -129,19 +138,8 @@ function designDbFacts({
     ],
     agent_events: [{ event_type: "exploration_observed", refs: JSON.stringify(agentEventRefs) }],
     decision_traces: traces.map((trace) => ({ trace_id: trace.trace_id, turn_id: trace.turn_id, context_refs: trace.context_refs })),
-    segment_transcript: {
-      messages:
-        usedRefs.length > 0
-          ? [{
-              role: "assistant",
-              provenance: "model",
-              provider_call_ref: providerCallRef,
-              provider_run_ref: providerRunRef,
-              blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
-            }]
-          : [],
-      used_refs: segmentUsedRefs,
-    },
+    segment_transcript: { messages: structuredClone(messages), used_refs: segmentUsedRefs },
+    sessionMessages: messages,
   };
 }
 
@@ -287,6 +285,7 @@ test("L7：原生 wire 已绑定 Scope 但缺同次 Base 登记时明确缺证",
   const records = [record(messages)];
   const outFacts = designDbFacts({ usedRefs: ["observation:obs_out_of_boundary"] });
   outFacts.segment_transcript.messages.unshift(structuredClone(nativeScope));
+  outFacts.sessionMessages.unshift(structuredClone(nativeScope));
   const outOfBoundary = evaluate({ llmRecords: records, dbFacts: outFacts });
   assert.equal(outOfBoundary.checks.mechanism.used_context_refs_within_boundary, null);
   assert.equal(outOfBoundary.measured.refs.reason, "request_base_refs_unavailable");
@@ -295,6 +294,7 @@ test("L7：原生 wire 已绑定 Scope 但缺同次 Base 登记时明确缺证",
   assert.equal(outOfBoundary.measured.refs.reports[0].provider_run_ref, "prun_1");
   const legalFacts = designDbFacts({ usedRefs: ["observation:obs_1", "execution_brief:chapter:ch-1"] });
   legalFacts.segment_transcript.messages.unshift(structuredClone(nativeScope));
+  legalFacts.sessionMessages.unshift(structuredClone(nativeScope));
   const legal = evaluate({ llmRecords: records, dbFacts: legalFacts });
   assert.equal(legal.checks.mechanism.used_context_refs_within_boundary, null);
   assert.equal(legal.measured.refs.reason, "request_base_refs_unavailable");
@@ -303,6 +303,36 @@ test("L7：原生 wire 已绑定 Scope 但缺同次 Base 登记时明确缺证",
   assert.deepEqual(legal.measured.refs.reports[0].observation_refs, []);
   const unknown = evaluate({ llmRecords: records });
   assert.equal(unknown.checks.mechanism.used_context_refs_within_boundary, null);
+});
+
+test("L7 live 消费会话 Scope 前缀，历史 run 自报不混入当前段", () => {
+  const priorScope = {
+    role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content: { goal: { text: "历史轮" } } }],
+    source_refs: [{ ref: "chapter:prior" }], versions: { scope_revision: 1 },
+  };
+  const currentScope = structuredClone(priorScope);
+  currentScope.blocks[0].content.goal.text = "当前轮";
+  currentScope.versions.scope_revision = 2;
+  const facts = designDbFacts({ usedRefs: ["chapter:current"] });
+  const currentReply = facts.segment_transcript.messages[0];
+  const priorReply = { ...structuredClone(currentReply), provider_call_ref: "pcall_prior", provider_run_ref: "prun_prior" };
+  facts.segment_transcript.messages.unshift(currentScope);
+  facts.sessionMessages = [priorScope, priorReply, currentScope, currentReply];
+  const messages = [
+    system(), appBase(), author(),
+    ...[priorScope, currentScope].map((message) =>
+      scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs })),
+  ];
+  const llmRecords = [record(messages)];
+  const checks = evaluate({ llmRecords, dbFacts: facts });
+  assert.equal(checks.measured.refs.reason, "request_base_refs_unavailable");
+  assert.equal(checks.measured.refs.sources.self_report_count, 1);
+  assert.equal(checks.measured.refs.reports.length, 1);
+  assert.equal(checks.measured.refs.reports[0].provider_call_ref, "pcall_1");
+  delete facts.sessionMessages;
+  const missing = evaluate({ llmRecords, dbFacts: facts });
+  assert.equal(missing.measured.refs.reason, "scope_provenance_unbound");
 });
 
 test("L8 反例：真实请求中的作者原话被改写", () => {

@@ -157,22 +157,26 @@ const irMessage = (role, provenance, blocks, extra = {}) => ({
 });
 
 function resultOf({ messages, usedRefs, pcall = "pcall_1", prun = "prun_1" }) {
+  const sessionMessages = [
+    ...structuredClone(messages.filter((message) => message.role === "scope_update")),
+    assistantCall({ pcall, prun, refs: usedRefs }),
+  ];
   return liveRefsCheck({
     llmRecords: [nativeRecord({ messages })],
-    transcript: { messages: [
-      ...structuredClone(messages.filter((message) => message.role === "scope_update")),
-      assistantCall({ pcall, prun, refs: usedRefs }),
-    ] },
+    transcript: { messages: sessionMessages },
+    sessionMessages,
   });
 }
 
 function irResultOf({ messages, baseRefs, usedRefs }) {
+  const sessionMessages = [
+    ...structuredClone(messages),
+    assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: usedRefs }),
+  ];
   return liveRefsCheck({
     llmRecords: [irRecord({ messages, baseRefs })],
-    transcript: { messages: [
-      ...structuredClone(messages),
-      assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: usedRefs }),
-    ] },
+    transcript: { messages: sessionMessages },
+    sessionMessages,
   });
 }
 
@@ -200,6 +204,7 @@ test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → 
     ],
   });
   const result = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [recordA, recordB],
     transcript: {
       messages: [assistantCall({ pcall: "pcall_A", prun: "prun_A", refs: ["observation:obs_b"] })],
@@ -221,6 +226,7 @@ test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → 
   assert.equal(result.violations[0].provider_run_ref, "prun_A");
 
   const missingKey = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [recordA],
     transcript: { messages: [assistantCall({ pcall: "pcall_A", prun: null, refs: ["chapter:ch-base"] })] },
   });
@@ -234,6 +240,7 @@ test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → 
     ["record ambiguous", [recordA, nativeRecord({ providerCallRef: "pcall_A", providerRunRef: "prun_A", messages: [system()] })], "pcall_A", "prun_A"],
   ]) {
     const check = liveRefsCheck({
+      sessionMessages: [],
       llmRecords,
       transcript: { messages: [assistantCall({ pcall, prun, refs: ["chapter:ch-base"] })] },
     });
@@ -242,6 +249,7 @@ test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → 
   }
 
   const unparseable = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [{ provider_call_ref: "pcall_1", provider_run_ref: "prun_1", request_format: "provider_prompt/v1" }],
     transcript: { messages: [assistantCall({ refs: ["chapter:ch-1"] })] },
   });
@@ -296,6 +304,7 @@ test("L7 同次：既有 application_base/成功 observation 通过，多 report
   assert.deepEqual(structured.reports[0].observation_refs, []);
 
   const merged = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [nativeRecord({ messages: [system(), appBase("材料 chapter:ch-1"), author()] })],
     transcript: {
       messages: [
@@ -313,8 +322,8 @@ test("L7 同次：既有 application_base/成功 observation 通过，多 report
 test("L7 缺证/坏自报：空自报仍 null，越界优先 false，合法报告不能覆盖坏报告", () => {
   const messages = [system(), appBase("材料 chapter:ch-1"), author()];
   const record = nativeRecord({ messages });
-  const check = (transcript) => liveRefsCheck({ llmRecords: [record], transcript });
-  assert.equal(liveRefsCheck({ llmRecords: [record], transcript: null }).ok, null);
+  const check = (transcript) => liveRefsCheck({ llmRecords: [record], transcript, sessionMessages: transcript.messages });
+  assert.equal(liveRefsCheck({ llmRecords: [record], transcript: null, sessionMessages: [] }).ok, null);
   assert.equal(resultOf({ messages, usedRefs: [] }).reason, "used_context_refs_unavailable");
   assert.equal(check({ messages: [{ role: "assistant", provenance: "model", blocks: [{ type: "text", text: "无自报" }] }] }).ok, null);
 
@@ -387,16 +396,18 @@ test("L7 现役 Scope：普通来源不授 Base，缺同次 Base 登记为 unkno
   const scope = realScope({ sourceRefs: ["observation:obs_real_1"] });
   const record = nativeRecord({ messages: [scope] });
   const call = assistantCall({ refs: ["observation:obs_real_1"] });
-  const missingCanonical = liveRefsCheck({ llmRecords: [record], transcript: { messages: [call] } });
+  const missingCanonical = liveRefsCheck({ llmRecords: [record], transcript: { messages: [call] }, sessionMessages: [call] });
   assert.equal(missingCanonical.ok, null);
   assert.equal(missingCanonical.reason, "scope_provenance_unbound");
+  const collisionMessages = [
+    irMessage("user", "author", [{ type: "text", text: record.request.body.messages[0].content }]),
+    scope,
+    call,
+  ];
   const collision = liveRefsCheck({
     llmRecords: [record],
-    transcript: { messages: [
-      irMessage("user", "author", [{ type: "text", text: record.request.body.messages[0].content }]),
-      scope,
-      call,
-    ] },
+    transcript: { messages: collisionMessages },
+    sessionMessages: collisionMessages,
   });
   assert.equal(collision.ok, null);
   assert.equal(collision.reason, "scope_provenance_unbound");
@@ -410,6 +421,7 @@ test("L7 现役 Scope：普通来源不授 Base，缺同次 Base 登记为 unkno
   const cumulative = liveRefsCheck({
     llmRecords: [record],
     transcript: { base_refs: ["observation:obs_real_1"], messages: [scope, call] },
+    sessionMessages: [scope, call],
   });
   assert.equal(cumulative.ok, null);
   assert.equal(cumulative.reason, "request_base_refs_unavailable");
@@ -457,6 +469,71 @@ test("L7 现役 Scope：普通来源不授 Base，缺同次 Base 登记为 unkno
   assert(quoted.reports[0].violations.some((violation) => violation.ref === forgedRef));
 });
 
+
+test("L7 会话前缀绑定 Scope，当前段自报不混入历史 run；缺前缀不回退", () => {
+  const priorScope = realScope({
+    sourceRefs: ["chapter:prior"],
+    content: { goal: { text: "上一轮" } },
+  });
+  priorScope.versions.scope_revision = 1;
+  const priorReport = assistantCall({
+    pcall: "pcall_prior", prun: "prun_prior", refs: ["chapter:historical-out-of-boundary"],
+  });
+  const currentScope = realScope({
+    sourceRefs: ["turn:current"],
+    content: { goal: { text: "当前轮" } },
+  });
+  const currentAuthor = irMessage("user", "author", [{ type: "text", text: AUTHOR }]);
+  const prefix = [priorScope, priorReport, currentScope, currentAuthor];
+  const currentReport = assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: ["chapter:current"] });
+  const sessionMessages = [...prefix, currentReport];
+  const transcript = {
+    messages: [currentScope, currentAuthor, currentReport],
+    base_refs: [{ ref: "chapter:prior" }, { ref: "chapter:current" }],
+  };
+  const record = irRecord({ messages: structuredClone(prefix), baseRefs: [{ ref: "chapter:current" }] });
+  const check = (messages) => liveRefsCheck({ llmRecords: [record], transcript, sessionMessages: messages });
+
+  const legal = check(sessionMessages);
+  assert.equal(legal.ok, true);
+  assert.equal(legal.sources.self_report_count, 1);
+  assert.equal(legal.reports.length, 1);
+  assert.equal(legal.reports[0].provider_call_ref, "pcall_ir");
+  assert.deepEqual(legal.reports[0].message_indexes, [2]);
+  assert.deepEqual(legal.reports[0].used_refs, ["chapter:current"]);
+  assert.deepEqual(legal.reports[0].base_refs, ["chapter:current"]);
+
+  const alteredContent = structuredClone(sessionMessages);
+  alteredContent[0].blocks[0].content.goal.text = "被改写";
+  const alteredVersion = structuredClone(sessionMessages);
+  alteredVersion[0].versions.scope_revision += 1;
+  const alteredSources = structuredClone(sessionMessages);
+  alteredSources[0].source_refs = [{ ref: "chapter:forged" }];
+  for (const [label, messages] of [
+    ["missing", undefined],
+    ["run-only", transcript.messages],
+    ["missing prior Scope", sessionMessages.slice(1)],
+    ["extra Scope", [priorScope, ...sessionMessages]],
+    ["reordered Scope", [currentScope, priorReport, priorScope, currentAuthor, currentReport]],
+    ["tampered prior content", alteredContent],
+    ["tampered prior version", alteredVersion],
+    ["tampered prior sources", alteredSources],
+  ]) {
+    const rejected = check(messages);
+    assert.equal(rejected.ok, null, label);
+    assert.equal(rejected.reason, "scope_provenance_unbound", label);
+  }
+
+  // 证明 Scope 来源及段头累计 refs 都不能补同次 Base。
+  record.request_body.refs = {};
+  const missingBase = check(sessionMessages);
+  assert.equal(missingBase.ok, null);
+  assert.equal(missingBase.reason, "request_base_refs_unavailable");
+  assert.deepEqual(missingBase.reports[0].base_refs, []);
+  record.request_body.refs = { base_refs: [] };
+  assert.equal(check(sessionMessages).ok, false);
+});
+
 test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；Scope 来源不授信", () => {
   const legacy = irMessage("scope_update", "application",
     [{ type: "text", text: "## 材料与覆盖\n- chapter：chapter:legacy" }],
@@ -485,14 +562,13 @@ test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；S
       ]),
     ],
   });
-  const check = (refs) =>
-    liveRefsCheck({
-      llmRecords: [record],
-      transcript: { messages: [
-        ...structuredClone(record.request_body.messages),
-        assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs }),
-      ] },
-    });
+  const check = (refs) => {
+    const sessionMessages = [
+      ...structuredClone(record.request_body.messages),
+      assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs }),
+    ];
+    return liveRefsCheck({ llmRecords: [record], transcript: { messages: sessionMessages }, sessionMessages });
+  };
   const out = check(["chapter:ch-ir", "plan:ir", "observation:obs_ir", "chapter:obs-ir", "chapter:content-ir"]);
   assert.equal(out.ok, false);
   assert(out.reports[0].violations.some((violation) => violation.ref === "chapter:content-ir"));
@@ -519,6 +595,7 @@ test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；S
     ],
   });
   const splitResult = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [split],
     transcript: { messages: [assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: ["observation:obs_1"] })] },
   });
@@ -530,6 +607,7 @@ test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；S
 test("L7 自报只认 canonical assistant+model；格式坏记缺证", () => {
   const record = nativeRecord({ messages: [system(), appBase("材料 chapter:ch-1"), author()] });
   const fake = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [record],
     transcript: {
       messages: [
@@ -546,6 +624,7 @@ test("L7 自报只认 canonical assistant+model；格式坏记缺证", () => {
 
   // 真实 B81 形状：self_report 只有 assumptions、没有 used_context_refs，不是坏自报。
   const ignored = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [record],
     transcript: {
       messages: [
@@ -623,6 +702,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
   assert(result.reports[0].observation_refs.includes("observation:obs_page_1"));
 
   const viaIr = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [
       irRecord({
         messages: [
@@ -656,6 +736,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
 
   // 身份只在本请求的合法 observation 内兑现；别的请求/非 observation: 身份/文本都不授信。
   const other = liveRefsCheck({
+    sessionMessages: [],
     llmRecords: [
       nativeRecord({ providerCallRef: "pcall_1", providerRunRef: "prun_1", messages }),
       nativeRecord({

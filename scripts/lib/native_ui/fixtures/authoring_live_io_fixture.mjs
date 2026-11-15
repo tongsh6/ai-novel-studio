@@ -118,24 +118,28 @@ export function insertCanonicalRun(
     "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
   ).run(runId, WORKSPACE, workId, sessionId, TURN, null, "bounded", "completed", 1, null, "[]");
+  const { firstSequence, lastSequence } = insertCanonicalMessages(db, facts.run, facts.messages);
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(facts.header), facts.messages.length, 1, facts.messages.length, SEGMENT_VERSION);
-  insertCanonicalMessages(db, facts.run, facts.messages);
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(facts.header), facts.messages.length, firstSequence, lastSequence, SEGMENT_VERSION);
   return facts;
 }
 
 function insertCanonicalMessages(db, run, messages) {
+  const firstSequence = db.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) + 1 AS first_sequence FROM authoring_session_messages WHERE session_id = ?",
+  ).get(run.session_id).first_sequence;
   const insert = db.prepare(
     "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
   );
   messages.forEach((message, index) => {
-    const sequence = index + 1;
-    insert.run(`msg-${run.run_id}-${sequence}`, run.workspace_id, run.work_id, run.session_id,
-      run.run_id, sequence, sequence, message.role, JSON.stringify(message), MESSAGE_VERSION);
+    const runSequence = index + 1;
+    insert.run(`msg-${run.run_id}-${runSequence}`, run.workspace_id, run.work_id, run.session_id,
+      run.run_id, firstSequence + index, runSequence, message.role, JSON.stringify(message), MESSAGE_VERSION);
   });
+  return { firstSequence, lastSequence: firstSequence + messages.length - 1 };
 }
 
 function insertNativeCallRun(db) {
@@ -144,11 +148,11 @@ function insertNativeCallRun(db) {
     "INSERT INTO agent_runs (id, workspace_id, work_id, session_id, parent_turn_ref, long_run_task_ref, run_mode, status, plan_version, consumed_budget, pending_artifact_refs) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
   ).run(RUN, WORKSPACE, WORK, SESSION, TURN, null, "bounded", "completed", 1, JSON.stringify({ provider_calls: 2 }), "[]");
+  const { firstSequence, lastSequence } = insertCanonicalMessages(db, facts.run, facts.messages);
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(RUN, WORKSPACE, WORK, SESSION, TURN, JSON.stringify(facts.header), facts.messages.length, 1, facts.messages.length, SEGMENT_VERSION);
-  insertCanonicalMessages(db, facts.run, facts.messages);
+  ).run(RUN, WORKSPACE, WORK, SESSION, TURN, JSON.stringify(facts.header), facts.messages.length, firstSequence, lastSequence, SEGMENT_VERSION);
   const insertRun = db.prepare(
     "INSERT INTO provider_runs (id, provider_call_ref, agent_run_id, workspace_id, work_id, session_id, parent_turn_ref, status) VALUES (?,?,?,?,?,?,?,?)",
   );

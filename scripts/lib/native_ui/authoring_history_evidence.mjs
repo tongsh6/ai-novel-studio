@@ -6,6 +6,8 @@
 // durable checkpoint 只保存 `authoring_segment_ref={run_id,version}`
 // （`authoring-run-segment/v1`）。本模块不读取旧 run 级私有列/旧内嵌副本，
 // 也不按 parent/scope 的“最新”行猜取运行身份。
+// R02：另读同一事务内的 sessionMessages，保持 run transcript/refs 原语义，
+// 供逐调用 Scope/作者前缀校验使用；不会从当前段头补造同调用 Request IR。
 import assert from "node:assert/strict";
 import {
   all,
@@ -212,43 +214,51 @@ function validateTranscriptIdentity(record, run) {
   }
 }
 
-// bounded 与 durable 共用的唯一会话段 decoder：段头版本/消息版本/形状/完整身份
-// 只在这里校验一次，模式分支不复制第二套 reader。
-function readRunSegment(db, record) {
-  const segmentRows = all(db, "SELECT * FROM authoring_run_segments WHERE run_id = ?", [record.id]);
-  assert.equal(segmentRows.length, 1, "authoring_history: run 执行段缺失或多行");
-  const segment = segmentRows[0];
-  const header = assertRecord(decodeJson(segment.header, "run 执行段 header"), "run 执行段 header");
-  assert.equal(header.version, AUTHORING_SEGMENT_VERSION, "authoring_history: run 执行段版本错误");
-
-  const messageRows = all(
-    db,
-    "SELECT message, format_version, run_sequence FROM authoring_session_messages " +
-      "WHERE run_id = ? ORDER BY run_sequence",
-    [record.id],
-  );
-  assert.equal(
-    messageRows.length,
-    segment.message_count,
-    "authoring_history: 消息行数量与 run 执行段 message_count 不一致",
-  );
-  for (const row of messageRows) {
-    assert.equal(
-      row.format_version,
-      AUTHORING_MESSAGE_VERSION,
-      "authoring_history: 消息行格式版本错误",
-    );
+// 段与消息均核对自身 run 的持久身份；同会话的历史 run 可以来自不同 workspace。
+function validateStoredIdentity(row, record, fields) {
+  assert.equal(row.run_id, record.id, "authoring_history: canonical 行 run 身份错绑");
+  for (const field of fields) {
+    assertNonBlankString(row[field], `canonical 行 ${field}`);
+    assert.equal(row[field], record[field], `authoring_history: canonical 行 ${field} 错绑`);
   }
-  const messages = messageRows.map((row) => assertRecord(decodeJson(row.message, "canonical 消息"), "canonical 消息"));
-  return { segment, header, messages };
 }
 
-function readPrivateTranscript(db, record) {
-  const { segment, header, messages } = readRunSegment(db, record);
+function decodeSessionMessage(row, record) {
+  validateStoredIdentity(row, record, ["workspace_id", "work_id", "session_id"]);
+  assert.equal(row.format_version, AUTHORING_MESSAGE_VERSION, "authoring_history: 消息行格式版本错误");
+  const message = assertRecord(decodeJson(row.message, "canonical 消息"), "canonical 消息");
+  assertNonBlankString(row.role, "canonical 行 role");
+  assert.equal(row.role, message.role, "authoring_history: 消息行 role 与 canonical 消息不一致");
+  return { ...row, message };
+}
+
+function validateSegmentBounds(segment, rows) {
+  assert(Number.isInteger(segment.message_count) && segment.message_count >= 0,
+    "authoring_history: run 执行段 message_count 非法");
+  assert.equal(rows.length, segment.message_count,
+    "authoring_history: 消息行数量与 run 执行段 message_count 不一致");
+  rows.forEach((row, index) => {
+    assert.equal(row.run_sequence, index + 1, "authoring_history: run_sequence 必须从 1 连续递增");
+  });
+  assert.equal(segment.first_sequence, rows[0]?.sequence ?? null,
+    "authoring_history: run 执行段 first_sequence 不一致");
+  assert.equal(segment.last_sequence, rows.at(-1)?.sequence ?? null,
+    "authoring_history: run 执行段 last_sequence 不一致");
+}
+
+// bounded/durable 与会话证据共用同一 decoder；段头 refs 仍只属于该 run，绝不并入请求证据。
+function decodeRunSegment(segment, record, rows) {
+  validateStoredIdentity(segment, record, [
+    "workspace_id", "work_id", "session_id", "parent_turn_ref",
+  ]);
+  assert.equal(segment.format_version, AUTHORING_SEGMENT_VERSION, "authoring_history: run 执行段格式版本错误");
+  const header = assertRecord(decodeJson(segment.header, "run 执行段 header"), "run 执行段 header");
+  assert.equal(header.version, AUTHORING_SEGMENT_VERSION, "authoring_history: run 执行段版本错误");
+  validateSegmentBounds(segment, rows);
   const transcript = {
     run: header.run,
     system: header.system,
-    messages,
+    messages: rows.map((row) => row.message),
     tools: header.tools,
     base_refs: header.base_refs,
     observation_refs: header.observation_refs,
@@ -259,6 +269,64 @@ function readPrivateTranscript(db, record) {
   validateTranscriptShape(transcript);
   validateTranscriptIdentity(record, transcript.run);
   return { transcript, segment };
+}
+
+function sessionOwner(runs, runId, record) {
+  const owner = runs.get(runId);
+  assert(owner, "authoring_history: 会话 canonical 行缺少所属 agent_run");
+  assert.equal(owner.work_id, record.work_id, "authoring_history: 会话 canonical work 身份错绑");
+  assert.equal(owner.session_id, record.session_id, "authoring_history: 会话 canonical session 身份错绑");
+  return owner;
+}
+
+function decodeSessionRows(rows, runs, segments, record) {
+  return rows.map((row, index) => {
+    assert.equal(row.sequence, index + 1, "authoring_history: 会话 sequence 必须从 1 连续递增");
+    assert(segments.has(row.run_id), "authoring_history: canonical 消息缺少 run 执行段");
+    return decodeSessionMessage(row, sessionOwner(runs, row.run_id, record));
+  });
+}
+
+// 只读取目标 session 的完整快照；先验证全部已提交段/行，再按目标段范围派生可比对消息。
+function readSessionSnapshot(db, record) {
+  const runRows = all(db, "SELECT * FROM agent_runs WHERE session_id = ?", [record.session_id]);
+  const runs = new Map(runRows.map((row) => [row.id, row]));
+  assert.equal(runs.size, runRows.length, "authoring_history: 会话 agent_run 身份重复");
+  const segmentRows = all(db, "SELECT * FROM authoring_run_segments WHERE session_id = ?", [record.session_id]);
+  const segments = new Map(segmentRows.map((row) => [row.run_id, row]));
+  assert.equal(segments.size, segmentRows.length, "authoring_history: run 执行段缺失或多行");
+  assert(segments.has(record.id), "authoring_history: run 执行段缺失或多行");
+  const rows = decodeSessionRows(
+    all(db, "SELECT * FROM authoring_session_messages WHERE session_id = ? ORDER BY sequence", [record.session_id]),
+    runs, segments, record,
+  );
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!grouped.has(row.run_id)) grouped.set(row.run_id, []);
+    grouped.get(row.run_id).push(row);
+  }
+  const decoded = new Map(segmentRows.map((segment) => [
+    segment.run_id,
+    decodeRunSegment(segment, sessionOwner(runs, segment.run_id, record), grouped.get(segment.run_id) ?? []),
+  ]));
+  return { rows, current: decoded.get(record.id) };
+}
+
+// AuthoringSessionHistory.compose/2 的持久消息边界：当前 base 一次、非 base 会话原序。
+// 不读取请求反推 expected，也不把段头累计 refs 当成历史请求 refs。目标段之后的行不进入数组；
+// 同段各 call 仍由唯一 pcall/prun 截取自己的前缀并严格对账，不能用整个会话代签请求快照。
+function sessionMessagesFor({ rows, current }) {
+  const { transcript, segment } = current;
+  const bases = transcript.messages.filter((message) => message.role === "application_base");
+  assert(bases.length <= 1, "authoring_history: 当前 run application_base 重复");
+  if (bases.length > 0) {
+    assert.equal(transcript.messages[0], bases[0], "authoring_history: 当前 run application_base 必须位于首位");
+  }
+  return [
+    ...bases,
+    ...rows.filter((row) => row.sequence <= segment.last_sequence && row.role !== "application_base")
+      .map((row) => row.message),
+  ];
 }
 
 function validateDurableCheckpoint(record, checkpoint) {
@@ -289,50 +357,61 @@ function readDurableTask(db, record) {
 export function readAuthoringHistory(dir, scope, { requireMode = null } = {}) {
   const identity = exactScope(scope);
   return withDb(dir, (db) => {
-    const rows = all(
-      db,
-      "SELECT * FROM agent_runs " +
-        "WHERE id = ? AND workspace_id = ? AND work_id = ? AND session_id = ? AND parent_turn_ref = ?",
-      [
-        identity.run_id,
-        identity.workspace_id,
-        identity.work_id,
-        identity.session_id,
-        identity.parent_turn_ref,
-      ],
-    );
-    assert.equal(rows.length, 1, "authoring_history: agent_runs 精确绑定必须恰好一行");
-    const record = rows[0];
-
-    if (requireMode !== null) {
-      assert.equal(
-        record.run_mode,
-        requireMode,
-        `authoring_history: run_mode ${String(record.run_mode)} 与场景 ${requireMode} 不一致`,
-      );
-    }
-
-    const { transcript, segment } = readPrivateTranscript(db, record);
-    const base = {
-      record,
-      transcript,
-      segment,
-      budget: decodeOptional(record.consumed_budget),
-      pending: decodeOptional(record.pending_artifact_refs),
-    };
-    switch (record.run_mode) {
-      case "bounded":
-        return { mode: "bounded", ...base, task: null, checkpoint: null };
-      case "durable": {
-        const task = readDurableTask(db, record);
-        const checkpoint = decodeJson(task.checkpoint_data, "checkpoint_data");
-        validateDurableCheckpoint(record, checkpoint);
-        return { mode: "durable", ...base, task, checkpoint };
-      }
-      default:
-        return fail(`未知 run_mode: ${String(record.run_mode)}`);
+    db.exec("BEGIN");
+    try {
+      return readHistorySnapshot(db, identity, requireMode);
+    } finally {
+      db.exec("ROLLBACK");
     }
   });
+}
+
+function readHistorySnapshot(db, identity, requireMode) {
+  const rows = all(
+    db,
+    "SELECT * FROM agent_runs " +
+      "WHERE id = ? AND workspace_id = ? AND work_id = ? AND session_id = ? AND parent_turn_ref = ?",
+    [
+      identity.run_id,
+      identity.workspace_id,
+      identity.work_id,
+      identity.session_id,
+      identity.parent_turn_ref,
+    ],
+  );
+  assert.equal(rows.length, 1, "authoring_history: agent_runs 精确绑定必须恰好一行");
+  const record = rows[0];
+
+  if (requireMode !== null) {
+    assert.equal(
+      record.run_mode,
+      requireMode,
+      `authoring_history: run_mode ${String(record.run_mode)} 与场景 ${requireMode} 不一致`,
+    );
+  }
+
+  const snapshot = readSessionSnapshot(db, record);
+  const { transcript, segment } = snapshot.current;
+  const base = {
+    record,
+    transcript,
+    segment,
+    sessionMessages: sessionMessagesFor(snapshot),
+    budget: decodeOptional(record.consumed_budget),
+    pending: decodeOptional(record.pending_artifact_refs),
+  };
+  switch (record.run_mode) {
+    case "bounded":
+      return { mode: "bounded", ...base, task: null, checkpoint: null };
+    case "durable": {
+      const task = readDurableTask(db, record);
+      const checkpoint = decodeJson(task.checkpoint_data, "checkpoint_data");
+      validateDurableCheckpoint(record, checkpoint);
+      return { mode: "durable", ...base, task, checkpoint };
+    }
+    default:
+      return fail(`未知 run_mode: ${String(record.run_mode)}`);
+  }
 }
 
 // 作者输入的 ACK 提供 run_id，终局 turn_result 可以属于该 run 的后续子回合。

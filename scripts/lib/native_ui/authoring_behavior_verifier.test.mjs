@@ -99,6 +99,9 @@ function checkpoint(name) {
 
 // canonical 执行段：agent_runs 只保留身份/模式列，消息与 refs 在段头/消息行。
 function insertCanonicalRun(db, { runId = RUN, sessionId = SESSION, workId = WORK, usedRefs = [] } = {}) {
+  const firstSequence = db.prepare(
+    "SELECT COALESCE(MAX(sequence), 0) + 1 AS first_sequence FROM authoring_session_messages WHERE session_id = ?",
+  ).get(sessionId).first_sequence;
   const run = { run_id: runId, workspace_id: WORKSPACE, work_id: workId, session_id: sessionId, parent_turn_ref: TURN, profile_ref: "judgment_loop_v1" };
   const message =
     usedRefs.length > 0
@@ -122,11 +125,11 @@ function insertCanonicalRun(db, { runId = RUN, sessionId = SESSION, workId = WOR
   db.prepare(
     "INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(header), 1, 1, 1, SEGMENT_VERSION);
+  ).run(runId, WORKSPACE, workId, sessionId, TURN, JSON.stringify(header), 1, firstSequence, firstSequence, SEGMENT_VERSION);
   db.prepare(
     "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, 1, 1, "assistant", JSON.stringify(message), MESSAGE_VERSION);
+  ).run(`msg-${runId}-1`, WORKSPACE, workId, sessionId, runId, firstSequence, 1, "assistant", JSON.stringify(message), MESSAGE_VERSION);
 }
 
 function writeDatabase(dir) {

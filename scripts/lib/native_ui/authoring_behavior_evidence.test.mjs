@@ -104,6 +104,7 @@ function dbFacts(overrides = {}) {
     agent_events: [{ event_type: "exploration_observed", refs: '["obs_1"]' }],
     decision_traces: [{ trace_id: "trace_1", turn_id: "turn_1", context_refs: null }],
     segment_transcript: null,
+    sessionMessages: [],
     start_counts: { author_action_receipts: 0 },
     final_counts: { author_action_receipts: 0 },
     ...overrides,
@@ -112,19 +113,18 @@ function dbFacts(overrides = {}) {
 
 function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [], usedRefs = null } = {}) {
   const llmRecords = toolCalls.length > 0 ? [toolRecord(toolCalls)] : [];
+  const messages = usedRefs ? [{
+    role: "assistant",
+    provenance: "model",
+    provider_call_ref: "pcall_1",
+    provider_run_ref: "prun_1",
+    blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
+  }] : [];
   const facts = usedRefs
     ? {
         ...db,
-        segment_transcript: {
-          messages: [{
-            role: "assistant",
-            provenance: "model",
-            provider_call_ref: "pcall_1",
-            provider_run_ref: "prun_1",
-            blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
-          }],
-          used_refs: [],
-        },
+        segment_transcript: { messages: structuredClone(messages), used_refs: [] },
+        sessionMessages: messages,
       }
     : db;
   return evaluateBehavior({

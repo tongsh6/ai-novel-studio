@@ -127,8 +127,8 @@ function sameRefSet(left, right) {
   return left.length === right.length && left.every((ref) => rightSet.has(ref));
 }
 
-function operationRequest(scope, record, transcript) {
-  const projected = scopeForProviderCall(record, transcript);
+function operationRequest(scope, record, sessionMessages) {
+  const projected = scopeForProviderCall(record, { messages: sessionMessages });
   if (!scope || !projected) return null;
   const metadata = sourceRefsOf(scope);
   const materials = missionMaterials(projected.scopeContent);
@@ -469,7 +469,7 @@ function checksFor(input, active, changedFacts, calls) {
 function callFacts(input, call) {
   const scope = call ? scopeMessageFor(input.transcript, call) : null;
   const record = recordForCall(input, call);
-  const request = operationRequest(scope, record, input.transcript);
+  const request = operationRequest(scope, record, input.sessionMessages);
   const response = responseMission(responseCall(record, call));
   return { request, response };
 }

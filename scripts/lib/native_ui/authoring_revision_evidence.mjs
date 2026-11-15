@@ -474,7 +474,7 @@ function requestLength(request) {
 }
 
 // 两次原生调用只按 canonical assistant 顺序定位；返回结果供 artifact 字节核验消费。
-export function retryExchangeChecks({ transcript, records, originalBody, findingInstruction }) {
+export function retryExchangeChecks({ transcript, sessionMessages, records, originalBody, findingInstruction }) {
   const calls = assistantCalls(transcript);
   const validationBlocks = validations(transcript);
   const bound = recordByPcall(records);
@@ -520,7 +520,7 @@ export function retryExchangeChecks({ transcript, records, originalBody, finding
         get(secondValidation, "call_id") === get(second, "call_id"),
       ),
       revision_request_carries_source_bytes_and_findings:
-        requestCarries(scopeForProviderCall(firstRecord, transcript), originalBody, findingInstruction),
+        requestCarries(scopeForProviderCall(firstRecord, { messages: sessionMessages }), originalBody, findingInstruction),
     },
     measured: {
       revision_call_count: calls.length,

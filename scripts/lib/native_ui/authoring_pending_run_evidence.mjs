@@ -451,7 +451,7 @@ function readFollowupEvidence(followup, sourceArtifact, revisionArtifact, source
     .filter(([, facts]) => facts !== null);
   assert.equal(factsList.length, 1, `followup scope facts 必须唯一，实测 ${factsList.length}`);
   const [request, facts] = factsList[0];
-  assert(scopeForProviderCall(request.record, followup.history.transcript),
+  assert(scopeForProviderCall(request.record, { messages: followup.history.sessionMessages }),
     "followup Scope 必须绑定同次 pcall/prun 的 canonical 应用来源");
   const scopeChecks = scopeFactsChecks(facts, {
     source: {

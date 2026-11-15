@@ -387,6 +387,7 @@ function ho5({ llmRecords, dbFacts }) {
   const refs = liveRefsCheck({
     llmRecords,
     transcript: dbFacts?.segment_transcript ?? null,
+    sessionMessages: dbFacts?.sessionMessages ?? null,
   });
   if (refs.ok === null) return { status: "unknown", reason: refs.reason, detail: refs };
   return { status: refs.ok ? "pass" : "fail", reason: refs.ok ? null : "used_ref_out_of_boundary", detail: refs };
@@ -720,6 +721,7 @@ export function verifyBehaviorBatch(dir) {
       pending_artifact_count: pendingCount,
       ...readRunRefFacts(db, history.record),
       segment_transcript: history.transcript,
+      sessionMessages: history.sessionMessages,
     };
   });
   const checkpoints = Object.fromEntries(
