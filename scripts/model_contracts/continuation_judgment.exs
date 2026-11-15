@@ -33,6 +33,8 @@ defmodule ModelContracts.ContinuationJudgment do
   @battery [
     %{
       id: "quality_fixable",
+      profile_ref: "prose_drafting_with_quality_v1",
+      tool_ref: "prose_writing",
       goal_text: "写第01章正文草稿并通过质量复核。",
       deviation_summary: "D2 偏离信号：质量复核要求行动：confirm——正文包含违反既有规则且可以按意见修正的设定描写（无代价复活未交代代价）。",
       observation_block: "已生成初稿约 900 字；质量复核给出一条 confirm 意见：补上复活的代价交代。",
@@ -40,6 +42,8 @@ defmodule ModelContracts.ContinuationJudgment do
     },
     %{
       id: "plan_exhausted_missing_output",
+      profile_ref: "prose_drafting_with_quality_v1",
+      tool_ref: "prose_writing",
       goal_text: "按伏笔梳理结果重写第02章结尾。",
       deviation_summary: "计划步骤已走完，但作者请求的正文产出尚未完成。",
       observation_block: "已完成上下文读取与伏笔梳理观察；正文产出步未在计划中。",
@@ -47,6 +51,8 @@ defmodule ModelContracts.ContinuationJudgment do
     },
     %{
       id: "tool_failure",
+      profile_ref: "prose_drafting_with_quality_v1",
+      tool_ref: "prose_writing",
       goal_text: "写下一章正文草稿。",
       deviation_summary: "D1 偏离信号：工具 prose_writing 执行失败——写作模型连续两次调用失败（连接错误）。",
       observation_block: "两次写作调用均失败，未产出任何草稿。",
@@ -54,6 +60,8 @@ defmodule ModelContracts.ContinuationJudgment do
     },
     %{
       id: "missing_premise",
+      profile_ref: "character_design_with_context_v1",
+      tool_ref: "character_design",
       goal_text: "按第12章对质情节设计在场的第三方角色。",
       deviation_summary: "D7 偏离信号：写作坐标存在确定性缺口——作品当前只有 3 章，作者点名的第12章不存在。",
       observation_block: "章节列表：第01-03章；未找到第12章。",
@@ -143,10 +151,24 @@ defmodule ModelContracts.ContinuationJudgment do
 
     execution = Execution.dependency(provider: variant.provider)
 
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-continuation:#{variant.name}:#{battery_case.id}",
+        workspace_id: "workspace_continuation_probe",
+        work_id: "work_continuation_probe",
+        session_id: "session_continuation_probe",
+        parent_turn_ref: "turn-continuation:#{battery_case.id}",
+        origin_frame_ref: "frame-continuation:#{battery_case.id}",
+        profile_ref: battery_case.profile_ref,
+        goal: %{text: battery_case.goal_text, version: 1},
+        authority_scope: %{production_write: false, allowed_tools: [battery_case.tool_ref]}
+      })
+
     input = %{
       goal_text: battery_case.goal_text,
       deviation_summary: battery_case.deviation_summary,
-      observation_block: battery_case.observation_block
+      observation_block: battery_case.observation_block,
+      options: [plan_run: run]
     }
 
     case JudgmentProtocol.request_continuation(execution, %{}, input) do
@@ -202,7 +224,10 @@ defmodule ModelContracts.ContinuationJudgment do
         end)
     }
 
-    dir = Path.join(["artifacts", "model-contracts", provider])
+    dir =
+      System.get_env("MODEL_CONTRACT_ARTIFACT_DIR") ||
+        Path.join(["artifacts", "model-contracts", provider])
+
     File.mkdir_p!(dir)
     path = Path.join(dir, "continuation-judgment.json")
     File.write!(path, Jason.encode!(summary, pretty: true))

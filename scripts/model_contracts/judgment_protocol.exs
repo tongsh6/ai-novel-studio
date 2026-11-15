@@ -89,7 +89,7 @@ defmodule ModelContracts.JudgmentProtocol do
         # T1（call2 病灶收口）：每个 provider 变体 × 多种上下文形态——bare（探针
         # 裸上下文）与 in_run（生产 prompt 同形：会话摘要 + 全章列表 + 采纳事实）。
         # 症状率差 = 上下文负载对 call2 退化的贡献基线。
-        # production 形态由生产 `judgment_context_block/2` 构造，用于 VS-00I CP-C 重排 A/B。
+        # production 形态由生产 `judgment_scope/2` 构造，原生事实经三 wire 同源投影。
         results =
           for variant <- variants, context_shape <- env_context_shapes() do
             shaped = Map.put(variant, :context_shape, context_shape)
@@ -175,14 +175,34 @@ defmodule ModelContracts.JudgmentProtocol do
 
     execution = Execution.dependency(provider: variant.provider)
 
+    scope = probe_scope(Map.get(variant, :context_shape, :bare), battery_case.text)
+    source_input_ref = "author-protocol:#{battery_case.id}"
+
+    capabilities =
+      ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-protocol:#{variant.name}:#{variant.context_shape}:#{battery_case.id}",
+        workspace_id: "workspace_protocol_probe",
+        work_id: scope.work_id,
+        session_id: "session_protocol_probe",
+        parent_turn_ref: source_input_ref,
+        origin_frame_ref: "frame-protocol:#{battery_case.id}",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: battery_case.text, version: 1},
+        authority_scope: %{production_write: false, allowed_tools: capabilities}
+      })
+
     input = %{
       author_text: battery_case.text,
-      context_block:
-        probe_context_block(Map.get(variant, :context_shape, :bare), battery_case.text),
+      source_input_ref: source_input_ref,
+      scope: scope,
+      supplied_context_refs: scope_refs(scope),
       options: [
+        plan_run: run,
         explore: true,
-        capabilities:
-          ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read),
+        capabilities: capabilities,
         # T4 镜像修正：生产恒传 explore_tools（dialogue_planning_service），探针此前
         # 缺失导致 call2 prompt 形态与生产不同形。
         explore_tools: ExplorationService.tool_names()
@@ -283,108 +303,94 @@ defmodule ModelContracts.JudgmentProtocol do
     end
   end
 
-  # ── 探针固定上下文（含检索能力目录，explore: true 开放五选一） ──
+  # ── 固定事实夹具经唯一生产 Scope 投影，不保留自然语言 Scope 镜像 ──
 
-  # production 形态：不拼镜像文本，直接调用生产 `judgment_context_block/2`。
-  # VS-00I CP-C 的 MBC A/B 必须测生产 prompt 的真实段落顺序，否则重排不在样本内。
-  defp probe_context_block(:production, author_text) do
-    titles = production_chapter_titles()
+  defp probe_scope(shape, author_text) do
+    {work_id, title, chapters} = probe_facts(shape)
 
     context = %DialogueContext{
-      workspace_id: "ws_probe_production",
+      work_id: work_id,
       current_work_snapshot: %{
-        title: "P1 单章正文草稿验证作品",
+        title: title,
         revision: 1,
-        core_selling_point: "从已采纳章节计划生成待采纳正文草稿",
         genre: "赛博修仙",
-        target_reader: "关注长篇主链闭环的作者",
         tone_preference: "克制、紧张、具象"
       },
-      conversation_summary:
-        "作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），" <>
-          "再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。",
+      current_chapters: Enum.map(chapters, & &1.title),
+      structured_chapters: chapters,
       interaction_state: %{},
-      current_chapters: titles,
-      structured_chapters: Enum.map(titles, &%{title: &1, has_prose: true}),
+      source_status: %{work: :ok, chapters: :ok, interaction: :empty, behavior: :empty},
       assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
 
-    DialoguePlanningService.judgment_context_block(context, author_text)
+    scope = DialoguePlanningService.judgment_scope(context, author_text)
+
+    if shape == :bare do
+      characters = [
+        %{ref: "character:probe_lin_jin", work_id: work_id, name: "林烬", role: "主角，灵气稽查官"},
+        %{ref: "character:probe_zhou_heng", work_id: work_id, name: "周衡", role: "配角，黑市调频师"}
+      ]
+
+      scope
+      |> put_in([:facts, :characters], characters)
+      |> put_in([:coverage, :characters], %{status: "complete"})
+    else
+      scope
+    end
   end
 
-  # in_run 形态：镜像 M0 狗粮生产 prompt 的实际负载（judgment_context_block 渲染
-  # 形态——作品上下文 + 12 章全列表 + 会话摘要含近轮采纳事实 + 能力目录）。
-  defp probe_context_block(:in_run, _author_text) do
-    """
-    ## 当前作品上下文
-    - title: P1 单章正文草稿验证作品
-    - revision: 1
-    - core_selling_point: 从已采纳章节计划生成待采纳正文草稿
-    - genre: 赛博修仙
-    - target_reader: 关注长篇主链闭环的作者
-    - tone_preference: 克制、紧张、具象
+  defp probe_facts(:bare) do
+    titles = ["第01章：底层灵气账单", "第02章：矿区追击战", "第03章：黑市调频师"]
 
-    ## 已写章节（共 12 章，按顺序）
-    - 第01章：底层灵气账单
-    - 第02章：旧服务器里的残诀
-    - 第03章：黑市调频师
-    - 第04章：巡检队的诱捕
-    - 第05章：霓虹地牢试炼
-    - 第06章：中层执行者的裂缝
-    - 第07章：断网之城
-    - 第08章：核心模块的代价
-    - 第09章：伪仙直播夜
-    - 第10章：反向筑基协议
-    - 第11章：天台上的背叛
-    - 第12章：第一卷终局：灵气回流
-    （回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）
+    chapters =
+      titles
+      |> chapter_fixtures()
+      |> Enum.map(fn chapter ->
+        chapter
+        |> Map.put(:has_prose, chapter.seq < 3)
+        |> Map.put(:prose_word_count, Enum.at([1100, 900, 0], chapter.seq - 1))
+      end)
 
-    ## 会话摘要
-    作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），
-    再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。
-    """
-    |> String.trim()
+    {"ws_probe_bare", "星潮之下", chapters}
   end
 
-  # long_run 形态：30 章作品经 T2a 预算投影后的真实 prompt 形貌（首章 + 最近 6 章
-  # + 折叠说明行）——call2 可靠性随上下文长度递减的回归钉（M2 实证形态）。
-  defp probe_context_block(:long_run, _author_text) do
-    """
-    ## 当前作品上下文
-    - title: 长跑形态探针作品
-    - genre: 赛博修仙
-    - tone_preference: 克制、紧张、具象
+  defp probe_facts(:long_run) do
+    known_titles = %{
+      1 => "底层灵气账单",
+      25 => "残响回廊",
+      26 => "灰色频段",
+      27 => "矿脉深处的低语",
+      28 => "断链之夜",
+      29 => "回流前夜",
+      30 => "临界点"
+    }
 
-    ## 已写章节（共 30 章，按顺序）
-    - 第01章：底层灵气账单
-    - 第25章：残响回廊
-    - 第26章：灰色频段
-    - 第27章：矿脉深处的低语
-    - 第28章：断链之夜
-    - 第29章：回流前夜
-    - 第30章：临界点
-    （共 30 章；中段 23 章从略——只列首章、最近 6 章与作者点名章。）
-    （回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）
+    titles =
+      Enum.map(1..30, fn seq ->
+        "第#{String.pad_leading(to_string(seq), 2, "0")}章：" <>
+          Map.get(known_titles, seq, "已采纳章节#{seq}")
+      end)
 
-    ## 会话摘要
-    作者按章节计划连载推进，最近数轮均为"生成下一章正文草稿并采纳"；上一轮采纳了
-    第30章草稿（约 1,400 字）。作者节奏稳定，通常草稿生成后立即确认保存。
-    """
-    |> String.trim()
+    {"ws_probe_long_run", "长跑形态探针作品", chapter_fixtures(titles)}
   end
 
-  defp probe_context_block(_bare, _author_text) do
-    """
-    ## 当前作品
-    - 标题：星潮之下（赛博修仙）
-    - 已有章节：
-      - 第01章：底层灵气账单（已有正文，约 1100 字）
-      - 第02章：矿区追击战（已有正文，约 900 字）
-      - 第03章：黑市调频师（仅计划，无正文）
-    - 已确认角色：林烬（主角，灵气稽查官）、周衡（配角，黑市调频师）
-    - 注意：以上只是结构摘要；各章正文细节、伏笔明细不在本段内，需要时必须先检索。
-    """
-    |> String.trim()
+  defp probe_facts(shape) when shape in [:production, :in_run],
+    do: {"ws_probe_production", "P1 单章正文草稿验证作品", chapter_fixtures(production_chapter_titles())}
+
+  defp chapter_fixtures(titles) do
+    titles
+    |> Enum.with_index(1)
+    |> Enum.map(fn {title, seq} ->
+      %{id: "probe_chapter_#{seq}", seq: seq, title: title, has_prose: true}
+    end)
+  end
+
+  defp scope_refs(scope) do
+    [
+      Map.fetch!(scope.facts, :work)
+      | scope.facts.chapters ++ Map.get(scope.facts, :characters, [])
+    ]
+    |> Enum.map(& &1.ref)
   end
 
   defp production_chapter_titles do

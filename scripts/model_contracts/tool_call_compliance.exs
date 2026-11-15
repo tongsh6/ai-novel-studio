@@ -127,7 +127,9 @@ defmodule ModelContracts.ToolCallCompliance do
            probe_run(variant.name, index),
            execution,
            %{},
-           chapter_titles_reader: fn _workspace_id -> ["第01章：底层灵气账单"] end
+           chapter_index_reader: fn _work_id ->
+             [%{id: "mbc_probe_chapter_1", seq: 1, title: "第01章：底层灵气账单"}]
+           end
          ) do
       {:ok, plan, meta} ->
         classify_success(plan, meta)
@@ -217,7 +219,10 @@ defmodule ModelContracts.ToolCallCompliance do
         end)
     }
 
-    dir = Path.join(["artifacts", "model-contracts", provider])
+    dir =
+      System.get_env("MODEL_CONTRACT_ARTIFACT_DIR") ||
+        Path.join(["artifacts", "model-contracts", provider])
+
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, "tool-call-compliance.json"), Jason.encode!(summary, pretty: true))
     summary

@@ -20,7 +20,7 @@ checks = [
      %{
        name: "register_author_content",
        arguments: %{
-         author_content_source_ref: "current",
+         author_content_source_ref: "author-single-call:author-source",
          dialogue_goal: "登记资料",
          author_reasoning: "按原文生成候选。"
        }
@@ -71,11 +71,37 @@ rows =
       end
     }
 
+    author_text = "合成协议样本"
+    source_input_ref = "author-single-call:#{id}"
+
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-single-call:#{id}",
+        workspace_id: "workspace_single_call",
+        work_id: "work_single_call",
+        session_id: "session_single_call",
+        parent_turn_ref: source_input_ref,
+        origin_frame_ref: "frame-single-call:#{id}",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: author_text, version: 1},
+        authority_scope: %{
+          production_write: false,
+          allowed_tools:
+            ~w(character_design character_evolution prose_writing plot_outline world_building)
+        }
+      })
+
     result =
       JudgmentProtocol.request_judgment(execution, %{}, %{
-        author_text: "合成协议样本",
-        context_block: "无真实作品数据",
-        options: []
+        author_text: author_text,
+        source_input_ref: source_input_ref,
+        scope: %{
+          work_id: run.work_id,
+          facts: %{},
+          context: %{},
+          coverage: %{work: %{status: "not_read"}}
+        },
+        options: [plan_run: run, author_content_sources: [source_input_ref]]
       })
 
     requests = Agent.get(captured, & &1)
@@ -86,7 +112,7 @@ rows =
         {:ok, judgment} ->
           judgment.action == expected and judgment.narrative == content and
             judgment.provider_call_count == 1 and length(requests) == 1 and
-            hd(requests).tool_choice == "auto"
+            NovelCommon.RequestIR.Tools.tool_choice(hd(requests)) == "auto"
 
         _ ->
           false
@@ -108,10 +134,13 @@ for path <- paths do
      do: raise("生产旧协议残留：#{path}")
 end
 
-File.mkdir_p!("artifacts/model-contracts/single-call")
+artifact_dir =
+  System.get_env("MODEL_CONTRACT_ARTIFACT_DIR") || "artifacts/model-contracts/single-call"
+
+File.mkdir_p!(artifact_dir)
 
 File.write!(
-  "artifacts/model-contracts/single-call/mechanism.json",
+  Path.join(artifact_dir, "mechanism.json"),
   Jason.encode!(%{evidence: "deterministic_protocol_only", checks: rows}, pretty: true)
 )
 

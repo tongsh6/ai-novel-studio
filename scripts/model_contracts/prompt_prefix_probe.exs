@@ -138,14 +138,23 @@ defmodule ModelContracts.PromptPrefixProbe do
         if System.get_env("PREFIX_PROBE_MODE") == "single" do
           groups
         else
+          next_text = "请给第02章再设计一个不同的结尾悬念。"
+          run = Keyword.fetch!(input.options, :plan_run)
+
+          next_input = %{
+            input
+            | author_text: next_text,
+              source_input_ref: input.source_input_ref <> ":next",
+              options:
+                Keyword.put(input.options, :plan_run, %{
+                  run
+                  | goal: %{text: next_text, version: run.goal.version + 1}
+                })
+          }
+
           groups ++
             [
-              run_single(
-                "next_input",
-                option.id,
-                %{input | author_text: "请给第02章再设计一个不同的结尾悬念。"},
-                collector
-              ),
+              run_single("next_input", option.id, next_input, collector),
               run_single(
                 "changed_prefix",
                 option.id,
@@ -466,7 +475,7 @@ defmodule ModelContracts.PromptPrefixProbe do
     titles = Enum.map(1..12, &"第#{String.pad_leading(to_string(&1), 2, "0")}章：灵气账单线索#{&1}")
 
     context = %DialogueContext{
-      workspace_id: "ws_prefix_live",
+      work_id: "ws_prefix_live",
       current_work_snapshot: %{
         title: "前缀实测样书-#{salt}",
         revision: 1,
@@ -476,21 +485,45 @@ defmodule ModelContracts.PromptPrefixProbe do
       conversation_summary: "上一轮采纳了第01章草稿，作者准备继续推进正文。",
       interaction_state: %{},
       current_chapters: titles,
-      structured_chapters: Enum.map(titles, &%{title: &1, has_prose: true}),
+      structured_chapters:
+        titles
+        |> Enum.with_index(1)
+        |> Enum.map(fn {title, seq} ->
+          %{id: "prefix_live_chapter_#{seq}", seq: seq, title: title, has_prose: true}
+        end),
+      source_status: %{work: :ok, chapters: :ok, interaction: :empty, behavior: :empty},
       assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
 
     text = "接着第02章往下写一段正文"
+    scope = DialoguePlanningService.judgment_scope(context, text)
+    source_input_ref = "author-prefix:#{salt}:initial"
+
+    capabilities =
+      ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-prefix:#{salt}",
+        workspace_id: "workspace_prefix_live",
+        work_id: context.work_id,
+        session_id: "session-prefix:#{salt}",
+        parent_turn_ref: source_input_ref,
+        origin_frame_ref: "frame-prefix:#{salt}",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: text, version: 1},
+        authority_scope: %{production_write: false, allowed_tools: capabilities}
+      })
 
     %{
       author_text: text,
-      context_block:
-        DialoguePlanningService.judgment_context_block(context, text) <>
-          "\n\n" <> ExplorationService.catalog_section(),
+      source_input_ref: source_input_ref,
+      scope: scope,
+      supplied_context_refs: Enum.map([scope.facts.work | scope.facts.chapters], & &1.ref),
       options: [
+        plan_run: run,
         explore: true,
-        capabilities:
-          ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read),
+        capabilities: capabilities,
         explore_tools: ExplorationService.tool_names()
       ]
     }
