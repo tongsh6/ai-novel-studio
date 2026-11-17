@@ -1223,3 +1223,19 @@ I-CACHE 按 VS-00L §19.2 / VS-00M §5.2.2 的既有最小供给裁决，在 VS-
 **验证与范围**：核心候选全量后端 **3,331/0**，前端 **54 文件 497/0**、typecheck/lint/build，以及 compile、架构、xref、ADR、Credo、规模、I1/I2/I3/N-NARR/I-CACHE 均通过；外部候选相关 **222/0**。随后整合工作区后端 **3,360/0**、55 个外部测试文件 **1,109/0**，源码前后 SHA 无变化。`integrated-final-01` 完整扫描为 **19 pass / 2 fail，7 条发现**：旧 task_done/UI 全验收 pending，六项历史 gitleaks（五误报、一 ProjectGod 历史配置 accepted_risk），没有新发现。两个暂存补丁另经 gitleaks protect --staged，无泄漏。构建的已有大 chunk 告警保留。原失败/编译/夹具/规模反例日志均保留，不改签。
 
 **下一恢复入口**：后端恢复机制已有真实事务及运行时集成证据，本轮新增真实模型调用为 0、未执行新原生页面批次，R03 仍 doing。现役验收矩阵 §5.2/§5.3 已把 C8 的“新来源继续”纠正为原 D 响应跨进程恢复；原生驱动/完整 oracle 必须按此补证，不能因原脚本测试绿灯继续沿用旧目标。先用零 Provider 的真实历史重启实验定位窗口消失，再迁移故障阶段取证，复验原十轮、二十轮及取消/交错，最终由真实 task_done 入口闭环。两组代码提交后剩余 145 路径 WIP（131 tracked、14 untracked）；最终状态与保护哈希见本目录 final-state.json，不把其它 WIP 全部判为可提交或不可提交。
+
+### 14.14 原生历史恢复与外部输入副作用审查（2026-11-18）
+
+起点 `a5ee68fc`、144 路径 WIP；本轮基线在 `artifacts/model-contracts/b87-r03/20261118/native-recovery-01/before.json`。旧十轮失败记录证明历史 resume 已返回、同一窗口消失前外部 `pollAx` 经 `recoverInteractionSurface` 自动发出 Escape；这是待证因果，不直接归为产品或权限问题。先用原失败批次的只读数据库副本与同一原生二进制，复用现役测试服务器、NativeScenarioHarness、精确应用路径与清理 owner，诊断冷启动/真实历史恢复/客户端重启和显式 Escape 的差异。原库、原报告与作者数据不得改写；不发送作者创作输入，不调用模型，不以诊断冒充全十轮或 R03 PASS。
+
+Contract=VS-00L 恢复事实与外部原生验收边界；Invariant=读取/等待不改变作者窗口或历史、原始事实完整、同源应用身份、零新增 Provider 调用；Boundary=现役外部驱动与测试启动，不预设需改产品；Consumer=十轮/二十轮历史回查驱动；Proof=旧时序、预先定义的有输入/无输入原生对照、独立脚本反例、数据库/调用计数与源文件哈希；Acceptance Driver=现有 NativeScenarioHarness/真实 Tauri 窗口与隔离后端，诊断仅指定恢复环节，不增加第二套框架；Exploration=不物化要素、不供应模型材料。复用审查聚焦 scenario_driver 的观察/交互分责，不通过重试、扩大超时或整屏截图掩盖窗口消失。
+
+**实际诊断结果**：`history-causal-01` 使用旧十轮数据库副本、原失败二进制和现役隔离后端，稳定历史窗口的 12 次观察、显式 Escape 后 12 次观察、被动重启后 18 次观察均有窗口/网页；`history-causal-02` 预先固定三次原驱动重启均成功，未命中旧缺窗口分支。两个实验均未复现原窗口消失，故因果仍未建立，不能宣称 Escape 就是根因或产品已经修复。原数据库/失败记录未改写，所有 owned 应用与后端/代理已按精确归属清理。
+
+**独立已证缺陷与提交**：正常 `pollAx`/`tryPollAx` 在 AX 暂缺时调用通用恢复方法，实际发送 activate/Escape，且嵌套 12 次重试改变观察现场。先修 `docs/engineering/scenario-acceptance.md` §5.1 的观察/动作职责，再以四个公开观察反例得到 4/4 失败，随后移除 `recoverInteractionSurface` 与 `dumpNodesForInteraction`，所有现役读消费者使用既有 `dumpNodes`；真实作答动作需要前台时只显式激活，不猜测关闭窗口/对话框。无新模块/状态/重试，原等待预算不放宽；相关 25/25 通过。七文件独立候选树 `aa962ea9761b774515c4497f04f6b7e83f4241c4` 的外部套件 1,035/0，实际提交 **`8c9a0ab8e59393a741cc4e7bef1ad5ffad0c8dd6`** 与该树完全一致。自动维护 driver 与 README 只提交本组必要消费者迁移，未夹带其既有大范围 WIP。首次隔离验证两个 Git 指纹测试失败来自归档快照未具备自身 Git 索引，补齐该快照的真实基线/索引后原测试不改且全过；失败日志保留。
+
+**原生回查与视觉边界**：修复后 `history-readback-03` 调用现役 `runCompactionHistorySequence`，展开计数、原文逐字定位、返回当前会话、再次重启、原事件集和原文不变六项机械检查通过。前后三次诊断的 ProviderRun/Output/Event 为 619/610/150420，AgentRun/消息/Interaction 为 134/57/318，均未增减，新增模型调用与作者创作输入均为 0。直接查看截图确认原文和高亮在视口内，但 `history-restored-expanded.jpg` 没有完整呈现整理面板；因此报告仍是机械通过/视觉未闭环，不签完整 UI。为控制变量，三个诊断用的是旧失败二进制，截图中未渲染 Markdown 不是本轮当前代码回退，也不充当当前产品构建证据。
+
+**整合验证与未关闭项**：`integrated-gates-01` 55 文件 1,111/0，验证前后源码 SHA 不变；完整 `bash scripts/ai_static_scan.sh --top 10` 仍 19 pass / 2 fail / 7 findings。剩余为完成清单/UI 证据 pending，及五项既有 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）与一项 ProjectGod 历史配置 accepted_risk；未改规则或受保护台账。候选/原生对照/截图评审与扫描见本节目录 `observation-review.json`、各 diagnostic-result、`observation-isolated-02.log`、`integrated-gates-01/`。原五份保护 WIP 哈希全部未变，未 push。
+
+**下一执行入口**：原窗口消失尚无因果结论；原生回查还需在当前产品构建中验证整理面板真实可见，不能只用 AX 存在代替截图。C8 的外部故障驱动/完整 oracle 仍需按 §14.13 原 D 响应跨 BEAM 恢复迁移，不得用新来源 E 成功代签；本轮未启动新的十轮/二十轮模型执行，也未进行后端进程摘要恢复验收。完整 R03 保持 doing，不进入 R04。
