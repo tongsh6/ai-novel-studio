@@ -1391,3 +1391,11 @@ f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用�
 先修责任契约验收§5.2，再改现役driver及同源外部检查：前10讨论/交错A/B/回答/核对不变，第11条唯一固定预热→C摘要取消→第12条故障D→第13–20条恢复+既有control3。二十条讨论及五条控制输入的字节/哈希不改，不运行中追加至绿。取消前B回复应自然成为最近四项外候选，故障前A恢复回复应自然变旧；以真实坐标、未覆盖/未占用、完成状态、作用域和压力证明，实际准入来源再次匹配。条件不成立即停止原批，不放宽保护、不伪造模型hook、不重调已占用来源。
 
 存在性七问：Contract=验收§5.2真实摘要取消及原响应跨进程恢复；Invariant=固定输入顺序/keep4/永久来源资格/原字节/单次真实调用；Boundary=现役driver、canonical reader与auto-maintenance evidence；Consumer=真实C8批次；Proof=旧四项保护反例、新合法候选正例及错scope/未完成/被覆盖或占用/压力不足反例；Acceptance Driver=既有AX取消/owned backend重启，实际原生未获本次启动许可；Exploration=不新建产品实体或模型机制，仅更正冻结场景前置。原失败记录保留。此节先登记设计与实现约束，验证结果另补，R03仍doing。
+
+### 14.27 结构化提问的唯一正文责任（2026-11-18，设计先行）
+
+真实反例 `c8-native-16/interleaved-a-waiting.jpg` 同一提问完整显示两遍，底部另有定位摘要。只读隔离DB：run_mwlb8pae_elm 的canonical第4条ask_author在第5条因explore_before_ask_required拒绝，第10条才于第11条验证成功；仅一个成功question interaction（b557eb1c-344a-8766-6ad8-22a0b62ea203，question:a45b10e277e99938136e0f343f815adf4a22157a46e7ae5509c8353da6e43217），不是两次合法提问。AuthorQuestion同源生成通用文本和结构化question，WorkspaceChat无条件MarkdownText(msg.text)后又AuthorQuestionRecord全文，构成两个展示所有者。
+
+先统一UI46 §9.7与UI47 §3.4.1：消息正文按语义类型互斥；成功author_question由现役AuthorQuestionRecord负责全文Markdown与状态，普通text走普通正文；底部只保留操作与必要短定位标签，不再截断复述短/长问题。不同身份同文不合并，拒绝调用不变问题，流式/历史/已答/取消遵守同一正文责任；原始canonical/ProviderOutput/interaction均保留，Why与选项准确绑定。
+
+七问：Contract=UI46 §9.7、UI47 §3.4.1及UA-01作者问题身份/回复链；Invariant=一个成功question_ref一份完整正文、唯一可答入口、原事实不删；Boundary=现役问题记录与WorkspaceChat正文选择、底部操作标签，不新增文本去重/状态表；Consumer=真实等待回答与历史阅读；Proof=完整组合渲染的普通文本/长短Markdown问题、同源重连、异源同文、流式收束、已答/取消/只读、拒绝调用、Why/选项/自由回复反例；Acceptance Driver=既有真实原生等待/回答场景及截图，不改验收输入、不靠组件自证；Exploration=现役question_ref/run/version、AuthorQuestionRecord、MarkdownText、AuthorQuestionService已足够，不增新实体或第二协议。本次仅设计，产品/模板/测试尚未修改，旧截图仍失败，后续实施与真实验收不得跳过。
