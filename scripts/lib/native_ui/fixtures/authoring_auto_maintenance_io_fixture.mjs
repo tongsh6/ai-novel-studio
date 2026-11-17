@@ -114,8 +114,8 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
           sha256: createHash("sha256").update(raw).digest("hex") };
       }
       const scenario = maintenanceRecoveryFacts({ workId: WORK, sessionId: SESSION,
-        base: dbFactsFor(), baseRecords: llmRecords(), failureInput: frozenInputs.discussions[10],
-        recoveryInputs: frozenInputs.discussions.slice(11, 20) });
+        base: dbFactsFor(), baseRecords: llmRecords(), failureInput: frozenInputs.discussions[11],
+        recoveryInputs: frozenInputs.discussions.slice(12, 20) });
       const driver = { ...driverLogFor(), failure_injection: { ...scenario.injection,
         before_snapshot: "before-failure.json", after_failure_snapshot: "after-failure.json",
         before_restart_snapshot: "before-restart.json", after_restart_snapshot: "after-restart.json",

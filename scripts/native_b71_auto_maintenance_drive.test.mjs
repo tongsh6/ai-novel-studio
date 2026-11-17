@@ -1,8 +1,9 @@
 // 外部驱动的回答/取消业务绑定；帧工厂复用现役维护 fixture，ACK 身份由共同 owner 核验。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorChoiceAckFor, cancelAckFor, requireSameSummaryTarget } from "./native_b71_auto_maintenance_drive.mjs";
+import { authorChoiceAckFor, cancelAckFor, requireSameSummaryTarget, requireProbeCandidate, requireProbePressure, requireActualProbeSource, requireProbeSourceClaim } from "./native_b71_auto_maintenance_drive.mjs";
 import { interleavedResumeFacts } from "./lib/native_ui/fixtures/authoring_auto_maintenance_facts.mjs";
+import { maintenanceRecoveryFacts } from "./lib/native_ui/fixtures/authoring_discussion_facts.mjs";
 
 function answerAttempt() {
   const facts = interleavedResumeFacts();
@@ -68,4 +69,57 @@ test("确认取消前摘要已结束或被另一执行替换时阻断命令，�
   }
   confirm({ ...expected });
   assert.equal(commandCount, 1);
+});
+
+test("固定 C8 前置：旧三条来源不足，固定第11条后B才自然退出保护集", () => {
+  const row = (id, sequence) => ({role:"assistant",provenance:"model",blocks:[{type:"text",text:id}],
+    canonical_ref:{workspace_id:"ws",work_id:"w",session_id:"s",run_id:id,run_sequence:sequence,run_status:"completed"}});
+  const rows=[row("B",4),row("A",15),row("verify",4),row("eleven",4)];
+  const options={candidateRunId:"B",workId:"w",sessionId:"s",expectedCount:4};
+  assert.throws(()=>requireProbeCandidate(rows.slice(0,3),[],options),/candidate_count/);
+  const key=requireProbeCandidate(rows,[],options);
+  assert.equal(key,'authoring-session-source/v1:["ws","w","s","B",4]');
+  for (const mutate of [
+    (r)=>{r[0].canonical_ref.run_status="awaiting_author";},
+    (r)=>{r[0].canonical_ref.work_id="other";},
+    (r)=>{r[0].blocks=[{type:"tool_call",name:"ask_author"}];},
+    (r)=>{[r[0],r[1]]=[r[1],r[0]];},
+  ]) {const changed=structuredClone(rows);mutate(changed);assert.throws(()=>requireProbeCandidate(changed,[],options));}
+  assert.throws(()=>requireProbeCandidate(rows,[{owner_refs:JSON.stringify({operation:"transcript_compaction",discussion_source_keys:[key]})}],options),/already_owned/);
+  const five=[...rows,row("C",4)];five[4].canonical_ref.run_status="cancelled";
+  assert.equal(requireProbeCandidate(five,[{owner_refs:{operation:"transcript_compaction",discussion_source_keys:[key]}}],
+    {...options,candidateRunId:"A",expectedCount:5}),'authoring-session-source/v1:["ws","w","s","A",15]');
+  assert.throws(()=>requireProbeCandidate(rows,[],{...options,candidateRunId:"eleven"}),/protected/);
+});
+test("真实压力必须来自指定前序run的最后业务调用，不以摘要或旧峰值冒充", () => {
+  const runs=[{id:"p",provider_call_ref:"c",agent_run_id:"eleven",owner_refs:{}}];
+  const records=[{provider_run_ref:"p",provider_call_ref:"c",ts:"2026-11-18T00:00:00Z",
+    response:{status:200,usage:{input_tokens:22400}}}];
+  assert.equal(requireProbePressure(runs,records,"eleven").response.usage.input_tokens,22400);
+  for(const mutate of [
+    (r,c)=>{c[0].response.usage.input_tokens=22399;},
+    (r,c)=>{c[0].response.usage.input_tokens="44689";},
+    (r,c)=>{c[0].response.status=500;},
+    (r)=>{r[0].agent_run_id="foreign";},
+    (r)=>{r[0].owner_refs={operation:"transcript_compaction"};},
+    (r,c)=>{r.push({...r[0],id:"later"});c.push({...c[0],provider_run_ref:"later",
+      ts:"2026-11-18T00:01:00Z",response:{status:200,usage:{input_tokens:1200}}});},
+  ]){const r=structuredClone(runs),c=structuredClone(records);mutate(r,c);
+    assert.throws(()=>requireProbePressure(r,c,"eleven"),/probe_real_pressure_missing/);}
+});
+
+test("真实摘要必须经现役原文审计且恰为预注册来源，不接受有摘要即可", () => {
+  const scenario=maintenanceRecoveryFacts();
+  const facts=scenario.facts.afterFailure, runId=scenario.injection.failure_request.run_id;
+  const key=facts.provider_runs[0].owner_refs.discussion_source_keys[0];
+  // 在途阶段只能确认 claim，缺事后 request 不得伪装成完成审计。
+  assert.equal(requireProbeSourceClaim(facts,runId,key).id,facts.provider_runs[0].id);
+  requireActualProbeSource(facts,scenario.records,runId,key);
+  assert.throws(()=>requireActualProbeSource(facts,scenario.records,runId,"other"),/candidate_mismatch/);
+  assert.throws(()=>requireActualProbeSource(facts,[],runId,key),/request_missing/);
+  const duplicate=structuredClone(facts);duplicate.provider_runs.push({...duplicate.provider_runs[0],id:"other"});
+  assert.throws(()=>requireActualProbeSource(duplicate,scenario.records,runId,key),/attempt_not_unique/);
+  const changed=structuredClone(scenario.records);
+  changed.find(r=>r.provider_run_ref===facts.provider_runs[0].id).turn_id="foreign";
+  assert.throws(()=>requireActualProbeSource(facts,changed,runId,key),/owner_mismatch/);
 });

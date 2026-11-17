@@ -17,6 +17,8 @@ import { readConfig, readAutoMaintenanceInputs } from "./lib/native_ui/authoring
 import { readAutoMaintenanceDbFacts, scanAuthorVisibleFiles } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
 import { inFlightSummaryForRun } from "./lib/native_ui/authoring_interleaved_resume_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import { canonicalMessagesFromRows } from "./lib/native_ui/authoring_history_evidence.mjs";
+import { auditCanonicalCoverage, auditDiscussionRequest } from "./lib/native_ui/authoring_checkpoint_coverage.mjs";
 
 
 const TURN_TIMEOUT_MS = Number(process.env.B71_AUTO_MAINT_TURN_TIMEOUT_MS ?? 360_000);
@@ -307,9 +309,84 @@ async function runInterleavedResume(report, inputs) {
   captureCheckpoint("after-next-request");
 }
 
+
+const decoded = (value) => typeof value === "string" ? JSON.parse(value) : value;
+const sourceKey = (ref) => "authoring-session-source/v1:" +
+  JSON.stringify([ref.workspace_id, ref.work_id, ref.session_id, ref.run_id, ref.run_sequence]);
+
+// 场景前置仅核观察到的来源，不生成产品 plan；下一真实讨论会占 keep4 的一席。
+export function requireProbeCandidate(retained, providerRuns, {candidateRunId, workId, sessionId, expectedCount}) {
+  const discussions = retained.filter((message) => message.role === "assistant" && message.provenance === "model" &&
+    message.blocks?.length > 0 && message.blocks.every((block) => block.type === "text" && typeof block.text === "string") &&
+    message.blocks.some((block) => block.text.trim() !== ""));
+  assert.equal(discussions.length, expectedCount, "probe_candidate_count_mismatch");
+  assert(discussions.every((message) => message.canonical_ref.work_id === workId &&
+    message.canonical_ref.session_id === sessionId), "probe_candidate_scope_mismatch");
+  const candidates = discussions.filter((message) => message.canonical_ref.run_id === candidateRunId);
+  assert.equal(candidates.length, 1, "probe_candidate_missing_or_ambiguous");
+  const candidate = candidates[0];
+  assert.equal(candidate.canonical_ref.run_status, "completed", "probe_candidate_not_completed");
+  assert(discussions.indexOf(candidate) < discussions.length - 3, "probe_candidate_protected");
+  const key = sourceKey(candidate.canonical_ref);
+  const claimed = providerRuns.flatMap((run) => {
+    const refs = decoded(run.owner_refs);
+    return refs?.operation === "transcript_compaction" ? refs.discussion_source_keys ?? [] : [];
+  });
+  assert(!claimed.includes(key), "probe_candidate_already_owned");
+  return key;
+}
+
+export function requireProbePressure(providerRuns, records, pressureRunId) {
+  const executions = providerRuns.filter((run) => run.agent_run_id === pressureRunId &&
+    decoded(run.owner_refs)?.operation !== "transcript_compaction");
+  const pressure = records.filter((record) => executions.some((run) =>
+    run.id === record.provider_run_ref && run.provider_call_ref === record.provider_call_ref))
+    .sort((a,b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  assert(pressure?.response?.status === 200 && Number.isInteger(pressure.response.usage?.input_tokens) &&
+    pressure.response.usage.input_tokens >= 32000 * 0.70, "probe_real_pressure_missing");
+  return pressure;
+}
+
+function probeCandidate(candidateRunId, pressureRunId, expectedCount) {
+  const facts = readAutoMaintenanceDbFacts(dir);
+  const records = logs(path.join(dir, "llm-calls"));
+  const canonical = canonicalMessagesFromRows(facts.authoring_session_messages, facts.agent_runs)
+    .filter((message) => message.canonical_ref.work_id === config.target.work_id &&
+      message.canonical_ref.session_id === config.target.session_id);
+  const audit = auditCanonicalCoverage(canonical, {verifyExecutions:true, verifyRequests:true,
+    providerRuns:facts.provider_runs, providerOutputs:facts.provider_outputs, providerRecords:records});
+  assert(audit.ok, audit.reason);
+  const key = requireProbeCandidate(audit.retainedMessages, facts.provider_runs, {
+    candidateRunId, expectedCount, workId:config.target.work_id, sessionId:config.target.session_id});
+  const pressure = requireProbePressure(facts.provider_runs, records, pressureRunId);
+  return {source_key:key, snapshot:snapshot("r03-candidate-" + expectedCount, facts),
+    pressure_provider_run_ref:pressure.provider_run_ref, input_tokens:pressure.response.usage.input_tokens};
+}
+
+export function requireProbeSourceClaim(facts, runId, expectedKey) {
+  const attempts = facts.provider_runs.filter((run) => run.agent_run_id === runId &&
+    decoded(run.owner_refs)?.operation === "transcript_compaction");
+  assert.equal(attempts.length, 1, "probe_summary_attempt_not_unique");
+  const run = attempts[0], refs = decoded(run.owner_refs);
+  assert.deepEqual(refs.discussion_source_keys, [expectedKey], "probe_summary_candidate_mismatch");
+  return run;
+}
+
+// HTTP 完整材料只在 adapter 返回后落盘；不得等待它而错过在途取消。
+export function requireActualProbeSource(facts, records, runId, expectedKey) {
+  const run = requireProbeSourceClaim(facts, runId, expectedKey);
+  const paired = records.filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
+  assert.equal(paired.length, 1, "probe_summary_request_missing");
+  const audited = auditDiscussionRequest(paired[0], run,
+    canonicalMessagesFromRows(facts.authoring_session_messages, facts.agent_runs));
+  assert(audited.ok, audited.reason);
+  assert.equal(audited.sourceCount, 1, "probe_summary_source_count_mismatch");
+}
+
 async function runCancelProbe(report, author) {
+  const candidate = probeCandidate(report.interleaved_resume.later_run_id, report.cancel_priming.run_id, 4);
   const request = await startRequest(report, author);
-  const probe = report.cancel_probe = { request, recovery_scope: "owned_tauri_client" };
+  const probe = report.cancel_probe = { request, candidate, recovery_scope: "owned_tauri_client" };
   const scope = { runId: request.run_id, workId: config.target.work_id, sessionId: config.target.session_id };
   const observed = await harness.runStep("turn", "summary_cancellation_in_flight", () =>
     harness.pollWire(() => {
@@ -320,6 +397,7 @@ async function runCancelProbe(report, author) {
       const target = inFlightSummaryForRun(facts, scope);
       return target ? { target, facts, observed_at: harness.nowIso() } : null;
     }, TURN_TIMEOUT_MS, FLOW_LABEL + ":summary_cancellation_in_flight"));
+  requireProbeSourceClaim(observed.facts, request.run_id, candidate.source_key);
   probe.summary_target = { ...observed.target, observed_at: observed.observed_at };
   probe.before_snapshot = snapshot("r03-before-cancel", observed.facts);
   const wireStart = harness.transport().length;
@@ -331,6 +409,7 @@ async function runCancelProbe(report, author) {
   await visibleClick("确认终止", undefined, () => {
     const facts = readAutoMaintenanceDbFacts(dir);
     requireSameSummaryTarget(probe.summary_target, inFlightSummaryForRun(facts, scope));
+    requireProbeSourceClaim(facts, request.run_id, candidate.source_key);
     probe.confirmation_snapshot = snapshot("r03-before-cancel-confirmation", facts);
     probe.confirmation_target_checked_at = harness.nowIso();
   });
@@ -347,6 +426,8 @@ async function runCancelProbe(report, author) {
     after_cancel_snapshot: snapshot("r03-after-cancel") });
   harness.capture("cancelled-run", { allowFullScreenFallback: false });
   assert.equal(terminal.status, "cancelled", "cancel_requested_is_not_cancelled");
+  requireActualProbeSource(readAutoMaintenanceDbFacts(dir), logs(path.join(dir, "llm-calls")),
+    request.run_id, candidate.source_key);
 }
 
 
@@ -376,7 +457,8 @@ async function runRecoveryProbes(report, inputs) {
     before_checkpoint_messages: beforeMessages, after_checkpoint_messages: checkpointMessageCount() };
   captureCheckpoint("after-refresh");
 
-  const failure = report.failure_injection = { trigger_created: false,
+  const candidate = probeCandidate(report.interleaved_resume.waiting_run_id, report.cancel_probe.request.run_id, 5);
+  const failure = report.failure_injection = { trigger_created: false, candidate,
     before_snapshot: snapshot("r03-before-failure"),
     checkpoint_events_before_failure: checkpointEventCount(),
     checkpoint_messages_before_failure: checkpointMessageCount(), recovery_requests: [] };
@@ -384,7 +466,7 @@ async function runRecoveryProbes(report, inputs) {
     injectFailureTrigger();
     failure.trigger_created = true;
     failure.injected_at = harness.nowIso();
-    failure.failure_request = await sendRequest(report, inputs.discussions[10]);
+    failure.failure_request = await sendRequest(report, inputs.discussions[11]);
   } finally {
     if (failure.trigger_created) {
       dropFailureTrigger();
@@ -397,10 +479,12 @@ async function runRecoveryProbes(report, inputs) {
   failure.author_error_visible = authorErrorVisible();
   captureCheckpoint("after-failure");
   requireCompleted(failure.failure_request);
+  requireActualProbeSource(readAutoMaintenanceDbFacts(dir), logs(path.join(dir, "llm-calls")),
+    failure.failure_request.run_id, candidate.source_key);
   await restartBackendAfterFailure(report);
   failure.before_restart_snapshot = report.backend_restart.before_snapshot;
   failure.after_restart_snapshot = report.backend_restart.after_snapshot;
-  for (const author of inputs.discussions.slice(11, 20)) {
+  for (const author of inputs.discussions.slice(12, 20)) {
     const request = await sendRequest(report, author);
     failure.recovery_requests.push(request);
     requireCompleted(request);
@@ -448,6 +532,8 @@ async function run() {
     captureCheckpoint("start");
     if (inputs) {
       await runInterleavedResume(report, inputs);
+      report.cancel_priming = await sendRequest(report, inputs.discussions[10]);
+      requireCompleted(report.cancel_priming);
       await runCancelProbe(report, inputs.controls[4]);
       await runRecoveryProbes(report, inputs);
     } else await runAnswerMode(report);

@@ -226,7 +226,7 @@ export function readAutoMaintenanceRecoveryFacts(dir, config, injection) {
       beforeRestart: readMaintenanceSnapshot(dir, injection.before_restart_snapshot),
       afterRestart: readMaintenanceSnapshot(dir, injection.after_restart_snapshot),
       afterRecovery: readMaintenanceSnapshot(dir, injection.after_recovery_snapshot),
-      failureInput: inputs.discussions[10], recoveryInputs: inputs.discussions.slice(11, 20),
+      failureInput: inputs.discussions[11], recoveryInputs: inputs.discussions.slice(12, 20),
       scope: { work_id: config.target.work_id, session_id: config.target.session_id } };
   } catch (error) { return { error: error.message }; }
 }
