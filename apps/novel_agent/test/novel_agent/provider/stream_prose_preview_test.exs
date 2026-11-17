@@ -56,6 +56,143 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
     |> Enum.reject(&is_nil/1)
   end
 
+  test "slow synchronous stream consumer does not impose the accumulator RPC deadline" do
+    test_pid = self()
+
+    eventsource = fn _url, _body, _opts, on_data ->
+      assert :cont = on_data.(sse(%{"choices" => [%{"delta" => %{"content" => "正文"}}]}))
+      assert :cont = on_data.("data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    sink = fn {_status, facts} ->
+      for event <- facts.events do
+        if event.event_type == :chunk, do: Process.sleep(5_100)
+        send(test_pid, {:delivered, event.sequence})
+      end
+    end
+
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    ctx = provider_ctx(event_sink: sink)
+
+    assert {:ok, %{result: result, events: events}} =
+             OpenAI.execute(state, nil, ir("写正文"), %InferenceParams{}, ctx)
+
+    assert result.content == "正文"
+
+    for event <- events,
+        do: assert_receive({:delivered, sequence} when sequence == event.sequence)
+
+    refute_receive {:delivered, _}
+  end
+
+  test "one wire batch delivers each event synchronously in sequence" do
+    owner = self()
+
+    sink = fn {_status, facts} ->
+      assert self() == owner
+      for event <- facts.events, do: send(owner, {:ordered, event.sequence})
+    end
+
+    eventsource = fn _, _, _, on_data ->
+      assert :cont = on_data.(text_frame("甲") <> text_frame("乙") <> "data: [DONE]\n\n")
+      {:ok, 200, ""}
+    end
+
+    assert {:ok, %{events: events, result: result}} = boundary_execute(eventsource, sink)
+    assert result.content == "甲乙"
+    assert Enum.map(events, & &1.sequence) == Enum.to_list(1..length(events))
+    for event <- events, do: assert_receive({:ordered, n} when n == event.sequence)
+    refute_receive {:ordered, _}
+  end
+
+  test "cancellation during synchronous consumption halts before another wire chunk" do
+    {:ok, token} = NovelAgent.Provider.CancellationToken.start_link()
+    on_exit(fn -> if Process.alive?(token), do: Agent.stop(token) end)
+
+    sink = fn {_status, facts} ->
+      if Enum.any?(facts.events, &(&1.event_type == :chunk)) do
+        Process.sleep(20)
+        NovelAgent.Provider.CancellationToken.cancel(token)
+      end
+    end
+
+    eventsource = fn _, _, _, on_data ->
+      assert :halt = on_data.(text_frame("保留"))
+      {:ok, 200, ""}
+    end
+
+    assert {:error, %{provider_run: %{status: :cancelled}}} =
+             boundary_execute(eventsource, sink, cancellation_token: token)
+  end
+
+  test "configured deadline remains authoritative after the sink returns" do
+    sink = fn {_status, facts} ->
+      if Enum.any?(facts.events, &(&1.event_type == :chunk)), do: Process.sleep(80)
+    end
+
+    eventsource = fn _, _, _, on_data ->
+      assert :halt = on_data.(text_frame("保留"))
+      {:ok, 200, ""}
+    end
+
+    policy = %NovelAgent.Provider.TimeoutPolicy{deadline_ms: 50, response_ms: 300_000}
+
+    assert {:error, %{error: error}} = boundary_execute(eventsource, sink, timeout_policy: policy)
+    assert error.type == :timeout
+  end
+
+  test "EOF publishes a CR-closed frame outside the accumulator and cleans up on sink throw" do
+    owner = self()
+    before_links = elem(Process.info(self(), :links), 1)
+
+    eventsource = fn _, _, _, on_data ->
+      assert :cont = on_data.(String.replace(text_frame("尾帧"), "\n\n", "\r\r"))
+      links = elem(Process.info(self(), :links), 1) -- before_links
+      send(owner, {:accumulators, links})
+      {:ok, 200, ""}
+    end
+
+    sink = fn {_status, facts} ->
+      if Enum.any?(facts.events, &(&1.event_type == :chunk)) do
+        send(owner, {:sink_owner, self()})
+        throw(:consumer_failed)
+      end
+    end
+
+    assert catch_throw(boundary_execute(eventsource, sink)) == :consumer_failed
+    assert_receive {:sink_owner, ^owner}
+    assert_receive {:accumulators, [acc]}
+    refute Process.alive?(acc)
+  end
+
+  defp text_frame(text), do: sse(%{"choices" => [%{"delta" => %{"content" => text}}]})
+
+  defp boundary_execute(eventsource, sink, opts \\ []) do
+    state = %OpenAI{
+      api_key: "sk-test",
+      endpoint: "https://example.invalid/v1",
+      model: "fixture-model",
+      eventsource_fn: eventsource,
+      log_fn: nil
+    }
+
+    OpenAI.execute(
+      state,
+      nil,
+      ir("写正文"),
+      %InferenceParams{},
+      provider_ctx([event_sink: sink] ++ opts)
+    )
+  end
+
   test "Chat SSE：写作者 JSON 流的 body 提取为 author_content_delta，预览不含协议字节" do
     chunks = chunks_of(@json, 5)
     test_pid = self()

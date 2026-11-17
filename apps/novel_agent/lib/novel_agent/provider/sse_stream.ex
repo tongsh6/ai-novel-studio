@@ -104,14 +104,19 @@ defmodule NovelAgent.Provider.SSEStream do
 
     on_data = &handle_wire_chunk(ctx, acc, started, deadline_ms, &1)
 
-    request_result =
-      state
-      |> eventsource_fn()
-      |> invoke_eventsource(url, body, request_opts, on_data)
+    {request_result, final_acc} =
+      try do
+        result =
+          state
+          |> eventsource_fn()
+          |> invoke_eventsource(url, body, request_opts, on_data)
 
-    Agent.update(acc, &flush_buffer(ctx, &1))
-    final_acc = Agent.get(acc, & &1)
-    Agent.stop(acc)
+        update_and_emit(ctx, acc, &flush_buffer(ctx, &1))
+        continue_or_halt(ctx, acc, started, deadline_ms)
+        {result, Agent.get(acc, & &1)}
+      after
+        if Process.alive?(acc), do: Agent.stop(acc)
+      end
 
     duration = System.monotonic_time(:millisecond) - started
 
@@ -153,9 +158,22 @@ defmodule NovelAgent.Provider.SSEStream do
         :halt
 
       true ->
-        Agent.update(acc, &consume_wire_chunk(ctx, &1, chunk))
+        update_and_emit(ctx, acc, &consume_wire_chunk(ctx, &1, chunk))
         continue_or_halt(ctx, acc, started, deadline_ms)
     end
+  end
+
+  # The accumulator owns ordered facts, not external consumer latency. HTTP keeps
+  # synchronous backpressure: publish this batch before accepting another chunk.
+  defp update_and_emit(ctx, acc, update) do
+    events =
+      Agent.get_and_update(acc, fn current ->
+        next = update.(current)
+        count = next.next_sequence - current.next_sequence
+        {next.events |> Enum.take(count) |> Enum.reverse(), next}
+      end)
+
+    AdapterExecution.emit_events(ctx, events, :running)
   end
 
   defp continue_or_halt(ctx, acc, started, deadline_ms) do
@@ -320,8 +338,6 @@ defmodule NovelAgent.Provider.SSEStream do
             author_content_delta: content_delta
           )
 
-        AdapterExecution.emit_events(ctx, [event], :running)
-
         %{
           acc
           | events: [event | acc.events],
@@ -358,8 +374,6 @@ defmodule NovelAgent.Provider.SSEStream do
         author_narrative_delta: author_delta,
         author_content_delta: content_delta
       )
-
-    AdapterExecution.emit_events(ctx, [event], :running)
 
     %{
       acc
