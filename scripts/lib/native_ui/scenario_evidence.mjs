@@ -528,7 +528,9 @@ export function writeNativeSummary(
     driver = NATIVE_DRIVER,
     scope = "native_system_ui",
     boundary = null,
+    status = Object.values(checks).every((value) => value === true) ? "pass" : "fail",
   },
+  persist = rewrite,
 ) {
   const assertions = behaviorAssertions(checks);
   const summary = {
@@ -542,14 +544,15 @@ export function writeNativeSummary(
     checks,
     checks_passed: assertions.length,
     checks_total: Object.keys(checks).length,
-    all_checks_passed: assertions.length === Object.keys(checks).length,
     behavior: { assertions },
     assertions,
     measured,
     ...(boundary ? { evidence_boundary: boundary } : {}),
     ...extra,
+    status,
+    all_checks_passed: status === "pass",
   };
-  rewrite(dir, "summary.json", summary);
+  persist(dir, "summary.json", summary);
   return summary;
 }
 

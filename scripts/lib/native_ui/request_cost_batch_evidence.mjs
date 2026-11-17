@@ -1,10 +1,12 @@
 // B87 R01 批次纯判据/报告聚合：只消费已采集的 turn/call 事实，不做 IO/DB 查询。
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { wireTerminal } from "./live_run_wait.mjs";
 import { countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
-import { LENGTHS, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
-import { joinNativeCallEvidence } from "./authoring_call_evidence.mjs";
+import { LENGTHS, PREREGISTERED_SOURCE_KIND, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
+import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const purposeOf = (purposes, ref) => purposes.get(ref) ?? null;
@@ -258,6 +260,7 @@ const MEASUREMENT_GAPS = new Set([
   "run_inventory",
 ]);
 
+
 export function buildNativeReport({
   batchDir,
   config,
@@ -270,6 +273,7 @@ export function buildNativeReport({
   referenceAccounting = null,
   checkpointChanges = null,
   requestObservation = null,
+  compactionEvidence = null,
 }) {
   const observedEffects = observedEffectsOf(checks);
   const canonEvidence = {
@@ -279,6 +283,7 @@ export function buildNativeReport({
     checkpoint_changes: checkpointChanges,
   };
   const softIncomplete =
+    compactionEvidence?.status === "partial" ||
     !checks.turn_count_ok ||
     !checks.driver_completed ||
     checks.visible_outcomes_recorded === false ||
@@ -291,7 +296,8 @@ export function buildNativeReport({
     status,
     measurement_status: status,
     signed: false,
-    scope: "r01_measurement_only",
+    scope: compactionEvidence ? "r03_mechanism_and_preregistered_review" : "r01_measurement_only",
+    compaction: compactionEvidence,
     model_behavior: modelBehaviorOf(turnReports, {
       checks,
       referenceAccounting,
@@ -633,7 +639,7 @@ function hasCheckpointEvidence(history) {
   );
 }
 
-export function verifyTurn({ plan, turn, source, records, config, seenPcalls, binding, fail, notCollected }) {
+export function verifyTurn({ plan, turn, source, wire, config, seenPcalls, binding, fail, notCollected }) {
   const report = {
     turn: plan.turn,
     author_id: plan.author_id,
@@ -658,10 +664,16 @@ export function verifyTurn({ plan, turn, source, records, config, seenPcalls, bi
     report.status = "fail";
     return report;
   }
+  const terminal = wireTerminal(wire, { turnId: turn.turn_id, runId: turn.run_id,
+    topic: "workspace:" + binding.root.workspace_id, workId: config.work.id, sessionId: config.session_id,
+    runRow: binding.root });
+  const settled = terminal !== null && terminal.results?.length > 0;
+  if (!settled) fail(`turn_${plan.turn}_runtime`, "business_result_or_actual_terminal_missing");
   report.root_run = {
     run_id: binding.root.id,
     workspace_id: binding.root.workspace_id,
     parent_turn_ref: binding.root.parent_turn_ref,
+    status: binding.root.status,
     provider_run_count: binding.providerRuns.length,
     provider_call_count: binding.counts.provider_runs,
   };
@@ -679,11 +691,11 @@ export function verifyTurn({ plan, turn, source, records, config, seenPcalls, bi
     history: binding.history,
     allowCompression: hasCheckpointEvidence(binding.history),
   });
-  report.status = turnStatus(report.calls);
+  report.status = settled ? turnStatus(report.calls) : "fail";
   return report;
 }
 
-export function verifyTurns({ config, source, records, driver, bindings, fail, notCollected }) {
+export function verifyTurns({ config, source, wire, driver, bindings, fail, notCollected }) {
   const turns = list(driver?.turns);
   const turnReports = [];
   const allCalls = [];
@@ -693,7 +705,7 @@ export function verifyTurns({ config, source, records, driver, bindings, fail, n
       plan,
       turn: turns[index],
       source,
-      records,
+      wire,
       config,
       seenPcalls,
       binding: bindings[index] ?? null,
@@ -723,12 +735,24 @@ function configSnapshotMatches(config, manifest) {
   return config.snapshot.content_sha256 === manifest.snapshot.content_sha256;
 }
 
-export function verifyConfigMatches({ config, loaded, checks, fail }) {
+function preregisteredConfigMatches(config, loaded, source) {
+  if (loaded.manifest.source.kind !== PREREGISTERED_SOURCE_KIND) return true;
+  const authors = source.authors;
+  return isDeepStrictEqual(config.plan, authors.slice(0, config.length).map((author, index) => ({
+    turn: index + 1, author_id: author.id, author_sha256: author.sha256, target: author.target,
+  }))) && isDeepStrictEqual(config.compaction_history_check, {
+    required: config.length >= 10, require_outside_initial_page: config.length === 20,
+  }) && isDeepStrictEqual(config.preregistered_obligations, authors.slice(0, config.length).flatMap((author) =>
+    author.obligations.map((obligation) => ({ author_id: author.id, author_sha256: author.sha256, ...obligation }))));
+}
+
+export function verifyConfigMatches({ config, loaded, source, checks, fail }) {
   checks.config_matches_manifest =
     configShapeMatches(config) &&
     configModelMatches(config, loaded.manifest) &&
     configSeedMatches(config, loaded.manifest) &&
-    configSnapshotMatches(config, loaded.manifest);
+    configSnapshotMatches(config, loaded.manifest) &&
+    preregisteredConfigMatches(config, loaded, source);
   if (!checks.config_matches_manifest) fail("config", "manifest_config_mismatch");
 }
 

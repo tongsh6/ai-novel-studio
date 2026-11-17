@@ -1,12 +1,14 @@
 // 外部 HTTP 代理的纯取证判据：只认实际 capture 的完整 JSON body。
 //
-// 代理只对真实会话 resume 与 turn replay 记录 body；这里不把仅 status=200、
+// 代理只对真实 resume、turn replay/activity 与按 turn 定位的 transcript 页记录 body；这里不把仅 status=200、
 // 截断/超限、非法 JSON、不支持的压缩编码或错 work/session/turn 的回包当证据。
 //
 // 真实 WorkSessionsController.serialize_snapshot 对 resume 无条件输出
 // pending_adoptions / pending_adoption_turn_results / resolved_adoptions，
 // 并用服务端默认值输出 inbox_pending_adoptions / inbox_pending_adoption_turn_results /
 // inbox_resolved_adoptions。缺键只可能发生在坏 capture，不是“已证空”。
+import { isDeepStrictEqual } from "node:util";
+
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
 const arrayField = (value) => (Array.isArray(value) ? value : null);
@@ -37,13 +39,26 @@ export function httpCaptureTarget(method, url) {
     return { kind: "resume", work_id: decode(resume[1]), session_id: null, turn_id: null };
   }
   const replay =
-    /^\/api\/works\/([^/]+)\/sessions\/([^/]+)\/turns\/([^/]+)\/replay\/?$/u.exec(pathname);
+    /^\/api\/works\/([^/]+)\/sessions\/([^/]+)\/turns\/([^/]+)\/(replay|agent-run-activity)\/?$/u.exec(pathname);
   if (replay) {
     return {
-      kind: "replay",
+      kind: replay[4] === "replay" ? "replay" : "agent_activity",
       work_id: decode(replay[1]),
       session_id: decode(replay[2]),
       turn_id: decode(replay[3]),
+    };
+  }
+  const transcript = /^\/api\/works\/([^/]+)\/sessions\/([^/]+)\/transcript\/?$/u.exec(pathname);
+  if (transcript) {
+    const params = new URL(String(url), "http://127.0.0.1").searchParams;
+    const turns = params.getAll("around_turn_id");
+    // 同一路径的默认页、before 游标页或多义 query 都不能冒充定位页。
+    if (turns.length !== 1 || !nonBlank(turns[0]) || params.has("before_id")) return null;
+    return {
+      kind: "transcript_page",
+      work_id: decode(transcript[1]),
+      session_id: decode(transcript[2]),
+      turn_id: turns[0],
     };
   }
   return null;
@@ -75,9 +90,11 @@ function completeJsonCapture(record) {
 }
 
 function capturePathFor(expected) {
-  return expected.kind === "resume"
-    ? resumePathFor(expected.work_id)
-    : `/api/works/${encodeURIComponent(expected.work_id)}/sessions/${encodeURIComponent(expected.session_id)}/turns/${encodeURIComponent(expected.turn_id)}/replay`;
+  if (expected.kind === "resume") return resumePathFor(expected.work_id);
+  const sessionPath = `/api/works/${encodeURIComponent(expected.work_id)}/sessions/${encodeURIComponent(expected.session_id)}`;
+  return expected.kind === "transcript_page"
+    ? `${sessionPath}/transcript`
+    : `${sessionPath}/turns/${encodeURIComponent(expected.turn_id)}/${expected.kind === "agent_activity" ? "agent-run-activity" : "replay"}`;
 }
 
 function inWindow(record, from, to) {
@@ -95,6 +112,8 @@ function recordsFor(records, expected, from, to) {
       record?.direction === "http" &&
       record.method === "GET" &&
       httpPathname(record.path) === path &&
+      (expected.kind !== "transcript_page" ||
+        sameCaptureScope({ scope: httpCaptureTarget(record.method, record.path) }, expected)) &&
       inWindow(record, from, to),
   );
 }
@@ -139,6 +158,59 @@ export function replayCapture(records, { workId, sessionId, turnId, from, to } =
     from,
     to,
   );
+}
+
+function sourceCapture(records, { workId, sessionId, turnId, from, to } = {}, kind) {
+  if (!nonBlank(workId) || !nonBlank(sessionId) || !nonBlank(turnId)) {
+    return { ok: false, reason: "scope_missing" };
+  }
+  const captured = captureFor(
+    records,
+    { kind, work_id: workId, session_id: sessionId, turn_id: turnId },
+    from,
+    to,
+  );
+  if (!captured.ok) return captured;
+  if (!nonBlank(captured.record.request_id)) {
+    return { ...captured, ok: false, reason: "capture_request_id_missing" };
+  }
+  if (captured.record.body_state.truncated !== false) {
+    return { ...captured, ok: false, reason: "capture_incomplete" };
+  }
+  const body = captured.body;
+  const identityMatches = kind === "transcript_page"
+    ? body.session?.id === sessionId && body.transcript_page?.around_turn_id === turnId && Array.isArray(body.transcript)
+    : body.session_id === sessionId && body.turn_id === turnId && Array.isArray(body.agent_runs);
+  if (body.work_id !== workId || !identityMatches) {
+    return { ...captured, ok: false, reason: "capture_response_scope_mismatch" };
+  }
+  return captured;
+}
+
+export function transcriptPageCapture(records, scope = {}) {
+  return sourceCapture(records, scope, "transcript_page");
+}
+
+export function agentActivityCapture(records, scope = {}) {
+  const { workId, sessionId, turnId, from, to } = scope;
+  if (!nonBlank(workId) || !nonBlank(sessionId) || !nonBlank(turnId)) {
+    return { ok: false, reason: "scope_missing" };
+  }
+  const candidates = recordsFor(records,
+    { kind: "agent_activity", work_id: workId, session_id: sessionId, turn_id: turnId }, from, to);
+  if (candidates.length === 0) return { ok: false, reason: "capture_missing", candidates };
+  // 多个 Step TurnResult 可请求同一父回合的 activity。全部真实回包必须完整且一致，
+  // 不能用 first/latest 绕过失败、跨 scope 或事件集合冲突。
+  const captures = candidates.map((record) => sourceCapture([record], scope, "agent_activity"));
+  const failure = captures.find((capture) => !capture.ok);
+  if (failure) return { ...failure, candidates };
+  if (new Set(candidates.map((record) => record.request_id)).size !== candidates.length) {
+    return { ok: false, reason: "capture_request_id_duplicate", candidates };
+  }
+  if (!captures.every((capture) => isDeepStrictEqual(capture.body, captures[0].body))) {
+    return { ok: false, reason: "capture_response_conflict", candidates };
+  }
+  return { ...captures[0], candidates, records: candidates };
 }
 
 function artifactItems(artifact) {

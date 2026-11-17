@@ -19,6 +19,7 @@ import {
   verifyTurns,
 } from "./request_cost_batch_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
+import { nativeManifest } from "./fixtures/request_cost_manifest_fixture.mjs";
 
 const turn = (index, kind, fresh = true) => ({
   turn: index,
@@ -544,15 +545,18 @@ function syntheticSetup(records, { checkpoint = null, transcript = { messages: [
     work: { id: "work" },
   };
   const binding = {
-    root: { id: "run-1", workspace_id: "ws", parent_turn_ref: "turn-1" },
+    root: { id: "run-1", workspace_id: "ws", work_id: "work", session_id: "session", parent_turn_ref: "turn-1", status: "completed" },
     providerRuns: [{ id: "prun-1" }],
     records,
     history: { checkpoint, transcript, budget: { provider_calls: records.length } },
     purposes: new Map(),
     counts: { provider_runs: records.length },
   };
-  const driver = { turns: [{ index: 1, author_sha256: AUTHOR_SHA }] };
-  return { source, config, binding, driver };
+  const driver = { turns: [{ index: 1, author_sha256: AUTHOR_SHA, turn_id: "turn-1", run_id: "run-1" }] };
+  const wire = [{ direction: "received", at: "2026-11-15T00:00:01Z",
+    frame: [null, null, "workspace:ws", "turn_result", { turn_id: "turn-1",
+      work_id: "work", session_id: "session", agent_run: { run_id: "run-1", parent_turn_ref: "turn-1", status: "running" } }] }];
+  return { source, config, binding, driver, wire };
 }
 
 function runVerify(records, setup = syntheticSetup(records)) {
@@ -563,6 +567,7 @@ function runVerify(records, setup = syntheticSetup(records)) {
     source: setup.source,
     driver: setup.driver,
     bindings: [setup.binding],
+    wire: setup.wire,
     records,
     fail: (key, reason) => failures.push(`${key}:${reason}`),
     notCollected,
@@ -580,6 +585,7 @@ test("verifyTurns 公共契约：合法记录 call_index/root_run/缺测字段�
     workspace_id: "ws",
     parent_turn_ref: "turn-1",
     provider_run_count: 1,
+    status: "completed",
     provider_call_count: 1,
   });
   assert.equal(allCalls[0].call_index, 1);
@@ -589,6 +595,34 @@ test("verifyTurns 公共契约：合法记录 call_index/root_run/缺测字段�
   assert.equal(turnReports[0].calls[0].analysis.cross.current_author_index, 0);
   assert.ok(notCollected.includes("turn_1_call_1_ttft"));
   assert.ok(notCollected.includes("turn_1_call_1_latency"));
+});
+
+test("verifyTurns：先交付 running 业务结果，随后真实完成才闭合；DB 失败仍保留测量语义", () => {
+  const record = syntheticRecord({ messages: [{ role: "user", content: AUTHOR_TEXT }] });
+  const setup = syntheticSetup([record]);
+  assert.equal(setup.wire[0].frame[4].agent_run.status, "running");
+  assert.equal(runVerify([record], setup).turnReports[0].status, "completed");
+  setup.binding.root.status = "failed";
+  const measured = runVerify([record], setup);
+  assert.equal(measured.turnReports[0].status, "completed");
+  assert.equal(measured.turnReports[0].root_run.status, "failed");
+});
+
+test("verifyTurns：缺真实运行、只有结果、错 run 或结果未交付不能签齐", () => {
+  const record = syntheticRecord({ messages: [{ role: "user", content: AUTHOR_TEXT }] });
+  for (const mutate of [
+    (s) => { delete s.binding.root.status; },
+    (s) => { s.binding.root.status = "running"; },
+    (s) => { s.wire = []; },
+    (s) => { s.wire[0].frame[4].agent_run.run_id = "foreign"; },
+    (s) => { s.driver.turns[0].run_id = "foreign"; },
+    (s) => { s.wire[0].frame[4].agent_run.status = "completed"; s.binding.root.status = "running"; },
+  ]) {
+    const setup = syntheticSetup([record]); mutate(setup);
+    const result = runVerify([record], setup);
+    assert.equal(result.turnReports[0].status, "fail");
+    assert(result.failures.includes("turn_1_runtime:business_result_or_actual_terminal_missing"));
+  }
 });
 
 test("坏记录缺 request 时 verifyTurns fail closed 而不抛异常", () => {
@@ -789,6 +823,7 @@ test("verifyDriverShape 不给空 turns 伪签 visible/fresh", () => {
 
 test("verifyConfigMatches 逐字段核对 length/plan/model/seed/snapshot", () => {
   const manifest = {
+    source: nativeManifest().source,
     model: { model: "m", reasoning_effort: "high" },
     snapshot: { business_content_sha256: "seed", content_sha256: "snap" },
   };

@@ -19,6 +19,7 @@ import {
   loadSourceAuthors,
   readManifest,
 } from "./lib/native_ui/request_cost_capture.mjs";
+import { runCompactionHistorySequence } from "./lib/native_ui/request_cost_history_drive.mjs";
 
 export const DRIVER_SCHEMA = "b87-request-cost-driver/v1";
 const TERMINAL_OUTCOMES = new Set(["completed", "failed", "waiting", "capability_gap"]);
@@ -421,6 +422,11 @@ export async function runWithHarness({ dir, config, authors, harness, capture = 
         partial: result.partial,
         stop_reason: result.stop_reason,
       };
+      if (result.completed) {
+        driverLog.compaction_history = await runCompactionHistorySequence({
+          harness, config, authors, turns: result.turns,
+        });
+      }
       harness.writeDriverLog("native-request-cost-driver-log.json", driverLog);
       if (!fs.existsSync(path.join(dir, "request-cost-final.json"))) {
         capture({ batchDir: dir, checkpoint: "final" });
@@ -434,7 +440,7 @@ export async function runWithHarness({ dir, config, authors, harness, capture = 
         ...driverLog,
         completed: false,
         partial: true,
-        stop_reason: driverLog.stop_reason === "not_started"
+        stop_reason: !driverLog.stop_reason || driverLog.stop_reason === "not_started"
           ? `driver_error:${error.message}`
           : driverLog.stop_reason,
         error: error.message,

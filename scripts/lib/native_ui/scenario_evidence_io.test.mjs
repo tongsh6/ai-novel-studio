@@ -18,6 +18,7 @@ import {
   checkProductionFingerprint,
   productionFingerprint,
   productionTableCounts,
+  writeNativeSummary,
 } from "./scenario_evidence.mjs";
 import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
 import {
@@ -283,6 +284,41 @@ test("assertCommonEvidence 通过完整批次并在 failure/ui-frames 标记时�
     const ui = JSON.parse(fs.readFileSync(uiFile, "utf8"));
     writeJson(uiFile, { ...ui, screenshots: [] });
     assert.throws(() => assertCommonEvidence(copy.dir, spec), /原生截图不足/);
+  });
+});
+
+
+test("writeNativeSummary 只投影现役status裁决，非必收null不改完整成功，partial不得签过", () => {
+  const template = fixture(commonBatchFixtureSpec);
+  for (const [status, checks, expected] of [
+    ["pass", { required: true, not_applicable: null }, true],
+    ["partial", { observed: true }, false],
+    ["fail", { observed: true }, false],
+  ]) {
+    withWorkingCopy(template, (copy) => {
+      const summary = writeNativeSummary(copy.dir, { sliceId: "slice-x", provider: "splash",
+        checks, measured: {}, status, extra: { schema: "summary-test/v1", not_signed: ["semantics"] } });
+      assert.equal(summary.status, status);
+      assert.equal(summary.all_checks_passed, expected);
+      assert.deepEqual(summary.checks, checks);
+      assert.deepEqual(summary.not_signed, ["semantics"]);
+      assert.equal(summary.surface, "tauri");
+      assert.equal(summary.driver, "ax-native-system-ui");
+    });
+  }
+});
+
+test("writeNativeSummary 注入现役派生文件writer时不绕过它覆盖summary", () => {
+  const template = fixture(commonBatchFixtureSpec);
+  withWorkingCopy(template, (copy) => {
+    const first = path.join(copy.dir, "summary.json");
+    fs.writeFileSync(first, "original");
+    let received = null;
+    const result = writeNativeSummary(copy.dir, { sliceId: "slice-x", checks: { done: true }, measured: {} },
+      (dir, name, value) => { received = { dir, name, value }; writeJson(path.join(dir, "derived.json"), value); });
+    assert.deepEqual(received, { dir: copy.dir, name: "summary.json", value: result });
+    assert.equal(fs.readFileSync(first, "utf8"), "original");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(copy.dir, "derived.json"), "utf8")), result);
   });
 });
 

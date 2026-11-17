@@ -412,6 +412,11 @@ export function writeDriverLog(batchDir, length = 3) {
     turns,
     completed: true,
   });
+  const wire = turns.map((turn) => ({ direction: "received", at: turn.sent_at,
+    frame: [null, null, "workspace:workspace-1", "turn_result", { turn_id: turn.turn_id,
+      work_id: WORK_ID, session_id: "session-1",
+      agent_run: { run_id: turn.run_id, parent_turn_ref: turn.turn_id, status: "running" } }] }));
+  fs.writeFileSync(path.join(batchDir, "native-transport.jsonl"), wire.map(JSON.stringify).join("\n") + "\n");
   return turns;
 }
 

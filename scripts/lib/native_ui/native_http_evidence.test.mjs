@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  agentActivityCapture,
   httpCaptureTarget,
   httpPathname,
   replayCapture,
@@ -8,6 +9,7 @@ import {
   resumePathFor,
   resumeProjectionChecks,
   sameCaptureScope,
+  transcriptPageCapture,
 } from "./native_http_evidence.mjs";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -179,6 +181,86 @@ test("replayCapture 要求 work/session/turn 精确且窗口内唯一", () => {
     ).reason,
     "capture_scope_mismatch",
   );
+});
+
+test("transcript 定位页按真实 query 唯一绑定 work/session/turn", () => {
+  const base = `/api/works/${WORK}/sessions/${SESSION}/transcript`;
+  const path = `${base}?around_turn_id=${encodeURIComponent("turn 1/原文")}`;
+  const scope = {
+    kind: "transcript_page",
+    work_id: WORK,
+    session_id: SESSION,
+    turn_id: "turn 1/原文",
+  };
+  assert.deepEqual(httpCaptureTarget("GET", path), scope);
+  assert.deepEqual(httpCaptureTarget("GET", `${path}&limit=30`), scope);
+  for (const bad of [
+    base,
+    `${base}?before_id=interaction-1`,
+    `${base}?around_turn_id=`,
+    `${path}&around_turn_id=other`,
+    `${path}&before_id=interaction-1`,
+  ]) {
+    assert.equal(httpCaptureTarget("GET", bad), null);
+  }
+  assert.equal(httpCaptureTarget("POST", path), null);
+  const record = capture({
+    path,
+    scope,
+    body_state: { complete: true, json: "valid", truncated: false },
+    body: {
+      work_id: WORK,
+      session: { id: SESSION },
+      transcript_page: { around_turn_id: scope.turn_id },
+      transcript: [{ id: "interaction-1", turn_id: scope.turn_id, text: "原文" }],
+    },
+  });
+  const expected = { workId: WORK, sessionId: SESSION, turnId: scope.turn_id };
+  assert.equal(transcriptPageCapture([record], expected).ok, true);
+  assert.equal(transcriptPageCapture([], {}).reason, "scope_missing");
+  assert.equal(transcriptPageCapture([record, record], expected).reason, "capture_ambiguous");
+  assert.equal(transcriptPageCapture([record], { ...expected, from: "2026-11-02T10:00:02.000Z" }).reason, "capture_missing");
+  for (const wrongPath of [
+    base,
+    `${base}?around_turn_id=other`,
+    `${path}&around_turn_id=other`,
+    `${path}&before_id=interaction-1`,
+    path.replace(WORK, "other-work"),
+    path.replace(SESSION, "other-session"),
+  ]) {
+    // 即使伪造 record.scope 与 body，相同 pathname 仍不能替代真实 query。
+    assert.equal(transcriptPageCapture([{ ...record, path: wrongPath }], expected).reason, "capture_missing");
+  }
+  assert.equal(transcriptPageCapture([{ ...record, request_id: "" }], expected).reason, "capture_request_id_missing");
+  assert.equal(transcriptPageCapture([{ ...record, body_state: { ...record.body_state, truncated: true } }], expected).reason, "capture_incomplete");
+  assert.equal(transcriptPageCapture([{ ...record, body_state: { complete: false, json: "too_large", truncated: true } }], expected).reason, "capture_incomplete");
+  assert.equal(transcriptPageCapture([{ ...record, scope: { ...scope, turn_id: "other" } }], expected).reason, "capture_scope_mismatch");
+  for (const body of [
+    { ...record.body, work_id: "other" },
+    { ...record.body, session: { id: "other" } },
+    { ...record.body, transcript_page: { around_turn_id: "other" } },
+    { ...record.body, transcript: null },
+  ]) {
+    assert.equal(transcriptPageCapture([{ ...record, body }], expected).reason, "capture_response_scope_mismatch");
+  }
+});
+
+test("activity 完整 body 以同 work/session/turn 绑定实际恢复事件", () => {
+  const path = `/api/works/${WORK}/sessions/${SESSION}/turns/${TURN}/agent-run-activity`;
+  const scope = { kind: "agent_activity", work_id: WORK, session_id: SESSION, turn_id: TURN };
+  const body = { work_id: WORK, session_id: SESSION, turn_id: TURN, agent_runs: [] };
+  const record = capture({ path, scope, body, body_state: { complete: true, json: "valid", truncated: false } });
+  const expected = { workId: WORK, sessionId: SESSION, turnId: TURN };
+  assert.deepEqual(httpCaptureTarget("GET", path), scope);
+  assert.equal(agentActivityCapture([record], expected).ok, true);
+  assert.equal(agentActivityCapture([record, record], expected).reason, "capture_request_id_duplicate");
+  const repeated = { ...record, request_id: "http-2" };
+  assert.equal(agentActivityCapture([record, repeated], expected).records.length, 2);
+  assert.equal(agentActivityCapture([record, { ...repeated, body: { ...body, agent_runs: [{ run_id: "other" }] } }], expected).reason, "capture_response_conflict");
+  assert.equal(agentActivityCapture([record, { ...repeated, body_state: { complete: false, json: "aborted" } }], expected).reason, "capture_incomplete");
+  assert.equal(agentActivityCapture([{ ...record, body: { ...body, turn_id: "other" } }], expected).reason, "capture_response_scope_mismatch");
+  assert.equal(agentActivityCapture([{ ...record, body: { ...body, agent_runs: null } }], expected).reason, "capture_response_scope_mismatch");
+  assert.equal(agentActivityCapture([{ ...record, request_id: null }], expected).reason, "capture_request_id_missing");
 });
 
 function sourceEntry(overrides = {}) {

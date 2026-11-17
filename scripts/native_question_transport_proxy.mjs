@@ -67,6 +67,14 @@ function responseScope(target, body) {
       turn_id: null,
     };
   }
+  if (target.kind === "transcript_page") {
+    return {
+      kind: target.kind,
+      work_id: body?.work_id ?? null,
+      session_id: body?.session?.id ?? null,
+      turn_id: body?.transcript_page?.around_turn_id ?? null,
+    };
+  }
   return {
     kind: target.kind,
     work_id: body?.work_id ?? null,

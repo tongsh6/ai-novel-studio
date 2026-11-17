@@ -35,6 +35,8 @@ import {
 } from "./request_cost_batch_evidence.mjs";
 import {
   LENGTHS,
+  PREREGISTERED_SOURCE_KIND,
+  validateAuthorInputs,
   tokenAggregate,
   validateManifest,
 } from "./request_cost_manifest.mjs";
@@ -48,13 +50,19 @@ import { assertRuntimeFacts } from "./request_cost_runtime_recipe.mjs";
 import {
   ROOT,
   all,
+  assertCommonEvidence,
+  writeNativeSummary,
   jsonl,
   logs,
   productionTableCounts,
   seedFields,
   withDb,
+  transport,
 } from "./scenario_evidence.mjs";
 import { readAuthoringHistory } from "./authoring_history_evidence.mjs";
+import { readAutoMaintenanceDbFacts } from "./authoring_auto_maintenance_evidence.mjs";
+import { evaluatePreregisteredCompaction } from "./request_cost_compaction_evidence.mjs";
+import { verifyCompactionHistoryReport } from "./request_cost_history_drive.mjs";
 import {
   joinNativeCallEvidence,
   providerOperation,
@@ -158,7 +166,24 @@ function authorFromRecord(records, author) {
   };
 }
 
+function loadPreregisteredAuthors(manifest) {
+  const file = resolvePath(manifest.source.path);
+  assert.equal(shaFile(file), manifest.source.sha256, "预注册输入文件hash不符，拒绝替换样本");
+  const input = validateAuthorInputs(JSON.parse(fs.readFileSync(file, "utf8")));
+  const authors = manifest.authors.map((reference) => {
+    const turn = input.turns[reference.input_index];
+    assert.equal(turn.id, reference.id, "预注册输入id错绑");
+    assert.equal(turn.sha256, reference.sha256, "预注册输入引用hash不符");
+    assert.equal(sha256(turn.text), turn.sha256, "预注册作者原文字节hash不符");
+    return { id: turn.id, text: turn.text, sha256: turn.sha256,
+      inputIndex: reference.input_index, target: turn.target, obligations: turn.obligations };
+  });
+  return { kind: PREREGISTERED_SOURCE_KIND, authors, inputFile: file };
+}
+
 export function loadSourceAuthors(manifest) {
+  validateManifest(manifest);
+  if (manifest.source.kind === PREREGISTERED_SOURCE_KIND) return loadPreregisteredAuthors(manifest);
   const { records, llmFile } = sourceRecords(manifest);
   const authors = manifest.authors.map((author) => authorFromRecord(records, author));
   const appFile = resolvePath(manifest.source.app_log);
@@ -539,7 +564,7 @@ export function prepareBatch({ manifestPath, batchDir, length }) {
   const configPath = path.join(batchDir, "native-request-cost-config.json");
   assert(!fs.existsSync(configPath), "native-request-cost-config.json 已存在，拒绝覆盖");
   const plan = Array.from({ length }, (_, index) => {
-    const author = source.authors[index % source.authors.length];
+    const author = source.kind === PREREGISTERED_SOURCE_KIND ? source.authors[index] : source.authors[index % source.authors.length];
     return {
       turn: index + 1,
       author_id: author.id,
@@ -559,19 +584,19 @@ export function prepareBatch({ manifestPath, batchDir, length }) {
     },
     length,
     source: {
-      llm_log: loaded.manifest.source.llm_log,
-      sha256: loaded.manifest.source.sha256,
-      app_log: loaded.manifest.source.app_log,
-      app_sha256: loaded.manifest.source.app_sha256,
+      ...loaded.manifest.source,
       authors: source.authors.map((author) => ({
-        id: author.id,
-        line: author.line,
-        message_index: author.messageIndex,
-        sha256: author.sha256,
-        target: author.target,
+        id: author.id, sha256: author.sha256, target: author.target,
+        ...(source.kind === PREREGISTERED_SOURCE_KIND
+          ? { input_index: author.inputIndex }
+          : { line: author.line, message_index: author.messageIndex }),
       })),
     },
-    plan,
+    ...(source.kind === PREREGISTERED_SOURCE_KIND ? {
+      compaction_history_check: { required: length >= 10, require_outside_initial_page: length === 20 },
+      preregistered_obligations: source.authors.slice(0, length).flatMap((author) => author.obligations.map((obligation) =>
+        ({ author_id: author.id, author_sha256: author.sha256, ...obligation }))),
+    } : {}),    plan,
     semantic_targets: source.authors
       .filter((author) => author.target)
       .map((author) => ({ author_id: author.id, ...author.target })),
@@ -1150,17 +1175,45 @@ function verifyObservedRuntime({ batchDir, config, records, checks, fail, notCol
   );
 }
 
-function writeNativeReport({ batchDir, report, outDir = batchDir }) {
+function writeNativeReport({ batchDir, report, common, outDir = batchDir }) {
   writeDerivedJson(path.join(outDir, "request-cost-report.json"), report);
   writeDerivedText(path.join(outDir, "request-cost-report.md"), nativeReportMarkdown(report));
-  writeDerivedJson(path.join(outDir, "summary.json"), {
-    schema: NATIVE_REPORT_SCHEMA,
+  // 缺原生来源仍保留完整成本报告，不发布可被 task_done 接受的 UI 摘要。
+  if (!common) return;
+  writeNativeSummary(outDir, {
+    sliceId: common.ui.scope,
+    driver: common.ui.driver,
+    provider: report.model.provider,
     status: report.status,
     checks: report.checks,
     measured: report.summary,
-    failures: report.failures,
-    not_collected: report.not_collected,
-  });
+    scope: report.scope,
+    extra: {
+      schema: NATIVE_REPORT_SCHEMA,
+      surface: "tauri-native",
+      failures: report.failures,
+      not_collected: report.not_collected,
+      signed: report.signed,
+      wait_ledger: common.ledger,
+      screenshots: common.ui.screenshots,
+    },
+  }, (dir, name, value) => writeDerivedJson(path.join(dir, name), value));
+}
+function preregisteredEvidence({ batchDir, config, source, driver, bindings, records, wire }) {
+  if (source.kind !== PREREGISTERED_SOURCE_KIND) return null;
+  try {
+    const file = path.join(batchDir, "compaction-history-ui.json");
+    const ui = fs.existsSync(file) ? readJson(file) : null;
+    if (config.length >= 10) assert.deepEqual(ui, driver?.compaction_history, "原文 UI 独立文件与 driver 证据分叉");
+    const uiCheck = verifyCompactionHistoryReport(ui, {
+      required: config.length >= 10, requireOutsideInitialPage: config.length === 20,
+    });
+    return evaluatePreregisteredCompaction({ config, source, bindings, records, wire,
+      dbFacts: readAutoMaintenanceDbFacts(batchDir), uiEvidence: { ...ui, ...uiCheck } });
+  } catch (error) {
+    return { status: "fail", signed: false, semantic_status: "review_required",
+      checks: { evidence: { ok: false, reason: error.message } } };
+  }
 }
 
 export function verifyBatch({ batchDir, outDir = null }) {
@@ -1172,6 +1225,7 @@ export function verifyBatch({ batchDir, outDir = null }) {
   const driver = fs.existsSync(driverFile) ? readJson(driverFile) : null;
   const records = logs(path.join(batchDir, "llm-calls"));
   const checks = {};
+  const wire = transport(batchDir);
   const failures = [];
   const hardFailures = [];
   const notCollected = ["raw_http_bytes", "raw_sse", "per_category_tokens"];
@@ -1182,9 +1236,22 @@ export function verifyBatch({ batchDir, outDir = null }) {
     if (hard) hardFailures.push(entry);
   };
 
+  let common = null;
+  try {
+    common = assertCommonEvidence(batchDir, {
+      sliceId: "b87-r01-request-cost",
+      minScreenshots: config.length + 1,
+      minimumWaits: 3 + 3 * config.length,
+      requiredKinds: ["maintenance", "input", "turn"],
+    });
+    checks.native_ui_evidence = true;
+  } catch (error) {
+    fail("native_ui_evidence", error.message);
+  }
+
   checks.config_frozen = true;
   checks.manifest_hash_ok = loaded.manifestSha256 === config.manifest.sha256;
-  verifyConfigMatches({ config, loaded, checks, fail });
+  verifyConfigMatches({ config, loaded, source, checks, fail });
   verifyPostSetupContent({ batchDir, config, checks, fail, notCollected });
   verifyDriverShape({
     driver,
@@ -1201,7 +1268,7 @@ export function verifyBatch({ batchDir, outDir = null }) {
   const { turnReports, allCalls } = verifyTurns({
     config,
     source,
-    records,
+    wire,
     driver,
     bindings,
     fail,
@@ -1224,10 +1291,15 @@ export function verifyBatch({ batchDir, outDir = null }) {
     fail,
     notCollected,
   });
+  const compactionEvidence = preregisteredEvidence({ batchDir, config, source, driver, bindings, records, wire });
+  for (const [key, check] of Object.entries(compactionEvidence?.checks ?? {})) {
+    if (check.ok === false) fail("r03_" + key, check.reason ?? "independent_compaction_check_failed");
+  }
   const report = buildNativeReport({
     batchDir,
     config,
     requestObservation: requestSettingsFacts(records),
+    compactionEvidence,
     checks,
     failures,
     hardFailures,
@@ -1239,6 +1311,6 @@ export function verifyBatch({ batchDir, outDir = null }) {
   });
   const reportDir = outDir ?? batchDir;
   assert(typeof reportDir === "string" && reportDir.trim() !== "", "verify --out 不能为空");
-  writeNativeReport({ batchDir, report, outDir: reportDir });
+  writeNativeReport({ batchDir, report, common, outDir: reportDir });
   return report;
 }

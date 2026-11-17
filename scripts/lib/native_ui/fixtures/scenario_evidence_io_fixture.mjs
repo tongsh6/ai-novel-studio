@@ -163,8 +163,8 @@ export function providerBatchFixtureSpec() {
   };
 }
 
-export function commonBatchFixtureSpec() {
-  const ledger = ledgerFiles();
+export function commonBatchFixtureSpec({ scope = SCOPE, screenshots = ["shot.jpg"], ledger: overrides = {} } = {}) {
+  const ledger = ledgerFiles(overrides);
   const ready = {
     driver: "external-system-ui",
     browser_driver_started: false,
@@ -175,8 +175,8 @@ export function commonBatchFixtureSpec() {
     harness_run_ref: "run-x",
     driver: "ax-native-system-ui",
     app_bundle: "com.ai-novel-studio.app",
-    scope: SCOPE,
-    screenshots: ["shot.jpg"],
+    scope,
+    screenshots,
   };
   return {
     name: "b61-common-batch",
@@ -189,12 +189,12 @@ export function commonBatchFixtureSpec() {
     build(staging) {
       writeJson(path.join(staging, "native-driver-ready.json"), ready);
       writeJson(path.join(staging, "native-ui-complete.json"), ui);
-      fs.writeFileSync(path.join(staging, "shot.jpg"), Buffer.from(JPEG_HEX, "hex"));
-      writeWaitLedger(staging);
+      for (const name of screenshots) fs.writeFileSync(path.join(staging, name), Buffer.from(JPEG_HEX, "hex"));
+      writeWaitLedger(staging, overrides);
       return [
         "native-driver-ready.json",
         "native-ui-complete.json",
-        "shot.jpg",
+        ...screenshots,
         ...Object.keys(ledger),
       ];
     },

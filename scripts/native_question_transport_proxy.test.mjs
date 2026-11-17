@@ -243,7 +243,7 @@ function readHttpLog(logPath, pathname) {
   return rows.find((row) => row.direction === "http" && row.path === pathname);
 }
 
-test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSON、scope 与 request id", async (t) => {
+test("真实 HTTP 代理：chunked 会话/原文/activity 回包保留字节、scope 与 request id", async (t) => {
   const workId = "11111111-1111-4111-8111-111111111111";
   const sessionId = "33333333-3333-4333-8333-333333333333";
   const turnId = "turn-replay";
@@ -255,7 +255,9 @@ test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSO
           pending_adoptions: [],
           resolved_adoptions: [],
         }
-      : { work_id: workId, session_id: sessionId, turn_id: turnId };
+      : request.url.includes("/transcript?")
+        ? { work_id: workId, session: { id: sessionId }, transcript_page: { around_turn_id: turnId }, transcript: [] }
+        : { work_id: workId, session_id: sessionId, turn_id: turnId, agent_runs: [] };
     const payload = Buffer.from(JSON.stringify(body));
     response.writeHead(200, { "content-type": "application/json" });
     response.write(payload.subarray(0, 7));
@@ -264,8 +266,14 @@ test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSO
 
   const resumePath = `/api/works/${workId}/sessions/resume`;
   const replayPath = `/api/works/${workId}/sessions/${sessionId}/turns/${turnId}/replay`;
+  const transcriptPath = `/api/works/${workId}/sessions/${sessionId}/transcript?around_turn_id=${encodeURIComponent(turnId)}`;
+  const activityPath = `/api/works/${workId}/sessions/${sessionId}/turns/${turnId}/agent-run-activity`;
   const resume = await httpGet(fixture.proxyPort, resumePath);
   const replay = await httpGet(fixture.proxyPort, replayPath);
+  const transcript = await httpGet(fixture.proxyPort, transcriptPath);
+  const activity = await httpGet(fixture.proxyPort, activityPath);
+  assert.equal(activity.status, 200);
+  assert.equal(transcript.status, 200);
   assert.equal(resume.status, 200);
   assert.equal(replay.status, 200);
   assert.equal(JSON.parse(resume.body.toString("utf8")).active_session.id, sessionId);
@@ -273,9 +281,13 @@ test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSO
 
   const resumeLog = readHttpLog(fixture.logPath, resumePath);
   const replayLog = readHttpLog(fixture.logPath, replayPath);
+  const transcriptLog = readHttpLog(fixture.logPath, transcriptPath);
+  const activityLog = readHttpLog(fixture.logPath, activityPath);
   for (const [entry, scope] of [
     [resumeLog, { kind: "resume", work_id: workId, session_id: null, turn_id: null }],
     [replayLog, { kind: "replay", work_id: workId, session_id: sessionId, turn_id: turnId }],
+    [transcriptLog, { kind: "transcript_page", work_id: workId, session_id: sessionId, turn_id: turnId }],
+    [activityLog, { kind: "agent_activity", work_id: workId, session_id: sessionId, turn_id: turnId }],
   ]) {
     assert.equal(entry.method, "GET");
     assert.equal(entry.status, 200);
@@ -287,6 +299,10 @@ test("真实 HTTP 代理：chunked resume/replay 保留字节并记录完整 JSO
   }
   assert.equal(resumeLog.body.active_session.id, sessionId);
   assert.equal(replayLog.body.turn_id, turnId);
+  assert.deepEqual(transcriptLog.body, JSON.parse(transcript.body.toString("utf8")));
+  assert.deepEqual(transcriptLog.response_scope, transcriptLog.scope);
+  assert.deepEqual(activityLog.body, JSON.parse(activity.body.toString("utf8")));
+  assert.deepEqual(activityLog.response_scope, activityLog.scope);
 });
 
 test("真实 HTTP 代理：gzip/br 压缩响应解压后判定完整，非法 JSON/坏压缩/未知编码/超限失败关闭", async (t) => {

@@ -6,9 +6,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import preregisteredInputs from "../lib/native_ui/fixtures/r03-discussion-author-inputs.json" with { type: "json" };
+import { nativeManifest } from "../lib/native_ui/fixtures/request_cost_manifest_fixture.mjs";
 import {
   prefixComparison,
   validateManifest,
+  validateAuthorInputs,
 } from "../lib/native_ui/request_cost_manifest.mjs";
 import {
   verifyCallIdentity,
@@ -19,6 +22,28 @@ import {
   requestSettingsFacts,
 } from "../lib/native_ui/request_cost_capture.mjs";
 import { historyCaptureManifest } from "../lib/native_ui/fixtures/request_cost_capture_fixture.mjs";
+
+
+test("R03 manifest预注册来源严格引用20条原文，target与义务只有输入文件一份", () => {
+  const input = structuredClone(preregisteredInputs);
+  assert.equal(validateAuthorInputs(input), input);
+  assert.throws(() => validateAuthorInputs({ ...input, turns: input.turns.slice(0, 19) }), /20条/u);
+  const duplicate = structuredClone(input);
+  duplicate.turns[1].id = duplicate.turns[0].id;
+  assert.throws(() => validateAuthorInputs(duplicate), /id缺失或重复/u);
+  const missingObligation = structuredClone(input);
+  delete missingObligation.turns[0].obligations[0].requirement;
+  assert.throws(() => validateAuthorInputs(missingObligation), /requirement/u);
+  const manifest = nativeManifest();
+  manifest.source = { kind: "preregistered_author_inputs",
+    path: "scripts/lib/native_ui/fixtures/r03-discussion-author-inputs.json", sha256: "a".repeat(64), expected_turns: 20 };
+  manifest.authors = input.turns.map((turn, index) => ({ id: turn.id, input_index: index, sha256: turn.sha256 }));
+  assert.equal(validateManifest(manifest).ok, true);
+  const wrongOrder = structuredClone(manifest);
+  [wrongOrder.authors[0], wrongOrder.authors[1]] = [wrongOrder.authors[1], wrongOrder.authors[0]];
+  assert.throws(() => validateManifest(wrongOrder), /原顺序/u);
+  assert.throws(() => validateManifest({ ...manifest, source: { ...manifest.source, llm_log: "invented" } }), /不接受llm_log/u);
+});
 
 test("前缀比较区分追加/显式压缩/改写，不把压缩本身当伪造", () => {
   const a = { role: "user", content: "a" };

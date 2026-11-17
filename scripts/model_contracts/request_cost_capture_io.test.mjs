@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import preregisteredInputs from "../lib/native_ui/fixtures/r03-discussion-author-inputs.json" with { type: "json" };
 import {
   createWorkingCopy,
   materializeFixture,
@@ -58,6 +59,7 @@ import {
   writeDriverLog,
   writeJson,
 } from "../lib/native_ui/fixtures/request_cost_capture_io_fixture.mjs";
+import { commonBatchFixtureSpec } from "../lib/native_ui/fixtures/scenario_evidence_io_fixture.mjs";
 import { readSnapshotManifest } from "../lib/native_ui/request_cost_snapshot.mjs";
 
 const PRODUCTION_TABLES = [
@@ -110,12 +112,28 @@ function sharedNativeManifest() {
 
 // 正常 native case 的资源：共享日志/源/快照/manifest 只读借用，初始 batch 取可写副本；
 // start checkpoint 的 DB/日志观察在 prepare/driver/calls 之前真实采集。
-function nativeFixture(t) {
+function nativeFixture(t, authorTurns = [1, 2, 3]) {
   const source = nativeSourceFixture();
   const manifestFixture = sharedNativeManifest();
   const manifestPath = manifestFixture.files.get("manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   const batch = createWorkingCopy(batchFixture(), { scope: runScope, context: t });
+  // 独立固定动作：启动/就绪/start，再逐作者输入就绪、输入、回合；不从 report/config 推导。
+  const kinds = ["maintenance", "maintenance", "maintenance",
+    ...authorTurns.flatMap(() => ["maintenance", "input", "turn"])];
+  const waits = kinds.map((kind, index) => ({ id: "native-wait-" + index, kind, at: 1000 + index * 100 }));
+  const common = materializeFixture(commonBatchFixtureSpec({
+    scope: "b87-r01-request-cost",
+    screenshots: ["workbench.jpg", ...authorTurns.map((turn) => `turn-${turn}.jpg`)],
+    ledger: {
+      commands: waits.flatMap((wait) => [{ ...wait, op: "begin" }, { id: wait.id, op: "finish" }]),
+      events: waits.flatMap((wait) => [{ ...wait, event: "wait_start" },
+        { ...wait, event: "wait_end", ended_at: wait.at + 50 }]),
+      stats: { active: null, completed: waits.length },
+    },
+  }), { scope: runScope });
+  const commonCopy = createWorkingCopy(common, { scope: runScope, context: t });
+  for (const [name, file] of commonCopy.files) fs.copyFileSync(file, path.join(batch.dir, name));
   return {
     batchDir: batch.dir,
     manifestPath,
@@ -185,6 +203,42 @@ function treeHash(root) {
     .sort();
   return createHash("sha256").update(rows.join("\n")).digest("hex");
 }
+
+
+test("R03 预注册原文文件hash与3/10/20前缀计划由唯一loader核对，不循环、不造日志", (t) => {
+  for (const length of [3, 10, 20]) {
+    const fixture = nativeFixture(t);
+    const manifest = structuredClone(fixture.manifest);
+    manifest.source = { kind: "preregistered_author_inputs",
+      path: "scripts/lib/native_ui/fixtures/r03-discussion-author-inputs.json",
+      sha256: "9b0184254be47020e389eb2323a06f55ec49d1afaaeb0e0e5e7d0b6446694ae9", expected_turns: 20 };
+    manifest.authors = preregisteredInputs.turns.map((turn, index) =>
+      ({ id: turn.id, input_index: index, sha256: turn.sha256 }));
+    manifest.runtime = { ...manifest.runtime, profile: "b87-r03-splash-product-maintenance-budget",
+      context_pressure: { window: 32000, maintenance_ratio: 0.7 } };
+    const manifestPath = path.join(fixture.batchDir, "r03-manifest.json");
+    writeJson(manifestPath, manifest);
+    const runtimeFile = path.join(fixture.batchDir, RUNTIME_FACTS_REL);
+    const runtime = JSON.parse(fs.readFileSync(runtimeFile, "utf8"));
+    runtime.context_pressure.window = 32000;
+    writeJson(runtimeFile, runtime);
+    const source = loadSourceAuthors(manifest);
+    assert.equal(source.authors.length, 20);
+    assert.equal(source.llmFile, undefined);
+    const config = prepareBatch({ manifestPath, batchDir: fixture.batchDir, length });
+    assert.deepEqual(config.plan.map((entry) => entry.author_id), preregisteredInputs.turns.slice(0, length).map((entry) => entry.id));
+    assert.equal(new Set(config.plan.map((entry) => entry.author_sha256)).size, length);
+    assert.deepEqual(config.compaction_history_check, { required: length >= 10, require_outside_initial_page: length === 20 });
+    assert.deepEqual(config.preregistered_obligations.map((entry) => entry.id),
+      preregisteredInputs.turns.slice(0, length).flatMap((entry) => entry.obligations.map((obligation) => obligation.id)));
+    const wrongFileHash = structuredClone(manifest);
+    wrongFileHash.source.sha256 = "0".repeat(64);
+    assert.throws(() => loadSourceAuthors(wrongFileHash), /输入文件hash/u);
+    const wrongTextHash = structuredClone(manifest);
+    wrongTextHash.authors[0].sha256 = "0".repeat(64);
+    assert.throws(() => loadSourceAuthors(wrongTextHash), /输入引用hash/u);
+  }
+});
 
 test("冻结边界：history/frozen=false 不能 preflight；快照 hash/内容/运行清单/目标作品不符拒绝", (t) => {
   const source = nativeSourceFixture();
@@ -327,6 +381,7 @@ test("verify 缺 turn/缺 ttft 只 partial，不伪造完成", (t) => {
   const report = verifyBatch({ batchDir: fixture.batchDir });
   assert.equal(report.status, "partial");
   assert.ok(report.failures.some((entry) => entry.includes("turns:2/3")), report.failures);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(fixture.batchDir, "summary.json"), "utf8")).all_checks_passed, false);
 
   const ttft = nativeFixture(t);
   prepare(ttft);
@@ -338,7 +393,44 @@ test("verify 缺 turn/缺 ttft 只 partial，不伪造完成", (t) => {
   writeLlmRecords(ttft.batchDir, ttftRecords);
   const ttftReport = verifyBatch({ batchDir: ttft.batchDir });
   assert.equal(ttftReport.status, "partial");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ttft.batchDir, "summary.json"), "utf8")).all_checks_passed, false);
   assert.ok(ttftReport.not_collected.includes("turn_1_call_1_ttft"), ttftReport.not_collected);
+});
+
+
+test("native UI 身份、四图和十二条分型等待缺证不能生成可接受摘要，成本报告仍保留", (t) => {
+  const edit = (dir, name, mutate) => {
+    const file = path.join(dir, name), value = JSON.parse(fs.readFileSync(file, "utf8"));
+    mutate(value); writeJson(file, value);
+  };
+  const cases = [
+    (dir) => fs.unlinkSync(path.join(dir, "native-driver-ready.json")),
+    (dir) => edit(dir, "native-driver-ready.json", (value) => { value.browser_driver_started = true; }),
+    (dir) => edit(dir, "native-ui-complete.json", (value) => { value.harness_run_ref = "foreign-run"; }),
+    (dir) => edit(dir, "native-ui-complete.json", (value) => { value.scope = "foreign-slice"; }),
+    (dir) => edit(dir, "native-ui-complete.json", (value) => { value.driver = "headless-chromium"; }),
+    (dir) => edit(dir, "native-ui-complete.json", (value) => { value.screenshots.pop(); }),
+    (dir) => fs.unlinkSync(path.join(dir, "turn-3.jpg")),
+    (dir) => edit(dir, "wait-stats.json", (value) => { value.completed = 11; }),
+    (dir) => {
+      const file = path.join(dir, "wait-events.jsonl");
+      fs.writeFileSync(file, fs.readFileSync(file, "utf8").replaceAll('"kind":"turn"', '"kind":"maintenance"'));
+    },
+  ];
+  for (const mutate of cases) {
+    const fixture = nativeFixture(t);
+    prepare(fixture);
+    const turns = writeDriverLog(fixture.batchDir);
+    writeCalls(fixture.batchDir, turns);
+    writeCheckpoints(fixture.batchDir, fixture.initial);
+    mutate(fixture.batchDir);
+    const report = verifyBatch({ batchDir: fixture.batchDir });
+    assert.equal(report.status, "fail");
+    assert.equal(report.checks.native_ui_evidence, false);
+    assert.equal(report.turns.length, 3);
+    assert.equal(fs.existsSync(path.join(fixture.batchDir, "request-cost-report.json")), true);
+    assert.equal(fs.existsSync(path.join(fixture.batchDir, "summary.json")), false);
+  }
 });
 
 test("loadSourceAuthors 对缺索引/非 user/非字符串/application 头/错 hash 全部硬失败", (t) => {
@@ -484,6 +576,12 @@ test("verify：完整 3 轮通过；错 turn join / 缺 usage / cached>input / �
 
   const pass = verifyBatch({ batchDir: fixture.batchDir });
   assert.equal(pass.status, "pass", JSON.stringify(pass.failures));
+  const nativeSummary = JSON.parse(fs.readFileSync(path.join(fixture.batchDir, "summary.json"), "utf8"));
+  assert.equal(nativeSummary.slice_id, "b87-r01-request-cost");
+  assert.equal(nativeSummary.surface, "tauri-native");
+  assert.equal(nativeSummary.driver, "ax-native-system-ui");
+  assert.equal(nativeSummary.all_checks_passed, true);
+  assert.equal(nativeSummary.status, "pass");
   assert.equal(pass.turns.length, 3);
   assert.equal(pass.turns[2].calls.length, 2);
   assert.equal(pass.checks.post_run_works_title_matches, true);
@@ -589,7 +687,7 @@ test("verify：完整 3 轮通过；错 turn join / 缺 usage / cached>input / �
   assert.equal(productionReport.model_behavior.signed, false);
   assert.equal(productionReport.semantic_review.signed, false);
 
-  const repeated = nativeFixture(t);
+  const repeated = nativeFixture(t, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   prepare(repeated, 10);
   const repeatedTurns = writeDriverLog(repeated.batchDir, 10);
   writeCalls(repeated.batchDir, repeatedTurns);
@@ -1087,7 +1185,19 @@ test("verifyBatch 支持独立 out，不覆盖批次原件", (t) => {
   );
   assert.equal(fs.existsSync(path.join(outDir, "request-cost-report.json")), true);
   assert.equal(fs.existsSync(path.join(fixture.batchDir, "request-cost-report.json")), false);
-  assert.equal(fs.existsSync(path.join(outDir, "summary.json")), true);
+  const summaryFile = path.join(outDir, "summary.json");
+  const firstSummary = fs.readFileSync(summaryFile, "utf8");
+  assert.equal(JSON.parse(firstSummary).all_checks_passed, true);
+  assert.equal(JSON.parse(firstSummary).slice_id, "b87-r01-request-cost");
+  assert.equal(JSON.parse(firstSummary).surface, "tauri-native");
+  assert.equal(fs.existsSync(path.join(outDir, "native-ui-complete.json")), false);
+  assert.equal(fs.existsSync(path.join(fixture.batchDir, "summary.json")), false);
+  const repeated = verifyBatch({ batchDir: fixture.batchDir, outDir });
+  assert.equal(repeated.status, "pass");
+  assert.equal(fs.readFileSync(summaryFile, "utf8"), firstSummary);
+  const derivedSummaries = fs.readdirSync(outDir).filter((name) => /^summary\..+\.json$/u.test(name));
+  assert.equal(derivedSummaries.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(outDir, derivedSummaries[0]), "utf8")).status, "pass");
   assert.equal(report.batch.dir, path.resolve(fixture.batchDir));
 });
 
