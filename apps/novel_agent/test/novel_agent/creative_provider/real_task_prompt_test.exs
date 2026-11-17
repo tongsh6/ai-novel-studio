@@ -112,6 +112,8 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       assert String.split(prompt, "## 创作协作共同规则") |> length() == 2
       assert prompt =~ operation_marker
       scope = TestProviderPrompt.scope_content(ir)
+      assert prompt =~ "完成声明必须对应作者实际要求与已交付内容"
+      assert scope["authoring_task"]["semantic_version"] == "b27-semantics-v2"
       assert TestProviderPrompt.author_text(ir) == task.author_words
 
       assert scope["authoring_task"] ==

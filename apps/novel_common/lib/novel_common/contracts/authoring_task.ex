@@ -126,7 +126,7 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     preserve: [],
     output_contract: %{kind: :json, required_keys: [], allow_companions: false},
     source_refs: [],
-    semantic_version: "b27-semantics-v1"
+    semantic_version: "b27-semantics-v2"
   ]
 
   @doc "全部合法任务类型（单一真源）。"
@@ -209,6 +209,8 @@ defmodule NovelCommon.Contracts.AuthoringTask do
       prior_result: normalize_prior_result(fetch(map, :prior_result)),
       output_contract: normalize_output_contract(fetch(map, :output_contract)),
       source_refs: string_list(fetch(map, :source_refs)),
+      # Unversioned historical maps retain their original v1 identity; only newly
+      # constructed tasks use the current default. Reading does not authorize execution.
       semantic_version: optional_string(fetch(map, :semantic_version)) || "b27-semantics-v1"
     }
   end

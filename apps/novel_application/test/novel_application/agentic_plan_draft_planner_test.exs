@@ -115,6 +115,13 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert_received {:canonical_plan_prompt, first}
     assert_received {:canonical_plan_prompt, corrected}
     assert first.ir_version == RequestIR.ir_version()
+    # This proves prompt wiring, not model compliance with completion semantics.
+    for request <- [first, corrected] do
+      text = prompt_text(request)
+      assert length(String.split(text, NovelCommon.AuthoringSemantics.shared_rules())) == 2
+      assert text =~ "完成声明必须对应作者实际要求与已交付内容"
+    end
+
     assert Enum.take(corrected.messages, length(first.messages)) == first.messages
 
     assert Enum.any?(corrected.messages, fn message ->

@@ -12,7 +12,7 @@ defmodule NovelCommon.AuthoringSemantics do
 
   alias NovelCommon.Contracts.AuthoringTask
 
-  @version "b27-semantics-v1"
+  @version "b27-semantics-v2"
 
   @kind_effects %{
     first_draft: [:create_candidate],
@@ -58,6 +58,10 @@ defmodule NovelCommon.AuthoringSemantics do
   只做本任务允许的效果：分析不授权改稿，生成候选不等于采纳；不能以近似操作冒充
   作者要求的效果（如用记忆更新冒充主档案修改、用新段修订冒充整章修订、用新增大纲
   冒充结构维护、用单段正文冒充完整章）。
+  完成声明必须对应作者实际要求与已交付内容；多个对象或维度应逐项核对覆盖，
+  共同材料不能自动替代要求的差异比较；共同内容确实适用时可合并表达，不强制重复排版。
+  未交付或证据不足的部分应具体保留，不能因偏好选择、承诺、摘要声称或运行结束而消除；
+  已交付且有来源的部分不重复挂账，也不否认其已完成的范围。
   输出必须遵守角色专属契约（字段/结构/工具）；输出契约由系统校验，不因措辞绕过。
   纠错/重试只修正协议与格式问题，保留原任务、目标、来源与范围，不重新猜测作者意图，
   不借重试扩大范围或改变对象。
