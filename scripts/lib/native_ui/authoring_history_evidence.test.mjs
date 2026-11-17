@@ -83,6 +83,8 @@ function expectHistoryFailure(dir, overrides, pattern) {
   assert.throws(() => readAuthoringHistory(dir, scope(overrides)), pattern);
 }
 
+
+
 test("正确会话执行段只读取目标 run 的 canonical 历史", () => {
   withCleanup(
     () => createBatch({ run: {}, task: {}, ...decoys() }),
@@ -127,7 +129,7 @@ function sessionHistorySpec() {
   };
   const prior = run("run-prior", [
     base("历史 base"), author("历史作者", "prior-author"), scopes[0], assistant(70, []),
-  ], { workspace_id: "historical-workspace" });
+  ]);
   const current = run(RUN, [
     base("当前 base"), author("当前作者", PARENT), scopes[1], assistant(71, []),
     author(" 作者续行原文 \n", "continuation-author"), scopes[2], assistant(72, []),
@@ -154,7 +156,9 @@ test("sessionMessages 保留同会话前 run 全序、只用当前 base，原 tr
     const priorMessages = spec.prior.transcript.messages.slice(1);
     const currentMessages = spec.current.transcript.messages;
     const expected = [currentMessages[0], ...priorMessages, ...currentMessages.slice(1)];
-    assert.deepEqual(history.sessionMessages, expected);
+    assert.deepEqual(history.sessionMessages.map(({ canonical_ref, ...message }) => message), expected);
+    assert.deepEqual(history.sessionMessages[1].canonical_ref, { run_id: "run-prior", run_sequence: 2,
+      workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: "parent-run-prior", run_status: "completed" });
     assert.deepEqual(history.transcript.messages, currentMessages);
     assert.deepEqual(history.budget, { provider_calls: 2, replans: 1 });
     assert.deepEqual(history.pending, ["artifact-1"]);
@@ -212,7 +216,7 @@ test("无 base 的合法多 run 会话不补造 base，历史作者与 Scope 保
   }
   withCleanup(() => createBatch(spec.options), (dir) => {
     const history = readAuthoringHistory(dir, scope());
-    assert.deepEqual(history.sessionMessages, [
+    assert.deepEqual(history.sessionMessages.map(({ canonical_ref, ...message }) => message), [
       ...spec.prior.transcript.messages, ...spec.current.transcript.messages,
     ]);
     assert.equal(history.sessionMessages.some(message => message.role === "application_base"), false);
@@ -220,6 +224,8 @@ test("无 base 的合法多 run 会话不补造 base，历史作者与 Scope 保
 });
 
 const invalidSessionRows = [
+  ["历史 agent run workspace 错绑", "UPDATE agent_runs SET workspace_id = 'other-workspace' WHERE id = 'run-prior'"],
+  ["历史 agent run status 未知", "UPDATE agent_runs SET status = 'unknown' WHERE id = 'run-prior'"],
   ["历史 row 身份错绑", "UPDATE authoring_session_messages SET workspace_id = 'wrong' WHERE run_id = 'run-prior' AND run_sequence = 2"],
   ["历史 segment 身份错绑", "UPDATE authoring_run_segments SET workspace_id = 'wrong' WHERE run_id = 'run-prior'"],
   ["历史 agent run 作品错绑", "UPDATE agent_runs SET work_id = 'other-work' WHERE id = 'run-prior'"],

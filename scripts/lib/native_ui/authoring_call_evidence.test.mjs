@@ -43,6 +43,25 @@ const sseResult = (patch = {}) => {
   return joinNativeCallEvidence(value);
 };
 
+test("摘要执行按真实operation计入分母，不要求伪造作者或assistant消息；未提交摘要仍保留调用事实", () => {
+  const raw = '{"version":"authoring-discussion-summary/v1","entries":[]}';
+  const summary = pair("summary", { purpose: "other", owner_refs: { operation: "transcript_compaction" } });
+  const record = exchange("summary", { content: raw, turn_id: PARENT });
+  record.request_body.messages = [{ role: "application_base", provenance: "application",
+    blocks: [{ type: "text", text: "仅引用待整理原文" }], source_refs: [], versions: {} }];
+  const value = result({ providerRuns: [summary], records: [record],
+    transcript: { messages: [] }, consumedProviderCalls: 1 });
+  allPass(value);
+  assert.equal(value.records.length, 1);
+  for (const change of [
+    { purpose: "planner" }, { status: "failed" }, { owner_refs: {} },
+  ]) {
+    const invalid = result({ providerRuns: [{ ...summary, ...change }], records: [record],
+      transcript: { messages: [] }, consumedProviderCalls: 1 });
+    assert(invalid.failures.length > 0);
+  }
+});
+
 test("Scope 按同次 pcall/prun 绑定 canonical 当前前缀，IR 与 wire 保留原值", () => {
   const content = { operation: { context_text: "首行\n  雪❄️\t", revision: "保留原句" } };
   const versions = { scope_revision: 2 };

@@ -658,10 +658,36 @@ function checkErrorPair({ assistantMessages, row, add }) {
   }
 }
 
-function checkPairs({ bound, assistantMessages, add, nativeIdState }) {
+export function providerOperation(row) {
+  const refs = typeof row.owner_refs === "string" ? JSON.parse(row.owner_refs) : row.owner_refs;
+  return isRecord(refs) && typeof refs.operation === "string" ? refs.operation : null;
+}
+
+function checkCompactionPair({ row, record, source, messages, add }) {
+  const refs = refsOfRun(row);
+  if (row.purpose !== "other" || row.status !== "completed") {
+    add("mismatched", "success", { ...refs, field: "compaction_operation" });
+    return;
+  }
+  const outputs = messages.filter((message) => message.role === "checkpoint")
+    .flatMap((message) => message.blocks).filter((block) => block.type === "checkpoint" &&
+      block.discussion?.provider_run_ref === row.id);
+  if (outputs.length > 1) add("duplicate", "success", { ...refs, field: "discussion_output" });
+  if (outputs.some((block) => block.discussion.provider_call_ref !== row.provider_call_ref))
+    add("mismatched", "success", { ...refs, field: "discussion_provider_pair" });
+  const body = record.response.body;
+  if (Array.isArray(body?.tool_calls) && body.tool_calls.length > 0)
+    add("mismatched", "success", { ...refs, field: "discussion_unexpected_tools" });
+  if (source === RECORD_SOURCE.FIXTURE && outputs.length === 1 && body.content !== outputs[0].discussion.response_text)
+    add("mismatched", "success", { ...refs, field: "discussion_original_response" });
+  // 成功执行但输出非法/取消提交会无checkpoint；仍必须计调用成本，不能伪造assistant补配对。
+}
+
+function checkPairs({ bound, assistantMessages, messages, add, nativeIdState }) {
   for (const { row, record, source } of bound.values()) {
     if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY || record.response.status === "ok") {
-      checkSuccessPair({ assistantMessages, row, record, source, add, nativeIdState });
+      if (providerOperation(row) === "transcript_compaction") checkCompactionPair({ row, record, source, messages, add });
+      else checkSuccessPair({ assistantMessages, row, record, source, add, nativeIdState });
     } else {
       checkErrorPair({ assistantMessages, row, add });
     }
@@ -742,7 +768,7 @@ export function joinNativeCallEvidence(input) {
   for (const row of runs) {
     if (!bound.has(row.id)) add("missing", "binding", refsOfRun(row));
   }
-  checkPairs({ bound, assistantMessages, add, nativeIdState });
+  checkPairs({ bound, assistantMessages, messages, add, nativeIdState });
 
   const { completed, errors, sseToolOnly } = countBoundPairs(bound);
   const counts = {

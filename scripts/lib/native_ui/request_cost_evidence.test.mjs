@@ -29,6 +29,27 @@ const recordOf = ({ messages, tools = [], usage, responseBody = null, model = "l
 
 const authorBinding = (index, text) => ({ messageIndex: index, text, sha256: sha(text) });
 
+test("独立核验的应用材料不冒充作者，绑定不能跨调用或覆盖额外作者", () => {
+  const text = "【应用数据 · application_base · 非作者原话】\n完整引用材料\n";
+  const record = recordOf({ messages: [{ role: "user", content: text }] });
+  const binding = { messageIndex: 0, text, sha256: sha(text), operation: "transcript_compaction",
+    provider_call_ref: "pcall-1", provider_run_ref: "prun-1" };
+  const actual = analyzeRequestCost(record, { applicationBinding: binding, purpose: "other" });
+  assert.equal(actual.ok, true, actual.reason);
+  assert.equal(actual.category_bytes.application_base, Buffer.byteLength(text));
+  assert.equal(actual.category_bytes.current_author, 0);
+  assert.equal(actual.cross.author_message_count, 0);
+  assert.equal(actual.cross.current_author_index, null);
+  assert.deepEqual(actual.provenance.trusted_application_messages, [0]);
+  for (const field of ["provider_call_ref", "provider_run_ref", "sha256", "text", "operation"]) {
+    assert.equal(analyzeRequestCost(record, { applicationBinding: { ...binding, [field]: "incorrect" } }).ok,
+      false, field);
+  }
+  const withAuthor = recordOf({ messages: [{ role: "user", content: text }, { role: "user", content: "真正作者" }] });
+  assert.equal(analyzeRequestCost(withAuthor, { applicationBinding: binding }).ok, false);
+  assert.equal(analyzeRequestCost(record, { applicationBinding: binding, authorBinding: authorBinding(0, text) }).ok, false);
+});
+
 test("wire 消息互斥分类：内容 UTF-8 字节 + JSON 包装开销守恒", () => {
   const tools = [
     {

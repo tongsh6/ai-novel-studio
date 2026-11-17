@@ -57,6 +57,7 @@ import {
 import { readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import {
   joinNativeCallEvidence,
+  providerOperation,
   readProviderRuns,
 } from "./authoring_call_evidence.mjs";
 
@@ -735,6 +736,7 @@ function bindRootRunCalls({ dir, config, turn, records, plan, fail }) {
     records: bound.records,
     history,
     purposes: new Map(providerRuns.map((row) => [row.provider_call_ref, row.purpose ?? null])),
+    operations: new Map(providerRuns.map((row) => [row.provider_call_ref, providerOperation(row)])),
     counts: bound.counts,
   };
 }
@@ -1055,12 +1057,14 @@ function verifyReferenceAccounting({ batchDir, config, checks, fail, notCollecte
   return comparison.measured;
 }
 
-function wireMatches(wire, config) {
+function wireMatches(wire, config, providerRuns) {
   return wire.every(
     (record) =>
       (record.request.body.model ?? null) === config.model.model &&
       (record.request.body.reasoning_effort ?? null) === config.model.reasoning_effort &&
-      (record.request.body.max_tokens ?? null) === config.model.max_tokens,
+      (record.request.body.max_tokens ?? null) === (providerRuns.some((run) =>
+        run.id === record.provider_run_ref && run.provider_call_ref === record.provider_call_ref &&
+        providerOperation(run) === "transcript_compaction") ? 8192 : config.model.max_tokens),
   );
 }
 
@@ -1140,7 +1144,8 @@ function verifyObservedRuntime({ batchDir, config, records, checks, fail, notCol
     checks,
     fail,
     "runtime_wire_match",
-    wireMatches(wire, config),
+    wireMatches(wire, config, withDb(batchDir, (db) =>
+      all(db, "SELECT * FROM provider_runs WHERE session_id = ?", [config.session_id]))),
     "wire_model_effort_or_max_tokens_mismatch",
   );
 }

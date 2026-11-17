@@ -377,6 +377,25 @@ function resolveAuthorState(facts, authorBinding) {
   return state;
 }
 
+// 应用材料的 canonical 审计由外部来源 owner 完成；此边界重新核同次调用和原字节，
+// 不能把可信绑定借给另一请求，也不能把 application_base 伪装成当前作者。
+function resolveSourceState(record, facts, authorBinding, applicationBinding) {
+  if (!applicationBinding) return resolveAuthorState(facts, authorBinding);
+  const state = resolveAuthorState(facts, null);
+  const bound = facts.messageFacts[applicationBinding.messageIndex] ?? null;
+  const matches = !authorBinding && applicationBinding.operation === "transcript_compaction" &&
+    nonBlank(record.provider_call_ref) && nonBlank(record.provider_run_ref) &&
+    record.provider_call_ref === applicationBinding.provider_call_ref &&
+    record.provider_run_ref === applicationBinding.provider_run_ref &&
+    facts.authorMessages.length === 0 && facts.applicationBases.length === 1 &&
+    facts.applicationBases[0].index === applicationBinding.messageIndex &&
+    facts.messageFacts.every((message) => message.role === "system" || message.index === applicationBinding.messageIndex) &&
+    facts.tools.length === 0 && bindingMatches(bound, applicationBinding);
+  if (!matches) return { ...state, bindingError: "application_binding_mismatch" };
+  return { ...state, currentAuthorIndex: null, applicationIndex: bound.index,
+    bindingStatus: "external_application_binding" };
+}
+
 function addMessageBytes({ message, category, categoryBytes, categoryIndexes }) {
   categoryBytes[category] += utf8Bytes(message.text);
   categoryIndexes[category].push(message.index);
@@ -444,7 +463,8 @@ function costVerdict({ envelope, unclassifiedMessages, facts, author }) {
   const unclassifiedOk = unclassifiedMessages === 0;
   const malformedOk = malformedFree(facts);
   const bindingOk = author.bindingError === null;
-  const trusted = author.bindingStatus === "external_binding";
+  const trusted = bindingOk &&
+    ["external_binding", "external_application_binding"].includes(author.bindingStatus);
   const ok = conservationOk && unclassifiedOk && malformedOk && bindingOk && trusted;
   return {
     ok,
@@ -518,7 +538,7 @@ function buildCross({ facts, author, categories, purpose, contentBytes, scopeCon
 
 export function analyzeRequestCost(
   record,
-  { authorBinding = null, purpose = null } = {},
+  { authorBinding = null, applicationBinding = null, purpose = null } = {},
 ) {
   const facts = requestFactsFromRecord(record);
   if (!facts.ok) {
@@ -538,7 +558,7 @@ export function analyzeRequestCost(
     });
   }
 
-  const author = resolveAuthorState(facts, authorBinding);
+  const author = resolveSourceState(record, facts, authorBinding, applicationBinding);
   const resolvedPurpose = resolvePurpose(purpose, record);
   const categories = summarizeCategoryBytes(facts, author.currentAuthorIndex);
   const envelope = costEnvelope(facts.rawBody, categories.categoryBytes);
@@ -588,6 +608,9 @@ function analysisProvenance(author, verdict) {
         : author.bindingStatus,
     trusted: verdict.trusted,
     trusted_author_messages: trustedIndexes,
+    ...(author.applicationIndex !== undefined ? {
+      trusted_application_messages: verdict.trusted ? [author.applicationIndex] : [],
+    } : {}),
     untrusted_author_messages: author.authorIndexes.filter(
       (index) => !trustedIndexes.includes(index),
     ),

@@ -2,6 +2,7 @@
 import path from "node:path";
 import { countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
+import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { LENGTHS, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
 import { joinNativeCallEvidence } from "./authoring_call_evidence.mjs";
 
@@ -483,10 +484,27 @@ function verifyRunCall({
   previousMessages,
   authorIndex,
   purposes,
+  operations,
+  providerRuns,
+  history,
   allowCompression,
 }) {
   const prefix = verifyPcall({ plan, record, callIndex, seenPcalls, fail });
   verifyCallIdentity({ record, prefix, config, fail });
+  if (operations?.get(record.provider_call_ref) === "transcript_compaction") {
+    verifyCallModel({ record, prefix, config, fail });
+    const rows = list(providerRuns).filter((row) => row.id === record.provider_run_ref &&
+      row.provider_call_ref === record.provider_call_ref);
+    const source = auditDiscussionRequest(record, rows.length === 1 ? rows[0] : null, history?.sessionMessages);
+    if (!source.ok) fail(`${prefix}_application_source`, source.reason);
+    const analysis = analyzeRequestCost(record, { purpose: "other", applicationBinding: source.binding });
+    if (!analysis.ok) fail(`${prefix}_analysis`, analysis.reason ?? analysis.status);
+    verifyCallUsage({ analysis, prefix, config, fail, notCollected });
+    return { call: { turn: plan.turn, call_index: callIndex + 1,
+      provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref,
+      turn_id: record.turn_id ?? null, operation: "transcript_compaction", analysis, prefix_change: null },
+    messages: null, authorIndex: null };
+  }
   const found = findAuthorMessage(record, author, authorIndex);
   if (!found) return missingAuthor(prefix, fail);
   verifyCallModel({ record, prefix, config, fail });
@@ -527,6 +545,9 @@ function verifyRunCalls({
   fail,
   notCollected,
   purposes,
+  operations,
+  providerRuns,
+  history,
   allowCompression,
 }) {
   const calls = [];
@@ -545,6 +566,9 @@ function verifyRunCalls({
       previousMessages,
       authorIndex,
       purposes,
+      operations,
+      providerRuns,
+      history,
       allowCompression,
     });
     if (verified.call) calls.push(verified.call);
@@ -650,6 +674,9 @@ export function verifyTurn({ plan, turn, source, records, config, seenPcalls, bi
     fail,
     notCollected,
     purposes: binding.purposes,
+    operations: binding.operations,
+    providerRuns: binding.providerRuns,
+    history: binding.history,
     allowCompression: hasCheckpointEvidence(binding.history),
   });
   report.status = turnStatus(report.calls);

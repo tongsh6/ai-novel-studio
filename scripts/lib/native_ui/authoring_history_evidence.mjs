@@ -214,7 +214,7 @@ function validateTranscriptIdentity(record, run) {
   }
 }
 
-// 段与消息均核对自身 run 的持久身份；同会话的历史 run 可以来自不同 workspace。
+// 段与消息均核对真实 run 身份；同一会话的 work/workspace 必须一致。
 function validateStoredIdentity(row, record, fields) {
   assert.equal(row.run_id, record.id, "authoring_history: canonical 行 run 身份错绑");
   for (const field of fields) {
@@ -229,7 +229,8 @@ function decodeSessionMessage(row, record) {
   const message = assertRecord(decodeJson(row.message, "canonical 消息"), "canonical 消息");
   assertNonBlankString(row.role, "canonical 行 role");
   assert.equal(row.role, message.role, "authoring_history: 消息行 role 与 canonical 消息不一致");
-  return { ...row, message };
+  assert(RUN_STATUSES.has(record.status), "authoring_history: agent_run status 缺失或未知");
+  return { ...row, message, run_status: record.status, parent_turn_ref: record.parent_turn_ref };
 }
 
 function validateSegmentBounds(segment, rows) {
@@ -275,6 +276,7 @@ function sessionOwner(runs, runId, record) {
   const owner = runs.get(runId);
   assert(owner, "authoring_history: 会话 canonical 行缺少所属 agent_run");
   assert.equal(owner.work_id, record.work_id, "authoring_history: 会话 canonical work 身份错绑");
+  assert.equal(owner.workspace_id, record.workspace_id, "authoring_history: 会话 canonical workspace 身份错绑");
   assert.equal(owner.session_id, record.session_id, "authoring_history: 会话 canonical session 身份错绑");
   return owner;
 }
@@ -325,9 +327,43 @@ function sessionMessagesFor({ rows, current }) {
   return [
     ...bases,
     ...rows.filter((row) => row.sequence <= segment.last_sequence && row.role !== "application_base")
-      .map((row) => row.message),
+      .map(messageWithCoordinate),
   ];
 }
+
+
+const RUN_STATUSES = new Set(["created", "running", "pausing", "cancelling", "paused", "awaiting_author", "completed", "cancelled", "failed"]);
+const coordinateKey = (ref) => JSON.stringify([ref?.run_id, ref?.run_sequence]);
+
+function messageWithCoordinate(row) {
+  return { ...row.message, canonical_ref: Object.fromEntries([
+    "run_id", "run_sequence", "workspace_id", "work_id", "session_id", "parent_turn_ref", "run_status",
+  ].map((key) => [key, row[key]])) };
+}
+
+// C5/C6 与会话 reader 共用原始行 decoder。身份来自真实 agent_runs，不能由摘要或请求补造。
+export function canonicalMessagesFromRows(rows, runRows) {
+  const runs = new Map(runRows.map((run) => [run.id, run]));
+  assert.equal(runs.size, runRows.length, "authoring_history: agent_run 身份重复");
+  const owners = new Map();
+  const coordinates = new Set();
+  return rows.map((row) => {
+    const run = runs.get(row.run_id);
+    assert(run, "authoring_history: canonical 行缺真实 agent_run");
+    const owner = owners.get(row.session_id) ?? run;
+    sessionOwner(runs, row.run_id, owner);
+    owners.set(row.session_id, owner);
+    assert(Number.isInteger(row.sequence) && row.sequence > 0, "authoring_history: sequence 非法");
+    assert(Number.isInteger(row.run_sequence) && row.run_sequence > 0, "authoring_history: run_sequence 非法");
+    const key = coordinateKey(row);
+    assert(!coordinates.has(key), "authoring_history: canonical 消息坐标重复");
+    coordinates.add(key);
+    return { ...messageWithCoordinate(decodeSessionMessage(row, run)),
+      sequence: row.sequence, run_id: row.run_id, session_id: row.session_id };
+  }).sort((left, right) => left.session_id.localeCompare(right.session_id) || left.sequence - right.sequence);
+}
+
+
 
 function validateDurableCheckpoint(record, checkpoint) {
   assertRecord(checkpoint, "checkpoint_data");
