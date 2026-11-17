@@ -431,16 +431,124 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
       assert record["provider_call_ref"] == "pcall-log-error"
       assert record["provider_run_ref"] == "prun-log-error"
       assert record["response"]["status"] == 503
+
+      assert record["request"]["refs"] == %{
+               "base_refs" => [],
+               "observation_refs" => [],
+               "used_refs" => []
+             }
+
       refute record["response"]["status"] == 200
 
       refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
       refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
     end
 
+    test "each real adapter request logs only its own IR material refs outside the HTTP body", %{
+      dir: dir
+    } do
+      test_pid = self()
+
+      eventsource = fn _url, body, _opts, on_data ->
+        send(test_pid, {:actual_http_body, body})
+
+        on_data.(
+          "data: " <>
+            Jason.encode!(%{"choices" => [%{"delta" => %{"content" => "已核对本次材料。"}}]}) <>
+            "\n\n"
+        )
+
+        on_data.("data: [DONE]\n\n")
+        {:ok, 200, ""}
+      end
+
+      RuntimeConfig.put_provider_config(:strata,
+        eventsource_fn: eventsource,
+        model: "stand-in-model",
+        endpoint: "http://stand-in.test/v1"
+      )
+
+      first_refs = %{
+        base_refs: [%{ref: "work:log-a", version: 3}],
+        observation_refs: [%{ref: "character:observed-a", version: "actual-fingerprint-a"}],
+        used_refs: []
+      }
+
+      first =
+        TestRequestIR.ir(
+          [
+            TestRequestIR.base("作品 A 的身份。"),
+            TestRequestIR.author("依据刚才取得的角色事实回答。"),
+            TestRequestIR.assistant("", [
+              TestRequestIR.tool_call("read_work", %{}, "call-observed-a")
+            ]),
+            TestRequestIR.observation("call-observed-a", %{
+              status: "ok",
+              source_refs: [%{ref: "character:observed-a", version: "actual-fingerprint-a"}],
+              content: %{narrative_role: "SUPPORTING"}
+            })
+          ],
+          tools: [TestRequestIR.tool("read_work")],
+          refs: first_refs
+        )
+
+      second =
+        TestRequestIR.ir(
+          [TestRequestIR.base("作品 B 的身份。"), TestRequestIR.author("只讨论本次新问题。")],
+          refs: %{
+            base_refs: [%{ref: "work:log-b", version: 8}],
+            observation_refs: [],
+            used_refs: []
+          }
+        )
+
+      for {request, index} <- [{first, 1}, {second, 2}] do
+        assert {:ok, _execution} =
+                 Gateway.execute(request, nil, InferenceParams.new(),
+                   provider: :strata,
+                   provider_call_ref: "pcall-material-#{index}",
+                   provider_run_id: "prun-material-#{index}"
+                 )
+
+        refute Keyword.has_key?(Logger.metadata(), :provider_request_refs)
+      end
+
+      assert_receive {:actual_http_body, first_body}
+      assert_receive {:actual_http_body, second_body}
+      [first_record, second_record] = read_llm_records(dir)
+
+      assert first_record["request"]["refs"] == %{
+               "base_refs" => [%{"ref" => "work:log-a", "version" => 3}],
+               "observation_refs" => [
+                 %{"ref" => "character:observed-a", "version" => "actual-fingerprint-a"}
+               ],
+               "used_refs" => []
+             }
+
+      assert second_record["request"]["refs"] == %{
+               "base_refs" => [%{"ref" => "work:log-b", "version" => 8}],
+               "observation_refs" => [],
+               "used_refs" => []
+             }
+
+      assert {first_record["provider_call_ref"], first_record["provider_run_ref"]} ==
+               {"pcall-material-1", "prun-material-1"}
+
+      assert {second_record["provider_call_ref"], second_record["provider_run_ref"]} ==
+               {"pcall-material-2", "prun-material-2"}
+
+      for {record, body} <- [{first_record, first_body}, {second_record, second_body}] do
+        assert record["request"]["body"] == Jason.decode!(Jason.encode!(body))
+        refute Map.has_key?(body, :refs)
+        refute Map.has_key?(body, "refs")
+      end
+    end
+
     defp tool_ir do
       TestRequestIR.ir([TestRequestIR.author("读取当前作品。")],
         tools: [TestRequestIR.tool("read_work")],
-        projection: %{tool_choice: "read_work"}
+        projection: %{tool_choice: "read_work"},
+        refs: %{base_refs: [], observation_refs: [], used_refs: []}
       )
     end
   end

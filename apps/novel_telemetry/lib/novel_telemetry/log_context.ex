@@ -18,8 +18,11 @@ defmodule NovelTelemetry.LogContext do
   The gateway should pass an already allocated `turn_id` so every downstream
   business log line can share the same correlation key from the first event.
   """
+  @provider_request_binding {__MODULE__, :provider_request_binding}
+
   @spec put_turn(String.t(), String.t() | nil, String.t() | nil, String.t() | nil) :: :ok
   def put_turn(workspace_id, work_id \\ nil, turn_id \\ nil, session_id \\ nil) do
+    Process.delete(@provider_request_binding)
     # Clear previous turn's local keys so the new turn starts with a
     # clean correlation slate. turn_id/session_id are set only when the entry
     # point has already allocated/restored them.
@@ -98,36 +101,64 @@ defmodule NovelTelemetry.LogContext do
   end
 
   @doc """
-  在一次已分配的 Provider 调用/运行引用下执行 `fun`，结束后恢复先前的
-  `provider_call_ref` / `provider_run_ref`（支持嵌套、并行与异常退出）。
+  在一次已分配的 Provider 调用/运行及请求材料引用下执行 `fun`，结束后恢复
+  先前的绑定（支持嵌套、并行与异常退出）。
 
-  这里只管理这两个技术关联键：不生成新 id，不拷贝 `owner_refs` 或其他业务
-  上下文。Gateway 在实际 adapter 调用前后使用它，使 adapter 内的 `LLMLog`
-  能读到同次调用的真实引用；作用域外的日志保持未绑定。
+  Gateway 提供实际交给 adapter 的 IR.refs plain map；请求证据仅在当前调用进程
+  私有作用域内保存，不进入 Logger metadata/snapshot。LLMLog 同步消费，不复制正文
+  或 owner_refs，不改 HTTP body；nil 表示未知，真实空 map 仍是已知值。
   """
-  @spec with_provider_call(String.t(), String.t(), (-> result)) :: result when result: var
-  def with_provider_call(call_ref, run_ref, fun)
-      when is_binary(call_ref) and is_binary(run_ref) and is_function(fun, 0) do
+  @spec with_provider_call(String.t(), String.t(), map() | nil, (-> result)) :: result
+        when result: var
+  def with_provider_call(call_ref, run_ref, request_refs, fun)
+      when is_binary(call_ref) and is_binary(run_ref) and
+             (is_map(request_refs) or is_nil(request_refs)) and is_function(fun, 0) do
     previous = Logger.metadata()
-
+    previous_binding = Process.get(@provider_request_binding)
+    Process.put(@provider_request_binding, {call_ref, run_ref, request_refs})
     Logger.metadata(provider_call_ref: call_ref, provider_run_ref: run_ref)
 
     try do
       fun.()
     after
-      Logger.metadata(
-        provider_call_ref: Keyword.get(previous, :provider_call_ref),
-        provider_run_ref: Keyword.get(previous, :provider_run_ref)
-      )
+      # A turn switch or explicit restore invalidates the whole former scope stack.
+      # Only the still-owned binding may restore its parent on unwind.
+      if Process.get(@provider_request_binding) == {call_ref, run_ref, request_refs} do
+        restore_request_binding(previous_binding)
+
+        Logger.metadata(
+          provider_call_ref: Keyword.get(previous, :provider_call_ref),
+          provider_run_ref: Keyword.get(previous, :provider_run_ref)
+        )
+      end
     end
   end
+
+  @doc "当前真实调用的私有请求证据；关联键错绑或无调用作用域时返回未知。"
+  @spec provider_request_refs() :: map() | nil
+  def provider_request_refs do
+    metadata = Logger.metadata()
+
+    case Process.get(@provider_request_binding) do
+      {call_ref, run_ref, refs} ->
+        if metadata[:provider_call_ref] == call_ref and metadata[:provider_run_ref] == run_ref,
+          do: refs
+
+      _ ->
+        nil
+    end
+  end
+
+  defp restore_request_binding(nil), do: Process.delete(@provider_request_binding)
+  defp restore_request_binding(binding), do: Process.put(@provider_request_binding, binding)
 
   @doc """
   Snapshot current metadata into a kw list that can be `restore/1`d in a
   plain `spawn`-ed process (not `Task` — Elixir Task already inherits parent
   metadata automatically since OTP 25).  Use only for `Kernel.spawn/1` or
   `GenServer.start_link` where the new process does NOT share the caller's
-  process dictionary.
+  process dictionary. Private request evidence is deliberately excluded: the target
+  process must enter its own actual Provider call boundary to bind request material.
   """
   @spec snapshot() :: keyword()
   def snapshot do
@@ -137,6 +168,7 @@ defmodule NovelTelemetry.LogContext do
   @doc "Restore a snapshot from `snapshot/0` in the target process."
   @spec restore(keyword()) :: :ok
   def restore(kw) when is_list(kw) do
+    Process.delete(@provider_request_binding)
     Logger.reset_metadata([])
     Logger.metadata(kw)
     :ok

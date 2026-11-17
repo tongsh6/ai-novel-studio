@@ -75,3 +75,13 @@ B84的资源审查发现，`LogEmit`在调用进程读取配置目录后，将�
 本补充将现有JSONL写出归回调用者：启用时直接调用同一 `write_jsonl`，调用返回前完成写出或记录写入失败；禁用时不创建文件资源。`emit/__emit__`作为副作用命令统一返回`:ok`，没有现役消费者依赖旧的nil/Task PID返回值。文件系统错误通过既有Logger报告，并保持业务调用不因日志失败而中断；不通过LogEmit递归记录自身的文件写入错误。编码失败保留既有不抛到业务调用者的边界。
 
 调用者承担这次本地文件IO的耗时，这是生命周期收口的明确取舍；不能宣称仍保持旧的异步时序或具备fsync持久性。当前无新队列、sink、Supervisor、flush注册器或业务依赖。后续若真实测量提出异步吞吐要求，应重新设计具有明确拥有者和退出协议的运行时，不能恢复无归属Task。具体实现与目标证据见 [B84](../../../tasks/slices/B84-web-slow-tests-and-arch-debt.md) 的日志写出checkpoint。
+
+## 2026-11-17 R03：请求证据与通用日志关联分离
+
+R03 的同调用 IR.refs 是结构化 LLM 请求证据，不是普通业务日志 metadata。Gateway 仍把真实 IR.refs 显式交给既有 `LogContext.with_provider_call/4`；调用者内同步写出的 `LLMLog` 是唯一消费方。核对现役 SSEStream/Result 后确认最终日志在发起 Gateway 的调用进程执行，SSE 累积 Agent 不持有该写出责任。
+
+既有 LogContext 内以调用作用域保存唯一私有证据绑定，和同次 pcall/prun 一起校验；只读 `provider_request_refs/0` 供 LLMLog 获取。进入/正常返回/异常/throw/exit 时按栈恢复，turn 切换与显式 restore 清除当前私有绑定；进程结束自然释放。通用 Logger metadata、业务 JSONL、snapshot/restore 不携带请求证据；跨进程只传播关联键，新实际调用由自己的 Gateway 重新绑定，不从父进程旧请求继承材料。未知为 nil，真实空 map 仍是已知值。
+
+嵌套与清空组合也必须成立：put_turn/restore 使旧调用栈的私有绑定失效，内层或外层退出（包括异常）不得重新恢复已失效的旧请求引用或覆盖新关联键。退出只在当前仍持有自身已安装绑定时恢复上层；利用既有进程内绑定本身表达所有权，不增加代数计数器或第二上下文系统。
+
+不新增上下文模块、表、进程、异步 writer 或证据副本；HTTP body、适配器 log_fn/5 和现役日志文件形状不变。不得为满足静态扫描把请求证据加入普通 formatter，亦不增加规则豁免或改成动态 Logger key 绕检。独立测试须验证作用域内普通 metadata/snapshot 无载荷、嵌套/并行/异常/turn/跨进程边界，以及真实 Gateway→adapter→LLMLog 的同请求 refs 与 HTTP body 隔离。实施状态与证据只见 B87 §14。

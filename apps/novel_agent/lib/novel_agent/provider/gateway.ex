@@ -229,7 +229,7 @@ defmodule NovelAgent.Provider.Gateway do
     started = System.monotonic_time(:millisecond)
 
     execution =
-      LogContext.with_provider_call(provider_call_ref, provider_run_id, fn ->
+      LogContext.with_provider_call(provider_call_ref, provider_run_id, ir.refs, fn ->
         LogEmit.emit(:provider_gateway, :complete, :start, %{
           provider: provider_name,
           model: model_name,

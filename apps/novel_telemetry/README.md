@@ -9,7 +9,7 @@
 |---|---|
 | `lib/novel_telemetry/log_emit.ex` | 结构化业务日志（ADR-0018 §3/§4）：编译期 phase 校验的 `emit/4` 宏、事件字段规范化、JSONL 调用者内同步写出（失败经 `Logger` 诊断且不改变业务返回）、脱敏/中文翻译。 |
 | `lib/novel_telemetry/llm_log.ex` | LLM HTTP 调用 JSONL：每次 Provider 调用一行 `[ts] {json}`（含 usage/私有引用关联）；编码失败写可编码占位并报错，不静默丢。 |
-| `lib/novel_telemetry/log_context.ex` | `Logger.metadata` 关联键注入协议（workspace/work/turn/frame/provider call refs 等），跨进程快照与恢复。 |
+| `lib/novel_telemetry/log_context.ex` | Logger 关联键与跨进程快照；同次 Provider 请求证据只在私有调用作用域保存，由 LLMLog 读取，不进入普通 metadata 或跨进程快照（ADR-0034 R03 补充）。 |
 | `lib/novel_telemetry/log_file_date.ex` | 按机器本地日滚动日志文件名（时间戳仍 UTC）。 |
 | `test/novel_telemetry/` | 上述模块迁移自 `novel_common` 的行为测试（JSONL 形状/配置键/关联键/编码失败占位）。 |
 

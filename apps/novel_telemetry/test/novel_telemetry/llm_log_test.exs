@@ -108,7 +108,7 @@ defmodule NovelTelemetry.LLMLogTest do
 
   test "captures provider execution refs from the active call scope", %{dir: dir} do
     :ok =
-      LogContext.with_provider_call("pcall-llm", "prun-llm", fn ->
+      LogContext.with_provider_call("pcall-llm", "prun-llm", nil, fn ->
         LLMLog.append(%{
           step: "provider_gateway.complete",
           provider: "test-provider",
@@ -131,6 +131,7 @@ defmodule NovelTelemetry.LLMLogTest do
 
     assert record["provider_call_ref"] == "pcall-llm"
     assert record["provider_run_ref"] == "prun-llm"
+    refute Map.has_key?(record["request"], "refs")
   end
 
   test "leaves provider execution refs unbound without an execution boundary", %{dir: dir} do
@@ -150,11 +151,12 @@ defmodule NovelTelemetry.LLMLogTest do
 
     refute Map.has_key?(record, "provider_call_ref")
     refute Map.has_key?(record, "provider_run_ref")
+    refute Map.has_key?(record["request"], "refs")
   end
 
   test "encode failure fallback keeps execution refs and marks missing evidence", %{dir: dir} do
     :ok =
-      LogContext.with_provider_call("pcall-fallback", "prun-fallback", fn ->
+      LogContext.with_provider_call("pcall-fallback", "prun-fallback", nil, fn ->
         LLMLog.append(%{
           step: "provider_gateway.complete",
           provider: "test-provider",

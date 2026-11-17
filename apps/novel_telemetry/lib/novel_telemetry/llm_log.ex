@@ -86,7 +86,8 @@ defmodule NovelTelemetry.LLMLog do
         turn_id: turn_id,
         step: Map.get(entry, :step, "unknown"),
         provider: Map.get(entry, :provider, "unknown"),
-        request: sanitize_request(entry.request),
+        request:
+          sanitize_request(entry.request, NovelTelemetry.LogContext.provider_request_refs()),
         response: sanitize_response(entry.response)
       }
       |> maybe_put_from_meta(:workspace_id, metadata)
@@ -170,12 +171,17 @@ defmodule NovelTelemetry.LLMLog do
     end
   end
 
-  defp sanitize_request(req) do
-    %{
+  defp sanitize_request(req, request_refs) do
+    request = %{
       method: Map.get(req, :method, "POST"),
       url: Map.get(req, :url, ""),
       body: Map.get(req, :body, %{})
     }
+
+    case request_refs do
+      %{} = refs -> Map.put(request, :refs, refs)
+      _ -> request
+    end
   end
 
   defp sanitize_response(resp) do

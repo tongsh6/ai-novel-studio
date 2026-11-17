@@ -147,66 +147,160 @@ defmodule NovelTelemetry.LogContextTest do
     end
   end
 
-  describe "with_provider_call/3" do
-    test "binds both allocated refs only inside the scope" do
+  test "private request evidence never enters generic Logger metadata or snapshots" do
+    refs = %{base_refs: ["work:private-evidence"], observation_refs: [], used_refs: []}
+
+    LogContext.with_provider_call("pcall-private", "prun-private", refs, fn ->
+      refute Keyword.has_key?(Logger.metadata(), :provider_request_refs)
+      refute Keyword.has_key?(LogContext.snapshot(), :provider_request_refs)
+      refute inspect(Logger.metadata()) =~ "work:private-evidence"
+      refute inspect(LogContext.snapshot()) =~ "work:private-evidence"
+    end)
+  end
+
+  test "a turn switch inside nested calls cannot restore invalidated request evidence" do
+    LogContext.put_turn("workspace-old", "work-old", "turn-old", "session-old")
+
+    LogContext.with_provider_call("call-outer", "run-outer", %{base_refs: ["work:old"]}, fn ->
+      LogContext.with_provider_call("call-inner", "run-inner", %{base_refs: ["work:inner"]}, fn ->
+        LogContext.put_turn("workspace-new", "work-new", "turn-new", "session-new")
+      end)
+
+      assert LogContext.provider_request_refs() == nil
+      refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+      refute Keyword.has_key?(Logger.metadata(), :provider_run_ref)
+      assert Logger.metadata()[:turn_id] == "turn-new"
+    end)
+
+    assert LogContext.provider_request_refs() == nil
+    assert Logger.metadata()[:work_id] == "work-new"
+    refute Keyword.has_key?(Logger.metadata(), :provider_call_ref)
+  end
+
+  test "explicit restoration survives exceptional unwinding of invalidated nested calls" do
+    LogContext.with_provider_call("call-outer", "run-outer", %{base_refs: ["work:old"]}, fn ->
+      assert_raise RuntimeError, "after restore", fn ->
+        LogContext.with_provider_call(
+          "call-inner",
+          "run-inner",
+          %{base_refs: ["work:inner"]},
+          fn ->
+            LogContext.restore(
+              workspace_id: "workspace-restored",
+              turn_id: "turn-restored",
+              provider_call_ref: "call-restored",
+              provider_run_ref: "run-restored"
+            )
+
+            raise "after restore"
+          end
+        )
+      end
+
+      assert LogContext.provider_request_refs() == nil
+      assert Logger.metadata()[:provider_call_ref] == "call-restored"
+      assert Logger.metadata()[:provider_run_ref] == "run-restored"
+    end)
+
+    assert LogContext.provider_request_refs() == nil
+    assert Logger.metadata()[:provider_call_ref] == "call-restored"
+    assert Logger.metadata()[:turn_id] == "turn-restored"
+  end
+
+  describe "with_provider_call/4" do
+    test "binds both allocated refs and private request evidence only inside the scope" do
+      refs = %{base_refs: ["work:1"], observation_refs: [], used_refs: []}
+
       assert :ok =
-               LogContext.with_provider_call("pcall-1", "prun-1", fn ->
+               LogContext.with_provider_call("pcall-1", "prun-1", refs, fn ->
                  meta = Logger.metadata()
                  assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-1"
                  assert Keyword.fetch!(meta, :provider_run_ref) == "prun-1"
+                 assert LogContext.provider_request_refs() == refs
+                 refute Keyword.has_key?(meta, :provider_request_refs)
                  :ok
                end)
 
       meta = Logger.metadata()
       refute Keyword.has_key?(meta, :provider_call_ref)
       refute Keyword.has_key?(meta, :provider_run_ref)
+      refute Keyword.has_key?(meta, :provider_request_refs)
+      assert LogContext.provider_request_refs() == nil
     end
 
     test "restores the previous binding after normal, raise, throw, and exit" do
-      Logger.metadata(provider_call_ref: "pcall-prev", provider_run_ref: "prun-prev")
+      previous_refs = %{base_refs: ["work:previous"], observation_refs: [], used_refs: []}
 
-      assert :done = LogContext.with_provider_call("pcall-normal", "prun-normal", fn -> :done end)
-      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
-
-      assert_raise RuntimeError, "boom", fn ->
-        LogContext.with_provider_call("pcall-raise", "prun-raise", fn -> raise "boom" end)
-      end
-
-      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
-      assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
-
-      assert :thrown =
-               catch_throw(
-                 LogContext.with_provider_call("pcall-throw", "prun-throw", fn ->
-                   throw(:thrown)
+      LogContext.with_provider_call("pcall-prev", "prun-prev", previous_refs, fn ->
+        assert :done =
+                 LogContext.with_provider_call("pcall-normal", "prun-normal", nil, fn ->
+                   assert LogContext.provider_request_refs() == nil
+                   :done
                  end)
-               )
 
-      assert :exited =
-               catch_exit(
-                 LogContext.with_provider_call("pcall-exit", "prun-exit", fn -> exit(:exited) end)
-               )
+        assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+        assert LogContext.provider_request_refs() == previous_refs
 
-      assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
-      assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
+        assert_raise RuntimeError, "boom", fn ->
+          LogContext.with_provider_call("pcall-raise", "prun-raise", nil, fn -> raise "boom" end)
+        end
+
+        assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+        assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
+        assert LogContext.provider_request_refs() == previous_refs
+
+        assert :thrown =
+                 catch_throw(
+                   LogContext.with_provider_call("pcall-throw", "prun-throw", nil, fn ->
+                     throw(:thrown)
+                   end)
+                 )
+
+        assert LogContext.provider_request_refs() == previous_refs
+
+        assert :exited =
+                 catch_exit(
+                   LogContext.with_provider_call("pcall-exit", "prun-exit", nil, fn ->
+                     exit(:exited)
+                   end)
+                 )
+
+        assert Keyword.fetch!(Logger.metadata(), :provider_call_ref) == "pcall-prev"
+        assert Keyword.fetch!(Logger.metadata(), :provider_run_ref) == "prun-prev"
+        assert LogContext.provider_request_refs() == previous_refs
+      end)
+
+      assert LogContext.provider_request_refs() == nil
     end
 
     test "nested scopes restore the outer refs without touching unrelated metadata" do
-      LogContext.with_provider_call("pcall-outer", "prun-outer", fn ->
-        LogContext.put_step("outer-step")
+      LogContext.with_provider_call(
+        "pcall-outer",
+        "prun-outer",
+        %{base_refs: ["work:outer"], observation_refs: [], used_refs: []},
+        fn ->
+          LogContext.put_step("outer-step")
 
-        LogContext.with_provider_call("pcall-inner", "prun-inner", fn ->
+          LogContext.with_provider_call(
+            "pcall-inner",
+            "prun-inner",
+            %{base_refs: ["work:inner"], observation_refs: [], used_refs: []},
+            fn ->
+              meta = Logger.metadata()
+              assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-inner"
+              assert Keyword.fetch!(meta, :provider_run_ref) == "prun-inner"
+              assert LogContext.provider_request_refs().base_refs == ["work:inner"]
+              assert Keyword.fetch!(meta, :current_step) == "outer-step"
+            end
+          )
+
           meta = Logger.metadata()
-          assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-inner"
-          assert Keyword.fetch!(meta, :provider_run_ref) == "prun-inner"
+          assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-outer"
+          assert Keyword.fetch!(meta, :provider_run_ref) == "prun-outer"
+          assert LogContext.provider_request_refs().base_refs == ["work:outer"]
           assert Keyword.fetch!(meta, :current_step) == "outer-step"
-        end)
-
-        meta = Logger.metadata()
-        assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-outer"
-        assert Keyword.fetch!(meta, :provider_run_ref) == "prun-outer"
-        assert Keyword.fetch!(meta, :current_step) == "outer-step"
-      end)
+        end
+      )
     end
 
     test "parallel scopes keep their own refs" do
@@ -215,33 +309,124 @@ defmodule NovelTelemetry.LogContextTest do
       tasks =
         for index <- 1..2 do
           Task.async(fn ->
-            LogContext.with_provider_call("pcall-#{index}", "prun-#{index}", fn ->
-              send(parent, {:in_scope, index, self(), Logger.metadata()})
+            result =
+              LogContext.with_provider_call(
+                "pcall-#{index}",
+                "prun-#{index}",
+                %{base_refs: ["work:#{index}"], observation_refs: [], used_refs: []},
+                fn ->
+                  send(
+                    parent,
+                    {:in_scope, index, self(), Logger.metadata(),
+                     LogContext.provider_request_refs()}
+                  )
 
-              receive do
-                {:release, ^index} -> :ok
-              end
+                  receive do
+                    {:release, ^index} -> :ok
+                  end
 
-              {index, Keyword.fetch!(Logger.metadata(), :provider_call_ref)}
-            end)
+                  {index, Keyword.fetch!(Logger.metadata(), :provider_call_ref)}
+                end
+              )
+
+            assert LogContext.provider_request_refs() == nil
+            result
           end)
         end
 
       bindings =
         for _ <- 1..2 do
-          assert_receive {:in_scope, index, pid, meta}
+          assert_receive {:in_scope, index, pid, meta, evidence}
           assert Keyword.fetch!(meta, :provider_call_ref) == "pcall-#{index}"
           assert Keyword.fetch!(meta, :provider_run_ref) == "prun-#{index}"
+          refute Keyword.has_key?(meta, :provider_request_refs)
+          assert evidence.base_refs == ["work:#{index}"]
           {index, pid}
         end
 
       Enum.each(bindings, fn {index, pid} -> send(pid, {:release, index}) end)
-
-      assert tasks |> Enum.map(&Task.await/1) |> Enum.sort() == [
-               {1, "pcall-1"},
-               {2, "pcall-2"}
-             ]
+      assert tasks |> Enum.map(&Task.await/1) |> Enum.sort() == [{1, "pcall-1"}, {2, "pcall-2"}]
     end
+
+    test "unknown and explicitly empty request evidence remain different" do
+      for refs <- [nil, %{}] do
+        LogContext.with_provider_call("pcall-empty", "prun-empty", refs, fn ->
+          assert LogContext.provider_request_refs() == refs
+        end)
+      end
+    end
+
+    test "mismatched correlation identifiers do not borrow the active private evidence" do
+      LogContext.with_provider_call(
+        "pcall-bound",
+        "prun-bound",
+        %{base_refs: ["work:bound"]},
+        fn ->
+          Logger.metadata(provider_call_ref: "pcall-other")
+          assert LogContext.provider_request_refs() == nil
+          Logger.metadata(provider_call_ref: "pcall-bound", provider_run_ref: "prun-other")
+          assert LogContext.provider_request_refs() == nil
+        end
+      )
+    end
+  end
+
+  test "a new turn clears stale private provider request evidence" do
+    LogContext.with_provider_call("pcall-old", "prun-old", %{base_refs: ["work:old"]}, fn ->
+      LogContext.put_turn("new-workspace", "new-work", "new-turn", "new-session")
+      assert LogContext.provider_request_refs() == nil
+      refute Keyword.has_key?(Logger.metadata(), :provider_request_refs)
+    end)
+  end
+
+  test "cross-process snapshots transfer correlation only, not a previous request's material" do
+    LogContext.with_provider_call(
+      "pcall-parent",
+      "prun-parent",
+      %{base_refs: ["work:parent"]},
+      fn ->
+        snap = LogContext.snapshot()
+        refute Keyword.has_key?(snap, :provider_request_refs)
+
+        task =
+          Task.async(fn ->
+            :ok = LogContext.restore(snap)
+            assert Logger.metadata()[:provider_call_ref] == "pcall-parent"
+            assert LogContext.provider_request_refs() == nil
+
+            LogContext.with_provider_call(
+              "pcall-child",
+              "prun-child",
+              %{base_refs: ["work:child"]},
+              fn ->
+                assert LogContext.provider_request_refs() == %{base_refs: ["work:child"]}
+              end
+            )
+
+            assert LogContext.provider_request_refs() == nil
+          end)
+
+        Task.await(task)
+        assert LogContext.provider_request_refs() == %{base_refs: ["work:parent"]}
+      end
+    )
+  end
+
+  test "explicit metadata restoration clears any active private request binding" do
+    LogContext.with_provider_call(
+      "pcall-before",
+      "prun-before",
+      %{base_refs: ["work:before"]},
+      fn ->
+        LogContext.restore(
+          work_id: "work-after",
+          provider_call_ref: "pcall-before",
+          provider_run_ref: "prun-before"
+        )
+
+        assert LogContext.provider_request_refs() == nil
+      end
+    )
   end
 
   describe "cross-process" do
