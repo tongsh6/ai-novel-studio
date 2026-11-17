@@ -76,8 +76,11 @@ function lineFragments(text) {
 // This boundary verifies frozen protocol metadata, not full recovery-plan admissibility.
 // Coverage/source checks below independently prove request material; product commit owns plan validation.
 function requestVersion(run, messages) {
-  if (run.operation_checkpoint !== null && run.operation_checkpoint !== undefined) {
-    const capsule = decodeJson(run.operation_checkpoint, "operation checkpoint");
+  // SQLite JSON columns can hold TEXT "null" after the private payload is cleared.
+  // Decode once before the absence check; malformed/non-null shapes still fail closed.
+  const capsule = run.operation_checkpoint === null || run.operation_checkpoint === undefined
+    ? null : decodeJson(run.operation_checkpoint, "operation checkpoint");
+  if (capsule !== null) {
     coverageAssert(isRecord(capsule) && Number.isInteger(capsule.goal_version) && capsule.goal_version > 0 &&
       isRecord(capsule.plan), "discussion_capsule_invalid");
     const keys = Object.keys(capsule).filter(key => key !== "response_text").sort();

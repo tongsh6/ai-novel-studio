@@ -107,6 +107,24 @@ test("v2成本按冻结capsule而非坏响应猜版本；缺失/错配不能退�
   assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],spec.messages).ok,true);
 });
 
+test("持久TEXT null与SQL NULL仅代表载荷已清除，仍需唯一canonical及原响应hash", () => {
+  for (const cleared of ["null", null, undefined]) {
+    const spec = v2Spec();
+    spec.options.providerRuns[0].operation_checkpoint = cleared;
+    const run = spec.options.providerRuns[0];
+    assert.equal(auditDiscussionRequest(spec.summaryRecord, run, spec.messages).ok, true, String(cleared));
+    assert.equal(auditDiscussionRequest(spec.summaryRecord, run, spec.messages.filter(m => m.role !== "checkpoint")).ok, false);
+    assert.equal(auditDiscussionRequest(spec.summaryRecord, run, [...spec.messages, structuredClone(spec.messages.at(-1))]).ok, false);
+    spec.messages.at(-1).blocks[0].discussion.response_sha256 = "0".repeat(64);
+    assert.equal(auditDiscussionRequest(spec.summaryRecord, run, spec.messages).ok, false);
+  }
+  for (const invalid of [{}, "{}", "false", '"null"', "{broken", "[]", "0", '""']) {
+    const spec = v2Spec();
+    spec.options.providerRuns[0].operation_checkpoint = invalid;
+    assert.equal(auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages).ok, false, JSON.stringify(invalid));
+  }
+});
+
 test("维护成本来源来自真实坐标与原文；无Checkpoint也计成本，不伪造作者", () => {
   const spec = discussionMaintenanceFacts();
   const run = spec.options.providerRuns[0];
