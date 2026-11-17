@@ -1259,3 +1259,21 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 **第二批十轮与更精确的窗口事实**：修复后另起 `native-10-current-02`，仍用相同 manifest/snapshot/输入/预算，第三轮再次超时；实际 3 个业务 run 和 3 次判断均 completed，尚无整理调用。只读取证记录 `live-readonly-window.json` 与 `native-window-os-facts.json`：原 app PID 仍在、非 hidden、AX 读取成功但窗口数为 0；WindowServer 的全部窗口集合仍登记该 PID 的 1280×801 窗口，但屏幕可见集合中没有目标窗口，目标截图不可得，前台是另一个应用。本轮未盲发 Escape/激活/重启改变故障现场；不能据此推断窗口已被销毁，也未确定桌面切换、最小化、窗口排序或其它因素的因果。旧“Escape 导致消失”仍不是已证根因。原等待上限未延长，未启动第三次实模重跑；两批都保持 FAIL，不能以后台 completed 替代真实页面。
 
 **验证和下一断点**：`continue-closeout-03/full-scan-01` 与 `terminal-scan` 均实际执行完整 `bash scripts/ai_static_scan.sh --top 10`：19 pass/2 fail/7 findings，源码前后 SHA 不变。剩余为旧完成清单/UI 全验收 pending，以及五项历史 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）和一项 ProjectGod 历史配置 accepted_risk；规则与处置台账未变。本轮证据总目录 `artifacts/model-contracts/b87-r03/20261118/continue-closeout-03/`，两次实模共实际发生 9 次判断、1 次摘要，不是十轮验收通过。先取得原生窗口从可见到不可见的生命周期/桌面归属证据，禁止靠读操作抢前台或增加模型重试；之后仍需原十轮、二十轮、取消/交错及 C8 真正跨 BEAM 恢复，风险表第十轮履行的语义尚未到达。R03 保持 doing，R04 未开始。最终 Git 清单、五保护文件哈希及提交后扫描见本目录 final-state 与 post-commit-scan；本节提交前剩余 83 路径，未把其它 WIP 全部判为可提交或不可提交。
+
+### 14.16 全屏桌面转换的因果证据与可见性中断（2026-11-18，实施与断电后恢复核验）
+
+起点 `ed79b228`、82 路径 WIP、空暂存；基线在 `artifacts/model-contracts/b87-r03/20261118/window-lifecycle-04/before.json`。第二批真实失败的系统日志已将原 PID 46443 / 窗口 12747 与桌面转换关联：本机 UTC+8 02:47:25.271 另一应用进入全屏 Space，25.786 该 Space 成为当前桌面，同一目标窗口在 25.684/25.810 从 visible→occluded→hidden。最后一次驱动输入是 02:47:04.578；此前未证实的产品销毁窗口或 Escape 根因不成立为该批解释。原批次继续 FAIL，不推定是谁发起全屏操作，不用这条身份链给另一旧批次代签。
+
+七问：Contract=既有场景验收 §5.1 的观察/输入分责及目标身份；Invariant=真实页面不可得不冒充模型超时、未知不当 false、零隐式输入、保留原始失败；Boundary=已有 Swift startup 只读 producer→NativeScenarioHarness 两个 AX 等待入口，不修改产品/Provider/数据库；Consumer=既有十轮/历史/交错原生驱动；Proof=系统日志原链、Swift producer 与公开等待入口独立正反例、零模型原生可见性实验和正常场景回归；Acceptance Driver=现役 NativeScenarioHarness 与精确路径 owned cleanup，不另建 runner；Exploration=不物化要素，不供应模型知识。存在性审查：startup、窗口读取、当前 target、等待与错误证据 owner 均已存在，只在原职责内补充 WindowServer 白名单事实和本代是否实际见窗的观测记录；不增加产品状态、永久监控、自动激活或第二恢复机制。首次启动/换代/AX失败及可选字段缺失保留未知；仅同代已见窗且事实充分时提前停止。通过后按可审查边界提交，保护既有 WIP。
+
+**已提交实现**：`14c1f12ac764b0ef8ac27cbd3bc395e0e227b0a2`（6 文件，163 行新增/16 行删除）已将既有 Swift startup 的 AX 错误与目标 WindowServer 白名单事实接入既有等待 owner；已见过的同代工作台窗口明确不在屏幕上时，报 `owned_native_surface_not_onscreen`，不自动激活、切桌面、Escape 或重发模型。完整窗口集合与屏幕窗口集合按目标 PID/窗口编号对账；首次启动、代次变化、读取失败或事实不全不冒充已确认不可见。提交树 `08ff946f9f59702bcea1fc003e7f98ba03e3d637` 与 `window-lifecycle-04/surface-candidate.json` 一致；独立候选原始日志为 1,214 项通过、0 失败/跳过，这是断连前已有验证，不是恢复后重新执行该全量套件。
+
+**原生反例与证明范围**：`window-lifecycle-04/native-surface-03` 从隔离 Tauri 副本的真实最小化按钮进入不可见状态，既有等待入口报告上述明确原因；该次观察耗时 61ms，后续隐式恢复输入为零。实验确认最小化后 AX 树仍可读，不能以 AX 存在代替屏幕可见。该实验未启动后端、未调用模型；它验证外部观察职责，不代签十轮/二十轮、模型语义或 C8 后端恢复。前两次诊断的缺菜单和最小化漏判记录保留。
+
+**断电后现场恢复（用户告知供电已恢复）**：恢复到原 Session 后，真实 HEAD 仍为 `14c1f12`，工作区 83 路径、暂存为空、无冲突。前次聊天中退回 `ed79b228` 的报告是过时信息，不能作为执行基线。`git fsck --connectivity-only --no-dangling` 退出 0；在新证据目录的批次数据库副本执行 `PRAGMA integrity_check` 返回 `ok`，原数据库文件及所读原始失败/驱动/AX/输入证据哈希前后相同。五份保护 WIP 相对 `window-lifecycle-04/before.json` 均未改变。本轮只建立机器证据目录 `artifacts/model-contracts/b87-r03/20261118/power-recovery-05/`，没有重置仓库、清除作者数据或新建平行状态文档。
+
+**断连原 Job 已有终态，不重派发**：`wc_job_vbGBjnTHwDxSj22k` 已失败退出（exit 1）；原批次 `window-lifecycle-04/native-10-current-03` 的 `failure.json` 为第五轮 `turn_timeout`，清理记录 `remaining=[]`，恢复时对应 owned 进程不存在、4657/4661 均释放。原生 driver 只确认前四轮完成并留下四轮截图；数据库有五个业务 run 和五次判断 Provider completed，但第五轮页面终态没有被确认，没有摘要调用或 Checkpoint。`native-ui-complete.json` 仅有局部截图清单，不能覆盖 driver 的 `completed=false/partial=true`；原批次缺完整成本报告/summary，仍为 FAIL，不能解释成十轮已通过。
+
+**原因与证据边界**：用户确认发生过断电，但上述退出记录只证明本批第五轮等待失败；不能仅据断电通知把该失败归为产品缺陷、模型超时或受控恢复成功。第五轮 AX 观察存在长时间采集空档，最终只读快照不能确认本轮作者/回复归属；后端在失败附近落下 completed 也不补足作者可见交付。该批不得与先前已证的全屏桌面转换混为同一个原因，亦不得当成 C8 原摘要跨 BEAM 恢复实验。原记录保留，不改签、不从第六轮接发来拼接十轮成功。
+
+**恢复后验证及下一入口**：本轮通过现役 `scripts/node_test.sh` 复跑 Swift producer 与 NativeScenarioHarness 两个相关测试文件，29 项通过、0 失败/跳过，日志见 `power-recovery-05/focused-tests.log`；这只是断电后的局部复核。提交记录、当前完整扫描和最终 Git/保护文件核对统一落该目录，原始批次证据仍留原目录。本轮新增模型调用/创作输入为 0；先独立对账第五轮原请求/响应终结与原页面观察的时间线，再按冻结场景决定后续批次，不修改原输入、阈值或等待预算。完整十轮、二十轮、取消/交错及 C8 真实后端换代仍未闭环，R03 保持 doing，R04 不启动。
