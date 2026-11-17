@@ -503,14 +503,24 @@ export const WORKBENCH = {
   agentRunWriterTimeoutRetry: "先写第一场（500 字）",
   agentRunWriterTimeoutRetryPrompt:
     "缩小范围重试：先只写当前章的第一个场景，500 字以内；写完就停，不要一次写完整章，等我确认后再继续下一个场景。",
-  // B71 46 §9.9 / 47 §7.9：长任务上下文整理记录（作者零操作；自动触发待 VS-00L §18 评审）。
+  // B87 R03：46 §9.9 / 47 §7.9 整理记录（作者零操作；真实类别计数与原文导航）。
   // 禁用词：作者界面不出现“上下文/压缩/token/窗口/checkpoint”等内部词或百分比。
   transcriptCompactionSummary: (count: number) =>
     `较早的 ${count.toLocaleString("zh-CN")} 项创作过程已整理`,
   transcriptCompactionExpandLabel: "查看已整理的较早创作过程",
   transcriptCompactionTitle: "已整理的较早记录",
-  transcriptCompactionReason: (count: number) =>
-    `为了保持这次创作始终清晰连贯，系统整理了较早的 ${count.toLocaleString("zh-CN")} 项已完成操作。`,
+  transcriptCompactionReason: (
+    toolExchanges: number,
+    scopeUpdates: number,
+    discussionMessages: number,
+  ) => {
+    const categories = [
+      toolExchanges > 0 ? `已完成操作 ${toolExchanges.toLocaleString("zh-CN")} 项` : null,
+      scopeUpdates > 0 ? `工作范围记录 ${scopeUpdates.toLocaleString("zh-CN")} 条` : null,
+      discussionMessages > 0 ? `讨论回复 ${discussionMessages.toLocaleString("zh-CN")} 条` : null,
+    ].filter((category) => category !== null);
+    return `为了保持这次创作始终清晰连贯，系统整理了较早的记录：${categories.join("、")}。`;
+  },
   transcriptCompactionKept: "原始记录仍然保留，不会被删除或改写。",
   transcriptCompactionSources: (list: string) => `涉及：${list}`,
   transcriptCompactionOpenHistory: "查看完整记录",

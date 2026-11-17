@@ -14,7 +14,7 @@ export interface TranscriptCompactionCopy {
   summary: (count: number) => string;
   expandLabel: string;
   title: string;
-  reason: (count: number) => string;
+  reason: (toolExchanges: number, scopeUpdates: number, discussionMessages: number) => string;
   kept: string;
   sources: (list: string) => string;
   openHistory: string;
@@ -25,7 +25,7 @@ export interface TranscriptCompactionNoticeProps {
   expanded: boolean;
   copy: TranscriptCompactionCopy;
   onToggle: () => void;
-  /** 打开既有 Why/trace 面板；无对应 turn 的 run 可不提供（隐藏入口，不伪造）。 */
+  /** 定位既有 Interaction 历史原文；没有真实来源目标时隐藏入口，不伪造。 */
   onOpenHistory?: () => void;
 }
 
@@ -67,7 +67,13 @@ export function TranscriptCompactionNotice({
       {expanded && (
         <div className={styles.panel} role="region" aria-label={copy.title}>
           <span className={styles.panelTitle}>{copy.title}</span>
-          <span className={styles.panelText}>{copy.reason(view.count)}</span>
+          <span className={styles.panelText}>
+            {copy.reason(
+              view.counts.tool_exchanges,
+              view.counts.scope_updates,
+              view.counts.discussion_messages,
+            )}
+          </span>
           <span className={styles.panelText}>{copy.kept}</span>
           {sourcesLine !== "" && (
             <span className={styles.panelSources}>{copy.sources(sourcesLine)}</span>

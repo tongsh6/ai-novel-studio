@@ -47,9 +47,12 @@ describe("session API helpers", () => {
     );
   });
 
-  it("builds encoded session transcript page path", () => {
-    expect(sessionTranscriptPagePath("work 1", "session/1", { beforeId: "msg:1", limit: 12 })).toBe(
-      "/api/works/work%201/sessions/session%2F1/transcript?before_id=msg%3A1&limit=12",
+  it.each([
+    [{ beforeId: "msg:1", limit: 12 }, "before_id=msg%3A1&limit=12"],
+    [{ aroundTurnId: "turn:early 1", limit: 12 }, "around_turn_id=turn%3Aearly+1&limit=12"],
+  ])("builds encoded session transcript page path for %j", (options, query) => {
+    expect(sessionTranscriptPagePath("work 1", "session/1", options)).toBe(
+      `/api/works/work%201/sessions/session%2F1/transcript?${query}`,
     );
   });
 
@@ -155,47 +158,52 @@ describe("session API helpers", () => {
     );
   });
 
-  it("loads a session transcript page through the sessions API", async () => {
-    const response = {
-      work_id: "work-1",
-      session: {
-        id: "session-1",
+  it.each([
+    [{ beforeId: "interaction-2" }, "before_id=interaction-2"],
+    [{ aroundTurnId: "turn:early 1" }, "around_turn_id=turn%3Aearly+1"],
+  ])(
+    "loads the selected transcript page through the sessions API for %j",
+    async (options, query) => {
+      const response = {
         work_id: "work-1",
-        title: "默认会话",
-        summary: null,
-        status: "ACTIVE",
-        source_session_ref: null,
-        source_turn_ref: null,
-        last_opened_at: null,
-        updated_at: null,
-        inserted_at: null,
-      },
-      read_only: false,
-      transcript: [{ role: "user", text: "更早对话", turn_id: "turn-1", turn_result: null }],
-      transcript_page: {
-        limit: 30,
-        returned_count: 1,
-        has_more_before: false,
-        before_id: "interaction-1",
-        after_id: "interaction-1",
-      },
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue(response),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+        session: {
+          id: "session-1",
+          work_id: "work-1",
+          title: "默认会话",
+          summary: null,
+          status: "ACTIVE",
+          source_session_ref: null,
+          source_turn_ref: null,
+          last_opened_at: null,
+          updated_at: null,
+          inserted_at: null,
+        },
+        read_only: false,
+        transcript: [{ role: "user", text: "更早对话", turn_id: "turn-1", turn_result: null }],
+        transcript_page: {
+          limit: 30,
+          returned_count: 1,
+          has_more_before: false,
+          before_id: "interaction-1",
+          after_id: "interaction-1",
+        },
+      };
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(response),
+      });
+      vi.stubGlobal("fetch", fetchMock);
 
-    await expect(
-      getSessionTranscriptPage("work-1", "session-1", { beforeId: "interaction-2" }),
-    ).resolves.toEqual(response);
+      await expect(getSessionTranscriptPage("work-1", "session-1", options)).resolves.toEqual(
+        response,
+      );
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "/api/works/work-1/sessions/session-1/transcript?before_id=interaction-2",
-      ),
-    );
-  });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/works/work-1/sessions/session-1/transcript?${query}`),
+      );
+    },
+  );
 
   it("converts transcript entries to chat messages and keeps turn_result", () => {
     const transcript: SessionTranscriptEntry[] = [

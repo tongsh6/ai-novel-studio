@@ -2,27 +2,28 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { WORKBENCH } from "../lib/copy";
 import type { TranscriptCompactionView } from "../lib/transcriptCompactionView";
 import {
   TranscriptCompactionNotice,
   type TranscriptCompactionCopy,
 } from "./TranscriptCompactionNotice";
 
-// 与 47 §7.9 逐字一致的字面量文案；正式接线时由 copy.ts 注入同形对象。
 const copy: TranscriptCompactionCopy = {
-  summary: (count) => `较早的 ${count.toLocaleString("zh-CN")} 项创作过程已整理`,
-  expandLabel: "查看已整理的较早创作过程",
-  title: "已整理的较早记录",
-  reason: (count) =>
-    `为了保持这次创作始终清晰连贯，系统整理了较早的 ${count.toLocaleString("zh-CN")} 项已完成操作。`,
-  kept: "原始记录仍然保留，不会被删除或改写。",
-  sources: (list) => `涉及：${list}`,
-  openHistory: "查看完整记录",
+  summary: WORKBENCH.transcriptCompactionSummary,
+  expandLabel: WORKBENCH.transcriptCompactionExpandLabel,
+  title: WORKBENCH.transcriptCompactionTitle,
+  reason: WORKBENCH.transcriptCompactionReason,
+  kept: WORKBENCH.transcriptCompactionKept,
+  sources: WORKBENCH.transcriptCompactionSources,
+  openHistory: WORKBENCH.transcriptCompactionOpenHistory,
 };
 
 function view(overrides: Partial<TranscriptCompactionView> = {}): TranscriptCompactionView {
   return {
     count: 12,
+    counts: { tool_exchanges: 12, scope_updates: 0, discussion_messages: 0 },
+    historyTarget: { session_id: "session-original", turn_id: "turn-original" },
     records: 1,
     sources: [],
     latestSequence: 9,
@@ -62,7 +63,9 @@ describe("TranscriptCompactionNotice", () => {
     const html = render({ expanded: true });
 
     expect(html).toContain("已整理的较早记录");
-    expect(html).toContain("为了保持这次创作始终清晰连贯，系统整理了较早的 12 项已完成操作。");
+    expect(html).toContain(
+      "为了保持这次创作始终清晰连贯，系统整理了较早的记录：已完成操作 12 项。",
+    );
     expect(html).toContain("原始记录仍然保留，不会被删除或改写。");
     expect(html).toContain("查看完整记录");
     expect(html).toContain('role="region"');
@@ -123,6 +126,22 @@ describe("TranscriptCompactionNotice", () => {
     const html = render({ expanded: true, value: view({ sources }) });
 
     expect(html).toContain("涉及：角色档案、作品设定、第一章正文、第二章正文、伏笔清单");
+  });
+
+  it("仅范围或讨论的整理展示真实类别，不虚称已完成操作或暴露导航身份", () => {
+    const html = render({
+      expanded: true,
+      value: view({
+        count: 5,
+        counts: { tool_exchanges: 0, scope_updates: 2, discussion_messages: 3 },
+      }),
+    });
+
+    expect(html).toContain("较早的 5 项创作过程已整理");
+    expect(html).toContain("工作范围记录 2 条、讨论回复 3 条。");
+    expect(html).not.toContain("已完成操作");
+    expect(html).not.toContain("session-original");
+    expect(html).not.toContain("turn-original");
   });
 
   it("C8：无可打开的完整记录入口时不渲染入口（不伪造）", () => {

@@ -166,10 +166,11 @@ export function sessionSnapshotPath(workId: string, sessionId: string): string {
 export function sessionTranscriptPagePath(
   workId: string,
   sessionId: string,
-  options: { beforeId?: string | null; limit?: number } = {},
+  options: { beforeId?: string | null; aroundTurnId?: string | null; limit?: number } = {},
 ): string {
   const params = new URLSearchParams();
   if (options.beforeId) params.set("before_id", options.beforeId);
+  if (options.aroundTurnId) params.set("around_turn_id", options.aroundTurnId);
   if (options.limit) params.set("limit", String(options.limit));
   const suffix = params.toString();
   return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/transcript${suffix ? `?${suffix}` : ""}`;

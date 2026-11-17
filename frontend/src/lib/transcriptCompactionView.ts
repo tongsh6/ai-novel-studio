@@ -1,21 +1,25 @@
+import type { SessionSearchHit } from "./sessions";
 import type { AgentEventData } from "./socket";
 
 /**
- * B71 长任务上下文整理记录（VS-00L §16.2/§16.4；§18 提案方向）的只读视图投影。
- *
- * 只消费 author-safe `checkpoint_created` 事件：数量取真实 `covered_exchanges`，
- * 来源取 `sources` 显示名；不读后端自由文本（文案统一由 copy.ts 渲染），
- * 不猜测、不估算，缺失/非法 payload 一律忽略。
+ * 整理记录的只读视图：只消费已提交的作者可见事件。
+ * 数量按真实覆盖类别计数；来源只取显示名；原文入口复用 Interaction 历史定位。
+ * 不读取后端自由文本，不猜测缺失计数，也不兼容已经退役的单一工具计数字段。
  */
 export interface TranscriptCompactionView {
-  /** 聚合整理项数（各事件 covered_exchanges 之和）。 */
+  /** 各覆盖类别的真实数量之和。 */
   count: number;
-  /** 有效整理记录条数（== 整理次数）。 */
+  counts: {
+    tool_exchanges: number;
+    scope_updates: number;
+    discussion_messages: number;
+  };
+  /** 有效整理记录条数；同一持久事件重复送达只计算一次。 */
   records: number;
-  /** 来源显示名并集（去重保序；空数组时不渲染来源行）。 */
   sources: string[];
-  /** 最新一条记录的 sequence（仅用于稳定排序/测试，不直接渲染）。 */
   latestSequence: number;
+  /** 只作历史导航，不渲染内部身份。 */
+  historyTarget: Pick<SessionSearchHit, "session_id" | "turn_id"> | null;
 }
 
 const CHECKPOINT_CREATED = "checkpoint_created";
@@ -24,50 +28,104 @@ const CHECKPOINT_CREATED = "checkpoint_created";
 const INTERNAL_REF_PATTERN = /(?:^|\s)[a-z][a-z0-9_]*(?::[a-z0-9_:-]+)+/i;
 const INTERNAL_UNDERSCORE_PATTERN = /^[a-z][a-z0-9]*_[a-z0-9_]+$/i;
 
-/**
- * 把 AgentRun 事件投影为整理记录视图。
- *
- * 规则：只看 `event_type === "checkpoint_created"` 且 `visibility === "author"`；
- * `payload.covered_exchanges` 必须是正整数，否则该条忽略；全部无效返回 null（不渲染）。
- */
+/** 工具交换数可以为零；只要真实旧范围或讨论覆盖非零，就存在整理记录。 */
 export function transcriptCompactionView(
   events: ReadonlyArray<AgentEventData> | null | undefined,
 ): TranscriptCompactionView | null {
   if (events === null || events === undefined) return null;
 
-  const valid: Array<{ sequence: number; covered: number; sources: string[] }> = [];
+  const valid: Array<{
+    sequence: number;
+    counts: TranscriptCompactionView["counts"];
+    sources: string[];
+    historyTarget: TranscriptCompactionView["historyTarget"];
+  }> = [];
+  const seen = new Set<string>();
 
   for (const event of events) {
-    if (!event || event.event_type !== CHECKPOINT_CREATED) continue;
-    if (event.visibility !== "author") continue;
+    if (!event || event.event_type !== CHECKPOINT_CREATED || event.visibility !== "author")
+      continue;
+    if (!Number.isSafeInteger(event.sequence) || event.sequence <= 0) continue;
+    if (
+      typeof event.event_id !== "string" ||
+      event.event_id.trim() === "" ||
+      seen.has(event.event_id)
+    ) {
+      continue;
+    }
 
-    const covered = coveredExchanges(event.payload);
-    if (covered === null) continue;
+    const counts = coveredCounts(event.payload);
+    if (counts === null) continue;
 
+    seen.add(event.event_id);
     valid.push({
       sequence: event.sequence,
-      covered,
+      counts,
       sources: sourceNames(event.payload),
+      historyTarget: historyTarget(event.payload),
     });
   }
 
   if (valid.length === 0) return null;
-
   valid.sort((left, right) => left.sequence - right.sequence);
 
-  const sources = Array.from(new Set(valid.flatMap((entry) => entry.sources)));
+  const counts = valid.reduce(
+    (total, entry) => ({
+      tool_exchanges: total.tool_exchanges + entry.counts.tool_exchanges,
+      scope_updates: total.scope_updates + entry.counts.scope_updates,
+      discussion_messages: total.discussion_messages + entry.counts.discussion_messages,
+    }),
+    { tool_exchanges: 0, scope_updates: 0, discussion_messages: 0 },
+  );
+  const count = counts.tool_exchanges + counts.scope_updates + counts.discussion_messages;
+  if (!Number.isSafeInteger(count)) return null;
 
   return {
-    count: valid.reduce((sum, entry) => sum + entry.covered, 0),
+    count,
+    counts,
     records: valid.length,
-    sources,
+    sources: Array.from(new Set(valid.flatMap((entry) => entry.sources))),
     latestSequence: valid[valid.length - 1].sequence,
+    historyTarget: valid.find((entry) => entry.historyTarget !== null)?.historyTarget ?? null,
   };
 }
 
-function coveredExchanges(payload: Record<string, unknown> | undefined): number | null {
-  const value = payload?.covered_exchanges;
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+function coveredCounts(
+  payload: Record<string, unknown> | undefined,
+): TranscriptCompactionView["counts"] | null {
+  const value = payload?.covered_counts;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const counts = value as Record<string, unknown>;
+  const keys = ["tool_exchanges", "scope_updates", "discussion_messages"];
+  if (Object.keys(counts).length !== keys.length) return null;
+  if (
+    !keys.every(
+      (key) =>
+        typeof counts[key] === "number" && Number.isSafeInteger(counts[key]) && counts[key] >= 0,
+    )
+  ) {
+    return null;
+  }
+
+  const result = counts as TranscriptCompactionView["counts"];
+  const total = result.tool_exchanges + result.scope_updates + result.discussion_messages;
+  return Number.isSafeInteger(total) && total > 0 ? result : null;
+}
+
+function historyTarget(
+  payload: Record<string, unknown> | undefined,
+): TranscriptCompactionView["historyTarget"] {
+  const value = payload?.history_target;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const target = value as Record<string, unknown>;
+  if (
+    typeof target.session_id !== "string" ||
+    target.session_id.trim() === "" ||
+    typeof target.turn_id !== "string" ||
+    target.turn_id.trim() === ""
+  )
+    return null;
+  return { session_id: target.session_id, turn_id: target.turn_id };
 }
 
 function sourceNames(payload: Record<string, unknown> | undefined): string[] {
@@ -75,7 +133,6 @@ function sourceNames(payload: Record<string, unknown> | undefined): string[] {
   if (!Array.isArray(value)) return [];
 
   const names: string[] = [];
-
   for (const item of value) {
     if (typeof item !== "string") continue;
     const trimmed = item.trim();
@@ -84,6 +141,5 @@ function sourceNames(payload: Record<string, unknown> | undefined): string[] {
     if (INTERNAL_UNDERSCORE_PATTERN.test(trimmed)) continue;
     names.push(trimmed);
   }
-
   return names;
 }

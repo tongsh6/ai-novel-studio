@@ -55,6 +55,11 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 - [readingProjectionQuery.ts](src/lib/readingProjectionQuery.ts)：ADR-0016只读查询、整组成功/失败与作品级缓存；采纳hint仅失效查询。
 - [readingProjectionQuery.test.ts](src/lib/__tests__/readingProjectionQuery.test.ts)：刷新新正文、失败不冒充完整结果、空历史scene不进入阅读。
 
+## 会话运行事件恢复（46 §9.9 / B87 R03）
+
+- [agentRunTimeline.ts](src/lib/agentRunTimeline.ts)：同一运行事件的形状、身份合并、按 run 选择与作者面纯投影；HTTP activity 和 WS 都进入 WorkspaceChat 现有 agentEvents，TurnResult 不保存事件副本。
+- [WorkspaceChat.agentRunActivityHydration.test.tsx](src/components/WorkspaceChat.agentRunActivityHydration.test.tsx)：父回合查询与 activity/旧 ACK 交错、事件身份、跨 run 隔离、终态不回退的纯机制测试。原生重启/原文导航证据仍由外部 request-cost driver 给出。
+
 ## 只读 Markdown 与流式接管（ADR-0036 / 46 §9.5）
 
 - [MarkdownText.tsx](src/components/MarkdownText.tsx)：助手讨论/过程叙事的唯一只读渲染与安全边界；不改变保存原文，不解析作者输入或小说正文。

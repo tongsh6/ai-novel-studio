@@ -2,21 +2,35 @@ import { WORKBENCH } from "./copy";
 import type { AgentEventData } from "./socket";
 import type { WireTurnResult } from "./turnResultWire";
 
-export interface AgentRunProviderUsageData {
-  run_id?: string;
-  provider_run_ref?: string;
-  provider_call_ref?: string;
-  purpose?: string;
-  status?: string;
-  output_type?: string;
-  content_length?: number;
-  usage?: Record<string, unknown>;
-  provider_id?: string;
-  model?: string;
-  events?: Record<string, unknown>[];
-  output?: Record<string, unknown>;
+// 运行事件只有一个客户端视图；HTTP activity 与 WS 都归并到它，消息回执不持有事件。
+export function isAgentEventData(event: unknown): event is AgentEventData {
+  return (
+    Boolean(event) &&
+    typeof event === "object" &&
+    typeof (event as AgentEventData).event_id === "string" &&
+    typeof (event as AgentEventData).run_ref === "string" &&
+    typeof (event as AgentEventData).event_type === "string" &&
+    typeof (event as AgentEventData).visibility === "string" &&
+    typeof (event as AgentEventData).summary === "string" &&
+    typeof (event as AgentEventData).sequence === "number"
+  );
 }
 
+export function mergeAgentRunEvents(
+  current: AgentEventData[],
+  incoming: AgentEventData[],
+): AgentEventData[] {
+  const byId = new Map<string, AgentEventData>();
+  for (const event of [...current, ...incoming]) byId.set(event.event_id, event);
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    return (a.emitted_at ?? "").localeCompare(b.emitted_at ?? "");
+  });
+}
+
+export function agentRunEventsFor(events: AgentEventData[], runId: string): AgentEventData[] {
+  return events.filter((event) => event.run_ref === runId);
+}
 export type AgenticLoopPlanStepStatus = "pending" | "active" | "done" | "skipped";
 
 export interface AgenticLoopPlanStep {

@@ -5,7 +5,12 @@ import { describe, expect, it } from "vitest";
 import type { AgentEventData } from "../lib/socket";
 import { AgentRunDialogueFlow } from "./WorkspaceChat";
 
-function checkpointEvent(sequence: number, covered: number): AgentEventData {
+function checkpointEvent(
+  sequence: number,
+  toolExchanges: number,
+  scopeUpdates = 0,
+  discussionMessages = 0,
+): AgentEventData {
   return {
     event_id: `evt_run_1_${sequence}`,
     run_ref: "run_1",
@@ -17,7 +22,15 @@ function checkpointEvent(sequence: number, covered: number): AgentEventData {
     summary: "内部摘要不应出现在作者界面",
     reason_codes: ["transcript_compaction"],
     refs: [],
-    payload: { covered_exchanges: covered, sources: ["角色档案"] },
+    payload: {
+      covered_counts: {
+        tool_exchanges: toolExchanges,
+        scope_updates: scopeUpdates,
+        discussion_messages: discussionMessages,
+      },
+      sources: ["角色档案"],
+      history_target: { session_id: "session-original", turn_id: "turn-original" },
+    },
     emitted_at: "2026-11-04T00:00:00Z",
   };
 }
@@ -54,6 +67,18 @@ describe("AgentRunDialogueFlow 整理记录接线（W1–W3）", () => {
     expect(html).toContain("较早的 12 项创作过程已整理");
     expect(html).toContain('aria-label="查看已整理的较早创作过程"');
     expect(html).toContain('aria-expanded="false"');
+  });
+
+  it.each([
+    [2, 0],
+    [0, 3],
+  ])("纯范围/纯讨论 (%s, %s) 的成功事件在恢复后仍可见", (scopes, discussions) => {
+    const event = checkpointEvent(3, 0, scopes, discussions);
+    const restored = JSON.parse(JSON.stringify(event)) as AgentEventData;
+    const html = renderFlow([event, restored]);
+    expect(html).toContain(`较早的 ${scopes + discussions} 项创作过程已整理`);
+    expect(html).not.toContain("session-original");
+    expect(html).not.toContain("turn-original");
   });
 
   it("W2：无整理事件时不渲染细条（作者无感）", () => {

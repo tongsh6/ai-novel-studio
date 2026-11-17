@@ -3,9 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { AgentEventData } from "../socket";
 import { transcriptCompactionView } from "../transcriptCompactionView";
 
+function payload(tool_exchanges = 0, scope_updates = 0, discussion_messages = 0) {
+  return {
+    covered_counts: { tool_exchanges, scope_updates, discussion_messages },
+    sources: [],
+    history_target: { session_id: "session-original", turn_id: "turn-original" },
+  };
+}
+
 function compactionEvent(
   sequence: number,
-  overrides: Partial<AgentEventData> & { payload?: Record<string, unknown> } = {},
+  overrides: Partial<AgentEventData> = {},
 ): AgentEventData {
   return {
     event_id: `evt_run_1_${sequence}`,
@@ -18,122 +26,114 @@ function compactionEvent(
     summary: "较早的创作过程已整理",
     reason_codes: ["transcript_compaction"],
     refs: [],
-    payload: { covered_exchanges: 1, sources: [] },
-    emitted_at: "2026-11-04T00:00:00Z",
+    payload: payload(1),
+    emitted_at: "2026-11-15T00:00:00Z",
     ...overrides,
   };
 }
 
 describe("transcriptCompactionView", () => {
-  it("V1：单条事件映射数量/次数/来源与最新 sequence", () => {
-    const event = compactionEvent(9, {
-      payload: { covered_exchanges: 12, sources: [] },
-    });
+  it.each([
+    [0, 3, 0],
+    [0, 0, 5],
+    [2, 3, 5],
+  ])("真实覆盖 (%s, %s, %s) 不依赖工具调用非零", (tools, scopes, discussions) => {
+    const event = compactionEvent(9, { payload: payload(tools, scopes, discussions) });
 
     expect(transcriptCompactionView([event])).toEqual({
-      count: 12,
+      count: tools + scopes + discussions,
+      counts: { tool_exchanges: tools, scope_updates: scopes, discussion_messages: discussions },
       records: 1,
       sources: [],
       latestSequence: 9,
+      historyTarget: { session_id: "session-original", turn_id: "turn-original" },
     });
   });
 
-  it("V2：多条事件聚合数量、保留顺序并去重来源并集", () => {
+  it("乱序与重连重复事件按真实身份合并，保留类别和最早记录的原文入口", () => {
     const first = compactionEvent(3, {
-      payload: { covered_exchanges: 12, sources: ["角色档案", "作品设定"] },
+      payload: { ...payload(2, 3), sources: ["角色档案", "作品设定"] },
     });
     const second = compactionEvent(7, {
-      payload: { covered_exchanges: 3, sources: ["作品设定", "第一章正文"] },
+      payload: {
+        ...payload(0, 1, 4),
+        sources: ["作品设定", "第一章正文"],
+        history_target: { session_id: "session-original", turn_id: "turn-later" },
+      },
     });
 
-    expect(transcriptCompactionView([second, first])).toEqual({
-      count: 15,
+    expect(transcriptCompactionView([second, first, { ...first }])).toEqual({
+      count: 10,
+      counts: { tool_exchanges: 2, scope_updates: 4, discussion_messages: 4 },
       records: 2,
       sources: ["角色档案", "作品设定", "第一章正文"],
       latestSequence: 7,
+      historyTarget: { session_id: "session-original", turn_id: "turn-original" },
     });
+    expect(transcriptCompactionView([first, second])).toEqual(
+      transcriptCompactionView(JSON.parse(JSON.stringify([first, second])) as AgentEventData[]),
+    );
   });
 
-  it("V3：忽略非 checkpoint_created 与未标记 author 的事件", () => {
+  it("仅消费 checkpoint_created 的作者可见事件", () => {
     const other = compactionEvent(2, { event_type: "run_started" });
     const developer = compactionEvent(4, { visibility: "developer" });
-    const valid = compactionEvent(5, { payload: { covered_exchanges: 4, sources: [] } });
-
+    const valid = compactionEvent(5, { payload: payload(0, 0, 4) });
     expect(transcriptCompactionView([other, developer, valid])?.count).toBe(4);
   });
 
-  it("V4：非法 payload 该条忽略；全部无效返回 null", () => {
-    const invalid = [
-      compactionEvent(1, { payload: {} }),
-      compactionEvent(2, { payload: { covered_exchanges: 0 } }),
-      compactionEvent(3, { payload: { covered_exchanges: -2 } }),
-      compactionEvent(4, { payload: { covered_exchanges: "12" } }),
-      compactionEvent(5, { payload: { covered_exchanges: 1.5 } }),
+  it("缺失、旧格式、全零、部分缺失或非法数量不会被估算为成功记录", () => {
+    const invalidPayloads = [
+      undefined,
+      {},
+      { covered_exchanges: 12 },
+      payload(),
+      { covered_counts: { tool_exchanges: 1, scope_updates: 0 } },
+      { covered_counts: { ...payload(1).covered_counts, invented: 3 } },
+      { covered_counts: { ...payload(1).covered_counts, discussion_messages: -1 } },
+      { covered_counts: { ...payload(1).covered_counts, scope_updates: "2" } },
+      { covered_counts: { ...payload(1).covered_counts, scope_updates: 1.5 } },
+      payload(Number.MAX_SAFE_INTEGER, 1),
     ];
-
+    const invalid = invalidPayloads.map((value, index) =>
+      compactionEvent(index + 1, { payload: value }),
+    );
     expect(transcriptCompactionView(invalid)).toBeNull();
     expect(transcriptCompactionView(undefined)).toBeNull();
     expect(transcriptCompactionView(null)).toBeNull();
     expect(transcriptCompactionView([])).toBeNull();
   });
 
-  it("V5：来源只接受非空字符串并防御内部 ref 形状", () => {
+  it("来源仅接受显示名，内部来源身份只在导航字段保留", () => {
     const event = compactionEvent(6, {
       payload: {
-        covered_exchanges: 2,
+        ...payload(0, 2),
         sources: ["角色档案", "", "  ", "chapter:1", "call_abc123", 42, null, "第一章正文"],
       },
     });
-
     expect(transcriptCompactionView([event])?.sources).toEqual(["角色档案", "第一章正文"]);
   });
 
-  it("V6：乱序输入按 sequence 稳定聚合，latestSequence 取最大", () => {
-    const events = [
-      compactionEvent(10, { payload: { covered_exchanges: 2, sources: [] } }),
-      compactionEvent(1, { payload: { covered_exchanges: 1, sources: [] } }),
-      compactionEvent(5, { payload: { covered_exchanges: 3, sources: [] } }),
-    ];
-
-    expect(transcriptCompactionView(events)).toEqual({
-      count: 6,
-      records: 3,
-      sources: [],
-      latestSequence: 10,
+  it("后端摘要或维护说明不改变数量、来源和原文目标", () => {
+    const event = compactionEvent(9, {
+      payload: { ...payload(1, 2, 3), retained_items: 4, scope: "earlier_work_turns" },
     });
+    const changed = { ...event, summary: "任意后端文案" };
+    expect(transcriptCompactionView([changed])).toEqual(transcriptCompactionView([event]));
   });
 
-  it("V7：后端同形 fixture（含扩展键）稳定映射，不依赖 summary 自由文本", () => {
-    // fixture 与后端 AgentRunCompactionEventTest / ProviderActivityService.agent_event_summary
-    // 输出同形（payload 键名与类型一致）；保留 retained_items/scope 等扩展键不影响视图（向前兼容）。
-    const backendShaped = compactionEvent(9, {
-      payload: {
-        covered_exchanges: 12,
-        sources: ["角色档案"],
-        retained_items: 4,
-        scope: "earlier_work_turns",
-      },
-    });
-
-    expect(transcriptCompactionView([backendShaped])).toEqual({
-      count: 12,
-      records: 1,
-      sources: ["角色档案"],
-      latestSequence: 9,
-    });
-
-    // 改后端自由文本 summary 不影响视图：数量只来自 payload.covered_exchanges。
-    const changedSummary = { ...backendShaped, summary: "任意后端文案" };
-    expect(transcriptCompactionView([changedSummary])).toEqual(
-      transcriptCompactionView([backendShaped]),
-    );
-  });
-
-  it("V8：checkpoint_created 缺 payload 时该条忽略，不抛异常", () => {
-    const missingPayload = { ...compactionEvent(3), payload: undefined };
-    const valid = compactionEvent(4, { payload: { covered_exchanges: 2, sources: [] } });
-
-    expect(transcriptCompactionView([missingPayload])).toBeNull();
-    expect(transcriptCompactionView([missingPayload, valid])?.count).toBe(2);
+  it("缺少有效原文目标时不伪造目标或把当前工作回合当成原文", () => {
+    for (const target of [
+      undefined,
+      {},
+      { session_id: "s", turn_id: "" },
+      { session_id: 1, turn_id: "t" },
+    ]) {
+      const event = compactionEvent(3, {
+        payload: { ...payload(0, 0, 2), history_target: target },
+      });
+      expect(transcriptCompactionView([event])?.historyTarget).toBeNull();
+      expect(transcriptCompactionView([event])?.count).toBe(2);
+    }
   });
 });

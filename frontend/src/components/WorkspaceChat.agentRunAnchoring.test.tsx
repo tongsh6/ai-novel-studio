@@ -13,6 +13,7 @@ import {
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
   standaloneAgentRunActivityTurn,
+  stateFromTurnResult,
   upsertAssistantTurnResultMessage,
   type AgentRunAnchorMessage,
 } from "../lib/agentRunAnchoring";
@@ -34,6 +35,49 @@ function turnResult(attrs: Partial<TurnResult>): TurnResult {
 }
 
 describe("WorkspaceChat AgentRun message anchoring", () => {
+  it.each(["status", "phase"] as const)(
+    "keeps business delivery separate when runtime %s is absent",
+    (missing) => {
+      const summary: NonNullable<TurnResult["agent_run"]> = {
+        run_id: "run-maintenance",
+        run_mode: "bounded",
+        status: "running",
+        phase: "executing",
+      };
+      delete summary[missing];
+      const reply = turnResult({ agent_run: summary });
+
+      expect(stateFromTurnResult(reply)).toBeNull();
+      expect(reply.assistant_message?.text).toBe("完成回应");
+    },
+  );
+
+  it("keeps a delivered business reply running until a real terminal snapshot arrives", () => {
+    const current = stateFromTurnResult(
+      turnResult({
+        agent_run: {
+          run_id: "run-maintenance",
+          run_mode: "bounded",
+          status: "running",
+          phase: "executing",
+        },
+      }),
+    );
+    expect(current).toMatchObject({ status: "running", phase: "executing" });
+    const terminal = stateFromTurnResult(
+      turnResult({
+        agent_run: {
+          run_id: "run-maintenance",
+          run_mode: "bounded",
+          status: "completed",
+          phase: "stopped",
+        },
+      }),
+    );
+    expect(terminal).toMatchObject({ status: "completed", phase: "stopped" });
+    expect(mergeAgentRunRuntimeState(terminal!, current!)).toEqual(terminal);
+  });
+
   it("does not hydrate a persisted parent TurnResult with a different child AgentRun", () => {
     const childRun = {
       run_id: "run_revision_child",

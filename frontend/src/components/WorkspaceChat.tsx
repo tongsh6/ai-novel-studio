@@ -70,7 +70,6 @@ import {
   type AgentEventData,
   type AgentCommand,
   type AgentRunStateData,
-  type AgentRunTriggerData,
   type CandidateSelectionPayload,
   type SendMessageResult,
   type TaskStateData,
@@ -139,7 +138,9 @@ import {
   agentRunProseStream,
   agentRunReasoningFlow,
   shouldShowAgentRunDialogueStatus,
-  type AgentRunProviderUsageData,
+  agentRunEventsFor,
+  isAgentEventData,
+  mergeAgentRunEvents,
 } from "../lib/agentRunTimeline";
 import { transcriptCompactionView } from "../lib/transcriptCompactionView";
 import {
@@ -210,6 +211,7 @@ import {
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
   standaloneAgentRunActivityTurn,
+  stateFromTurnResult,
   upsertAssistantTurnResultMessage,
 } from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
@@ -228,18 +230,10 @@ import {
 import { MarkdownText } from "./MarkdownText";
 import styles from "./WorkspaceChat.module.css";
 
-// TurnResult 线格式来自 codegen（docs/design/schemas/foundation/turn_result_v3.json，
-// ADR-0024 决策 5，禁止手写线契约类型）。这里只叠加 agent_run 的客户端运行时
-// 增强字段（hydrateAgentRunActivityForTurn 注入，不属于线契约）。
-// 注意不能用 Omit：线类型带 catchall 索引签名，Omit 会塌掉具名键。
-export type TurnResult = WireTurnResult & {
-  agent_run?: NonNullable<WireTurnResult["agent_run"]> & {
-    events?: AgentEventData[];
-    provider_runs?: AgentRunProviderUsageData[];
-    activity_loaded?: boolean;
-    trigger?: AgentRunTriggerData | null;
-  };
-};
+// TurnResult 线格式来自 codegen（docs/design/schemas/foundation/turn_result_v3.json）。
+// 业务结果保持线契约；运行状态与事件分别归现有 agentRunStates / agentEvents。
+// HTTP 补水不改写 TurnResult，旧业务回执重放不能擦除已知运行事实。
+export type TurnResult = WireTurnResult;
 
 export type QualityReview = NonNullable<WireTurnResult["quality_review"]>;
 export type QualityFindingView = QualityReview["findings"][number];
@@ -630,59 +624,6 @@ function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null
   return typeof runId === "string" && runId.trim() !== "" ? runId : null;
 }
 
-function normalizeAgentRunMode(value: unknown): "bounded" | "durable" {
-  return value === "durable" ? "durable" : "bounded";
-}
-
-function stateFromTurnResult(turnResult: TurnResult): AgentRunStateData | null {
-  const runId = turnResultAgentRunId(turnResult);
-  if (!runId) return null;
-
-  return {
-    run_id: runId,
-    run_mode: normalizeAgentRunMode(turnResult.agent_run?.run_mode),
-    status: turnResult.agent_run?.status ?? "completed",
-    phase: turnResult.agent_run?.phase ?? "completed",
-    long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
-    parent_turn_ref: turnResult.agent_run?.parent_turn_ref ?? turnResult.parent_turn_id ?? null,
-    profile_ref: turnResult.agent_run?.profile_ref ?? null,
-    trigger: turnResult.agent_run?.trigger ?? null,
-  };
-}
-
-function agentRunEventsFromTurnResult(turnResult: TurnResult | undefined): AgentEventData[] {
-  const events = turnResult?.agent_run?.events;
-  if (!Array.isArray(events)) return [];
-
-  return events.filter(isAgentEventData);
-}
-
-function isAgentEventData(event: unknown): event is AgentEventData {
-  return (
-    Boolean(event) &&
-    typeof event === "object" &&
-    typeof (event as AgentEventData).event_id === "string" &&
-    typeof (event as AgentEventData).run_ref === "string" &&
-    typeof (event as AgentEventData).event_type === "string" &&
-    typeof (event as AgentEventData).visibility === "string" &&
-    typeof (event as AgentEventData).summary === "string" &&
-    typeof (event as AgentEventData).sequence === "number"
-  );
-}
-
-function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[]): AgentEventData[] {
-  const byKey = new Map<string, AgentEventData>();
-
-  for (const event of [...restored, ...live]) {
-    byKey.set(event.event_id || `${event.run_ref}:${event.sequence}:${event.event_type}`, event);
-  }
-
-  return Array.from(byKey.values()).sort((a, b) => {
-    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
-    return (a.emitted_at ?? "").localeCompare(b.emitted_at ?? "");
-  });
-}
-
 type AgenticLoopPhaseStatus = "pending" | "active" | "done";
 
 // 46 §9.5（第 4 条）：等待时长锚点只能来自作者可见的真实运行事实。
@@ -815,8 +756,8 @@ interface AgentRunDialogueFlowProps {
   // 46§9.4 进度行：待采纳草稿总字数（由调用方从 adoption_state 计算；无产物为 null）。
   draftCharCount?: number | null;
   deliveredResults?: ReadonlyArray<TurnResult>;
-  // 46 §9.9：整理记录细条「查看完整记录」打开既有 Why/trace 面板；无对应 turn 时不传（隐藏入口）。
-  onOpenHistory?: () => void;
+  // 46 §9.9：整理记录按真实来源复用 Interaction 历史定位；内部身份不作显示。
+  onOpenHistory?: (target: Pick<SessionSearchHit, "session_id" | "turn_id">) => void;
 }
 
 export function AgentRunDialogueFlow({
@@ -830,6 +771,7 @@ export function AgentRunDialogueFlow({
   // 46 §9.9：整理记录只在当前工作回合内展开一次；事件更新不重置展开态（不闪烁）。
   const [compactionExpanded, setCompactionExpanded] = useState(false);
   const compactionView = transcriptCompactionView(events);
+  const compactionHistoryTarget = compactionView?.historyTarget;
   const elapsedSeconds = useAgentRunElapsedSeconds(run?.status, events);
   const reasoningFlow = agentRunReasoningFlow(events, deliveredResults);
   const proseStream = agentRunProseStream(events, run?.status ?? null);
@@ -1014,7 +956,11 @@ export function AgentRunDialogueFlow({
           expanded={compactionExpanded}
           copy={TRANSCRIPT_COMPACTION_COPY}
           onToggle={() => setCompactionExpanded((previous) => !previous)}
-          onOpenHistory={onOpenHistory}
+          onOpenHistory={
+            compactionHistoryTarget && onOpenHistory
+              ? () => onOpenHistory(compactionHistoryTarget)
+              : undefined
+          }
         />
       )}
     </div>
@@ -1549,12 +1495,6 @@ export function WorkspaceChat() {
     {},
   );
   const [agentRunActivityLoaded, setAgentRunActivityLoaded] = useState<Record<string, boolean>>({});
-  // B23 CP1 补口：无 TurnResult 的 standalone 运行组（如 judgment_plan 纯只读计划
-  // 耗尽停等）从持久化 activity 补来的 author-safe 事件，按 run_id 缓存，供
-  // latestAgentRunEvents 使用（不改写 transcript 消息）。
-  const [standaloneAgentRunActivityEvents, setStandaloneAgentRunActivityEvents] = useState<
-    Record<string, AgentEventData[]>
-  >({});
   const [pendingAgentRunAnchors, setPendingAgentRunAnchors] = useState<
     Record<string, PendingAgentRunAnchor>
   >({});
@@ -1677,32 +1617,14 @@ export function WorkspaceChat() {
     return Array.isArray(events) ? events.filter(isAgentEventData) : [];
   }
 
-  // B23 CP1 补口：运行组事件源 = 该 run 的持久化补水事件 + live agent_event 帧。
-  // 无 TurnResult 的 standalone 运行组（如 judgment_plan 纯只读计划耗尽、停等）靠前者
-  // 在刷新后保住作者可见理由；有 TurnResult 的运行组通常补水为空，行为零变化。
+  // 有无业务 TurnResult 都消费同一事件视图；HTTP 与 WS 不持有平行副本。
   function agentRunActivityEventsFor(runId: string): AgentEventData[] {
-    return mergeAgentRunEvents(
-      standaloneAgentRunActivityEvents[runId] ?? [],
-      agentEvents.filter((event) => event.run_ref === runId),
-    );
+    return agentRunEventsFor(agentEvents, runId);
   }
 
-  function agentRunActivityProviderRuns(
-    activity: { provider_runs?: Record<string, unknown>[] },
-    runId: string | null,
-  ): AgentRunProviderUsageData[] {
-    const providerRuns = Array.isArray(activity.provider_runs) ? activity.provider_runs : [];
-    const scopedRuns = runId
-      ? providerRuns.filter((entry) => entry.run_id === undefined || entry.run_id === runId)
-      : providerRuns;
-
-    return scopedRuns;
-  }
-
-  // Lift the turn_result handler so the effect below stays focused on connection setup.
   async function hydrateAgentRunActivityForTurn(result: TurnResult) {
     const workId = context.workId;
-    const sessionId = activeSessionIdRef.current;
+    const sessionId = visibleTranscriptSessionIdRef.current;
     const connection = activeConnectionRef.current;
     const key = agentRunActivityKey(result);
     const queryTurn = agentRunActivityQueryTurn(result);
@@ -1714,27 +1636,22 @@ export function WorkspaceChat() {
     try {
       const activity = await getTurnAgentRunActivity(workId, sessionId, queryTurn);
       if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+      if (visibleTranscriptSessionIdRef.current !== sessionId) return;
 
       const runId = turnResultAgentRunId(result);
-      const providerRuns = agentRunActivityProviderRuns(activity, runId);
-      const events = agentRunActivityEvents(activity, runId);
       const agentRun = agentRunActivityAgentRun(activity, runId);
-
-      setMessages((prev) =>
-        prev.map((message) => {
-          if (message.turnResult?.turn_id !== result.turn_id) return message;
-
-          return {
-            ...message,
-            turnResult: putAgentRunActivityIntoTurnResult(
-              message.turnResult,
-              agentRun,
-              events,
-              providerRuns,
-            ),
-          };
-        }),
-      );
+      if (!agentRun) return;
+      const state = stateFromTurnResult({
+        ...result,
+        agent_run: { ...result.agent_run, ...agentRun },
+      });
+      if (!state) return;
+      const events = agentRunActivityEvents(activity, runId);
+      setAgentEvents((prev) => mergeAgentRunEvents(prev, events));
+      setAgentRunStates((prev) => ({
+        ...prev,
+        [state.run_id]: mergeAgentRunRuntimeState(prev[state.run_id], state),
+      }));
       setAgentRunActivityLoaded((prev) => ({ ...prev, [key]: true }));
     } catch {
       // AgentRun activity is supplementary author-safe detail; the turn result remains usable.
@@ -1744,21 +1661,6 @@ export function WorkspaceChat() {
   }
 
   function handleTurnResult(result: TurnResult) {
-    if (
-      result.turn_id &&
-      typeof result.work_id === "string" &&
-      typeof result.session_id === "string" &&
-      result.agent_run &&
-      ["completed", "failed", "cancelled", "awaiting_author"].includes(
-        result.agent_run.status ?? "",
-      )
-    ) {
-      void acknowledgeUserMessage(
-        result.work_id,
-        result.session_id,
-        result.agent_run.parent_turn_ref ?? result.turn_id,
-      ).catch(console.warn);
-    }
     setMessages((prev) => upsertAssistantTurnResultMessage(prev, result));
     const resultAgentRunState = stateFromTurnResult(result);
     if (resultAgentRunState) {
@@ -1799,43 +1701,21 @@ export function WorkspaceChat() {
     }
   }
 
-  // 恢复的历史消息（transcript 回灌）没有 turn_result 广播路径，其运行组三层 UI
-  // （计划 checklist / 推理叙事）需要从持久化 activity 重建。原「工作详情」展开是
-  // 恢复端唯一加载入口，随 Order 62 卡片简化移除后未补，导致 reload 后历史执行
-  // 过程空白——这里改为对带 agent_run 摘要且未补水的消息惰性补水；
-  // hydrateAgentRunActivityForTurn 内的 loaded/loading 幂等守卫防止重复请求，
-  // activity API 只读持久层、不重新调用 provider（lazy-page 场景不变量约束）。
+  // 恢复消息只用于定位对应运行；持久 activity 汇入独立运行视图，
+  // 回执/分页快照替换消息不会清除事件。查询仍由 loaded/loading 控制，
+  // 不把查询状态写入业务结果，也不因普通重渲染重新调用 Provider。
   useEffect(() => {
     // 异步调度避免在 effect 内同步 setState；hydrate 自身通过 loaded/loading map 幂等。
     const timer = window.setTimeout(() => {
       for (const message of messages) {
         const turnResult = message.turnResult;
         if (message.role !== "assistant" || !turnResult?.agent_run?.run_id) continue;
-        if (turnResult.agent_run.activity_loaded) continue;
         void hydrateAgentRunActivityForTurn(turnResult);
       }
     }, 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
-
-  function putAgentRunActivityIntoTurnResult(
-    turnResult: TurnResult,
-    agentRunSummary: Record<string, unknown> | null,
-    events: AgentEventData[],
-    providerRuns: AgentRunProviderUsageData[],
-  ): TurnResult {
-    return {
-      ...turnResult,
-      agent_run: {
-        ...(turnResult.agent_run ?? {}),
-        ...(agentRunSummary ?? {}),
-        events,
-        provider_runs: providerRuns,
-        activity_loaded: true,
-      },
-    };
-  }
 
   function handleTaskState(state: TaskStateData) {
     if (state.phase === "RUNNING" || state.phase === "RESUMING") {
@@ -1913,7 +1793,6 @@ export function WorkspaceChat() {
     setAgentRunLastEventAt({});
     setAgentRunActivityLoading({});
     setAgentRunActivityLoaded({});
-    setStandaloneAgentRunActivityEvents({});
     setPendingAgentRunAnchors({});
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
@@ -2107,7 +1986,7 @@ export function WorkspaceChat() {
 
     channel.on("turn_result", (result: unknown) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
-      handleTurnResult(parseIncomingTurnResult(result));
+      handleTurnResultRef.current(parseIncomingTurnResult(result));
       // B13b §4.1 #11：本轮写作坐标变化后刷新头部当前卷（真实 turn_result 携带
       // writing_coordinate；服务端解析卷标题，前端不猜）。
       void refreshWritingCoordinate(channel, work.id, token);
@@ -2167,6 +2046,14 @@ export function WorkspaceChat() {
     });
     onAgentRunState(channel, (state) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      // 真实运行回执解除本地送达义务；业务 TurnResult 中的阶段快照不能代替它。
+      if (
+        sessionId &&
+        state.parent_turn_ref &&
+        submissionIsSettled({ received: true, agent_run_state: state })
+      ) {
+        void acknowledgeUserMessage(work.id, sessionId, state.parent_turn_ref).catch(console.warn);
+      }
       setAgentRunStates((prev) => ({
         ...prev,
         [state.run_id]: mergeAgentRunRuntimeState(prev[state.run_id], state),
@@ -2330,12 +2217,22 @@ export function WorkspaceChat() {
     const authorSentNewMessage =
       messages.length > chatMessageCountRef.current && messages.at(-1)?.role === "user";
     chatMessageCountRef.current = messages.length;
+    if (readOnlySession !== null) return;
     if (authorSentNewMessage) chatPinnedToBottomRef.current = true;
     if (!chatPinnedToBottomRef.current) return;
 
     const chatArea = chatAreaRef.current;
     if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
-  }, [messages, loading, agentEvents, agentRunStates]);
+  }, [messages, loading, agentEvents, agentRunStates, readOnlySession]);
+
+  // 历史页的 DOM 提交后再定位；网络回调中的下一帧不能代表 React 已完成渲染。
+  // 仅历史目标切换触发，后续事件更新不得夺走作者手动阅读位置。
+  useLayoutEffect(() => {
+    if (readOnlySession === null || highlightedTurnId === null) return;
+    chatAreaRef.current
+      ?.querySelector<HTMLElement>(`.${styles.searchHitMessage}`)
+      ?.scrollIntoView({ block: "center" });
+  }, [readOnlySession, highlightedTurnId]);
 
   const isReadOnlySessionView = readOnlySession !== null;
   const runtimeState = deriveWorkspaceRuntimeState({
@@ -2426,22 +2323,9 @@ export function WorkspaceChat() {
   const agentRunIdsRenderedInTurns = new Set(
     messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
   );
-  const latestAgentRunRestoredEvents = latestAgentRun
-    ? messages.flatMap((message) =>
-        turnResultAgentRunId(message.turnResult) === latestAgentRun.run_id
-          ? agentRunEventsFromTurnResult(message.turnResult)
-          : [],
-      )
-    : [];
-  // B23 CP1 补口：无 TurnResult 的 standalone 运行组没有 restored events；其事件源
-  // 来自持久化 activity 补水 + live 帧（按 event_id 去重合并）。
   const latestAgentRunEvents = latestAgentRun
-    ? mergeAgentRunEvents(
-        latestAgentRunRestoredEvents,
-        agentRunActivityEventsFor(latestAgentRun.run_id),
-      )
+    ? agentRunActivityEventsFor(latestAgentRun.run_id)
     : [];
-
   // B23 CP1 补口（刷新后理由不丢）：judgment_plan 纯只读计划耗尽、停在 awaiting_author
   // 时不产 TurnResult。刷新后 transcript 没有任何消息可触发 turn_result 补水路径，
   // join 只恢复 agent_run_state（events 为空）→ 活动行回落兜底句。这里对
@@ -2471,10 +2355,7 @@ export function WorkspaceChat() {
           if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
           if (activeSessionIdRef.current !== sessionId) return;
           const events = agentRunActivityEvents(activity, run.run_id);
-          setStandaloneAgentRunActivityEvents((prev) => ({
-            ...prev,
-            [run.run_id]: mergeAgentRunEvents(prev[run.run_id] ?? [], events),
-          }));
+          setAgentEvents((prev) => mergeAgentRunEvents(prev, events));
           setAgentRunActivityLoaded((prev) => ({ ...prev, [key]: true }));
         })
         .catch(() => {
@@ -3396,7 +3277,7 @@ export function WorkspaceChat() {
     const turnResults = messages
       .map((msg) => msg.turnResult)
       .filter((turnResult): turnResult is TurnResult => Boolean(turnResult))
-      .concat(pendingAdoptionTurns as unknown as TurnResult[]);
+      .concat(pendingAdoptionTurns);
 
     const candidateTurns = sourceTurnRef
       ? turnResults.filter((turnResult) => turnResult.turn_id === sourceTurnRef)
@@ -3486,17 +3367,29 @@ export function WorkspaceChat() {
     }
   };
 
-  const handleOpenSearchHit = async (hit: SessionSearchHit) => {
-    if (!context.workId || context.workId === "lobby") return;
+  // 搜索命中与整理来源共用同一历史分页/高亮路径；不创建第二份消息记录。
+  const handleOpenHistoryTurn = async (hit: Pick<SessionSearchHit, "session_id" | "turn_id">) => {
+    const workId = context.workId;
+    const connection = activeConnectionRef.current;
+    if (!workId || workId === "lobby") return;
 
     try {
       const [snapshot, page] = await Promise.all([
-        getSessionSnapshot(context.workId, hit.session_id),
-        getSessionTranscriptPage(context.workId, hit.session_id, {
-          aroundTurnId: hit.turn_id,
-        }),
+        getSessionSnapshot(workId, hit.session_id),
+        getSessionTranscriptPage(workId, hit.session_id, { aroundTurnId: hit.turn_id }),
       ]);
+      if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+      if (
+        snapshot.session.id !== hit.session_id ||
+        !page.transcript.some((entry) => entry.turn_id === hit.turn_id)
+      ) {
+        throw new Error("History source is unavailable");
+      }
       const restoredMessages = transcriptToMessages(page.transcript) as ChatMessage[];
+      // 历史加载不等于作者发送新消息，不能由钉底逻辑把目标移出视野。
+      chatPinnedToBottomRef.current = false;
+      chatMessageCountRef.current = restoredMessages.length;
+      visibleTranscriptSessionIdRef.current = hit.session_id;
       setReadOnlySession(snapshot.session);
       setReadOnlySourceTurnRef(hit.turn_id);
       setHighlightedTurnId(hit.turn_id);
@@ -3507,6 +3400,7 @@ export function WorkspaceChat() {
       setTranscriptRestored(restoredMessages.length > 0);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
     } catch {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
     }
   };
@@ -3537,6 +3431,9 @@ export function WorkspaceChat() {
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       setReadOnlySession(null);
       setReadOnlySourceTurnRef(null);
+      setHighlightedTurnId(null);
+      chatPinnedToBottomRef.current = true;
+      visibleTranscriptSessionIdRef.current = snapshot.active_session.id;
       setActiveSessionId(snapshot.active_session.id);
       setSessions(snapshot.sessions);
       setTranscriptPage(snapshot.transcript_page);
@@ -4528,7 +4425,7 @@ export function WorkspaceChat() {
                   void handleSessionSearch(query);
                 }}
                 onOpenSearchHit={(hit) => {
-                  void handleOpenSearchHit(hit);
+                  void handleOpenHistoryTurn(hit);
                 }}
                 onOpenSession={(session) => {
                   void handleOpenSession(session);
@@ -5058,19 +4955,8 @@ export function WorkspaceChat() {
                   ? { ...messageAgentRunFromState, ...messageAgentRunFromTurn }
                   : (messageAgentRunFromState ?? messageAgentRunFromTurn);
               const messageAgentRunEvents = messageAgentRunId
-                ? mergeAgentRunEvents(
-                    agentRunEventsFromTurnResult(msg.turnResult),
-                    agentRunActivityEventsFor(messageAgentRunId),
-                  )
+                ? agentRunActivityEventsFor(messageAgentRunId)
                 : [];
-              // 46 §9.9：整理细条的「查看完整记录」复用既有 Why/trace 面板；无 turn 时不传。
-              const openMessageTrace = msg.turnResult
-                ? () => {
-                    const result = msg.turnResult;
-                    if (!result) return;
-                    void openTraceDialog(result.turn_id, result.trace_summary);
-                  }
-                : undefined;
               const messageKey = messageRenderKey(msg, i);
 
               return (
@@ -5117,7 +5003,9 @@ export function WorkspaceChat() {
                           events={messageAgentRunEvents}
                           draftCharCount={pendingDraftCharCount(msg.turnResult)}
                           deliveredResults={deliveredResults}
-                          onOpenHistory={openMessageTrace}
+                          onOpenHistory={(target) => {
+                            void handleOpenHistoryTurn(target);
+                          }}
                         />
                       )}
 
@@ -5479,7 +5367,9 @@ export function WorkspaceChat() {
                             run={actionTriggeredAgentRun}
                             events={actionTriggeredAgentRunEvents}
                             deliveredResults={deliveredResults}
-                            onOpenHistory={openMessageTrace}
+                            onOpenHistory={(target) => {
+                              void handleOpenHistoryTurn(target);
+                            }}
                           />
                         </div>
                       )}
@@ -5494,7 +5384,9 @@ export function WorkspaceChat() {
                         run={anchoredAgentRun}
                         events={anchoredAgentRunEvents}
                         deliveredResults={deliveredResults}
-                        onOpenHistory={openMessageTrace}
+                        onOpenHistory={(target) => {
+                          void handleOpenHistoryTurn(target);
+                        }}
                       />
                     </div>
                   )}

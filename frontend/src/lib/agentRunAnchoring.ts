@@ -1,3 +1,5 @@
+import type { AgentRunStateData } from "./socket";
+import type { WireTurnResult } from "./turnResultWire";
 import { isTerminalAgentRun } from "./agentRunInputRouting";
 
 export interface AgentRunAnchorMessage<TurnResultShape = unknown> {
@@ -330,6 +332,25 @@ export function shouldRenderStandaloneAgentRunStatus<
   if (runIsTerminal) return false;
 
   return latestUserMessageDoesNotAnchorRun;
+}
+
+export function stateFromTurnResult(
+  turnResult: WireTurnResult & { agent_run?: Pick<AgentRunStateData, "trigger"> },
+): AgentRunStateData | null {
+  const summary = turnResult.agent_run;
+  const runId = normalizedString(summary?.run_id);
+  if (!runId || !summary?.status || !summary.phase) return null;
+
+  return {
+    run_id: runId,
+    run_mode: turnResult.agent_run?.run_mode === "durable" ? "durable" : "bounded",
+    status: summary.status,
+    phase: summary.phase,
+    long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
+    parent_turn_ref: turnResult.agent_run?.parent_turn_ref ?? turnResult.parent_turn_id ?? null,
+    profile_ref: turnResult.agent_run?.profile_ref ?? null,
+    trigger: turnResult.agent_run?.trigger ?? null,
+  };
 }
 
 export function mergeAgentRunRuntimeState<State extends AgentRunRuntimeStateLike>(
