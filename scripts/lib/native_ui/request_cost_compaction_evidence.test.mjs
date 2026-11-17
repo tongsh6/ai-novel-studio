@@ -362,10 +362,10 @@ test("同run多作者只按来源最近在先作者判早期覆盖，不能借�
     record.request.body.messages = messages;
   }
   const summary = input.records.find((record) => record.provider_call_ref === "pcall-summary");
-  const material = JSON.parse(wire(summary)[0].content.split("\n").slice(1).join("\n"));
+  const material = JSON.parse(wire(summary).find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content.split("\n").slice(1).join("\n"));
   material.sources[0].source.run_sequence = 7;
   material.sources[0].author_text = plan[3].author;
-  wire(summary)[0].content = "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify(material);
+  wire(summary).find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content = "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify(material);
   const block = changeCheckpoint(input, (checkpoint) => {
     checkpoint.covers.message_refs.find((ref) => ref.role === "assistant").run_sequence = 7;
     checkpoint.source_refs.find((ref) => ref.ref === "session_message:early:4").ref = "session_message:early:7";

@@ -3,7 +3,110 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { auditCanonicalCoverage, auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
-import { discussionCoverageFacts as coverageSpec, discussionMaintenanceFacts } from "./fixtures/authoring_discussion_facts.mjs";
+import { discussionCoverageFacts as coverageSpec, discussionMaintenanceFacts as originalMaintenanceFacts } from "./fixtures/authoring_discussion_facts.mjs";
+function discussionMaintenanceFacts() {
+  const spec = originalMaintenanceFacts();
+  spec.options.providerRuns[0].operation_checkpoint = {
+    version: "provider-operation-checkpoint/v1", goal_version: 1, plan: {},
+  };
+  return spec;
+}
+const materialMessage = spec => spec.summaryRecord.request.body.messages.find(message =>
+  message.role === "user" && message.content.startsWith("【应用数据 · application_base"));
+function v2Spec(indices = [0, 1, 3]) {
+  const spec = discussionMaintenanceFacts();
+  spec.options.providerRuns[0].operation_checkpoint = {
+    version: "provider-operation-checkpoint/v2", goal_version: 1, plan: {},
+    discussion_protocol_version: "authoring-discussion-summary/v2",
+  };
+  const original = "风险表未完成。\r\n请作者确认。\r中间说明\n尾行😀";
+  spec.messages[2].blocks[0].text = original;
+  const message = materialMessage(spec);
+  const prefix = message.content.slice(0, message.content.indexOf("\n") + 1);
+  const material = JSON.parse(message.content.slice(prefix.length));
+  delete material.sources[0].text;
+  material.sources[0].fragments = [
+    { fragment_index: 0, text: "风险表未完成。\r\n" },
+    { fragment_index: 1, text: "请作者确认。\r" },
+    { fragment_index: 2, text: "中间说明\n" },
+    { fragment_index: 3, text: "尾行😀" },
+  ];
+  message.content = prefix + JSON.stringify(material);
+  spec.summaryRecord.request.body.messages.find(message => message.role === "system").content =
+    "output_protocol_version: authoring-discussion-summary/v2";
+  const discussion = spec.messages.at(-1).blocks[0].discussion;
+  discussion.response_text = JSON.stringify({ version: "authoring-discussion-summary/v2",
+    entries: [{ source_index: 0, summary: "尚欠风险表与作者确认。", retained_fragment_indices: indices }] });
+  discussion.response_sha256 = createHash("sha256").update(discussion.response_text).digest("hex");
+  spec.options.providerOutputs[0].content_summary.content_sha256 = discussion.response_sha256;
+  return spec;
+}
+
+test("v2独立完整行片段：原字节、连续与不连续义务，并保持v1历史", () => {
+  const spec = v2Spec();
+  const audited = auditCanonicalCoverage(spec.messages, spec.options);
+  assert.equal(audited.ok, true, audited.reason);
+  assert.deepEqual(audited.checkpoints[0].entries[0].retained_obligations,
+    ["风险表未完成。\r\n请作者确认。\r", "尾行😀"]);
+  const request = auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages);
+  assert.equal(request.ok, true, request.reason);
+  assert.equal(analyzeRequestCost(spec.summaryRecord, {applicationBinding:request.binding,purpose:"other"}).ok,true);
+  assert.equal(auditCanonicalCoverage(coverageSpec().messages, coverageSpec().options).ok,true);
+  for (const indices of [[4],[-1],[1,1],[2,0],[0.5],["0"]]) {
+    const bad = v2Spec(indices);
+    assert.equal(auditCanonicalCoverage(bad.messages,bad.options).ok,false,JSON.stringify(indices));
+  }
+  for (const mutate of [
+    m=>m.sources[0].fragments[0].text="风险表未完成。\n",
+    m=>m.sources[0].fragments.reverse(),
+    m=>m.sources[0].fragments[1].fragment_index=0,
+    m=>m.sources[0].text="重复原文",
+  ]) {
+    const bad=v2Spec(), item=materialMessage(bad);
+    const p=item.content.indexOf("\n")+1, material=JSON.parse(item.content.slice(p));
+    mutate(material); item.content=item.content.slice(0,p)+JSON.stringify(material);
+    assert.equal(auditCanonicalCoverage(bad.messages,bad.options).ok,false);
+    assert.equal(auditDiscussionRequest(bad.summaryRecord,bad.options.providerRuns[0],bad.messages).ok,false);
+  }
+  const mismatch=v2Spec();
+  mismatch.summaryRecord.request.body.messages[0].content="output_protocol_version: authoring-discussion-summary/v1";
+  assert.equal(auditCanonicalCoverage(mismatch.messages,mismatch.options).ok,false);
+  assert.equal(auditDiscussionRequest(mismatch.summaryRecord,mismatch.options.providerRuns[0],mismatch.messages).ok,false);
+});
+
+test("v2协议声明必须唯一且存在，不能用空集合或重复自证", () => {
+  for (const mutate of [
+    messages=>messages.shift(),
+    messages=>messages.push(structuredClone(messages[0])),
+    messages=>messages[0].content += "\noutput_protocol_version: authoring-discussion-summary/v1",
+  ]) {
+    const spec=v2Spec(); mutate(spec.summaryRecord.request.body.messages);
+    assert.equal(auditCanonicalCoverage(spec.messages,spec.options).ok,false);
+    assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],spec.messages).ok,false);
+  }
+});
+
+test("v2成本按冻结capsule而非坏响应猜版本；缺失/错配不能退回旧格式", () => {
+  for (const mutate of [
+    c=>delete c.discussion_protocol_version,
+    c=>c.discussion_protocol_version="authoring-discussion-summary/v1",
+    c=>c.version="provider-operation-checkpoint/v9",
+    c=>c.unexpected=true,
+    c=>c.goal_version=0,
+    c=>c.plan=null,
+  ]) {
+    const spec=v2Spec(); mutate(spec.options.providerRuns[0].operation_checkpoint);
+    assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],spec.messages).ok,false);
+  }
+  const spec=v2Spec();
+  spec.options.providerRuns[0].operation_checkpoint.response_text="{broken";
+  const withoutCheckpoint=spec.messages.filter(m=>m.role!=="checkpoint");
+  assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],withoutCheckpoint).ok,true);
+  delete spec.options.providerRuns[0].operation_checkpoint;
+  assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],withoutCheckpoint).ok,false);
+  assert.equal(auditDiscussionRequest(spec.summaryRecord,spec.options.providerRuns[0],spec.messages).ok,true);
+});
+
 test("维护成本来源来自真实坐标与原文；无Checkpoint也计成本，不伪造作者", () => {
   const spec = discussionMaintenanceFacts();
   const run = spec.options.providerRuns[0];
@@ -17,9 +120,10 @@ test("维护成本来源来自真实坐标与原文；无Checkpoint也计成本�
   assert.equal(analysis.cross.current_author_index, null);
   assert.equal(analysis.category_bytes.current_author, 0);
   assert.equal(analysis.category_bytes.application_base,
-    Buffer.byteLength(spec.summaryRecord.request.body.messages[0].content));
+    Buffer.byteLength(materialMessage(spec).content));
   assert.equal(analysis.provenance.basis, "external_application_binding");
-  assert.deepEqual(analysis.provenance.trusted_application_messages, [0]);
+  assert.deepEqual(analysis.provenance.trusted_application_messages,
+    [spec.summaryRecord.request.body.messages.indexOf(materialMessage(spec))]);
   assert.equal(analyzeRequestCost(spec.summaryRecord).ok, false);
   const tampered = structuredClone(spec.summaryRecord);
   tampered.provider_call_ref = "another-call";
@@ -78,12 +182,12 @@ test("失败维护仍按原来源计费；来源列表重排或替换不能改�
   spec.messages.splice(3, 0, second);
   const coordinate = [run.workspace_id, run.work_id, run.session_id, "early", 5];
   run.owner_refs.discussion_source_keys.push("authoring-session-source/v1:" + JSON.stringify(coordinate));
-  const original = spec.summaryRecord.request.body.messages[0].content;
+  const original = materialMessage(spec).content;
   const prefix = original.slice(0, original.indexOf("\n") + 1);
   const material = JSON.parse(original.slice(original.indexOf("\n") + 1));
   material.sources.push({ source_index: 1, source: {run_id:"early", run_sequence:5},
     text:"另一个讨论来源，尚欠场景检查。", author_text:"  比较双视角与单视角；先别执行，仍欠风险表。\r\n" });
-  spec.summaryRecord.request.body.messages[0].content = prefix + JSON.stringify(material);
+  materialMessage(spec).content = prefix + JSON.stringify(material);
   const good = auditDiscussionRequest(spec.summaryRecord, run, spec.messages);
   assert.equal(good.ok, true, good.reason);
   assert.equal(good.sourceCount, 2);

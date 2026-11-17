@@ -55,7 +55,7 @@ test("R03 C5/C6：零工具纯讨论与旧 Scope 有真实摘要执行/材料及
 
 test("R03 C5：材料错源、原话改字节、旧 Scope/长答重放、末 checkpoint 缺下一请求均不能过", () => {
   for (const [name, mutate, expected] of [
-    ["summary material changed", (s) => { s.summaryRecord.request.body.messages[0].content = s.summaryRecord.request.body.messages[0].content.replace("仍欠风险表", "风险表已完成"); }, false],
+    ["summary material changed", (s) => { s.summaryRecord.request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content = s.summaryRecord.request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content.replace("仍欠风险表", "风险表已完成"); }, false],
     ["author trimmed", (s) => { s.after.request.body.messages[0].content = s.after.request.body.messages[0].content.trim(); }, false],
     ["covered discussion replay", (s) => { s.after.request.body.messages.push({ role: "assistant", content: s.messages[2].blocks[0].text }); }, false],
     ["scope version changed", (s) => { s.after.request.body.messages[2].content = s.after.request.body.messages[2].content.replace("版本：{}", '版本：{"goal":99}'); }, false],
@@ -407,7 +407,7 @@ test("R03 C8：缺快照、错作者、原响应或计划改变、重复调用�
     ["原作者改字节", (s) => { s.facts.recoveryInputs[0].text += "改"; }],
     ["跨作品", (s) => { s.facts.scope.work_id = "foreign"; }],
     ["snapshot原文改变", (s) => { s.facts.afterFailure.authoring_session_messages[1].message += " "; }],
-    ["摘要材料改字节", (s) => { s.records[0].request.body.messages[0].content = s.records[0].request.body.messages[0].content.replace("仍欠风险表", "风险表已完成"); }],
+    ["摘要材料改字节", (s) => { s.records[0].request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content = s.records[0].request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content.replace("仍欠风险表", "风险表已完成"); }],
     ["失败执行元数据丢失", (s) => { s.db.provider_runs.find((run) => run.id === "prun-failed-d").owner_refs = {}; }],
     ["故障无实际dispatch", (s) => { s.facts.afterFailure.provider_events = []; }],
     ["故障输出缺失", (s) => { s.facts.afterFailure.provider_outputs = []; }],

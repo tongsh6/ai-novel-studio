@@ -62,7 +62,8 @@ export function discussionMaintenanceFacts({ workId = "work-discussion", session
   const summaryRecord = {
     provider: "splash", provider_run_ref: "prun-summary", provider_call_ref: "pcall-summary",
     workspace_id: WORK, work_id: WORK, session_id: SESSION, turn_id: "turn-current",    request: { body: { model: "local/Q4-PLE4", reasoning_effort: "high", max_tokens: 8192,
-      messages: [{ role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify({
+      messages: [{ role: "system", content: "output_protocol_version: authoring-discussion-summary/v1" },
+        { role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify({
         material_kind: "quoted_discussion_sources", sources: [{ source_index: 0,
           source: { run_id: "early", run_sequence: 4 }, text: discussion.blocks[0].text,
           author_text: author.blocks[0].text }],
@@ -161,7 +162,7 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
   if (recoveryInputs) {
     setAuthorText(recovered.db.authoring_session_messages, "source-e", recoveryInputs[0]);
     setAuthorText(recovered.db.authoring_session_messages, "recovered-e", recoveryInputs.at(-1));
-    const materialMessage = recovered.summaryRecord.request.body.messages[0];
+    const materialMessage = recovered.summaryRecord.request.body.messages.find(message => message.content?.startsWith("【应用数据 · application_base"));
     const prefix = materialMessage.content.indexOf("\n") + 1;
     const material = JSON.parse(materialMessage.content.slice(prefix));
     material.sources[0].author_text = recoveryInputs[0].text;

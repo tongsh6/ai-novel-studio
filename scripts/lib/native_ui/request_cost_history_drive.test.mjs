@@ -80,7 +80,9 @@ function fixture({ discussion = true, outside = true, requiredOutside = true } =
   const config = { work: { id: WORK, title: "原文回查作品" }, session_id: SESSION, length: 20,
     compaction_history_check: { required: true, require_outside_initial_page: requiredOutside } };
   const providerRecords = discussion ? [{ provider_run_ref: "provider-summary", provider_call_ref: "call-summary",
-    request: { body: { tools: [], messages: [{ role: "user", content: "【应用数据 · application_base】\n" + JSON.stringify({
+    request: { body: { tools: [], messages: [
+      { role: "system", content: "output_protocol_version: authoring-discussion-summary/v1" },
+      { role: "user", content: "【应用数据 · application_base】\n" + JSON.stringify({
       material_kind: "quoted_discussion_sources", sources: [{ source_index: 0,
         source: { run_id: "run-1", run_sequence: 3 }, text: "早期方案比较，仍欠风险表。", author_text: authors[0].text }],
     }) }] } } }] : [];
@@ -183,7 +185,11 @@ function fakeHarness(spec, options = {}) {
   };
   const readProviderRecords = () => {
     const records = structuredClone(spec.providerRecords);
-    if (options.wrongSummarySource) records[0].request.body.messages[0].content = records[0].request.body.messages[0].content.replace("仍欠", "已完成");
+    if (options.wrongSummarySource) {
+      const material = records[0].request.body.messages.find((message) =>
+        message.role === "user" && message.content.startsWith("【应用数据 · application_base】\n"));
+      material.content = material.content.replace("仍欠", "已完成");
+    }
     return records;
   };
   return { harness, readFacts, readProviderRecords, saved, actions, wire, restarts: () => restarts };

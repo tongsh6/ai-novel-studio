@@ -68,7 +68,44 @@ function checkSummaryExecution(discussion, owner, prior, options) {
   "discussion_persisted_hash_mismatch");
 }
 
-function discussionMaterial(record, sources, prior) {
+const V1 = "authoring-discussion-summary/v1", V2 = "authoring-discussion-summary/v2";
+function lineFragments(text) {
+  return (text.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [])
+    .map((text, fragment_index) => ({ fragment_index, text }));
+}
+// This boundary verifies frozen protocol metadata, not full recovery-plan admissibility.
+// Coverage/source checks below independently prove request material; product commit owns plan validation.
+function requestVersion(run, messages) {
+  if (run.operation_checkpoint !== null && run.operation_checkpoint !== undefined) {
+    const capsule = decodeJson(run.operation_checkpoint, "operation checkpoint");
+    coverageAssert(isRecord(capsule) && Number.isInteger(capsule.goal_version) && capsule.goal_version > 0 &&
+      isRecord(capsule.plan), "discussion_capsule_invalid");
+    const keys = Object.keys(capsule).filter(key => key !== "response_text").sort();
+    if (capsule.version === "provider-operation-checkpoint/v1") {
+      coverageAssert(exactJson(keys, ["goal_version","plan","version"]), "discussion_capsule_invalid");
+      return V1;
+    }
+    coverageAssert(capsule.version === "provider-operation-checkpoint/v2" &&
+      capsule.discussion_protocol_version === V2 &&
+      exactJson(keys, ["discussion_protocol_version","goal_version","plan","version"]), "discussion_capsule_invalid");
+    return V2;
+  }
+  const matches = messages.flatMap(message => message.role === "checkpoint" ? messageBlocks(message) : [])
+    .map(block => block.discussion).filter(discussion => discussion?.provider_run_ref === run.id &&
+      discussion.provider_call_ref === run.provider_call_ref);
+  coverageAssert(matches.length === 1, "discussion_frozen_protocol_missing");
+  const discussion = matches[0];
+  coverageAssert(createHash("sha256").update(discussion.response_text).digest("hex") === discussion.response_sha256,
+    "discussion_raw_hash_mismatch");
+  const version = decodeJson(discussion.response_text, "discussion raw response").version;
+  coverageAssert([V1,V2].includes(version), "discussion_protocol_unsupported");
+  return version;
+}
+function discussionMaterial(record, sources, prior, version) {
+  coverageAssert([V1,V2].includes(version), "discussion_protocol_unsupported");
+  const declarations = (record.request?.body?.messages ?? []).filter(m => m.role === "system")
+    .flatMap(m => typeof m.content === "string" ? [...m.content.matchAll(/output_protocol_version: ([^\s]+)/g)].map(x => x[1]) : []);
+  coverageAssert(declarations.length === 1 && declarations[0] === version, "discussion_request_protocol_mismatch");
   const facts = requestFactsFromRecord(record);
   coverageAssert(facts.ok && facts.applicationBases.length === 1 && facts.authorMessages.length === 0,
     "discussion_request_material_boundary_invalid");
@@ -86,18 +123,20 @@ function discussionMaterial(record, sources, prior) {
       typeof author.source_refs[0]?.ref === "string" && author.source_refs[0].ref.trim() !== "",
     "discussion_request_author_unavailable");
     return { source_index: sourceIndex, source: { run_id: message.canonical_ref.run_id,
-      run_sequence: message.canonical_ref.run_sequence }, text: textOf(message), author_text: textOf(author) };
+      run_sequence: message.canonical_ref.run_sequence },
+      ...(version === V1 ? { text: textOf(message) } : { fragments: lineFragments(textOf(message)) }),
+      author_text: textOf(author) };
   });
   coverageAssert(exactJson(material, { material_kind: "quoted_discussion_sources", sources: expected }),
     "discussion_request_sources_not_canonical_originals");
   return base;
 }
 
-function checkSummaryRequest(discussion, sources, prior, records) {
+function checkSummaryRequest(discussion, sources, prior, records, version) {
   const matches = records.filter((record) => record.provider_run_ref === discussion.provider_run_ref &&
     record.provider_call_ref === discussion.provider_call_ref);
   coverageAssert(matches.length === 1, "discussion_request_missing_or_ambiguous");
-  discussionMaterial(matches[0], sources, prior);
+  discussionMaterial(matches[0], sources, prior, version);
 }
 
 const SOURCE_KEY_PREFIX = "authoring-session-source/v1:";
@@ -155,7 +194,7 @@ export function auditDiscussionRequest(record, run, messages) {
   try {
     const keys = discussionRequestOwner(record, run);
     const sources = discussionRequestSources(keys, run, messages);
-    const base = discussionMaterial(record, sources, messages);
+    const base = discussionMaterial(record, sources, messages, requestVersion(run, messages));
     return { ok: true, reason: null, sourceCount: sources.length, binding: {
       operation: "transcript_compaction", provider_call_ref: run.provider_call_ref, provider_run_ref: run.id,
       messageIndex: base.index, text: base.text,
@@ -179,19 +218,33 @@ function auditDiscussion(block, selected, owner, prior, options) {
   "discussion_raw_hash_mismatch");
   const response = decodeJson(discussion.response_text, "discussion raw response");
   coverageAssert(exactJson(Object.keys(response).sort(), ["entries", "version"]) &&
-    response.version === "authoring-discussion-summary/v1" &&
+    [V1,V2].includes(response.version) &&
     Array.isArray(response.entries) && response.entries.length === sources.length, "discussion_entries_mismatch");
   response.entries.forEach((entry, index) => {
-    coverageAssert(isRecord(entry) && exactJson(Object.keys(entry).sort(), ["retained_obligations", "source_index", "summary"]) &&
+    coverageAssert(isRecord(entry) && exactJson(Object.keys(entry).sort(), [response.version === V1 ? "retained_obligations" : "retained_fragment_indices", "source_index", "summary"]) &&
       entry.source_index === index && typeof entry.summary === "string" && entry.summary.trim() !== "",
     "discussion_entry_invalid");
+    if (response.version === V2) {
+      const fragments = lineFragments(textOf(sources[index].message));
+      const indices = entry.retained_fragment_indices;
+      coverageAssert(Array.isArray(indices) && indices.every((value,i) =>
+        Number.isInteger(value) && value >= 0 && value < fragments.length &&
+        (i === 0 || value > indices[i-1])), "discussion_fragment_indices_invalid");
+      const quotes = [];
+      indices.forEach((value,i) => {
+        if (i > 0 && value === indices[i-1]+1) quotes[quotes.length-1] += fragments[value].text;
+        else quotes.push(fragments[value].text);
+      });
+      entry.retained_obligations = quotes;
+      return;
+    }
     const quotes = entry.retained_obligations;
     coverageAssert(Array.isArray(quotes) && new Set(quotes).size === quotes.length &&
       quotes.every((quote) => typeof quote === "string" && quote.trim() !== "" &&
         textOf(sources[index].message).includes(quote)), "discussion_obligation_not_original_quote");
   });
   if (options.verifyExecutions) checkSummaryExecution(discussion, owner, prior, options);
-  if (options.verifyRequests) checkSummaryRequest(discussion, sources, prior, options.providerRecords ?? []);
+  if (options.verifyRequests) checkSummaryRequest(discussion, sources, prior, options.providerRecords ?? [], response.version);
   return response.entries;
 }
 
