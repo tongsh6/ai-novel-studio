@@ -93,6 +93,30 @@ test("失败维护仍按原来源计费；来源列表重排或替换不能改�
   assert.match(bad.reason, /out_of_order/);
 });
 
+test("持久恢复可由新run提交，但摘要仍须绑定原执行与在先canonical归属", () => {
+  const spec = coverageSpec();
+  const checkpoint = spec.messages.pop();
+  const author = structuredClone(spec.messages[3]);
+  const scope = structuredClone(spec.messages[4]);
+  for (const message of [author, scope, checkpoint]) {
+    message.canonical_ref.run_id = "recovery";
+    message.canonical_ref.parent_turn_ref = "turn-recovery";
+  }
+  author.source_refs = [{ ref: "turn-recovery", version: 1 }];
+  spec.messages.push(author, scope, checkpoint);
+  assert.equal(auditCanonicalCoverage(spec.messages, spec.options).ok, true);
+  const cases = [
+    (s) => { s.options.providerRuns[0].agent_run_id = "missing-origin"; },
+    (s) => { s.options.providerRuns[0].parent_turn_ref = "wrong-parent"; },
+    (s) => { s.options.providerOutputs[0].agent_run_id = "recovery"; },
+    (s) => { s.messages[3].canonical_ref.work_id = "foreign"; },
+  ];
+  for (const change of cases) {
+    const changed = structuredClone(spec); change(changed);
+    assert.equal(auditCanonicalCoverage(changed.messages, changed.options).ok, false);
+  }
+});
+
 test("R03 原始 DB 坐标 oracle：零工具的旧 Scope 与纯讨论覆盖，作者字节和最新范围永久保留", () => {
   const spec = coverageSpec();
   const result = auditCanonicalCoverage(spec.messages, spec.options);

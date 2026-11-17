@@ -47,15 +47,19 @@ function refSet(refs) {
   )))].sort();
 }
 
-function checkSummaryExecution(discussion, owner, options) {
+function checkSummaryExecution(discussion, owner, prior, options) {
   const runs = (options.providerRuns ?? []).filter((run) => run.id === discussion.provider_run_ref);
   const outputs = (options.providerOutputs ?? []).filter((output) => output.provider_run_id === discussion.provider_run_ref);
   coverageAssert(runs.length === 1 && outputs.length === 1, "discussion_execution_missing_or_ambiguous");
   const run = runs[0], output = outputs[0];
   coverageAssert(run.provider_call_ref === discussion.provider_call_ref && output.provider_call_ref === discussion.provider_call_ref,
     "discussion_provider_pair_mismatch");
-  coverageAssert(run.agent_run_id === owner.run_id && output.agent_run_id === owner.run_id &&
-    run.parent_turn_ref === owner.parent_turn_ref && sameScopeOwner(run, owner), "discussion_execution_owner_mismatch");
+  // Checkpoint ownership may transfer at recovery; execution identity never does.
+  const origin = prior.filter((message) => message.canonical_ref?.run_id === run.agent_run_id);
+  coverageAssert(origin.length > 0 && output.agent_run_id === run.agent_run_id &&
+    sameScopeOwner(run, owner) && origin.every((message) =>
+      sameScopeOwner(message.canonical_ref, owner) && message.canonical_ref.parent_turn_ref === run.parent_turn_ref),
+  "discussion_execution_owner_mismatch");
   const refs = decodeJson(run.owner_refs, "provider owner_refs");
   coverageAssert(run.status === "completed" && run.purpose === "other" &&
     refs.operation === "transcript_compaction", "discussion_execution_not_completed");
@@ -186,7 +190,7 @@ function auditDiscussion(block, selected, owner, prior, options) {
       quotes.every((quote) => typeof quote === "string" && quote.trim() !== "" &&
         textOf(sources[index].message).includes(quote)), "discussion_obligation_not_original_quote");
   });
-  if (options.verifyExecutions) checkSummaryExecution(discussion, owner, options);
+  if (options.verifyExecutions) checkSummaryExecution(discussion, owner, prior, options);
   if (options.verifyRequests) checkSummaryRequest(discussion, sources, prior, options.providerRecords ?? []);
   return response.entries;
 }
