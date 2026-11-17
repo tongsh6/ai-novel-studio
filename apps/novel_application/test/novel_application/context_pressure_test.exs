@@ -101,11 +101,27 @@ defmodule NovelApplication.ContextPressureTest do
     refute ContextPressure.pressure(run_id).available
   end
 
+  test "discussion maintenance usage cannot replace the conversation pressure signal" do
+    run_id = unique_run_id()
+    insert_provider_usage(run_id, 48_000, "deepseek", "deepseek-chat")
+
+    insert_provider_usage(run_id, 900, "deepseek", "deepseek-chat",
+      purpose: "other",
+      operation: "transcript_compaction"
+    )
+
+    assert {:ok, %{input_tokens: 48_000}} = ContextPressure.latest_usage(run_id)
+    assert ContextPressure.maintenance_due?(run_id)
+
+    insert_provider_usage(run_id, 12_000, "deepseek", "deepseek-chat", purpose: "narration")
+    assert {:ok, %{input_tokens: 12_000}} = ContextPressure.latest_usage(run_id)
+  end
+
   defp unique_run_id do
     "run_pressure_#{System.unique_integer([:positive, :monotonic])}"
   end
 
-  defp insert_provider_usage(run_id, tokens, provider, model) do
+  defp insert_provider_usage(run_id, tokens, provider, model, opts \\ []) do
     run_ref = "prun_#{System.unique_integer([:positive, :monotonic])}"
     call_ref = "pcall_#{System.unique_integer([:positive, :monotonic])}"
     now = DateTime.utc_now()
@@ -114,8 +130,9 @@ defmodule NovelApplication.ContextPressureTest do
       id: run_ref,
       provider_call_ref: call_ref,
       agent_run_id: run_id,
-      purpose: "writer",
-      execution_mode: "non_stream",
+      purpose: Keyword.get(opts, :purpose, "writer"),
+      owner_refs: Map.new(Keyword.take(opts, [:operation])),
+      execution_mode: "event_stream",
       status: "completed",
       provider_id: provider,
       model: model,
@@ -127,7 +144,7 @@ defmodule NovelApplication.ContextPressureTest do
       provider_run_id: run_ref,
       provider_call_ref: call_ref,
       agent_run_id: run_id,
-      status: "completed",
+      status: "ok",
       output_type: "text",
       usage: %{"input_tokens" => tokens, "output_tokens" => 120}
     })

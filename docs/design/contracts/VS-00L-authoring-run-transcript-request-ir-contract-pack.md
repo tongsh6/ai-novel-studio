@@ -377,10 +377,48 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.2 显式压缩而非历史丢弃
 
 - 压缩只能由 application 在明确边界调用，携带 `covers`、source_refs、versions、 omissions 和自然语言摘要。不得按消息数、字符数或 provider 私有句柄静默丢弃。
-- canonical 消息永久追加保留。`checkpoint` 是独立压缩事件，Provider 投影按必填的 `covers.call_ids` 精确替代已完成的 assistant/tool 交换。会话压缩计划从作者回合归属派生 `turn_range`，用于说明覆盖范围。仅有 `turn_range` 的 checkpoint 无法进入 canonical IR。禁止部分选择同一 assistant 的并行调用、重复覆盖、覆盖未知或未完成调用。稳定 Base、作者原话、当前 scope 和未覆盖消息保持原序。选中观察的 refs/version 必须与 checkpoint 一致，摘要不得冒充未读或已采纳事实。
+- canonical 消息永久追加保留。`checkpoint` 是独立压缩事件，Provider 投影按 `covers` 精确替代合法选定历史；闭合工具组、旧 Scope 与纯讨论的唯一有效规则见 §16.2.1。会话压缩计划从作者回合归属派生 `turn_range`，用于说明覆盖范围。仅有 `turn_range` 的 checkpoint 无法进入 canonical IR。禁止部分选择同一 assistant 的并行调用、重复覆盖、覆盖未知或未完成调用。稳定 Base、作者原话、当前 scope 和未覆盖消息保持原序。选中观察的 refs/version 必须与 checkpoint 一致，摘要不得冒充未读或已采纳事实。
 - 三种 Provider 投影必须对同一 canonical checkpoint 给出一致语义；恢复后再次投影保持幂等，不重复插入 checkpoint。长会话的原始 artifact 字节、来源和真实版本仍由 canonical trace/refs 支撑，不依赖 provider 服务端历史。
 
 - **2026-11-11 变更记录（判据不变，Frozen 下登记）**：本节「仅有 `turn_range` 的 checkpoint 无法进入 canonical IR」的判定由 B81 CP3/CP4 落地为 `RequestIR.Compaction.require_call_ids/1` 与三类投影的折叠校验（提交 `473e1339`）；依据是 ADR-0035 §Contract 影响的「补齐覆盖 turn 范围落地」授权，原文语义（显式压缩、原文不删不改、covers/refs/versions/omissions/summary 完整）不变。
+
+
+### 16.2.1 R03 覆盖契约与纯讨论摘要（2026-11-15 工程裁决）
+
+本节依据愿景 §2.1/§2.4 和作者本次「审核设计后实现、无历史兼容、不得改小目标」授权修订；实施/验收状态仅见 B87 §14。不是 R00 的历史批准，不由 Frozen/Accepted 标签代替目标审查。
+
+**唯一覆盖结构。** 保留现役 `checkpoint` 块与 `covers`：`call_ids` 精确表示完整闭合工具组；`message_refs` 精确表示旧 Scope 或纯文本 assistant 消息。两个键均为必填数组，至少一类非空；未使用的一类显式写 `[]`，缺键拒绝，不以兼容分支或构造器补齐。`turn_range` 仍只作解释，不能作为删消息选择器。每项 message_ref 包含真实 `run_id/run_sequence/role/source_refs/versions`；坐标复用已有会话消息行，不造 UUID，不以数组下标、文本相同、scope_revision 或时间猜身份。同一坐标不可重复，来源与版本逐消息核对，不能合并不同版本后丢失早期来源。闭合工具组仍是现役支持的正常覆盖种类，不另建 v1/v2 压缩分支。
+
+**身份与生命周期。** SessionHistory 在请求视图上临时传递真实消息坐标及 run 所有权/状态；IR 转回 transcript 时先去除本 run 的派生坐标，下次投影从未变的原序重建。外 run 的坐标只随同一步请求视图保留，并在剥离外 run 历史时一起去除；持久化不携带派生定位字段，原消息不回填。持久读取 owner 在同一事务内核消息/段/run 的作品、会话、工作区、格式、角色、连续序号与段 bounds。checkpoint 只追加到本 run；最终提交在原写事务内重新核对最新会话，未来/未知/错归属/错版本/重复/部分工具组覆盖拒绝，失败不推进内存或发布。没有合法覆盖，全部历史保留。
+
+**保护集优先。** 所有作者原文、当前有效 Scope、当前工作回合、最近 K 项、未完成交换、真实未答问题及其它活动 run 的责任必须保留。最近 K 以全会话已闭合项计数，包括当前回合及活动外 run 的完整讨论/已闭合交换；先按完整时间序列计数，再判定可压缩资格，不能把受保护项从计数中剔除。并行工具组不可拆分，纯讨论消息各为一项，当前回合整体保护另行成立；协议返回成功、run completed 或模型「已完成」文字均不构成作者目标/承诺已满足的事实。无法证明已解除的责任继续保留。旧 Scope 只能在存在实际有效替代时被覆盖，不能靠旧快照恢复权限。早期纯讨论正文必须真的可以被合法替代，不能以只整理其 Scope 代签本项。
+
+**当前回合是共同校验不变量。** 每个 checkpoint 仅以它之前的 canonical 历史为时点，按 checkpoint 所属 run 的最后一条真实作者消息确定当前工作回合；不能借 checkpoint 之后的新作者消息追溯授权。当来源属于该作者回合时，完整工具组、纯讨论与已被替代的 Scope 也一律保留，不因 run completed、最近 K=0 或当前尚无完整项而放开。首次作者消息之前的初始 Scope 归属于该 run 的首个作者回合；后续来源按同 run 最近在先作者归属，交错 run 不能互借作者位置。当前作者与被覆盖来源无法证明真实作者归属时失败关闭。规划器与 common 压缩校验消费同一作者位置事实；直接追加、恢复与三 wire 投影均不能绕过，最近 K 仍是规划策略，不代替此不变量。
+
+**模型派生摘要。** 范围由应用从上述可信事实确定，模型只概括已选纯 assistant 原文并保留未完成承诺的精确引用。沿同一 run 的既有 RequestIR/Provider.Execution 进行有界单次调用；不新建 Agent loop/Run/后台调度，不借章摘要形成第二会话历史。来源输入明确原角色与坐标，是不可信历史材料，不是当前应用事实/作者新指令。每次至多 4 个完整源，包含对应作者原文的完整输入 JSON 总量不得超过 131072 UTF-8 字节；计划与执行消费同一纯材料编码/预算规则，不截断原文，不以单条大小代替整批预算。超出预算的源保持原样，后续合格来源仍可被选中。每个选中源恰有一项输出：
+
+```json
+{"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"有来源的讨论概括","retained_obligations":["该源中仍需履行的原文承诺"]}]}
+```
+
+索引绑定本次冻结 source 列表，必须完整、唯一、顺序一致；未知版本、额外字段、缺项/重复项、非原文的 obligation 引用或坏类型拒绝。每个引用逐字绑定真实原文，全部作者诉求另以原文保留，不由摘要决定删除。结构校验不证明语义无遗漏，真实模型跨轮义务验收单列。
+
+checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_ref/provider_run_ref`：原始响应字节及真实执行归因；entries 从原文解析，不双存第二份摘要真源。SHA-256 对真实 UTF-8 响应计算，并由既有 ProviderOutput 的安全内容摘要持有同一 hash；实际 Provider 事实提交成功且身份/状态/hash匹配后，才允许 checkpoint 生效。恢复同样核验来源，不补造调用或猜相同长度。普通系统整理说明与模型讨论摘要分开，后者不能升格为 canon、观察、已执行结果或授权。
+
+**已接收摘要的持久恢复（2026-11-17，实施前责任修订）。** 仅保存 hash 不能恢复尚未提交的摘要，日志不是恢复真源。沿既有 ProviderRun 执行归属增加唯一私有 `operation_checkpoint` JSON 列：准入事务冻结版本、原目标版本及精确计划（不复制 canonical 来源原文），终态事实事务将实际公开输出文本加入该载荷；ProviderOutput 继续只存安全摘要/hash。只有该事务成功才称本地已持久接收，失败或此前进程消失保持未知且不重发，不以一次内存接收冒充持久保证。该列不进入 Logger、owner_refs、metadata、activity、usage 或作者事件，普通字段投影不得更新它；不保存 reasoning/密钥。新增列用增量迁移保留真实作者数据，不建立旧协议兼容分支。
+
+恢复是原响应的确定性提交，不是重新执行旧 bounded run。现役维护安全点先检查同作品/会话的待提交响应：本 run 或已经结束的旧 run 可作为执行来源，活动外 run、取消/暂停、方向版本已变者不得被接管；真实源坐标、冻结材料 digest、ProviderOutput hash、合法覆盖及当前保护集均重新核验，原计划不重新挑选来源，恢复不计第二次 Provider 调用且不依赖新的压力或模型预算。跨 run 应用时 checkpoint 归属当前提交 run、discussion 仍引用原 Provider 执行，两个身份不可混淆。checkpoint、作者事件和私有载荷清除在同一 immediate 事务内完成；任一失败全部回滚、保留待提交原响应；并发消费者由同一写事务和 canonical 覆盖校验裁决，成功后重复终态不能重新建立恢复载荷。canonical 成为唯一摘要正文所有者，来源执行资格始终不释放。已有完成事实却缺原文不得从日志补造，也不自动再调用模型。
+恢复提交必须在同一写锁内、upsert 之前同时核实原执行 run 和接收 run 的已持久事实。旧接收快照不能覆盖已经提交的取消/暂停或新目标版本再自行证明可恢复；身份/目标版本必须与持久接收方一致，缺行不猜测可用。复用既有运行行、ProviderFactMerge 纯判据与 ProviderRunLog 事务，不新增锁或恢复状态。
+
+
+**唯一执行归属（2026-11-17 来源身份裁决）**。每份摘要来源最多取得一次执行资格。唯一所有者仍是既有 ProviderRun：在同一个 immediate 事务内核对实际 canonical 来源并提交 initialized 事实，提交成功才允许唯一 Provider dispatch 路径继续。来源身份只绑定 workspace/work/session 与真实 run_id/run_sequence，不包含模型正文、作者原文、source_index、摘要协议版本或其它可变内容；这些内容变化不能创造新来源。完整冻结讨论材料及协议版本由独立的 coverage_key 校验完整性，不受无关 Scope/工具覆盖影响。Summary 必须把来源核验作为 ProviderRunLog 的必需准入依赖：在同一事务内从 AuthoringSessionHistory 的现役读边界解析实际已完成外 run 的纯讨论，逐项比较坐标、角色、来源、版本、模型原文与对应作者原文；未持久、错绑、保护中或不一致均不取得资格。来源核验失败及归属竞争失败都在 dispatch 前返回，不能先调用再靠最终 checkpoint 查错。同会话/operation 已有来源归属，或本次执行身份已存在，均不能再次授予资格。普通阶段/最终结果写入只能更新已经准入的执行，其 operation、coverage_key、discussion_source_keys、真实 route/ref 与业务归属不可删除或改写；不能从普通事实入口创建另一份资格。不新建任务表、第二注册表或内存权威集。planner 的既有来源集合只是可处理材料的查询投影，不负责保证唯一性，也不证明该来源已经成功整理；已提交覆盖只由 canonical checkpoint 证明。原 §14.3 的“正文/协议进入来源指纹”实现决策由 B87 §14.7 记录替代，不做旧指纹兼容。 当前 discussion_source_keys 编码为 `authoring-session-source/v1:` 加固定顺序 `[workspace_id, work_id, session_id, run_id, run_sequence]` 的规范 JSON；已有记录缺少当前编码或来源集合损坏时，归属读取与准入均返回 unsupported 并保留原事实，不能视为空集合或生成新资格。来源作者回合必须由真实历史定位，不能以空原文补未知。 归属键必须解码为当前 scope 下的实际坐标，并与重新规范编码逐字相同；不接受其它空白/转义形式作为新身份，也不用内容 hash 代替消息身份。
+**有界执行与取消。** 维护使用当前 run 明确传入的 Provider dependency、取消 token、TimeoutPolicy、实际日志及调用预算；不增加业务 step/replan。initialized 占用待定预算，不能宣称网络调用已发生；成功/失败/取消的真实调用均计费，Task DOWN 后从同次执行持久事实恢复计数；读取实际调用计费事实失败时显式报告 unknown 错误，保留已知预算与持久预留，沿既有 run 失败边界停等，不得推导为 0、猜作 1 或重新 dispatch。事实恢复可读后，后续作者新回合仍查询原来源执行资格，不另建状态或恢复框架。取消、崩溃、重启与来源重分组都不释放已授予资格；未知外部结果保留未知，不能通过再次发送来猜测或补全。暂停、取消或目标改变后迟到摘要不得提交，已接受的作者方向继续沿现役 run 状态机恢复。维护完成后推进业务执行，不靠记忆已尝试集合循环拦截。维护用途不会覆盖主会话的上下文压力测量。
+
+**业务回应与运行事实。** 模型业务回应生成不等于 AgentRun 已终止；其后安全点仍可能执行维护。既有 AgentRunServer 结果事务是交付时运行事实的唯一所有者：先从当前真实 run 归一输入结果，再完成本次状态/预算/selection 裁决，以事务最终 run 的真实 status/phase/身份归一本次新增交付与新增事件载荷，沿同一持久化裁决提交后才发布。调用方提供的 settle 意图不能预测运行终态；不得重写历史事件或把后来终态倒写到先前业务回应。恢复读取继续投影实际持久 run，二次派生结果写入失败使整笔交付回滚。纯白名单投影归现役 AgentFinalizer，Server 和恢复消费者共用，不增加状态模型、事件或查询通道。前端只在真实终态后收起控制坞，保留真终态对迟到非终态的单调性；业务回应先交付且维护仍在途时，作者仍能使用既有终止动作。外部验收的完成判据必须同时核对同 run 的已交付业务结果和真实运行终态，不能由 TurnResult 预测值代签。
+
+**原文按需可达。** 新增的唯一只读探索入口为 `session_message_read`，仍经 ExplorationService/既有 Observation 回流。会话与作品由可信 run 绑定；模型仅给 `run_id/run_sequence/offset` 等有界定位，不可指定其它 work/session。复用 AuthoringSessionLog 原消息，返回作者或模型可见文本的真实 grapheme 分页、完整原文 hash、格式/来源与 coverage/omissions，不返回私有推理/provider_state。来源引用为 `session_message:<run_id>:<run_sequence>`、当前消息格式版本 1；它证明读过历史文字，不证明其中陈述是 canon。作者端复用已有 Interaction 历史分页/精确回合定位；Why 摘要不是完整原文。
+
+**投影与验收。** 三 wire 共用 Compaction 校验和投影；被覆盖正文只由已验证 checkpoint 替代，未覆盖原序/作者字节不变。真实整理事件区分工具交换、Scope、讨论数量，0 tool_call 的合法整理也必须可见。独立 3/10/20 轮场景覆盖原文、承诺、未答问题、交错 run、取消/坏版本/持久化失败/重复整理/重启与原文回查；期望来自预注册输入及独立持久事实，不从 projector/摘要反推。完整 R03 仅在机制、实模语义、原生页面和适用门禁均有实际证据后 PASS。
 
 ### 16.3 旧协议与 replay/Why
 
@@ -391,7 +429,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.4 实现落点（CP4b-1）
 
 - `AuthoringSession.request_ir/1` 只从外层运行快照的 `stage_state.judgment_transcript` 派生 IR；不得把外层快照误当成内部 transcript。成功结果沿用 flow pipeline 合并，失败结果由 `AgentRunServer` 先合并 transcript 与实际预算，再执行原有失败语义。
-- `AgentRunService.compact_transcript/2` 是显式压缩入口，只在没有执行中任务的安全点调用 `AuthoringSession.compact/2`。durable checkpoint 成功提交后才更新内存并报告成功，失败保留旧状态。`AuthoringTranscript.compact/6` 追加可恢复事件，`RequestIR.Compaction` 统一校验范围/证据并为三类 Provider 派生压缩视图；**显式压缩有两类入口：作者命令与会话安全点按上下文压力的自动维护（2026-11-04 §18 修订，见 §16.16）**，不覆盖原始消息，同一 checkpoint 重放幂等。
+- `AgentRunService.compact_transcript/2` 是显式压缩入口，只在没有执行中任务的安全点调用 `AuthoringSession.compact/2`。durable checkpoint 成功提交后才更新内存并报告成功，失败保留旧状态。`AuthoringTranscript.compact` 在同一入口追加含可选 discussion 证据的可恢复事件，`RequestIR.Compaction` 统一校验范围/证据并为三类 Provider 派生压缩视图；**显式压缩有两类入口：作者命令与会话安全点按上下文压力的自动维护（2026-11-04 §18 修订，见 §16.16）**，不覆盖原始消息，同一 checkpoint 重放幂等。
 - `AuthoringReplay` 从按作品、会话和轮次定位的 DecisionTrace/durable checkpoint 生成作者历史说明。`TraceSummaryView` 只呈现自然语言摘要、省略说明与已有来源显示名；未知工具、审批、使命状态使用通用作者文案，不把 code、call_id、作品/章节 ref、Provider 私有状态或推理原文作为显示兜底。
 - creative/quality 的旧 `generate/evaluate` 公开入口共享 `generate_with_session/evaluate_with_session` 的原生 Request IR 执行，不再建立独立 JSON 请求。响应中的 JSON 解析只能服务已标记的有限模式，不能恢复第二套提示协议。
 
@@ -441,6 +479,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 16.9 逐调用执行引用与请求/响应证据
 
 - `provider_call_ref` 是 Gateway 在实际调用前分配的项目执行引用，`provider_run_ref` 指向同一 ProviderRun；不得从 turn、时间、工具名、内容 hash 或重试序号推造。Gateway 在 adapter 执行的日志作用域内绑定这两个已有引用，完成、失败和异常退出后恢复原上下文；嵌套和并发调用不得串线。LLMLog 保存同次 request/response 及这两个引用，未经过执行边界的调用如实保持未绑定。
+- **同请求材料引用事实（R03 修订，编码前）**：Gateway 将实际交给 adapter 的最终 `RequestIR.refs` 与本次调用身份在既有 LogContext 作用域中绑定；LLMLog 的现有 `request.refs` 保存 `base_refs / observation_refs / used_refs` 原值，并与同记录的真实原生 `request.body`、pcall/prun 一起审计。它是应用侧材料供应事实，不是新增 wire 参数或模型自报；不得混入 HTTP body、从 Scope.source_refs/旧会话累计引用/段头反推，也不新增第二日志或请求存储。作用域恢复、嵌套、并行和异常均保留原绑定，缺失保持未知。现役纯日志层只保存 plain map，不依赖业务结构体；真实读取与正文可见性仍需独立核对，记录 refs 本身不替代取证。
 - 原生响应经 Result 回到 RequestIR 时，assistant 消息以可选内部元数据保存真实 `provider_call_ref/provider_run_ref`；JSON checkpoint/恢复保留这些引用。它们不进入 Provider message body、作者 TurnResult 或私有推理内容，不改变消息/参数原字节。旧历史没有引用时不得补造；已有消息仍不可重写。
 - 三种身份分开：项目 `provider_call_ref`、原生工具 id、canonical `call_id`。重复原生 id 可在 IR 内分配唯一 canonical id，原 id 的既有映射仍保留；核验时先按项目执行引用定位同次响应，再按该响应内原生调用顺序/原 id/原始参数核对，不能把 canonical 后缀误当 Provider 原文。一次响应中的多工具调用共享同一执行引用，各自保留独立 canonical 调用身份。
 - 现有 `Provider.tool_call` 的 `id` 是可选字段，不能在 verifier 中擅自升级成必填。Provider 未提供 id 时，IR 可为调用/结果图分配内部 call_id，但须以显式空的原 id 映射保留缺失来源；不得把该内部值声称为 Provider 原 id。关联依据为真实 pcall/prun 与同次响应内位置，名称、参数和原始字节仍逐项核对；记录“原生 id 未提供”的数量/状态。旧历史缺少这个来源标记时不得补造其含义。具体 HTTP 协议若要求原生 id，由相应 adapter 的协议契约校验，不用 fixture 形状推断实模能力。
@@ -509,9 +548,9 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 ## 16.16 显式压缩的产品触发（2026-11-03，2026-11-04 §18 修订）
 
-- **产品触发入口（2026-11-04 二次修订，A 方案「作者零操作」对齐）**：唯一产品触发 = **安全点自动维护**（无执行中任务时按上下文压力阈值自动发起，理由与影响见 §18）。原「作者命令入口」（`WorkspaceChannel` 的 `agent_command: compact_transcript`）**在 A 方案下未产品化、已从 Channel 撤销**；`AgentRunService.compact_transcript/2` 保留为应用层 **internal 能力**（自动维护共用 `compact_and_commit`、测试与未来手动入口场景可复用），不提供作者可见命令通道。自动维护仍属显式压缩，必须满足：产生带 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留旧状态、不产生作者可见错误、下一安全点可重试；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
-- **2026-11-08 ADR-0035 落地修订**：自动维护的压缩作用域 = **会话历史**（跨 turn 的已完成交换，checkpoint 覆盖 turn 范围，covers/refs/versions/omissions 与保留最近 K 不变）；实现中「只整理更早作者回合」是额外收紧、不属于本契约要求，按 ADR-0035 纠正。
-- **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；`covers.call_ids`、source_refs、versions、摘要与省略说明全部由 application 的 `TranscriptCompaction.plan/1` 从 canonical 事实确定性派生（当前全部「未覆盖且已闭合」的完整工具交换），不调用模型；调用方不能传入或伪造压缩内容。
+- **产品触发入口（2026-11-04 二次修订，A 方案「作者零操作」对齐）**：唯一产品触发 = **安全点自动维护**（无执行中任务时按上下文压力阈值自动发起，理由与影响见 §18）。原「作者命令入口」（`WorkspaceChannel` 的 `agent_command: compact_transcript`）**在 A 方案下未产品化、已从 Channel 撤销**；`AgentRunService.compact_transcript/2` 保留为应用层 **internal 能力**（自动维护共用 `compact_and_commit`、测试与未来手动入口场景可复用），不提供作者可见命令通道。自动维护仍属显式压缩，必须满足：产生带 §16.2.1 唯一 covers、source_refs/versions/omissions/summary 及必要 discussion 来源的独立 checkpoint；不删除不改写原始消息（§16.2 不变）；成功后向作者可见面投影一条 author-safe 整理记录（真实数量与范围，不静默无形）；阈值只决定触发时机、不决定丢弃范围，且不得压缩未完成/未闭合交换、保留最近 K 项已完成交换（运行策略参数、不对作者暴露）；同批交换幂等；失败保留原文与已知状态；后续安全点仅可在既有来源资格核准后继续，已准入来源不得再次派发，计费事实未知按 §16.2.1 沿原 run 失败边界停等；作者原话/当前 scope/未覆盖消息保持原序；作者可见面不出现技术用量与 `checkpoint`/`compact` 内部词。
+- **2026-11-15 R03 目标审查修订（替代 2026-11-08 的当前回合放宽表述）**：自动维护作用域仍为会话历史；跨 turn/run 的合法较早来源可按 §16.2.1 整理。原先将「保留当前作者回合」视为额外收紧的裁决退役：当前工作回合始终保留，并在每个 checkpoint 的历史时点由共同校验拒绝非法覆盖，不只依赖触发入口或规划器。
+- **命令只表达意图**：public 入口收敛为 `compact_transcript(run_id)`；covers、source_refs、versions、保护集与省略说明由 application 的 `TranscriptCompaction` 从 canonical 事实确定性派生；纯讨论摘要按 §16.2.1 复用同一 run 的有界模型调用。调用方不能传入或伪造压缩内容，旧 tool-only/不调用模型的实现假设由 R03 同批退役。
 - **持久与回执**：先经既有 durable checkpoint 提交边界持久化，成功后才推进内存并回报；回执只含作者可见的整理项数、摘要、省略说明与来源显示名，不含 call_id/ref 原值/版本/canonical 内容。无剩余交换时返回幂等 `nothing_to_compact`，不是错误。
 
 ## 16.17 验收分层与实现记录（2026-11-03）
@@ -557,6 +596,8 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 > 不变。**自动触发的工程启用仍待实现收口**：当前 `ContextPressure`/`plan_maintenance` 已就绪
 > 但无生产消费者，前端行内细条已接线；启用自动触发需要完成 AX 场景验收与最终门禁。
 
+> **历史记录的阅读边界（2026-11-15）**：§18.1–18.5 保留 2026-11-03/04 的提案与评审语境，上述阶段性“待启用”也不表示当前实现状态。R03 现役覆盖、当前回合保护、每源执行资格及计费未知的失败边界以 §16.2.1 为准；产品触发以 §16.16 为准，实施与证据状态只在 B87 §14 维护。旧文本的“后续安全点重试”不授权已准入摘要来源再次 dispatch。
+
 ### 18.1 提案摘要
 
 将现行「显式压缩只能由作者动作触发、无隐式触发器」修订为：显式压缩可有两类显式入口——
@@ -576,7 +617,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 > `agent_command: compact_transcript`），只在无执行中任务的安全点受理；不按消息数/字符数/
 > 上下文规模自动触发，不引入隐式压缩触发器。
 
-### 18.3 新条款（替换文本，供评审）
+### 18.3 历史评审替换文本（2026-11-03/04）
 
 > 显式压缩可由两类显式入口发起：① 作者显式请求；② 应用在**安全点**（无执行中任务）按
 > 可配置的上下文压力阈值自动发起**上下文维护**。自动维护必须：
@@ -621,8 +662,8 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 |---|---|
 | 触发语义 | 从「仅作者命令」扩展为「作者命令 + 安全点自动维护」；安全点 = step 完成后无执行中任务 / 进入 `awaiting_author` 前 / durable 恢复后 |
 | 幂等 | 同一批交换重放不重复插入 checkpoint/整理记录；多次整理在作者可见面合并计数 |
-| 失败 | 静默（无作者可见错误）、保留旧状态、不阻塞创作、下一安全点重试 |
-| 作者可回查 | 整理记录（author-safe 事件投影）+ 行内细条展开 + 「查看完整记录」→ 既有 Why `authoring_history` |
+| 失败 | 原提案主张静默保留并在下一安全点重试；R03 现役按 §16.2.1 保留原文、已知预算与持久资格，已准入源不重发。计费事实未知沿既有 run 失败边界停等，不再承诺无条件静默继续。 |
+| 作者可回查 | 原提案使用 Why `authoring_history`；R03 现役的「查看完整记录」按 §16.2.1 导航到既有 Interaction 历史的真实来源回合，Why 解释不能替代原文。 |
 | 原文 | canonical 原消息永久保留，作者可见消息流不变（§16.2 不变） |
 | 压缩策略 | 从「全部未覆盖完整交换」改为「保留最近 K 项 + 整理更早的已完成交换」（K 可配置、作者不可见） |
 | 工程 | 需新增：保守模型窗口配置（不向作者展示）、真实 `ProviderRun.usage.input_tokens` 压力信号、安全点触发器、`checkpoint_created` author-safe 事件在 `:compaction` 提交边界持久化、前端行内细条与展开面板、Pencil 帧（已 Draft 落地）、ExUnit/前端门禁与 AX 场景 |
@@ -690,6 +731,7 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 - 真实判断入口的首次构造曾先记录作者消息，再追加包含作品半稳定上下文的初始 scope；旧 I-CACHE 读取退役的 giant prompt helper，未覆盖这一顺序。两个独立输入的真实请求测得共享前缀 16332 字节、边界 18379 字节，不满足既有门禁；不得给第二个样本拼接第一轮历史规避失败。
 - 新判断 run 在构造初始快照时一次建立 `application_base → initial scope_update → user`；`AuthoringTranscript.new` 的 `initial_scope` 消费当前实际 Scope 结构值、版本与来源（B87 R02 字段见 VS-00M §5.2.1），作者仍是独立 user/provenance=author，原文字节与 author_turn 来源不变。只调整首次构造的责任，不在 projector 中排序，不移动或重写已记录消息；旧 transcript 与恢复后的继续执行仍按原追加规则处理。
 - Scope 结构值由当前事实入口生成一次，初始构造和后续更新消费同一事实，三 wire 共用唯一 renderer。历史 text block 保持原始证据，不重写或静默过滤；不再生产旧字符串 Scope。不能拆出重复固定 packet、复制作者文字、改 scope 授权或改变模型请求材料集合来改善前缀。初始快照一经建立即受 I-ART-10/13 保护；缓存不能改写它。
+- 2026-11-15 R03 真实反例触发的材料责任复核见 VS-00M §5.2.2：允许按上位最小供给原则修正新判断请求的默认材料生产，并同批补齐既有按需求证链；这不是以缓存前缀为理由删材料。稳定能力/探索定义归 profile Base，Scope 归当前允许集/目标/状态/版本，历史文字归 canonical。专业调用必要完整基线、既有作者字节、旧消息和显式 checkpoint 规则继续保留。
 - B87 R02 的专业首阶段与续行同样遵循来源契约：TurnInteractionService 从同一真实命令/receipt 选择 `turn_id/text`，调用方不得从 normalized goal、旧闭包或裁剪预览回填原文。Operation 的显式 `source_input_ref` 与 `author_text` 来自该次选择；continued 先由 AuthoringSession/AuthoringTranscript 记录作者输入。相同来源与相同字节在整个消息序列内幂等，来源相同但字节冲突必须拒绝；新来源只按原顺序追加，不重排 system/Scope/历史。应用 continuation 未携作者输入时不合成 user 消息。
 - 新作者消息统一经过既有 RequestIR.author_input_messages 的完整配对校验；Judgment/Transcript 不从 parent_turn_ref、占位 ref 或合成 run_id 建立新来源，Judgment 使用调用方实际运行上下文，恢复段保留其原运行身份。Scope 刷新必须明确区分普通 source_refs 和实际供应的 base_refs，唯一追加接口为 append_scope_update/5；来源关联不会获得材料使用权限，相同 Scope 新供应材料仍需登记。续行摘要的计划/观察/evidence 关联仅为来源，不冒充完整材料；原 Base 和真实 Observation 继续保留。
 - 同批辅助结果叙述沿既有 Planner/AuxTaskBuilder/text_operation 分层：静态任务规则进入 system，动态目标/结果材料保留 application_base，真实作者原文通过同一输入的 turn_id/text 独立 user。text_operation 只消费显式配对，不猜作者来源；无作者输入的内部文本操作不合成 user。该修正不建立额外消息模型、不伪造工具、不承担 R05 材料压缩。
@@ -699,6 +741,6 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 ### 18.8 2026-11-08 ADR-0035 作用域修订（Accepted）
 
 - 作者于 2026-11-08 批准 [ADR-0035](../adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)：canonical 上下文作用域=会话（跨 turn 连续运行历史），run 为执行段；压缩作用域=会话历史中更早的已完成交换（覆盖 turn 范围）。
-- 本契约 §16.1/§16.6/§16.12/§16.16 已加落地说明（Frozen 判据不变）；§18 自动维护的「更早作者回合」限制按 ADR-0035 纠正为会话历史作用域。
-- 实施待承重 slice；未实现前不代签。
+- 2026-11-08 的落地记录曾将「更早作者回合」视为需放宽的限制；该放宽表述已由 2026-11-15 R03 目标审查退役（§16.2.1 / §16.16）。会话作用域不授权覆盖当前工作回合，当前回合按每个 checkpoint 之前的真实作者归属机械保护。
+- 此处保留 ADR 批准时的范围记录，不代表 R03 当前实施状态或验收通过；当前状态见 B87 §14。
 

@@ -62,25 +62,29 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     author_input = %{turn_id: "request", text: "把沈砚改成林渡，其余不变，暂不保存。"}
 
-    run = %{
-      run_id: "run-test",
-      run_mode: :bounded,
-      profile_ref: "judgment_loop_v1",
-      budget: %{max_tool_calls: 3, max_provider_calls: 6},
-      consumed_budget: %{
-        steps: 0,
-        execution_steps: 0,
-        tool_calls: 0,
-        provider_calls: 0,
-        replans: 0
-      },
-      authority_scope: %{production_write: false, allowed_tools: ["world_building"]},
-      workspace_id: work.id,
-      work_id: work.id,
-      session_id: session.id,
-      parent_turn_ref: author_input.turn_id,
-      goal: %{text: author_input.text, version: 1}
-    }
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-test",
+        run_mode: :bounded,
+        origin_frame_ref: "frame-request",
+        status: :running,
+        phase: :executing,
+        profile_ref: "judgment_loop_v1",
+        budget: %{max_tool_calls: 3, max_provider_calls: 6},
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: 0,
+          replans: 0
+        },
+        authority_scope: %{production_write: false, allowed_tools: ["world_building"]},
+        workspace_id: work.id,
+        work_id: work.id,
+        session_id: session.id,
+        parent_turn_ref: author_input.turn_id,
+        goal: %{text: author_input.text, version: 1}
+      })
 
     context = %DialogueContext{work_id: work.id, interaction_state: %{}}
 
@@ -438,7 +442,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   end
 
   test "模型判断之后仍检查实际执行预算，不额外调用修订模型", c do
-    run = %{c.run | budget: %{max_provider_calls: 0, max_tool_calls: 0}}
+    run = %{c.run | budget: %{c.run.budget | max_provider_calls: 0, max_tool_calls: 0}}
 
     assert {:error, {:pending_artifact_invalid, :budget_exhausted}, budget_state} =
              PendingArtifactWorkflow.run(
@@ -510,8 +514,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
       run = %{
         c.run
-        | authority_scope: %{production_write: false, allowed_tools: [tool]},
-          budget: %{max_tool_calls: 3, max_provider_calls: 6}
+        | authority_scope: %{production_write: false, allowed_tools: [tool]}
       }
 
       judgment = %{
@@ -705,7 +708,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-          budget: %{max_tool_calls: 3, max_provider_calls: 6},
           goal: %{c.run.goal | text: layout_input.text}
       }
 
@@ -772,7 +774,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-          budget: %{max_tool_calls: 3, max_provider_calls: 6},
           goal: %{c.run.goal | text: scope_input.text}
       }
 
@@ -826,7 +827,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       %{
         c.run
         | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-          budget: %{max_tool_calls: 3, max_provider_calls: 6},
           goal: %{c.run.goal | text: numeric_input.text}
       }
 
@@ -1692,7 +1692,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     canonical_messages = canonical_ir.messages
 
     assert length(canonical_messages) > length(last_prompt.messages)
-    assert Enum.take(canonical_messages, length(last_prompt.messages)) == last_prompt.messages
+
+    assert canonical_messages
+           |> Enum.take(length(last_prompt.messages))
+           |> Enum.map(&Map.delete(&1, :canonical_ref)) ==
+             Enum.map(last_prompt.messages, &Map.delete(&1, :canonical_ref))
 
     assert %{content: %{"operation" => operation}} =
              AuthoringTranscript.current_scope(transcript)

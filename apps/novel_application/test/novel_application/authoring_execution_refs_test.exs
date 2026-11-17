@@ -6,9 +6,10 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
   alias NovelAgent.Provider.Result
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
-  alias NovelPersistence.{AuthoringSessionLog, Repo}
+  alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.AgentRunRecord
 
   setup do
@@ -104,16 +105,6 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
     }
   end
 
-  defp run_attrs(record) do
-    %{
-      id: record.id,
-      workspace_id: record.workspace_id,
-      work_id: record.work_id,
-      session_id: record.session_id,
-      parent_turn_ref: record.parent_turn_ref
-    }
-  end
-
   test "JSON checkpoint 恢复每条 assistant 执行引用、完整身份，三种投影字节不变" do
     original = transcript_with_assistant_refs()
 
@@ -136,7 +127,7 @@ defmodule NovelApplication.AuthoringExecutionRefsTest do
     assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(original)
     assert segment.header["version"] == AuthoringCheckpoint.format_version()
 
-    {:ok, _state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
+    :ok = TestAgenticLoopFixtures.append_segment!(original, status: "completed")
 
     assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)
 

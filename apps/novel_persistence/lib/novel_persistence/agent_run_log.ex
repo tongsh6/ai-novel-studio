@@ -8,7 +8,7 @@ defmodule NovelPersistence.AgentRunLog do
 
   import Ecto.Query, only: [from: 2]
 
-  alias NovelPersistence.{AuthoringSessionLog, LongRunTaskLog, Repo}
+  alias NovelPersistence.{AuthoringSessionIntegrity, AuthoringSessionLog, LongRunTaskLog, Repo}
 
   alias NovelPersistence.Schemas.{
     AgentEventRecord,
@@ -113,6 +113,16 @@ defmodule NovelPersistence.AgentRunLog do
     Repo.transaction(
       fn ->
         AuthoringSessionLog.validate_write!(run_record, authoring_segment, authoring_validator)
+        # Check the persisted origin before upserting this snapshot: a stale snapshot
+        # must not overwrite a newer direction and then validate against its own write.
+        case NovelPersistence.ProviderRunLog.consume_operation_outputs(
+               run_record,
+               authoring_segment
+             ) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
         run = upsert_run(run_record) |> unwrap!()
 
         segment_state =
@@ -447,35 +457,9 @@ defmodule NovelPersistence.AgentRunLog do
   # 新写入 header 只接受 v3（项目未发布，不兼容旧 v2 内嵌格式）。
   # 未提供 checkpoint_data 的状态更新沿用既有 header，不制造空版本。
   defp validate_checkpoint_header!(attrs, %LongRunTask{} = _task, run) do
-    case attr(attrs, :checkpoint_data) do
-      nil ->
-        :ok
-
-      data when is_map(data) ->
-        validate_new_checkpoint_header!(data, run)
-
-      _other ->
-        Repo.rollback(:invalid_checkpoint)
-    end
-  end
-
-  defp validate_new_checkpoint_header!(data, run) do
-    agent_run = nested_get(data, [:agent_run])
-    version = nested_get(agent_run, [:checkpoint_version])
-    header_run_id = nested_get(agent_run, [:run_id])
-
-    cond do
-      not is_map(agent_run) ->
-        Repo.rollback(:checkpoint_header_missing)
-
-      version != 3 ->
-        Repo.rollback(:checkpoint_version_not_writable)
-
-      header_run_id != run.id ->
-        Repo.rollback(:checkpoint_run_mismatch)
-
-      true ->
-        :ok
+    case AuthoringSessionIntegrity.validate_checkpoint_header(attr(attrs, :checkpoint_data), run) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 

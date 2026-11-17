@@ -1547,7 +1547,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       }
     )
 
-    turn_result = finalize(turn_result, run, turn_result_run_status(turn_result))
+    turn_result = AgentFinalizer.attach_run_summary(turn_result, run)
     persist_completed_turn(run, turn_result, trace, context, spec)
     step_id = current_step_ref(run, sequence)
 
@@ -1901,23 +1901,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       "goal_v#{run.goal.version}"
     ]
     |> Enum.map_join(":", &to_string/1)
-  end
-
-  defp finalize(turn_result, run, status) do
-    AgentFinalizer.attach_run_summary(turn_result, %{
-      run_id: run.run_id,
-      run_mode: run.run_mode,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      status: status
-    })
-  end
-
-  defp turn_result_run_status(turn_result) do
-    case quality_policy_action(turn_result) do
-      action when action in [:confirm, :block, "confirm", "block"] -> :awaiting_author
-      _action -> :completed
-    end
   end
 
   defp provider_call_count(turn_result) do

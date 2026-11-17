@@ -34,13 +34,21 @@
 1. **session 是创作上下文的主体。** 同一 session 的 canonical authoring transcript 承载跨 turn 连续的运行历史（作者回合、assistant 工具调用、观察/校验结果、tentative 候选、作者裁决、checkpoint、应用通知与当前 scope），是"这个会话到目前为止发生了什么"的单一事实源；同 session 内的每次 `AgentRun` 是该历史中的一个执行段，`run_id` 作为其身份与追溯引用。
 2. **run 是执行单元，不是上下文边界。** 有界/持久执行、预算、step、恢复、取消、失败与运行事件仍以 run 为单元记录与追溯；但 run 不拥有独立于会话的上下文事实，新 run 不重置上下文。
 3. **每轮请求由会话派生。** 每轮 Provider 请求是从会话 canonical 历史派生的投影：正常为完整会话历史 + 当前作者输入 + 当前 scope + 按工具目录按需取得的观察；窗口压力越线时，以显式 checkpoint 投影替代**更早的**已完成历史，保留最近 K 项已完成交换，作者原话、当前 scope 与未覆盖消息保持原序。
-4. **压缩的作用域是会话历史。** 压缩选择会话历史中更早的已完成交换（跨 turn 累计，按 call_id 精确整组选择），checkpoint 记录 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 以及**覆盖的 turn 范围**；canonical 消息永久追加保留、不删改；同批幂等；失败静默、下一安全点重试；未完成/未闭合交换不得进入压缩范围。
+4. **压缩的作用域是会话历史。** 压缩选择会话历史中更早的合法材料（工具组按 call_id，旧 Scope/纯讨论按真实消息坐标；现行细则见下方 R03 修订与 VS-00L §16.2.1），checkpoint 记录 `covers.call_ids`/`source_refs`/`versions`/`omissions`/`summary` 以及**覆盖的 turn 范围**；canonical 消息永久追加保留、不删改；同批幂等；失败静默、下一安全点重试；未完成/未闭合交换不得进入压缩范围。
 5. **压缩是上下文管理机制，不是附属功能。** 它使"长会话历史连续 + 窗口可控"同时成立；"压缩后历史连续进入后续请求"是机制后果，不是每轮必经步骤（正常情况历史完整进入，越线才投影）。
 6. **事实材料按需读取。** 作品档案与应用内作品信息由统一只读工具目录按需求证（元原则 §2.4），不预装全集；观察的 refs/版本与证据绑定进入后续请求（含跨 turn）；"最小供给"约束事实材料供给，**不约束会话连续性**。
 7. **保留 ADR-0033 契约族不变。** Request IR、三类 Provider wire 投影、能力事实单一派生、作者主权（无 adopt/canon_write）、tentative-first、I1/I2/I3/N-NARR 不变量、作者字节与 artifact 因果、显式 checkpoint 语义均不改变；本 ADR 只调整"事实源的作用域与 run/session 职责"。
 8. **审计/回查以会话为对象。** Why/Replay 与作者历史从"会话 canonical + run 引用"派生，不依赖展示流猜测；作者可见面保持无技术词、失败静默、幂等恢复。
 9. **旧语义处置（未发布前提，不做兼容）。** run 级私有 transcript 列、旧 `:session_transcript` 材料类型与旧装配链在落地 slice 中迁移/删除；历史证据只读保留在 artifacts，不做产品内兼容层。
 10. **不做隐式压缩。** 不按消息数/字符数静默丢弃；压缩只经显式 checkpoint（§18 自动维护/未来显式入口），且必须满足第 4 条全部约束。
+
+## R03 覆盖与讨论连续性的修订（2026-11-15）
+
+本次依据作者对 B87 的设计/实现授权及 AGENTS 已有的目标优先原则修订决策 3/4 的 tool-only 限制；不是追改 2026-11-08/11 的历史批准。会话仍为唯一事实源，run 仍为执行/预算/取消单位。现行覆盖结构、消息身份、模型派生摘要、未解义务、原文探索、单次维护调用、来源 hash、原子提交和恢复规则统一见 [VS-00L §16.2.1](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md#1621-r03-覆盖契约与纯讨论摘要2026-11-15-工程裁决)。
+
+完整目标同时包括旧 Scope 和早期纯讨论正文的合法整理；仅保留全部讨论并去 Scope 不能签 R03。全部作者原话、当前范围、未答问题及未完成承诺仍可用，摘要不取得 canon/授权身份。新只读原文入口消费原 AuthoringSessionLog；不建摘要表、第二历史、第二 Agent loop。新增纯校验/单次摘要用例/读取适配模块必须有查重和实际消费者，设计允许职责拆出，不以模块数代替结构正确。
+
+实施与目标验收仅由 [B87 §14](../../../tasks/slices/B87-model-interaction-request-projection.md#14-r03-目标判据存在性审核与实施记录2026-11-15asiashanghai) 维护；原 B81 的历史 PASS 不代签当前 R03。
 
 ## 非目标
 
@@ -127,6 +135,10 @@
   - **2026-11-08 CP1 已落地**（决策 1/2/9 的事实源与旧列退役部分）：`NovelPersistence.AuthoringSessionLog`（唯一会话 canonical 存储边界；`authoring_session_messages` + `authoring_run_segments`）、`NovelApplication.AuthoringCheckpoint`（会话段读写、身份/版本/可回读校验）、`AgentRunLog.commit_snapshot/2`（单事务追加 canonical 段，`mode: :immediate`）、`AgentRunPersistence.snapshot/4`（`authoring_segment` 投影）、`AgentRunService` 恢复路径与 `AuthoringReplay` 回查迁移；run 级 `agent_runs.authoring_transcript` 列按未发布原则退役。CP1 行为不变（请求仍由 run 内结构派生），CP2 起才改变请求派生；验证见 B81 §8.1.6/§11。
 - 生产已接入会话级存储、请求视图与跨 run 压缩；交错顺序、压缩后真实请求、重启与故障恢复证据见 [B81 §12](../../../tasks/slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)。
 - 旧 `:session_transcript` 材料类型与旧装配链的退役范围需在 B81 CP6 中逐项核对消费者；压缩的**作者可见显式入口**仍待作者产品设计授权（B81 §7.4 已显式登记为未授权项，ADR-0035 不改变该边界）。
+
+## R03 持久写入的纯校验归属
+
+`AuthoringSessionIntegrity` 统一承载 canonical 段及 durable checkpoint header 的纯结构、版本和运行身份规则；`AgentRunLog` 只编排真实任务/段查询、写事务和失败回滚。将原 `validate_new_checkpoint_header!` 的既有判据迁入该纯规则 owner，原错误码、判定顺序、允许省略 header 的状态更新和 v2 拒绝均保持，不新增校验器或第二入口。现役消费者仍是 `AgentRunLog.commit_snapshot/2`，由原 durable 写入/回滚测试验证，不通过提高规模基线或缩减规则满足门禁。
 
 ## 变更记录
 

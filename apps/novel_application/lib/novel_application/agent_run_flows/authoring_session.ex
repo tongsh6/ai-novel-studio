@@ -106,25 +106,10 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
           {:ok, AuthoringTranscript.t()} | {:error, term()}
   def compact(nil, _attrs), do: {:error, :transcript_not_found}
 
-  def compact(transcript, %{
-        covers: covers,
-        source_refs: refs,
-        versions: versions,
-        omissions: omissions,
-        summary: summary
-      }) do
-    # B81 CP3：压缩计划在会话视图上派生，checkpoint 追加到本 run 段；跨段 covers
-    # 不在段内可见，完整覆盖/证据校验由 AuthoringCheckpoint 的会话级校验兜底。
-    AuthoringCheckpoint.append_checkpoint(transcript, %{
-      covers: covers,
-      source_refs: refs,
-      versions: versions,
-      omissions: omissions,
-      summary: summary
-    })
+  def compact(transcript, attrs) do
+    # 只追加本 run 段；完整跨段覆盖、来源与 Provider 事实在原提交事务重验。
+    AuthoringCheckpoint.append_checkpoint(transcript, attrs)
   end
-
-  def compact(_transcript, _attrs), do: {:error, :invalid_compaction_request}
 
   @doc """
   用本次真实 Provider 响应闭合仍待处理的原生调用。

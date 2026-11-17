@@ -237,20 +237,21 @@ defmodule NovelAgent.Provider.Gateway do
           route_hint: Keyword.get(opts, :route_hint)
         })
 
-        execution =
-          execute_provider(route, ir, params, %{
-            provider_name: provider_name,
-            model_name: model_name,
-            provider_call_ref: provider_call_ref,
-            provider_run_id: provider_run_id,
-            purpose: purpose,
-            content_visibility: Keyword.get(opts, :content_visibility, :developer),
-            owner_refs: owner_refs,
-            event_sink: event_sink,
-            cancellation_token: cancellation_token,
-            system_identity_ref: system_identity_ref,
-            finite_mode: Map.get(ir.projection, :finite_mode)
-          })
+        ctx = %{
+          provider_name: provider_name,
+          model_name: model_name,
+          provider_call_ref: provider_call_ref,
+          provider_run_id: provider_run_id,
+          purpose: purpose,
+          content_visibility: Keyword.get(opts, :content_visibility, :developer),
+          owner_refs: owner_refs,
+          event_sink: event_sink,
+          cancellation_token: cancellation_token,
+          system_identity_ref: system_identity_ref,
+          finite_mode: Map.get(ir.projection, :finite_mode)
+        }
+
+        execution = execute_admitted(route, ir, params, ctx, opts)
 
         emit_provider_execution_result(provider_name, model_name, execution, started)
         execution
@@ -466,6 +467,35 @@ defmodule NovelAgent.Provider.Gateway do
 
   defp route_model_name({:ok, route}), do: route.model_name
   defp route_model_name({:error, _error}), do: "unconfigured"
+
+  # 准入只使用本次实际 route/refs，不另做路由、不触发 adapter。拒绝时没有
+  # dispatch、输出或 stream 事件；initialized 不能冒充一次已发生的模型调用。
+  defp execute_admitted({:ok, _route} = route, ir, params, ctx, opts) do
+    case Keyword.get(opts, :execution_admission) do
+      admission when is_function(admission, 1) ->
+        initialized = AdapterExecution.initialized_run(ctx)
+
+        case admission.(initialized) do
+          :ok ->
+            execute_provider(route, ir, params, ctx)
+
+          {:error, reason} ->
+            {:error,
+             %{
+               provider_run: initialized,
+               events: [],
+               output: nil,
+               error: %{type: :provider_execution_not_admitted, reason: reason}
+             }}
+        end
+
+      nil ->
+        execute_provider(route, ir, params, ctx)
+    end
+  end
+
+  defp execute_admitted(route, ir, params, ctx, _opts),
+    do: execute_provider(route, ir, params, ctx)
 
   defp execute_provider({:ok, route}, %RequestIR{} = ir, params, ctx) do
     case ir_capability_gate(route, ir) do

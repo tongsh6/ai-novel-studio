@@ -52,7 +52,11 @@ defmodule NovelApplication.AuthoringOperationTest do
     assert {:error, :invalid_author_input} =
              AuthoringOperation.prepare(@run, snapshot, Map.put(spec(), :author_text, "应用改写目标"))
 
-    assert Enum.take(ir.messages, length(previous.messages)) == previous.messages
+    assert ir.messages
+           |> Enum.take(length(previous.messages))
+           |> Enum.map(&Map.delete(&1, :canonical_ref)) ==
+             previous.messages
+
     assert [%{blocks: [%{text: "  原始输入\n"}]}] = Enum.filter(ir.messages, &(&1.role == "user"))
     assert List.last(ir.messages).role == "scope_update"
     assert List.last(ir.messages).versions["change_reason"] == "planning"
@@ -86,7 +90,12 @@ defmodule NovelApplication.AuthoringOperationTest do
       })
 
     assert {:ok, continued} = AuthoringOperation.prepare(@run, snapshot, next_spec)
-    assert Enum.take(continued.messages, length(first.messages)) == first.messages
+
+    assert continued.messages
+           |> Enum.take(length(first.messages))
+           |> Enum.map(&Map.delete(&1, :canonical_ref)) ==
+             Enum.map(first.messages, &Map.delete(&1, :canonical_ref))
+
     assert continued.refs.base_refs == [%{ref: "chapter:one"}]
     assert continued.refs.observation_refs == []
     assert List.last(continued.messages).source_refs == next_spec.source_refs

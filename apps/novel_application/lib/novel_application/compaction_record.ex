@@ -1,14 +1,14 @@
 defmodule NovelApplication.CompactionRecord do
   @moduledoc """
-  B71 显式压缩的作者安全整理记录边界（VS-00L §16.2/§16.4；§18 提案方向）。
+  显式压缩的作者安全整理记录边界（VS-00L §16.2/§16.4；B87 R03）。
 
   只负责压缩成功后的三件事：构造 `checkpoint_created` 作者安全事件、与 checkpoint
   同一边界**先提交后发布**、投影作者可见回执。它不选择压缩范围、不读写 transcript、
   不改变运行状态；压缩派生仍由 `TranscriptCompaction` 负责。
 
-  事件 payload 只含真实整理项数、来源显示名与（维护派生时的）保留项数；作者可见文案
-  仍由前端 copy 渲染，事件只作为事实来源。事件构造失败只降级为「无整理记录」，不阻塞
-  已成功的压缩；提交失败不广播、不推进内存。
+  事件 payload 只含真实覆盖类别计数、来源显示名、原文导航坐标与保留项数；作者可见
+  文案仍由前端 copy 渲染，导航坐标不作显示。事件与 checkpoint 必须共同成功：构造或
+  提交失败都不广播、不推进内存，不允许无作者记录的整理单独生效。
   """
 
   require NovelTelemetry.LogEmit, as: LogEmit
@@ -33,11 +33,11 @@ defmodule NovelApplication.CompactionRecord do
   @spec commit(map(), map(), map()) ::
           {:ok, map(), map()} | {:error, :checkpoint_persistence_failed}
   def commit(%{run: %AgentRun{} = run} = state, plan, compacted) do
-    event = event(state, plan, compacted)
-    events = if match?({:ok, _event}, event), do: [elem(event, 1)], else: []
-
-    with :ok <- persist(run, state, events) do
+    with {:ok, event} <- event(state, plan, compacted),
+         :ok <- persist(run, state, [event]) do
       {:ok, receipt(plan, compacted), publish(state, event)}
+    else
+      {:error, _reason} -> {:error, :checkpoint_persistence_failed}
     end
   end
 
@@ -75,41 +75,52 @@ defmodule NovelApplication.CompactionRecord do
 
   # ── 发布（commit 成功后）────────────────────────────────────────────────
 
-  defp publish(state, {:ok, event}) do
+  defp publish(state, event) do
     committed = %{state | event_sequence: event.sequence, events: state.events ++ [event]}
     AgentEventPublisher.publish(event, committed.run)
     committed
   end
 
-  defp publish(state, {:error, _errors}), do: state
-
   # ── 事件构造 / 作者可见投影 ─────────────────────────────────────────────
 
-  # 整理记录是作者可见面的一手事实（VS-00L §18 提案方向）：只含真实整理项数与来源
-  # 显示名，不含 call_id、ref 原值、版本或 canonical 内容。
+  # 覆盖数量与 receipt 共用规划器计数，不能让零工具的范围/讨论整理消失。
+  # 真实来源坐标只用于既有 Interaction 原文导航，不含原文、调用号或模型私有内容。
   defp event(state, plan, compacted) do
-    sequence = state.event_sequence + 1
-    view = author_view(compacted)
-    covered = plan |> Map.get(:covers, %{}) |> Map.get(:call_ids, []) |> length()
+    with %{session_id: session_id, turn_id: turn_id} = target <- Map.get(plan, :history_target),
+         true <- session_id == state.run.session_id,
+         true <- is_binary(turn_id) and String.trim(turn_id) != "",
+         %{call_ids: call_ids, message_refs: message_refs} = covers <- Map.get(plan, :covers),
+         true <- is_list(call_ids) and is_list(message_refs),
+         counts <- TranscriptCompaction.counts(covers),
+         covered when covered > 0 <- Enum.sum(Map.values(counts)) do
+      sequence = state.event_sequence + 1
+      view = author_view(compacted)
 
-    payload =
-      %{covered_exchanges: covered, sources: Map.get(view, :sources, [])}
-      |> put_present(:retained_items, Map.get(plan, :retained_items))
-      |> put_present(:scope, Map.get(plan, :scope))
+      payload =
+        %{
+          covered_counts: counts,
+          history_target: Map.take(target, [:session_id, :turn_id]),
+          sources: Map.get(view, :sources, [])
+        }
+        |> put_present(:retained_items, Map.get(plan, :retained_items))
+        |> put_present(:scope, Map.get(plan, :scope))
 
-    AgentEvent.new(%{
-      event_id: "evt_#{state.run.run_id}_#{sequence}",
-      run_ref: state.run.run_id,
-      step_ref: state.run.current_step_ref,
-      sequence: sequence,
-      event_type: :checkpoint_created,
-      visibility: :author,
-      summary: "较早的 #{covered} 项创作过程已整理",
-      reason_codes: ["transcript_compaction"],
-      refs: [],
-      payload: payload,
-      emitted_at: DateTime.utc_now()
-    })
+      AgentEvent.new(%{
+        event_id: "evt_#{state.run.run_id}_#{sequence}",
+        run_ref: state.run.run_id,
+        step_ref: state.run.current_step_ref,
+        sequence: sequence,
+        event_type: :checkpoint_created,
+        visibility: :author,
+        summary: "较早的 #{covered} 项创作过程已整理",
+        reason_codes: ["transcript_compaction"],
+        refs: [],
+        payload: payload,
+        emitted_at: DateTime.utc_now()
+      })
+    else
+      _invalid -> {:error, :checkpoint_event_invalid}
+    end
   end
 
   # 作者可见面只经既有 AuthoringReplay 边界投影：摘要、省略说明与来源显示名，

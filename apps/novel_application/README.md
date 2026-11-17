@@ -49,6 +49,10 @@ be found at <https://hexdocs.pm/novel_application>.
 ## B81 会话级 canonical 历史：请求派生、恢复与回查（ADR-0035 / VS-00L §16.8）
 
 - [authoring_session_history.ex](lib/novel_application/authoring_session_history.ex)：每轮请求的会话历史组装边界（`fetch/1` 只在外 run 行存在时返回历史；`compose/2` 顺序 = application base 最前 → 会话已提交原序 → 本 run 段尾部；外 run 归属临时标记只属于请求视图）。
+  `discussion_sources/2` 复用同一读快照与坐标解析，为摘要执行权准入提供真实持久来源；来源核验在 ProviderRunLog 的现有写事务内执行，未持久/活动/错绑原文不得派发。
+- [transcript_compaction_summary.ex](lib/novel_application/transcript_compaction_summary.ex)：R03 单次摘要执行与恢复用例；稳定消息身份决定来源归属，完整冻结材料决定 coverage_key。沿现有 ProviderRun 准入/取消/私有输出恢复链执行；恢复原计划与原响应，不重发模型、不新建任务或第二来源存储。
+- [agent_run_maintenance.ex](lib/novel_application/agent_run_maintenance.ex)：安全点维护编排；消费同源执行准入及已接收摘要恢复，取消/方向校验后经 CompactionRecord 原子提交；Task 生命周期仍由 AgentRunServer 持有，不建立第二循环。
+
 - [authoring_transcript.ex](lib/novel_application/authoring_transcript.ex)：canonical transcript 结构 codec 与组装操作（消息/工具调用/观察/校验/候选/checkpoint 合并；`checkpoint_version/0` 为 transcript 结构版本）。
 - [authoring_checkpoint.ex](lib/novel_application/authoring_checkpoint.ex)：会话段读写边界——`encode_segment_for_write/2`（JSON 真实形状 + 完整 IR 可回读 + 不可变身份校验）、`restore/2`（会话视图完整 IR 校验，段+历史 compose）、`append_checkpoint/2`（B81 CP3 跨 run 压缩）、`authoring_segment_ref` 引用；损坏/错绑/未知版本 fail-closed，不回退旧内嵌副本。
 - [agent_run_history.ex](lib/novel_application/agent_run_history.ex)：work/session/turn 持久 run 身份的唯一解析边界；显式绑定、legacy parent/step、批量 row scope 与 scoped 批量读；显式畸形值 fail closed。
@@ -62,10 +66,10 @@ be found at <https://hexdocs.pm/novel_application>.
 - [auto_maintenance_config.ex](lib/novel_application/auto_maintenance_config.ex)：安全点自动维护运维开关解析（`NOVEL_AUTO_MAINTENANCE_ENABLED`，plain 布尔；生产默认开、test 默认关，显式关闭即回滚开关）；只解析布尔、不识别验收/场景信息。
 - [context_pressure.ex](lib/novel_application/context_pressure.ex)：B71 上下文压力只读派生（§16.16 自动维护入口）：真实 `ProviderRun.usage.input_tokens` + 保守模型窗口（provider 默认 + `NOVEL_CONTEXT_WINDOW_OVERRIDES` 运维覆盖，`parse_window_overrides/1`）；维护/硬线阈值只决定触发时机；usage 未知不猜测、不写库、不向作者展示。
 - [transcript_compaction.ex](lib/novel_application/transcript_compaction.ex)：B71 显式压缩的唯一派生边界（VS-00L §16.2/§16.4；§18 维护派生）：`plan/1` 派生命中全部未覆盖完整交换，`plan_maintenance/2` 保留最近 K 项与当前工作回合（供安全点自动维护消费）；来源 refs/版本、作者安全摘要与省略说明；不调模型、不改写 transcript。
-- [agent_run_server.ex](lib/novel_application/agent_run_server.ex)（§16.16 第 2 类入口）：安全点（step 完成后 / 进入 awaiting_author 前 / durable 恢复后首个调度）读 `ContextPressure` 真实 usage 压力，按 `:auto_maintenance` 配置自动发起上下文维护；失败静默保留旧 state、下一安全点重试；阈值只决定时机、不决定范围（保留最近 K 项、当前工作回合不整理）。
+- [agent_run_server.ex](lib/novel_application/agent_run_server.ex)（§16.16 第 2 类入口）：安全点委托 AgentRunMaintenance；已接收响应优先恢复提交，新整理才按 ContextPressure 的真实 usage 与配置决定时机。提交失败保留原文和私有响应；未知或已取得执行资格的来源不重新派发，取消/目标变更不会被旧快照复活。
 - [auto_maintenance_config_test.exs](test/novel_application/auto_maintenance_config_test.exs)：运维开关解析缺省/非法保持 config、显式 true/false/1/0 开启或关闭。
-- [auto_maintenance_test.exs](test/novel_application/auto_maintenance_test.exs)：安全点自动维护：压力触发/未到/未知、当前回合、保留 K、未完成交换、配置关闭、幂等、失败静默+重试、payload 无技术词、取消后迟到结果不维护。
-- [compaction_record.ex](lib/novel_application/compaction_record.ex)：压缩整理记录边界：构造 `checkpoint_created` 作者安全事件、与 checkpoint 同一边界先提交后发布、投影作者回执；事件构造失败只降级不阻塞压缩。
+- [auto_maintenance_test.exs](test/novel_application/auto_maintenance_test.exs)：安全点自动维护：压力触发/未到/未知、当前回合保护、保留 K、未完成交换、配置关闭、同源唯一执行、提交失败保留及取消后迟到结果不提交；响应恢复的完整边界见 transcript_compaction_recovery_test。
+- [compaction_record.ex](lib/novel_application/compaction_record.ex)：压缩整理记录边界：构造 `checkpoint_created` 作者安全事件、与 checkpoint 同一边界先提交后发布、投影作者回执；事件与 checkpoint 同一提交；事件构造或持久化失败均不发布、不推进内存。
 - [agent_run_compaction_event_test.exs](test/novel_application/agent_run_compaction_event_test.exs)：压缩整理记录的持久化/幂等/失败静默：durable 与 bounded 各一条，payload 无内部标识，SQL 拒写时无事件且内存不推进。
 - [transcript_compaction_test.exs](test/novel_application/transcript_compaction_test.exs)：完整交换选择、未完成/重复结果/已覆盖排除、证据一致、作者可见回执无内部标识、空会话幂等、维护派生保留 K 项与当前工作回合。
 - [agent_run_persistence_test.exs](test/novel_application/agent_run_persistence_test.exs)：delivery/status/compaction/question 四种 snapshot 请求语义与 durable task header 投影回归。

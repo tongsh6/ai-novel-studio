@@ -27,13 +27,7 @@ defmodule NovelApplication.AuthorQuestion do
 
     result =
       NovelApplication.TurnResultBuilder.build(frame, summary)
-      |> NovelApplication.AgentFinalizer.attach_run_summary(%{
-        run_id: run.run_id,
-        run_mode: run.run_mode,
-        parent_turn_ref: run.parent_turn_ref,
-        profile_ref: run.profile_ref,
-        status: if(judgment.action == "await_author", do: :awaiting_author, else: :completed)
-      })
+      |> NovelApplication.AgentFinalizer.attach_run_summary(run)
       |> Map.put(
         :outcome,
         if(judgment.action == "capability_gap", do: "goal_unfulfilled", else: "await_author")

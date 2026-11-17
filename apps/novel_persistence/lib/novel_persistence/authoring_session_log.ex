@@ -31,34 +31,23 @@ defmodule NovelPersistence.AuthoringSessionLog do
 
   import Ecto.Query
 
+  alias NovelPersistence.AuthoringSessionIntegrity, as: Integrity
   alias NovelPersistence.Repo
-  alias NovelPersistence.Schemas.{AuthoringRunSegment, AuthoringSessionMessage}
+  alias NovelPersistence.Schemas.{AgentRunRecord, AuthoringRunSegment, AuthoringSessionMessage}
 
-  @message_format_version "authoring-session-message/v1"
-  @segment_format_version "authoring-run-segment/v1"
-
-  # durable 执行 checkpoint 的格式版本（`checkpoint_data["agent_run"]["checkpoint_version"]`）。
-  # 写入侧（AgentRunPersistence）与读取校验侧（AuthoringCheckpoint）共同消费本契约，
-  # 不再各自持有常量——任一侧独立升版会让所有恢复静默失败（checkpoint_version_mismatch）。
+  # durable 执行 checkpoint 的格式版本（写入与恢复校验共用）。
   @task_checkpoint_version 3
-
-  # 段头 run 身份：{header 内的 run 字段, run 行字段}。与旧 run 级 checkpoint 的
-  # 不可变身份一致（B71/VS-00L §16.8），只是落点从 run 列改为会话段头。
-  @identity_fields [
-    {"run_id", :id},
-    {"workspace_id", :workspace_id},
-    {"work_id", :work_id},
-    {"session_id", :session_id},
-    {"parent_turn_ref", :parent_turn_ref}
+  @message_row_fields [
+    :sequence,
+    :run_id,
+    :run_sequence,
+    :role,
+    :message,
+    :format_version,
+    :workspace_id,
+    :work_id,
+    :session_id
   ]
-
-  # 段头 data 键 = header 携带的 transcript data 键（不含 messages；messages 是独立
-  # 列）。这是存储格式契约的单一来源：application 写入/读取边界消费
-  # `header_data_keys/0`，不再各自重复键列表（DRY / OCP：新增键只改这里）。
-  @header_maps ~w(run system projection)a
-  @ref_keys ~w(base_refs observation_refs used_refs)a
-  @header_lists ~w(tools call_ids)a ++ @ref_keys
-  @header_data_keys @header_maps ++ @header_lists
 
   @type segment_state :: %{
           run_id: String.t(),
@@ -73,7 +62,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
   @type segment_input :: %{header: map(), messages: [map()]}
 
   @spec segment_format_version() :: String.t()
-  def segment_format_version, do: @segment_format_version
+  defdelegate segment_format_version(), to: Integrity
 
   @doc "durable 执行 checkpoint 的格式版本唯一真源（写入与恢复校验共用）。"
   @spec task_checkpoint_version() :: pos_integer()
@@ -86,7 +75,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
   新增 data 键时只改本模块的键契约。
   """
   @spec header_data_keys() :: [atom()]
-  def header_data_keys, do: @header_data_keys
+  defdelegate header_data_keys(), to: Integrity
 
   @doc """
   在调用方事务内追加一次 run 提交的 canonical 事实。
@@ -103,9 +92,9 @@ defmodule NovelPersistence.AuthoringSessionLog do
   def append_run(run_record, %{header: header, messages: messages}) do
     run_id = run_id!(run_record)
 
-    with :ok <- validate_run_record(run_record),
-         :ok <- validate_header(header, run_record),
-         :ok <- validate_messages(messages),
+    with :ok <- Integrity.validate_run(run_record),
+         :ok <- Integrity.validate_header(header, run_record),
+         :ok <- Integrity.validate_messages(messages),
          {:ok, stored} <- stored_run_messages(run_id),
          :ok <- validate_existing_segment(run_id, run_record),
          :ok <- validate_prefix(stored, messages),
@@ -129,18 +118,24 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  @doc "按 run 读取执行段（段头 + 该 run 的消息，按 run_sequence 升序）。"
+  @doc "按同一快照校验并读取 run 执行段；孤立消息或坏段不得伪装成没有历史。"
   @spec fetch_run_segment(String.t()) :: {:ok, segment_input() | nil} | {:error, term()}
   def fetch_run_segment(run_id) when is_binary(run_id) do
     read_snapshot(fn ->
-      case Repo.get(AuthoringRunSegment, run_id) do
-        nil -> {:ok, nil}
-        segment -> assemble_segment(run_id, segment)
-      end
+      segment = Repo.get(AuthoringRunSegment, run_id)
+
+      rows =
+        from(m in AuthoringSessionMessage,
+          where: m.run_id == ^run_id,
+          order_by: m.run_sequence
+        )
+        |> message_rows()
+
+      assemble_segment(segment, rows)
     end)
   end
 
-  @doc "按同一事务快照读取会话有序消息及 refs，拒绝未知段头和行数不一致。"
+  @doc "同一快照绑定消息/段/真实 run 的身份、格式与顺序，再返回已验证行及 refs。"
   @spec fetch_session(String.t()) :: {:ok, %{rows: [map()], refs: map()}} | {:error, term()}
   def fetch_session(session_id) when is_binary(session_id) do
     read_snapshot(fn ->
@@ -153,17 +148,16 @@ defmodule NovelPersistence.AuthoringSessionLog do
         )
 
       rows =
-        Repo.all(
-          from(m in AuthoringSessionMessage,
-            where: m.session_id == ^session_id,
-            order_by: m.sequence,
-            select: map(m, [:sequence, :run_id, :run_sequence, :role, :message])
-          )
+        from(m in AuthoringSessionMessage,
+          where: m.session_id == ^session_id,
+          order_by: m.sequence
         )
+        |> message_rows()
 
-      with {:ok, refs} <- session_refs(segments),
-           :ok <- check_segment_counts(rows, segments) do
-        {:ok, %{rows: rows, refs: refs}}
+      runs = read_runs(segments)
+
+      with :ok <- Integrity.validate_snapshot(:session, rows, segments, runs) do
+        {:ok, %{rows: Enum.map(rows, &with_run_metadata(&1, runs)), refs: session_refs(segments)}}
       end
     end)
   end
@@ -172,26 +166,30 @@ defmodule NovelPersistence.AuthoringSessionLog do
     if Repo.in_transaction?(), do: fun.(), else: Repo.transact(fun)
   end
 
-  defp session_refs(segments) do
-    Enum.reduce_while(segments, {:ok, Map.new(@ref_keys, &{&1, []})}, fn segment, {:ok, acc} ->
-      case validate_header_format(segment.header) do
-        :ok ->
-          {:cont,
-           {:ok,
-            Map.new(acc, fn {key, refs} ->
-              {key, refs ++ Map.fetch!(segment.header, Atom.to_string(key))}
-            end)}}
+  defp message_rows(query), do: Repo.all(from(m in query, select: map(m, @message_row_fields)))
 
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
+  defp read_runs(segments) do
+    ids = Enum.map(segments, & &1.run_id)
+
+    from(r in AgentRunRecord,
+      where: r.id in ^ids,
+      select: map(r, [:id, :workspace_id, :work_id, :session_id, :parent_turn_ref, :status])
+    )
+    |> Repo.all()
+    |> Map.new(&{&1.id, &1})
   end
 
-  defp check_segment_counts(rows, segments) do
-    if Enum.frequencies_by(rows, & &1.run_id) == Map.new(segments, &{&1.run_id, &1.message_count}),
-      do: :ok,
-      else: {:error, :authoring_segment_inconsistent}
+  defp with_run_metadata(row, runs) do
+    run = Map.fetch!(runs, row.run_id)
+    Map.merge(row, %{run_status: run.status, parent_turn_ref: run.parent_turn_ref})
+  end
+
+  defp session_refs(segments) do
+    Enum.reduce(segments, Map.new(Integrity.ref_keys(), &{&1, []}), fn segment, acc ->
+      Map.new(acc, fn {key, refs} ->
+        {key, refs ++ Map.fetch!(segment.header, Atom.to_string(key))}
+      end)
+    end)
   end
 
   @doc "run 是否已有执行段（durable checkpoint 段引用校验用）。"
@@ -215,7 +213,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
   defp validate_existing_segment(run_id, run_record) do
     case Repo.get(AuthoringRunSegment, run_id) do
       nil -> :ok
-      %AuthoringRunSegment{} = segment -> validate_segment_identity(segment, run_record)
+      %AuthoringRunSegment{} = segment -> Integrity.validate_segment_identity(segment, run_record)
     end
   end
 
@@ -284,7 +282,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
       work_id: field(run_record, :work_id),
       session_id: field(run_record, :session_id),
       run_id: run_id,
-      format_version: @message_format_version
+      format_version: Integrity.message_format_version()
     }
 
     new_messages
@@ -330,7 +328,7 @@ defmodule NovelPersistence.AuthoringSessionLog do
       message_count: state.message_count,
       first_sequence: state.first_sequence,
       last_sequence: state.last_sequence,
-      format_version: @segment_format_version
+      format_version: segment_format_version()
     }
 
     case Repo.get(AuthoringRunSegment, attrs.run_id) do
@@ -348,120 +346,20 @@ defmodule NovelPersistence.AuthoringSessionLog do
     end
   end
 
-  # ── 校验 ────────────────────────────────────────────────────────────────
-
-  defp validate_run_record(run_record) when is_map(run_record) do
-    if missing_identity_fields(run_record) == [] do
-      :ok
-    else
-      {:error, :authoring_run_identity_missing}
-    end
-  end
-
-  defp validate_run_record(_run_record), do: {:error, :authoring_run_identity_missing}
-
-  defp validate_header(header, run_record) when is_map(header) do
-    with :ok <- validate_header_format(header) do
-      validate_header_identity(header, run_record)
-    end
-  end
-
-  defp validate_header(_header, _run_record), do: {:error, :authoring_segment_shape_invalid}
-
-  defp validate_header_format(header) do
-    with :ok <- validate_header_version(header), do: validate_header_shape(header)
-  end
-
-  defp validate_header_version(header) when is_map(header) do
-    case Map.get(header, "version") do
-      @segment_format_version -> :ok
-      _other -> {:error, :authoring_segment_version_unsupported}
-    end
-  end
-
-  defp validate_header_version(_header), do: {:error, :authoring_segment_shape_invalid}
-
-  defp validate_header_shape(header) when is_map(header) do
-    valid? =
-      Enum.all?(@header_maps, &is_map(Map.get(header, Atom.to_string(&1)))) and
-        Enum.all?(@header_lists, &is_list(Map.get(header, Atom.to_string(&1))))
-
-    if valid?, do: :ok, else: {:error, :authoring_segment_shape_invalid}
-  end
-
-  defp validate_header_shape(_header), do: {:error, :authoring_segment_shape_invalid}
-
-  defp validate_header_identity(header, run_record) do
-    run = Map.get(header, "run", %{})
-
-    mismatched =
-      Enum.filter(@identity_fields, fn {header_field, row_field} ->
-        Map.get(run, header_field) != field(run_record, row_field)
-      end)
-
-    if mismatched == [], do: :ok, else: {:error, :authoring_segment_identity_mismatch}
-  end
-
-  defp validate_messages([]), do: {:error, :authoring_segment_empty_history}
-
-  defp validate_messages(messages) when is_list(messages) do
-    if Enum.all?(messages, &valid_message?/1) do
-      :ok
-    else
-      {:error, :authoring_message_shape_invalid}
-    end
-  end
-
-  defp validate_messages(_messages), do: {:error, :authoring_message_shape_invalid}
-
-  defp valid_message?(message) when is_map(message) do
-    case Map.get(message, "role") do
-      role when is_binary(role) -> String.trim(role) != ""
-      _other -> false
-    end
-  end
-
-  defp valid_message?(_message), do: false
-
-  # 段行身份列与 header 同名字段（run_id/workspace_id/work_id/session_id/
-  # parent_turn_ref），但 run 行的主键字段是 :id，故列映射单独给出，避免拿
-  # :id 去段行上取值导致恒错绑。
-  @segment_row_columns %{
-    "run_id" => :run_id,
-    "workspace_id" => :workspace_id,
-    "work_id" => :work_id,
-    "session_id" => :session_id,
-    "parent_turn_ref" => :parent_turn_ref
-  }
-
-  defp validate_segment_identity(%AuthoringRunSegment{} = segment, run_record) do
-    mismatched =
-      Enum.filter(@identity_fields, fn {header_field, row_field} ->
-        Map.get(segment, Map.fetch!(@segment_row_columns, header_field)) !=
-          field(run_record, row_field)
-      end)
-
-    if mismatched == [], do: :ok, else: {:error, :authoring_segment_identity_mismatch}
-  end
-
   # ── 查询辅助 ────────────────────────────────────────────────────────────
 
-  defp assemble_segment(run_id, %AuthoringRunSegment{} = segment) do
-    with :ok <- validate_header_format(segment.header),
-         {:ok, rows} <- stored_run_messages(run_id) do
-      if length(rows) == segment.message_count,
-        do: {:ok, %{header: segment.header, messages: Enum.map(rows, &elem(&1, 0))}},
-        else: {:error, :authoring_segment_inconsistent}
+  defp assemble_segment(nil, []), do: {:ok, nil}
+
+  defp assemble_segment(segment, rows) do
+    segments = List.wrap(segment)
+    runs = read_runs(segments)
+
+    with :ok <- Integrity.validate_snapshot(:run, rows, segments, runs) do
+      {:ok, %{header: segment.header, messages: Enum.map(rows, & &1.message)}}
     end
   end
 
   defp segment_query(run_id), do: from(s in AuthoringRunSegment, where: s.run_id == ^run_id)
-
-  defp missing_identity_fields(record) do
-    Enum.filter(@identity_fields, fn {_header_field, row_field} ->
-      record |> field(row_field) |> blank?()
-    end)
-  end
 
   defp run_id!(run_record), do: field(run_record, :id)
 
@@ -470,10 +368,6 @@ defmodule NovelPersistence.AuthoringSessionLog do
   end
 
   defp field(_map, _key), do: nil
-
-  defp blank?(nil), do: true
-  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank?(_value), do: false
 
   defp unwrap({:ok, value}, _reason), do: {:ok, value}
   defp unwrap({:error, _changeset}, reason), do: {:error, reason}

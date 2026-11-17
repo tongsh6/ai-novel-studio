@@ -418,7 +418,7 @@
     },
     "agent_run": {
       "type": "object",
-      "description": "S6 决策面关联摘要（AgentFinalizer 注入；前端会在运行时补充 events / provider_runs / activity_loaded 客户端字段）。",
+      "description": "S6 决策面关联摘要（AgentFinalizer 注入；只表示该业务交付的运行关联快照）。实时运行状态、持久事件与 activity 查询状态由客户端各自现有运行视图持有，不写回 TurnResult；回执重放不覆盖运行事实。",
       "properties": {
         "run_id": {
           "type": "string"

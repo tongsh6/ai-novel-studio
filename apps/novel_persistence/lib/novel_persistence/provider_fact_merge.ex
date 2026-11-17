@@ -8,6 +8,8 @@ defmodule NovelPersistence.ProviderFactMerge do
   或 updated_at 决定覆盖。
   """
 
+  alias NovelCommon.RequestIR.Compaction
+
   @type decision :: :unchanged | {:insert, map()} | {:update, map()} | {:error, term()}
 
   @terminal_statuses ~w[completed failed cancelled]
@@ -78,6 +80,180 @@ defmodule NovelPersistence.ProviderFactMerge do
     end
   end
 
+  @doc "操作阶段事实只能延续已经准入的完整执行归属，不能创建、删除或改绑该归属。"
+  @spec operation_ownership(map() | nil, map()) :: :ok | {:error, atom()}
+  def operation_ownership(existing, attrs) do
+    cond do
+      operation_record?(existing) ->
+        immutable =
+          @run_identity_fields ++ @run_attribution_fields ++ [:provider_id, :model, :owner_refs]
+
+        if same_values?(existing, attrs, immutable),
+          do: :ok,
+          else: {:error, :provider_operation_identity_conflict}
+
+      operation_record?(attrs) ->
+        {:error, :provider_operation_not_admitted}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc "核验已归一持久表示中的操作范围和来源形状；来源资格由 Log 事务内查询决定。"
+  @spec operation_claim(map()) ::
+          {:ok, {String.t(), String.t(), [String.t()]}} | {:error, atom()}
+  def operation_claim(attrs) do
+    operation = Map.get(attrs.owner_refs, "operation")
+    coverage_key = Map.get(attrs.owner_refs, "coverage_key")
+    source_keys = Map.get(attrs.owner_refs, "discussion_source_keys")
+
+    cond do
+      not Enum.all?(
+        [attrs.workspace_id, attrs.work_id, attrs.session_id, operation, coverage_key],
+        &present_ref?/1
+      ) ->
+        {:error, :provider_operation_scope_missing}
+
+      not valid_operation_sources?(source_keys, attrs) ->
+        {:error, :provider_operation_sources_missing}
+
+      true ->
+        {:ok, {operation, coverage_key, source_keys}}
+    end
+  end
+
+  @doc "准入与已有来源归属读取共用当前编码；未知格式不能当作无归属。"
+  def valid_operation_sources?(sources, scope) when is_list(sources) and sources != [],
+    do:
+      Enum.all?(sources, &Compaction.valid_discussion_source_key?(&1, scope)) and
+        Enum.uniq(sources) == sources
+
+  def valid_operation_sources?(_sources, _scope), do: false
+
+  @operation_checkpoint_version "provider-operation-checkpoint/v1"
+  @plan_fields ~w(covers source_refs versions omissions summary retained_items scope history_target)
+  @required_plan_fields ~w(covers source_refs versions omissions summary)
+
+  def operation_checkpoint_version, do: @operation_checkpoint_version
+
+  def valid_operation_checkpoint?(
+        %{"version" => @operation_checkpoint_version, "goal_version" => version, "plan" => plan} =
+          checkpoint
+      ) do
+    is_integer(version) and version > 0 and is_map(plan) and
+      Enum.sort(Map.keys(checkpoint)) == ~w(goal_version plan version) and
+      Enum.all?(Map.keys(plan), &(&1 in @plan_fields)) and
+      Enum.all?(@required_plan_fields, &Map.has_key?(plan, &1))
+  end
+
+  def valid_operation_checkpoint?(_checkpoint), do: false
+
+  # Raw terminal bytes have one temporary owner. Replayed final events cannot recreate
+  # a capsule that the canonical commit already consumed.
+  def operation_output(%{operation_checkpoint: nil}, _output), do: :unchanged
+
+  def operation_output(%{operation_checkpoint: checkpoint}, %{status: :ok, content: content})
+      when is_map(checkpoint) and is_map(content) do
+    text = field(content, :text)
+
+    if is_binary(text) and String.valid?(text) and byte_size(text) <= 131_072 and
+         field(content, :tool_calls) in [nil, []] do
+      case Map.get(checkpoint, "response_text") do
+        nil -> {:update, %{operation_checkpoint: Map.put(checkpoint, "response_text", text)}}
+        ^text -> :unchanged
+        _ -> {:error, :provider_operation_response_conflict}
+      end
+    else
+      :unchanged
+    end
+  end
+
+  def operation_output(_record, _output), do: :unchanged
+
+  @doc "Recovery never revives a cancelled direction or takes another active run's output."
+  def recoverable_operation?(record, origin, target) when is_map(origin) and is_map(target) do
+    checkpoint = record.operation_checkpoint
+    target_id = field(target, :run_id) || field(target, :id)
+    target_version = field(target, :goal_version) || field(field(target, :goal), :version)
+
+    is_map(checkpoint) and checkpoint["version"] == @operation_checkpoint_version and
+      operation_scope_matches?(record, origin, target) and
+      operation_direction_matches?(checkpoint, origin, target_id, target_version) and
+      operation_states_allow?(origin, target, target_id)
+  end
+
+  def recoverable_operation?(_record, _origin, _target), do: false
+
+  defp operation_scope_matches?(record, origin, target) do
+    origin.id == record.agent_run_id and origin.parent_turn_ref == record.parent_turn_ref and
+      Enum.all?([:workspace_id, :work_id, :session_id], fn key ->
+        field(record, key) == field(origin, key) and field(record, key) == field(target, key)
+      end)
+  end
+
+  defp operation_direction_matches?(checkpoint, origin, target_id, target_version) do
+    origin.goal_version == checkpoint["goal_version"] and
+      (origin.id != target_id or target_version == origin.goal_version)
+  end
+
+  defp operation_states_allow?(origin, target, target_id) do
+    origin.status not in ~w(cancelled cancelling paused pausing) and
+      to_string(field(target, :status)) not in ~w(cancelled cancelling paused pausing) and
+      (origin.id == target_id or origin.status in ~w(completed failed))
+  end
+
+  # Called only inside the canonical snapshot transaction. Once consumed, historical
+  # snapshots remain valid even when their originating run later changes direction.
+  def consume_operation(
+        %{operation_checkpoint: nil},
+        _origin,
+        _target,
+        _persisted_target,
+        _block
+      ),
+      do: :unchanged
+
+  def consume_operation(record, origin, target, persisted_target, block) when is_map(record) do
+    if operation_payload_matches?(record, block) and
+         current_receiving_target?(persisted_target, target) and
+         recoverable_operation?(record, origin, target) and
+         recoverable_operation?(record, origin, persisted_target),
+       do: {:update, %{operation_checkpoint: nil}},
+       else: {:error, :provider_operation_checkpoint_mismatch}
+  end
+
+  def consume_operation(_record, _origin, _target, _persisted_target, _block),
+    do: {:error, :provider_operation_checkpoint_missing}
+
+  defp operation_payload_matches?(record, block) do
+    checkpoint = record.operation_checkpoint
+    discussion = field(block, :discussion)
+    plan = if is_map(checkpoint), do: checkpoint["plan"], else: nil
+
+    is_map(discussion) and is_map(plan) and
+      record.id == field(discussion, :provider_run_ref) and
+      record.provider_call_ref == field(discussion, :provider_call_ref) and
+      checkpoint["response_text"] == field(discussion, :response_text) and
+      Enum.all?(@required_plan_fields, fn key ->
+        NovelCommon.RequestIR.json_value(field(block, String.to_existing_atom(key))) == plan[key]
+      end)
+  end
+
+  defp current_receiving_target?(persisted, target) when is_map(persisted) do
+    Enum.all?(
+      [:id, :workspace_id, :work_id, :session_id, :parent_turn_ref, :goal_version],
+      fn key ->
+        field(persisted, key) == field(target, key)
+      end
+    )
+  end
+
+  defp current_receiving_target?(_persisted, _target), do: false
+
+  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))
+  defp field(_map, _key), do: nil
+
   @spec event(map() | nil, map()) :: decision()
   def event(nil, attrs), do: {:insert, attrs}
 
@@ -101,6 +277,17 @@ defmodule NovelPersistence.ProviderFactMerge do
       if map_size(updates) == 0, do: :unchanged, else: {:update, updates}
     end
   end
+
+  defp operation_record?(%{owner_refs: refs}) when is_map(refs) do
+    Enum.any?(
+      [:operation, :coverage_key, :discussion_source_keys],
+      &(Map.has_key?(refs, &1) or Map.has_key?(refs, to_string(&1)))
+    )
+  end
+
+  defp operation_record?(_record), do: false
+
+  defp present_ref?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp identity(existing, attrs, fields, kind) do
     Enum.reduce_while(fields, :ok, fn field, :ok ->

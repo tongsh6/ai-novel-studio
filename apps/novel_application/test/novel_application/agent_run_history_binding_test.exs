@@ -486,7 +486,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     assert field(reloaded, :run_id) == child_run
     assert field(reloaded, :status) == "completed"
     assert field(reloaded, :phase) == "stopped"
-    assert field(reloaded, :activity_loaded) == false
+    refute has_key?(reloaded, :activity_loaded)
     refute has_key?(reloaded, :events)
     refute has_key?(reloaded, :provider_runs)
     refute field(reloaded, :provider_run_count) in [9, "9"]
@@ -835,7 +835,7 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
     |> db_json_roundtrip()
   end
 
-  # 真实闭合交换 + 有效覆盖的唯一测试装配；private marker 用例先追加自己的
+  # 真实闭合交换后进入下一作者回合，再覆盖较早交换；private marker 用例先追加自己的
   # assistant 消息，再复用同一装配，保持“历史含 marker、作者回查不泄露”的原义。
   defp append_compacted_checkpoint(transcript, call_id, summary) do
     {:ok, compacted} =
@@ -844,8 +844,12 @@ defmodule NovelApplication.AgentRunHistoryBindingTest do
         NovelCommon.RequestIR.tool_call_block("chapter_read", %{}, call_id)
       ])
       |> AuthoringTranscript.append_observation(call_id, %{status: "ok", source_refs: []})
+      |> AuthoringTranscript.append_author_turn(
+        "保留刚才的结果，继续后续创作。",
+        "input:history-current-#{call_id}"
+      )
       |> AuthoringTranscript.compact(
-        %{call_ids: [call_id], turn_range: "本轮"},
+        %{call_ids: [call_id], message_refs: [], turn_range: "较早作者回合"},
         [],
         %{},
         ["旧细节已省略"],

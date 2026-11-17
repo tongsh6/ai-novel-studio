@@ -50,6 +50,8 @@ defmodule NovelApplication.AuthoringCheckpoint do
   """
   @spec checkpoint(AuthoringTranscript.t()) :: map()
   def checkpoint(transcript) do
+    transcript = AuthoringSessionHistory.strip_request_history(transcript)
+
     %{
       version: AuthoringTranscript.checkpoint_version(),
       transcript:
@@ -95,19 +97,31 @@ defmodule NovelApplication.AuthoringCheckpoint do
   @doc """
   按压缩 plan 追加 checkpoint 消息；不要求 covers 在本段内可见（跨段压缩由会话视图校验）。
 
-  同一 checkpoint 幂等；plan 形状先经 `Compaction.require_call_ids/1` 校验。
+  同一 checkpoint 幂等；plan 形状先经 `Compaction.require_selection/1` 校验。
   """
   @spec append_checkpoint(AuthoringTranscript.t(), map()) ::
           {:ok, AuthoringTranscript.t()} | {:error, term()}
-  def append_checkpoint(transcript, %{
-        covers: covers,
-        source_refs: refs,
-        versions: versions,
-        omissions: omissions,
-        summary: summary
-      }) do
-    with :ok <- Compaction.require_call_ids(covers) do
-      block = RequestIR.checkpoint_block(covers, refs, versions, omissions, summary)
+  def append_checkpoint(
+        transcript,
+        %{
+          covers: covers,
+          source_refs: refs,
+          versions: versions,
+          omissions: omissions,
+          summary: summary
+        } = plan
+      ) do
+    with :ok <- Compaction.require_selection(covers) do
+      block =
+        RequestIR.checkpoint_block(
+          covers,
+          refs,
+          versions,
+          omissions,
+          summary,
+          Map.get(plan, :discussion)
+        )
+
       checkpoint = RequestIR.message(:checkpoint, :application, [block])
 
       if checkpoint in transcript.messages do
@@ -277,8 +291,11 @@ defmodule NovelApplication.AuthoringCheckpoint do
       view = AuthoringSessionHistory.compose(transcript, history)
 
       case AuthoringTranscript.to_request_ir(view) do
-        {:ok, _ir} -> :ok
-        error -> error
+        {:ok, ir} ->
+          NovelApplication.TranscriptCompactionSummary.validate_history(ir.messages, run)
+
+        error ->
+          error
       end
     end
   end

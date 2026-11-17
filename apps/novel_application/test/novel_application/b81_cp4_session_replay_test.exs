@@ -66,6 +66,13 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     )
   end
 
+  defp next_run_view!(work, session, run_id) do
+    current = base_transcript(work, session, run_id, "后续作者输入：继续讨论。")
+    :ok = TestAgenticLoopFixtures.append_segment!(current, status: "running")
+    {:ok, history} = AuthoringSessionHistory.fetch(current.run)
+    AuthoringSessionHistory.compose(current, history)
+  end
+
   defp append_exchange(transcript, call_id) do
     transcript
     |> AuthoringTranscript.append_assistant("读取", [
@@ -80,7 +87,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
 
   defp checkpoint_plan(call_ids, summary) do
     %{
-      covers: %{call_ids: call_ids},
+      covers: %{call_ids: call_ids, message_refs: []},
       source_refs: [%{ref: "chapter:1"}],
       versions: %{},
       omissions: ["较早的已完成操作不再逐字进入后续模型请求；原始记录仍保留在会话历史中。"],
@@ -94,6 +101,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     transcript =
       base_transcript(work, session, run_id, "第一轮作者原话")
       |> append_exchange(call_id)
+      |> AuthoringTranscript.append_author_turn("继续讨论下一问题。", "input:cp4:#{run_id}:next")
 
     {:ok, compacted} =
       AuthoringCheckpoint.append_checkpoint(transcript, checkpoint_plan([call_id], summary))
@@ -111,7 +119,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
         checkpoint_plan([covered_call_id], "较新 run 整理更早交换")
       )
 
-    :ok = TestAgenticLoopFixtures.append_segment!(compacted)
+    :ok = TestAgenticLoopFixtures.append_segment!(compacted, status: "completed")
     compacted
   end
 
@@ -153,7 +161,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
 
   defp seed_checkpointed!(work, session, run_id, summary) do
     transcript = checkpointed_transcript(work, session, run_id, summary)
-    :ok = TestAgenticLoopFixtures.append_segment!(transcript)
+    :ok = TestAgenticLoopFixtures.append_segment!(transcript, status: "completed")
     transcript
   end
 
@@ -163,7 +171,8 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
 
     assert {:ok, history} = AuthoringReplay.fetch_session(work.id, session.id)
     assert history.status == :ok
-    assert history.turn_count == 2
+    # 两段各含原始作者回合与整理前的下一作者回合，独立预期为四轮。
+    assert history.turn_count == 4
     assert history.run_count == 2
     assert length(history.checkpoints) == 2
     assert Enum.any?(history.checkpoints, &String.contains?(Map.get(&1, :summary), "第一轮整理"))
@@ -220,10 +229,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
       |> append_exchange("call-run-cp4-4")
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{
-               run_id: "run-cp4-4",
-               session_id: session.id
-             })
+             AuthoringSessionHistory.fetch(segment.run)
 
     view_before = AuthoringSessionHistory.compose(segment, history)
     assert {:ok, ir_before} = AuthoringTranscript.to_request_ir(view_before)
@@ -251,16 +257,13 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
       base_transcript(work, session, "run-cp4-6", "作者原话六")
       |> append_exchange("call-run-cp4-6")
 
-    :ok = TestAgenticLoopFixtures.append_segment!(segment)
+    :ok = TestAgenticLoopFixtures.append_segment!(segment, status: "running")
 
     assert {:ok, restored, :session_segment} =
              AuthoringCheckpoint.restore(run_record(work, session, "run-cp4-6"), nil)
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{
-               run_id: "run-cp4-6",
-               session_id: session.id
-             })
+             AuthoringSessionHistory.fetch(segment.run)
 
     restored_view = AuthoringSessionHistory.compose(restored, history)
     expected_view = AuthoringSessionHistory.compose(segment, history)
@@ -288,7 +291,7 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
       base_transcript(work, session, "run-b81-a", a_author)
       |> append_exchange(a_call)
 
-    :ok = TestAgenticLoopFixtures.append_segment!(a_transcript)
+    :ok = TestAgenticLoopFixtures.append_segment!(a_transcript, status: "completed")
 
     # B：较新 run 的作者消息 + 真实覆盖 A call ID 的 canonical checkpoint。
     seed_checkpoint_covering!(work, session, "run-b81-b", b_author, a_call)
@@ -373,18 +376,19 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     a_author_only =
       base_transcript(work, session, a_run, a_author, author_turn_ref: "turn-#{a_run}")
 
-    :ok = TestAgenticLoopFixtures.append_segment!(a_author_only)
+    :ok = TestAgenticLoopFixtures.append_segment!(a_author_only, status: "running")
 
     :ok =
       TestAgenticLoopFixtures.append_segment!(
-        base_transcript(work, session, b_run, b_author, author_turn_ref: "turn-#{b_run}")
+        base_transcript(work, session, b_run, b_author, author_turn_ref: "turn-#{b_run}"),
+        status: "running"
       )
 
     a_full = append_exchange(a_author_only, a_call)
-    :ok = TestAgenticLoopFixtures.append_segment!(a_full)
+    :ok = TestAgenticLoopFixtures.append_segment!(a_full, status: "completed")
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: a_run, session_id: session.id})
+             AuthoringSessionHistory.fetch(identity(work, session, a_run))
 
     view = AuthoringSessionHistory.compose(a_full, history)
 
@@ -403,8 +407,10 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
              :session_history_run_id
            )
 
+    # 在真实后续 C 回合整理 A；K=0 只隔离本例的归属目标，不绕过当前回合保护。
     # A 的调用必须绑定 A 自己的最近作者回合，而不是会话里最后一条作者消息（B）。
-    assert {:ok, plan} = TranscriptCompaction.plan(view)
+    later_view = next_run_view!(work, session, "run-b81-interleave-current")
+    assert {:ok, plan} = TranscriptCompaction.plan_maintenance(later_view, keep_recent_items: 0)
     assert plan.covers.call_ids == [a_call]
     assert plan.covers.turn_range == "turn-#{a_run}"
 
@@ -443,15 +449,16 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
       base_transcript(work, session, a_run, a_author, author_turn_ref: "turn-#{a_run}")
       |> append_exchange(a_call)
 
-    :ok = TestAgenticLoopFixtures.append_segment!(a)
+    :ok = TestAgenticLoopFixtures.append_segment!(a, status: "running")
 
     :ok =
       TestAgenticLoopFixtures.append_segment!(
-        base_transcript(work, session, "run-b81-current-b", b_author)
+        base_transcript(work, session, "run-b81-current-b", b_author),
+        status: "running"
       )
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: a_run, session_id: session.id})
+             AuthoringSessionHistory.fetch(identity(work, session, a_run))
 
     view = AuthoringSessionHistory.compose(a, history)
 
@@ -485,22 +492,23 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     b_author_only =
       base_transcript(work, session, b_run, b_author, author_turn_ref: "turn-#{b_run}")
 
-    :ok = TestAgenticLoopFixtures.append_segment!(a_author_only)
-    :ok = TestAgenticLoopFixtures.append_segment!(b_author_only)
+    :ok = TestAgenticLoopFixtures.append_segment!(a_author_only, status: "running")
+    :ok = TestAgenticLoopFixtures.append_segment!(b_author_only, status: "running")
     b_full = append_exchange(b_author_only, b_call)
-    :ok = TestAgenticLoopFixtures.append_segment!(b_full)
+    :ok = TestAgenticLoopFixtures.append_segment!(b_full, status: "completed")
     a_full = append_exchange(a_author_only, a_call)
-    :ok = TestAgenticLoopFixtures.append_segment!(a_full)
+    :ok = TestAgenticLoopFixtures.append_segment!(a_full, status: "completed")
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: a_run, session_id: session.id})
+             AuthoringSessionHistory.fetch(identity(work, session, a_run))
 
     view = AuthoringSessionHistory.compose(a_full, history)
 
     assert message_index!(view.messages, &tool_call?(&1, b_call)) <
              message_index!(view.messages, &tool_call?(&1, a_call))
 
-    assert {:ok, plan} = TranscriptCompaction.plan(view)
+    later_view = next_run_view!(work, session, "run-b81-range-current")
+    assert {:ok, plan} = TranscriptCompaction.plan_maintenance(later_view, keep_recent_items: 0)
     assert plan.covers.call_ids == [b_call, a_call]
 
     # 首末按作者消息会话顺序 A → B，不因调用先后逆序成 B → A。

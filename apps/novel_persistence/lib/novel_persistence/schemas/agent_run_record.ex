@@ -88,22 +88,17 @@ defmodule NovelPersistence.Schemas.AgentRunRecord do
     :completed_at
   ]
 
+  @statuses ~w(created running pausing cancelling paused awaiting_author completed cancelled failed)
+
+  @doc "存储运行状态的同源校验，供 changeset 与会话历史读取边界消费。"
+  def valid_status?(status), do: status in @statuses
+
   def changeset(record, attrs) do
     record
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:run_mode, ["bounded", "durable"])
-    |> validate_inclusion(:status, [
-      "created",
-      "running",
-      "pausing",
-      "cancelling",
-      "paused",
-      "awaiting_author",
-      "completed",
-      "cancelled",
-      "failed"
-    ])
+    |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:phase, ["planning", "executing", "finalizing", "stopped"])
   end
 end

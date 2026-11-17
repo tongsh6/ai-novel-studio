@@ -48,13 +48,19 @@ defmodule NovelAgent.Provider.Execution do
 
   @type dependency :: t() | nil
 
-  # 缺陷九（2026-07-20）：这是全系统唯一一处不显式传 :params 就会用到的默认值
-  # funnel——正文起草/质量评估/人物设计/情节大纲/世界观/角色演化/对话规划全部经此，
-  # 全仓只有 judgment_protocol.ex 显式调过 with_params。默认值必须是 InferenceParams.new()
-  # （带 max_tokens 止血阀），不能是裸 %InferenceParams{}（defstruct 字段全 nil=无界），
-  # 否则止血阀形同虚设——实测过：写作调用能跑到 36000+ token 不停。
-  @spec execute(Provider.request_ir(), keyword()) :: execution_result()
-  def execute(prompt, opts \\ []) do
+  @doc "执行已注入的同一 Provider 依赖，保留成功、失败及取消的完整执行事实。"
+  @spec execute(Provider.request_ir() | dependency(), keyword() | Provider.request_ir()) ::
+          execution_result()
+  def execute(prompt_or_dependency, opts_or_request \\ [])
+
+  def execute(%__MODULE__{execute_fn: execute_fn}, request) when is_function(execute_fn, 1),
+    do: execute_fn.(request)
+
+  def execute(%__MODULE__{}, _request),
+    do: {:error, %{error: %{type: :provider_execution_missing}}}
+
+  # 默认参数由实际 route 补齐；有界操作必须通过 with_params/2 显式给出输出预算。
+  def execute(prompt, opts) when is_list(opts) do
     model = Keyword.get(opts, :model)
     params = Keyword.get(opts, :params, InferenceParams.new())
     gateway_opts = Keyword.drop(opts, [:model, :params])
@@ -165,6 +171,31 @@ defmodule NovelAgent.Provider.Execution do
   end
 
   def with_params(dependency, _params), do: dependency
+
+  @doc "为同次调用绑定真实业务归属；不改变 Provider 路由或分配第二次执行。"
+  @spec with_owner_refs(dependency(), map()) :: dependency()
+  def with_owner_refs(%__MODULE__{gateway_opts: opts} = dependency, owner_refs)
+      when is_list(opts) and is_map(owner_refs) do
+    refs = Map.merge(Keyword.get(opts, :owner_refs, %{}), owner_refs)
+    rebuild_gateway_execution(dependency, Keyword.put(opts, :owner_refs, refs))
+  end
+
+  def with_owner_refs(%__MODULE__{} = dependency, owner_refs) when is_map(owner_refs),
+    do: %{dependency | metadata: Map.put(dependency.metadata, :owner_refs, owner_refs)}
+
+  @doc """
+  在 Gateway 已确定真实路由与执行身份、尚未 dispatch 时设置一次准入提交。
+  不具备该执行边界的 final-result 替身不能伪造已准入的 Provider 事实。
+  """
+  @spec with_admission(dependency(), (ProviderRun.t() -> :ok | {:error, term()})) ::
+          {:ok, t()} | {:error, :provider_admission_unavailable}
+  def with_admission(%__MODULE__{gateway_opts: opts} = dependency, admission)
+      when is_list(opts) and is_function(admission, 1) do
+    {:ok,
+     rebuild_gateway_execution(dependency, Keyword.put(opts, :execution_admission, admission))}
+  end
+
+  def with_admission(_dependency, _admission), do: {:error, :provider_admission_unavailable}
 
   @spec with_event_sink(dependency(), (execution_result() -> term())) :: dependency()
   def with_event_sink(%__MODULE__{gateway_opts: opts} = dependency, event_sink)

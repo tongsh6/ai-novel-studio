@@ -264,7 +264,7 @@ defmodule NovelCommon.RequestIR do
   end
 
   @doc "显式压缩 checkpoint 块（I-ART-7）。"
-  def checkpoint_block(covers, source_refs, versions, omissions, summary) do
+  def checkpoint_block(covers, source_refs, versions, omissions, summary, discussion \\ nil) do
     %{
       type: "checkpoint",
       covers: covers,
@@ -273,6 +273,9 @@ defmodule NovelCommon.RequestIR do
       omissions: omissions,
       summary: summary
     }
+    |> then(fn block ->
+      if is_nil(discussion), do: block, else: Map.put(block, :discussion, discussion)
+    end)
   end
 
   @doc """
@@ -490,7 +493,7 @@ defmodule NovelCommon.RequestIR do
     with true <- is_list(Map.get(block, :source_refs, [])),
          true <- is_map(Map.get(block, :versions, %{})),
          true <- is_list(Map.get(block, :omissions, [])),
-         :ok <- Compaction.require_call_ids(covers) do
+         :ok <- Compaction.require_selection(covers) do
       :ok
     else
       _ -> {:error, :invalid_checkpoint_block}

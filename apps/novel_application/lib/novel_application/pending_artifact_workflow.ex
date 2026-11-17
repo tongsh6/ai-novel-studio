@@ -2145,13 +2145,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         work_id: run.work_id,
         session_id: run.session_id
       })
-      |> NovelApplication.AgentFinalizer.attach_run_summary(%{
-        run_id: run.run_id,
-        run_mode: run.run_mode,
-        parent_turn_ref: run.parent_turn_ref,
-        profile_ref: run.profile_ref,
-        status: :completed
-      })
+      |> NovelApplication.AgentFinalizer.attach_run_summary(run)
 
     DialogueGateway.persist_turn_trace(
       {:ok, result, trace, [], context},

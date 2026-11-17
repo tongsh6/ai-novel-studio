@@ -554,7 +554,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert agent_run.run_id == run_id
       assert agent_run.profile_ref == "conversation_turn_v1"
-      assert agent_run.activity_loaded == false
+      refute Map.has_key?(agent_run, :activity_loaded)
       refute Map.has_key?(agent_run, :events)
       refute Map.has_key?(agent_run, :provider_runs)
     end
@@ -620,12 +620,12 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert agent_runs_by_turn["turn-one"].run_id == "run-resume-one"
       assert agent_runs_by_turn["turn-one"].profile_ref == "conversation_turn_v1"
-      assert agent_runs_by_turn["turn-one"].activity_loaded == false
+      refute Map.has_key?(agent_runs_by_turn["turn-one"], :activity_loaded)
       refute Map.has_key?(agent_runs_by_turn["turn-one"], :events)
 
       assert agent_runs_by_turn["turn-two"].run_id == "run-resume-two"
       assert agent_runs_by_turn["turn-two"].profile_ref == "conversation_turn_v1"
-      assert agent_runs_by_turn["turn-two"].activity_loaded == false
+      refute Map.has_key?(agent_runs_by_turn["turn-two"], :activity_loaded)
       refute Map.has_key?(agent_runs_by_turn["turn-two"], :events)
     end
 
@@ -748,7 +748,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
       [entry] = snapshot.transcript
       summary_agent_run = map_field(entry.turn_result, :agent_run)
-      assert summary_agent_run[:activity_loaded] == false
+      refute Map.has_key?(summary_agent_run, :activity_loaded)
       refute map_has_key?(summary_agent_run, :events)
       refute map_has_key?(summary_agent_run, :provider_runs)
     end

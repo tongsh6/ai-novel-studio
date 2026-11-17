@@ -597,13 +597,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   defp tool_name(plan), do: plan.proposed_actions |> hd() |> Map.fetch!(:target_ref)
 
   defp maybe_finalize(turn_result, run, "character_design") do
-    AgentFinalizer.attach_run_summary(turn_result, %{
-      run_id: run.run_id,
-      run_mode: run.run_mode,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      status: :completed
-    })
+    AgentFinalizer.attach_run_summary(turn_result, run)
   end
 
   defp maybe_finalize(turn_result, _run, _tool_name), do: turn_result

@@ -12,3 +12,5 @@
 - [novel_application/agent_run_prose_continuation_test.exs](novel_application/agent_run_prose_continuation_test.exs)：正文运行的继续判断边界：作者已采纳时零调用收束，真实 continuation 保留 Base/观察历史并将仅关联的计划与证据限定为 Scope。
 - [novel_application/dialogue_run_spec_test.exs](novel_application/dialogue_run_spec_test.exs)：显式 profile 的 run spec 构造、结构化作者预算与 work 身份必填契约；与对话判断路由测试分工。
 - [novel_application/author_content_registration_test.exs](novel_application/author_content_registration_test.exs)：应用层原文登记的来源选择、current/历史指代校验与字节保真；持久提交重验仍由 TurnInteractionService 测试覆盖。
+- [novel_application/transcript_compaction_summary_test.exs](novel_application/transcript_compaction_summary_test.exs)：摘要执行准入、真实来源/响应字节、调用计费、取消和持久失败；与恢复测试共用现役执行与事务入口。
+- [novel_application/transcript_compaction_recovery_test.exs](novel_application/transcript_compaction_recovery_test.exs)：R03 已持久接收摘要的原响应恢复，核验提交失败保留、跨 run 零模型调用恢复、同事务清除、取消/目标变更隔离与原文保真；不代签真实页面或模型摘要语义。

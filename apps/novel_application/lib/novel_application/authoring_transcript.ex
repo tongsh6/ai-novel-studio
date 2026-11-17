@@ -18,6 +18,7 @@ defmodule NovelApplication.AuthoringTranscript do
 
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.MessageCoverage
 
   @type t :: %{
           run: map(),
@@ -142,7 +143,8 @@ defmodule NovelApplication.AuthoringTranscript do
     artifact_type items adoption_required canon_written artifact_refs kind refs covers summary
     finding_count review_status policy_action turn_range
     raw_arguments provider_call_id provider_state reasoning_content
-    provider_call_ref provider_run_ref
+    provider_call_ref provider_run_ref message_refs run_id run_sequence
+    discussion response_text response_sha256
   )a
 
   @doc "追加版本化 scope 更新；初始 Base 和既有消息永远不变。"
@@ -393,7 +395,7 @@ defmodule NovelApplication.AuthoringTranscript do
        %{
          run: ir.run,
          system: system_run_rules(ir.system),
-         messages: ir.messages,
+         messages: Enum.map(ir.messages, &MessageCoverage.strip(&1, Map.get(ir.run, :run_id))),
          tools: ir.tools,
          base_refs: Map.get(ir.refs, :base_refs, []),
          observation_refs: Map.get(ir.refs, :observation_refs, []),
@@ -422,9 +424,11 @@ defmodule NovelApplication.AuthoringTranscript do
   @doc "追加按调用号绑定的压缩事件；canonical 原文保留，只有 Provider 投影折叠历史。"
   @spec compact(t(), map(), [map()], map(), [String.t()], String.t()) ::
           {:ok, t()} | {:error, term()}
-  def compact(transcript, covers, source_refs, versions, omissions, summary) do
-    with :ok <- Compaction.require_call_ids(covers) do
-      block = RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary)
+  def compact(transcript, covers, source_refs, versions, omissions, summary, discussion \\ nil) do
+    with :ok <- Compaction.require_selection(covers) do
+      block =
+        RequestIR.checkpoint_block(covers, source_refs, versions, omissions, summary, discussion)
+
       checkpoint = RequestIR.message(:checkpoint, :application, [block])
 
       if checkpoint in transcript.messages,
@@ -454,7 +458,7 @@ defmodule NovelApplication.AuthoringTranscript do
       RequestIR.new(%{
         run: transcript.run,
         system: system_envelope(transcript.system),
-        messages: transcript.messages,
+        messages: MessageCoverage.annotate(transcript.messages, transcript.run),
         tools: transcript.tools,
         projection: Map.merge(transcript.projection, Map.new(opts)),
         refs: %{

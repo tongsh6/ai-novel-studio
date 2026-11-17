@@ -55,6 +55,9 @@ defmodule NovelApplication.ContextPressure do
   def latest_usage(run_id) when is_binary(run_id) do
     run_id
     |> ProviderRunLog.list_usage_summaries()
+    |> Enum.reject(
+      &(Map.get(&1, :operation) == NovelApplication.TranscriptCompactionSummary.operation())
+    )
     |> Enum.reverse()
     |> Enum.find_value(:unavailable, fn summary ->
       case input_tokens(summary) do

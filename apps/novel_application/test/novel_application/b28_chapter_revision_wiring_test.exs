@@ -12,6 +12,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     WorkService
   }
 
+  alias NovelDomain.AgentRun
   alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
 
@@ -71,25 +72,29 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     author_input = %{turn_id: "request", text: "把第一章正文整理一下，只调整分段和排版，别改字句。"}
 
-    run = %{
-      run_id: "run-b28-chapter",
-      run_mode: :bounded,
-      profile_ref: "judgment_loop_v1",
-      budget: %{max_tool_calls: 3, max_provider_calls: 6},
-      consumed_budget: %{
-        steps: 0,
-        execution_steps: 0,
-        tool_calls: 0,
-        provider_calls: 0,
-        replans: 0
-      },
-      authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-      workspace_id: work.id,
-      work_id: work.id,
-      session_id: session.id,
-      parent_turn_ref: author_input.turn_id,
-      goal: %{text: author_input.text, version: 1}
-    }
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-b28-chapter",
+        origin_frame_ref: "frame-b28-chapter",
+        status: :running,
+        phase: :executing,
+        run_mode: :bounded,
+        profile_ref: "judgment_loop_v1",
+        budget: %{max_tool_calls: 3, max_provider_calls: 6},
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: 0,
+          replans: 0
+        },
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+        workspace_id: work.id,
+        work_id: work.id,
+        session_id: session.id,
+        parent_turn_ref: author_input.turn_id,
+        goal: %{text: author_input.text, version: 1}
+      })
 
     context = %DialogueContext{work_id: work.id, interaction_state: %{}}
 

@@ -297,8 +297,8 @@ defmodule NovelCommon.RequestIRProjectionTest do
 
     test "G6 压缩后：带 call_ids 的 checkpoint 在三种投影中折叠已覆盖交换，turn_range 可选" do
       for covers <- [
-            %{call_ids: ["call-1"]},
-            %{call_ids: ["call-1"], turn_range: "turn-1..turn-40"}
+            %{call_ids: ["call-1"], message_refs: []},
+            %{call_ids: ["call-1"], message_refs: [], turn_range: "turn-1..turn-40"}
           ] do
         checkpoint =
           RequestIR.checkpoint_block(
@@ -310,13 +310,17 @@ defmodule NovelCommon.RequestIRProjectionTest do
           )
 
         messages =
-          g2_messages() ++
-            [message(:checkpoint, :application, [checkpoint])] ++
-            [
-              message(:user, :author, [RequestIR.text_block("继续推进下一段冲突")], %{
-                source_refs: [%{ref: "author_turn:turn-41"}]
-              })
-            ]
+          (g2_messages() ++
+             [
+               message(:user, :author, [RequestIR.text_block("继续推进下一段冲突")], %{
+                 source_refs: [%{ref: "author_turn:turn-41"}]
+               }),
+               message(:checkpoint, :application, [checkpoint])
+             ])
+          |> Enum.with_index(1)
+          |> Enum.map(fn {message, sequence} ->
+            Map.put(message, :canonical_ref, %{run_id: "run-g1", run_sequence: sequence})
+          end)
 
         ir = ir(messages, refs: observed_refs())
         assert :ok = RequestIR.validate(ir)

@@ -70,17 +70,18 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
 
   test "N1：同会话跨 run 追加按会话序号连续，段各自独立" do
     session = unique("sess-shared")
+    scope = shared_scope(session)
     run_a = unique("run-a")
     run_b = unique("run-b")
 
     append!(
-      run_attrs(run_a, session_id: session),
-      segment(run_a, ["a1", "a2"], run: %{"session_id" => session})
+      run_attrs(run_a, scope),
+      segment(run_a, ["a1", "a2"], run: json_scope(scope))
     )
 
     append!(
-      run_attrs(run_b, session_id: session),
-      segment(run_b, ["b1", "b2"], run: %{"session_id" => session})
+      run_attrs(run_b, scope),
+      segment(run_b, ["b1", "b2"], run: json_scope(scope))
     )
 
     messages = session_messages(session)
@@ -103,6 +104,7 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
 
   test "N2：两 run 交错追加后会话序号无空洞无重复，唯一索引真实存在" do
     session = unique("sess-interleaved")
+    scope = shared_scope(session)
     run_a = unique("run-interleaved-a")
     run_b = unique("run-interleaved-b")
 
@@ -112,18 +114,18 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
     # `(run_id, run_sequence)` 唯一索引 + commit_snapshot 的 `mode: :immediate` 事务
     # 背书，不在单测覆盖范围；登记见 B81 §9（由 Lead 维护）。
     append!(
-      run_attrs(run_a, session_id: session),
-      segment(run_a, ["a1"], run: %{"session_id" => session})
+      run_attrs(run_a, scope),
+      segment(run_a, ["a1"], run: json_scope(scope))
     )
 
     append!(
-      run_attrs(run_b, session_id: session),
-      segment(run_b, ["b1"], run: %{"session_id" => session})
+      run_attrs(run_b, scope),
+      segment(run_b, ["b1"], run: json_scope(scope))
     )
 
     append!(
-      run_attrs(run_a, session_id: session),
-      segment(run_a, ["a1", "a2"], run: %{"session_id" => session})
+      run_attrs(run_a, scope),
+      segment(run_a, ["a1", "a2"], run: json_scope(scope))
     )
 
     messages = session_messages(session)
@@ -335,6 +337,168 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
     assert length(session_messages(session_id(run_id))) == 1
   end
 
+  test "R03：读取行只附加真实运行元数据，原消息和坐标保持不变" do
+    run_id = unique("run-read-source")
+    run = run_attrs(run_id, status: "awaiting_author")
+    append!(run, segment(run_id, ["author original"]))
+
+    assert {:ok, %{rows: [row]}} = AuthoringSessionLog.fetch_session(run.session_id)
+
+    assert row == %{
+             sequence: 1,
+             run_id: run_id,
+             run_sequence: 1,
+             role: "user",
+             message: message("author original"),
+             format_version: "authoring-session-message/v1",
+             workspace_id: run.workspace_id,
+             work_id: run.work_id,
+             session_id: run.session_id,
+             run_status: "awaiting_author",
+             parent_turn_ref: run.parent_turn_ref
+           }
+
+    Repo.query!("UPDATE agent_runs SET status = ? WHERE id = ?", ["cancelled", run_id])
+
+    assert {:ok, %{rows: [%{run_status: "cancelled"}]}} =
+             AuthoringSessionLog.fetch_session(run.session_id)
+  end
+
+  test "R03：消息及段行的未知格式版本在两种读取入口拒绝" do
+    for {table, reason} <- [
+          {"authoring_session_messages", :authoring_message_version_unsupported},
+          {"authoring_run_segments", :authoring_segment_version_unsupported}
+        ] do
+      run_id = unique("run-row-version")
+      run = run_attrs(run_id)
+      append!(run, segment(run_id, ["m1"]))
+      Repo.query!("UPDATE #{table} SET format_version = ? WHERE run_id = ?", ["unknown", run_id])
+
+      assert AuthoringSessionLog.fetch_run_segment(run_id) == {:error, reason}
+      assert AuthoringSessionLog.fetch_session(run.session_id) == {:error, reason}
+    end
+  end
+
+  test "R03：段头已落库后被改成未知版本或错绑身份仍失败关闭" do
+    for key <- ["version" | ~w(run_id workspace_id work_id session_id parent_turn_ref)] do
+      run_id = unique("run-stored-header")
+      run = run_attrs(run_id)
+      append!(run, segment(run_id, ["m1"]))
+
+      changed =
+        if key == "version",
+          do: Map.put(header(run_id), key, "unknown"),
+          else: put_in(header(run_id), ["run", key], "wrong-identity")
+
+      Repo.query!("UPDATE authoring_run_segments SET header = ? WHERE run_id = ?", [
+        Jason.encode!(changed),
+        run_id
+      ])
+
+      assert_corrupt_reads(run)
+    end
+  end
+
+  test "R03：消息行、段行、真实 run 行身份不一致时均拒绝" do
+    for {table, key_column, field} <- [
+          {"authoring_session_messages", "run_id", "workspace_id"},
+          {"authoring_session_messages", "run_id", "work_id"},
+          {"authoring_session_messages", "run_id", "session_id"},
+          {"authoring_run_segments", "run_id", "workspace_id"},
+          {"authoring_run_segments", "run_id", "work_id"},
+          {"authoring_run_segments", "run_id", "session_id"},
+          {"authoring_run_segments", "run_id", "parent_turn_ref"},
+          {"agent_runs", "id", "workspace_id"},
+          {"agent_runs", "id", "work_id"},
+          {"agent_runs", "id", "session_id"},
+          {"agent_runs", "id", "parent_turn_ref"}
+        ] do
+      run_id = unique("run-row-binding")
+      run = run_attrs(run_id)
+      append!(run, segment(run_id, ["m1"]))
+
+      Repo.query!("UPDATE #{table} SET #{field} = ? WHERE #{key_column} = ?", [
+        "wrong-identity",
+        run_id
+      ])
+
+      assert_corrupt_reads(run)
+    end
+  end
+
+  test "R03：同一 session 中混入另一作品或工作区的合法段也拒绝" do
+    for field <- [:work_id, :workspace_id] do
+      session = unique("sess-cross-scope")
+      scope = shared_scope(session)
+      run_a = unique("run-scope-a")
+      run_b = unique("run-scope-b")
+      changed = Map.put(scope, field, unique("other-scope"))
+      append!(run_attrs(run_a, scope), segment(run_a, ["a"], run: json_scope(scope)))
+      append!(run_attrs(run_b, changed), segment(run_b, ["b"], run: json_scope(changed)))
+
+      assert AuthoringSessionLog.fetch_session(session) ==
+               {:error, :authoring_session_identity_mismatch}
+    end
+  end
+
+  test "R03：role 列与 canonical 消息角色不一致时拒绝" do
+    run_id = unique("run-row-role")
+    run = run_attrs(run_id)
+    append!(run, segment(run_id, ["m1"]))
+
+    Repo.query!("UPDATE authoring_session_messages SET role = ? WHERE run_id = ?", [
+      "assistant",
+      run_id
+    ])
+
+    assert_corrupt_reads(run)
+  end
+
+  test "R03：run 序号空洞、会话顺序颠倒和段范围错误均拒绝" do
+    for statement <- [
+          "UPDATE authoring_session_messages SET run_sequence = 3 WHERE run_id = ? AND run_sequence = 2",
+          "UPDATE authoring_session_messages SET sequence = 10 - sequence WHERE run_id = ?",
+          "UPDATE authoring_run_segments SET first_sequence = 2 WHERE run_id = ?",
+          "UPDATE authoring_run_segments SET last_sequence = 3 WHERE run_id = ?"
+        ] do
+      run_id = unique("run-bad-order")
+      run = run_attrs(run_id)
+      append!(run, segment(run_id, ["m1", "m2"]))
+      Repo.query!(statement, [run_id])
+      assert_corrupt_reads(run)
+    end
+  end
+
+  test "R03：会话全序不能有空洞，即使段计数与首尾碰巧一致" do
+    run_id = unique("run-session-gap")
+    run = run_attrs(run_id)
+    append!(run, segment(run_id, ["m1", "m2"]))
+
+    Repo.query!(
+      "UPDATE authoring_session_messages SET sequence = 3 WHERE run_id = ? AND run_sequence = 2",
+      [run_id]
+    )
+
+    Repo.query!("UPDATE authoring_run_segments SET last_sequence = 3 WHERE run_id = ?", [run_id])
+
+    assert AuthoringSessionLog.fetch_session(run.session_id) ==
+             {:error, :authoring_message_sequence_invalid}
+  end
+
+  test "R03：缺 run、未知运行状态和孤立消息不得被视为可恢复或空历史" do
+    for statement <- [
+          "DELETE FROM agent_runs WHERE id = ?",
+          "UPDATE agent_runs SET status = 'unknown' WHERE id = ?",
+          "DELETE FROM authoring_run_segments WHERE run_id = ?"
+        ] do
+      run_id = unique("run-missing-owner")
+      run = run_attrs(run_id)
+      append!(run, segment(run_id, ["m1"]))
+      Repo.query!(statement, [run_id])
+      assert_corrupt_reads(run)
+    end
+  end
+
   # ── helpers ─────────────────────────────────────────────────────────────
 
   # 真实提交边界是 commit_snapshot：run 行与段/消息同一事务。这里复刻该边界，
@@ -368,6 +532,21 @@ defmodule NovelPersistence.AuthoringSessionLogTest do
 
     reason
   end
+
+  defp assert_corrupt_reads(run) do
+    assert {:error, _reason} = AuthoringSessionLog.fetch_run_segment(run.id)
+    assert {:error, _reason} = AuthoringSessionLog.fetch_session(run.session_id)
+  end
+
+  defp shared_scope(session_id) do
+    %{
+      session_id: session_id,
+      workspace_id: "ws-#{session_id}",
+      work_id: "work-#{session_id}"
+    }
+  end
+
+  defp json_scope(scope), do: Map.new(scope, fn {key, value} -> {Atom.to_string(key), value} end)
 
   defp fetch_segment!(run_id) do
     assert {:ok, %{} = segment} = AuthoringSessionLog.fetch_run_segment(run_id)

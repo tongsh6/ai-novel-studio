@@ -75,6 +75,7 @@ defmodule NovelApplication.AgentRunService do
             [
               run: run,
               next_step_planner: planner,
+              provider_execution: Keyword.get(opts, :provider_execution),
               interaction_store: store,
               author_action_admission: admission
             ]}
@@ -114,6 +115,7 @@ defmodule NovelApplication.AgentRunService do
        [
          run: startup.run,
          next_step_planner: Keyword.get(opts, :next_step_planner),
+         provider_execution: Keyword.get(opts, :provider_execution),
          interaction_store: store,
          author_action_admission: {:committed, receipt, startup}
        ]}
@@ -163,14 +165,16 @@ defmodule NovelApplication.AgentRunService do
       if receipt.duplicate? do
         reuse_received_run(receipt)
       else
-        start_received_run(run, attrs, planner, store)
+        start_received_run(run, attrs, planner, Keyword.put(opts, :interaction_store, store))
       end
     end
   end
 
   defp reuse_received_run(receipt), do: {:ok, receipt.run_id}
 
-  defp start_received_run(run, attrs, planner, store) do
+  defp start_received_run(run, attrs, planner, opts) do
+    store = Keyword.fetch!(opts, :interaction_store)
+
     with {:ok, run} <- attach_durable_task(run, attrs),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
@@ -179,6 +183,7 @@ defmodule NovelApplication.AgentRunService do
               [
                 run: run,
                 next_step_planner: planner,
+                provider_execution: Keyword.get(opts, :provider_execution),
                 interaction_store: store
               ]}
            ) do

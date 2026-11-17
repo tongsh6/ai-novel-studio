@@ -19,6 +19,8 @@ defmodule NovelApplication.AuthoringSessionHistory do
 
   alias NovelApplication.AuthoringTranscript
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.MessageCoverage
   alias NovelPersistence.AuthoringSessionLog
 
   @history_run_id_key :session_history_run_id
@@ -54,18 +56,63 @@ defmodule NovelApplication.AuthoringSessionHistory do
 
     # 无会话身份 = 无会话历史可派生（首轮/非会话入口），不是损坏。
     if nonblank?(session_id),
-      do: fetch_session(session_id, field(run, :run_id)),
+      do: fetch_session(run),
       else: {:ok, nil}
   end
 
-  defp fetch_session(session_id, run_id) do
-    with {:ok, %{rows: rows, refs: refs}} <- AuthoringSessionLog.fetch_session(session_id) do
+  defp fetch_session(run) do
+    run_id = field(run, :run_id)
+
+    with :ok <- validate_run_scope(run),
+         {:ok, %{rows: rows, refs: refs}} <-
+           AuthoringSessionLog.fetch_session(field(run, :session_id)),
+         :ok <- validate_history_scope(rows, run) do
       rows = Enum.reject(rows, &(&1.role == "application_base"))
 
       # 只有本 run 自己的已提交行时，局部段已有完整顺序，不归并自身历史 refs。
       if Enum.any?(rows, &(&1.run_id != run_id)),
         do: {:ok, %{rows: rows, refs: refs}},
         else: {:ok, nil}
+    end
+  end
+
+  defp validate_run_scope(run) do
+    if Enum.all?([:run_id, :work_id, :workspace_id], &nonblank?(field(run, &1))),
+      do: :ok,
+      else: {:error, :authoring_session_scope_missing}
+  end
+
+  defp validate_history_scope(rows, run) do
+    if Enum.all?(rows, fn row ->
+         Enum.all?([:work_id, :workspace_id, :session_id], &(field(row, &1) == field(run, &1)))
+       end), do: :ok, else: {:error, :authoring_session_scope_mismatch}
+  end
+
+  @doc """
+  从真实已提交会话解析摘要来源，供 Provider 准入事务核验冻结材料。
+
+  不从调用方提供的正文或临时坐标补来源。纯讨论只允许已完成的外 run；
+  原消息及其作者归属继续复用同一 normalize、坐标和 Compaction 解析边界。
+  """
+  @spec discussion_sources(map(), map()) :: {:ok, [map()]} | {:error, atom()}
+  def discussion_sources(run, covers) do
+    with :ok <- Compaction.require_selection(covers),
+         {:ok, %{rows: rows}} <- fetch(run) do
+      messages = committed_messages(rows, field(run, :run_id))
+      refs = Enum.filter(covers.message_refs, &(&1.role == "assistant"))
+
+      with [_ | _] <- refs,
+           {:ok, selected} <- MessageCoverage.resolve(messages, refs),
+           {:ok, _turns} <- MessageCoverage.turn_positions(messages, selected),
+           true <-
+             Enum.all?(selected, &MessageCoverage.eligible?(&1, messages, field(run, :run_id))) do
+        {:ok, MessageCoverage.discussion_sources(messages, selected)}
+      else
+        _ -> {:error, :discussion_summary_source_mismatch}
+      end
+    else
+      {:ok, nil} -> {:error, :discussion_summary_source_mismatch}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -83,7 +130,7 @@ defmodule NovelApplication.AuthoringSessionHistory do
 
   def compose(transcript, %{rows: rows, refs: refs}) when is_list(rows) and is_map(refs) do
     run_id = field(transcript.run, :run_id)
-    {base, rest} = split_base(transcript.messages)
+    {base, rest} = split_base(MessageCoverage.annotate(transcript.messages, transcript.run))
     committed_count = Enum.count(rows, &(field(&1, :run_id) == run_id))
     tail = Enum.drop(rest, committed_count)
 
@@ -101,16 +148,27 @@ defmodule NovelApplication.AuthoringSessionHistory do
   end
 
   defp committed_messages(rows, run_id) do
-    run_ids = Enum.map(rows, &field(&1, :run_id))
-
     rows
     |> Enum.map(&field(&1, :message))
     |> AuthoringTranscript.normalize_messages()
-    |> Enum.zip(run_ids)
-    |> Enum.map(fn {message, row_run_id} ->
-      if row_run_id == run_id,
+    |> Enum.zip(rows)
+    |> Enum.map(fn {message, row} ->
+      reference =
+        Map.take(row, [
+          :run_id,
+          :run_sequence,
+          :workspace_id,
+          :work_id,
+          :session_id,
+          :parent_turn_ref,
+          :run_status
+        ])
+
+      message = Map.put(message, :canonical_ref, reference)
+
+      if row.run_id == run_id,
         do: message,
-        else: Map.put(message, @history_run_id_key, row_run_id)
+        else: Map.put(message, @history_run_id_key, row.run_id)
     end)
   end
 
@@ -126,9 +184,13 @@ defmodule NovelApplication.AuthoringSessionHistory do
   def session_history_run_id(_message), do: nil
 
   @doc "按归属剥离视图中的外 run 已提交消息，恢复当前 run 段。"
-  def strip_request_history(%{messages: messages} = transcript) do
-    segment = Enum.reject(messages, &session_history_run_id/1)
-    %{transcript | messages: segment, call_ids: RequestIR.call_ids(segment)}
+  def strip_request_history(%{messages: messages} = transcript) when is_list(messages) do
+    segment =
+      messages |> Enum.reject(&session_history_run_id/1) |> Enum.map(&MessageCoverage.strip/1)
+
+    if length(segment) == length(messages),
+      do: %{transcript | messages: segment},
+      else: %{transcript | messages: segment, call_ids: RequestIR.call_ids(segment)}
   end
 
   def strip_request_history(transcript), do: transcript

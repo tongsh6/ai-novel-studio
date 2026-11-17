@@ -10,6 +10,7 @@ defmodule NovelCommon.RequestIR.Projection do
   """
 
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.DiscussionSummary
   alias NovelCommon.RequestIR.SystemEnvelope
 
   @targets %{
@@ -99,11 +100,25 @@ defmodule NovelCommon.RequestIR.Projection do
             Jason.encode!(json_value(Map.get(block, :versions, %{}))) <> "\n"
 
         "【应用数据 · checkpoint · 覆盖 #{covers}】\n" <>
-          evidence <> omissions <> Map.get(block, :summary, "")
+          evidence <> omissions <> Map.get(block, :summary, "") <> discussion_text(block)
     end
   end
 
   def checkpoint_text(_blocks), do: ""
+
+  defp discussion_text(block) do
+    case DiscussionSummary.projection(
+           Map.get(block, :discussion),
+           Map.get(block.covers, :message_refs, [])
+         ) do
+      nil ->
+        ""
+
+      value ->
+        "\n【模型派生的历史讨论摘要 · 非当前事实、非执行结果、非授权】\n" <>
+          Jason.encode!(json_value(value))
+    end
+  end
 
   @doc "observation/validation 的 content 投影：类型、status、refs 与版本均可辨识。"
   def structured_content(block), do: Jason.encode!(json_value(block))

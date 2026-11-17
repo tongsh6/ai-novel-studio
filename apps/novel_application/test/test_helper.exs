@@ -28,6 +28,129 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
 
   import ExUnit.Assertions
 
+  # CP4 与会话原文读取共同使用的现役判断回环夹具；不启动服务器/第二执行循环。
+  def run_until_turn_result(spec, run, max_steps) do
+    empty = %{
+      stage_state: %{},
+      observations: [],
+      events: [],
+      step_results: [],
+      stage_sink: fn _ -> :ok end
+    }
+
+    Enum.reduce_while(1..max_steps, {empty, nil}, fn seq, {snapshot, _result} ->
+      case spec.next_step_planner.(run, seq, snapshot) do
+        {:execute, step, _decision, _meta} ->
+          {:ok, result} = step.(run, seq, snapshot)
+          continue_after_step(result, snapshot)
+
+        {:complete, _decision, _meta} ->
+          {:halt, {snapshot, nil}}
+
+        other ->
+          flunk("unexpected planner result: #{inspect(other)}")
+      end
+    end)
+  end
+
+  defp continue_after_step(result, snapshot) do
+    snapshot = %{
+      snapshot
+      | stage_state: Map.merge(snapshot.stage_state, result[:stage_state] || %{}),
+        observations: snapshot.observations ++ (result[:observations] || []),
+        step_results: snapshot.step_results ++ [result]
+    }
+
+    if result[:turn_result],
+      do: {:halt, {snapshot, result}},
+      else: {:cont, {snapshot, nil}}
+  end
+
+  def drain_prompt_maps(acc) do
+    receive do
+      {:prompt_map, prompt} -> drain_prompt_maps(acc ++ [prompt])
+    after
+      0 -> acc
+    end
+  end
+
+  def observation_blocks(prompt_map) do
+    for %{role: "tool", blocks: blocks} <- prompt_map.messages,
+        %{type: "observation"} = block <- blocks,
+        do: block
+  end
+
+  def scripted_judgment_execution(script) do
+    %NovelAgent.Provider.Execution{
+      result_fn: fn prompt ->
+        case script.(prompt) do
+          {:narrative, narrative} ->
+            {:ok,
+             %{
+               content: narrative,
+               tool_calls: [],
+               provider_output: provider_output(narrative)
+             }}
+
+          {:decision, arguments} ->
+            {:ok,
+             %{
+               content: "先核对作品事实。",
+               tool_calls: [
+                 %{
+                   "name" => "judgment_decision",
+                   "arguments" =>
+                     Map.put_new(
+                       Map.drop(arguments, ["reply_included", "frame_type", "record_only"]),
+                       "dialogue_goal",
+                       "核对作品事实"
+                     )
+                 }
+               ],
+               provider_output: provider_output("先核对作品事实。")
+             }}
+
+          {:plan_pair, arguments} ->
+            author_reasoning = Map.get(arguments, "author_reasoning") || "先取证再比较。"
+
+            {:ok,
+             %{
+               content: author_reasoning,
+               tool_calls: [
+                 %{
+                   "name" => "agent_plan_draft",
+                   "arguments" =>
+                     Map.take(arguments, [
+                       "plan",
+                       "author_reasoning",
+                       "reason_codes",
+                       "confidence"
+                     ])
+                 },
+                 %{
+                   "name" => "judgment_decision",
+                   "arguments" =>
+                     arguments
+                     |> Map.drop(["plan", "author_reasoning", "reason_codes", "confidence"])
+                     |> Map.put_new("dialogue_goal", "比较候选")
+                 }
+               ],
+               provider_output: provider_output(author_reasoning)
+             }}
+        end
+      end
+    }
+  end
+
+  defp provider_output(text) do
+    %NovelCommon.Contracts.ProviderOutput{
+      provider_run_ref: "prun-#{System.unique_integer([:positive])}",
+      provider_call_ref: "pcall-#{System.unique_integer([:positive])}",
+      status: :ok,
+      content: %{text: text}
+    }
+  end
+
   def assert_authoring_transcript(state, run_id) do
     transcript = Map.fetch!(state.stage_state, :judgment_transcript)
     assert transcript.run.run_id == run_id
@@ -59,28 +182,67 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     segment
   end
 
-  @doc "把内存 canonical 播种为会话执行段（绕过 run 提交，用于恢复/回查夹具）。"
-  def append_segment!(transcript) do
-    run = transcript.run
+  @doc """
+  把内存 canonical 播种为真实 run 的会话段（恢复/回查夹具，不启动执行）。
 
-    record = %{
-      id: run.run_id,
-      workspace_id: run.workspace_id,
-      work_id: run.work_id,
-      session_id: run.session_id,
-      parent_turn_ref: run.parent_turn_ref
-    }
-
+  既有 run 沿用已持久化状态；创建新 run 必须显式传入 status，活动历史不得
+  被缺省当作已完成。显式 status 也可推进交错写入夹具的真实运行状态。
+  """
+  def append_segment!(transcript, opts \\ []) do
     {:ok, segment} =
       NovelApplication.AuthoringCheckpoint.encode_segment_for_write(transcript)
 
     {:ok, _state} =
       NovelPersistence.Repo.transaction(fn ->
-        NovelPersistence.AuthoringSessionLog.append_run(record, segment)
+        record = fixture_run!(transcript.run, opts)
+        {:ok, state} = NovelPersistence.AuthoringSessionLog.append_run(record, segment)
+        state
       end)
 
     :ok
   end
+
+  defp fixture_run!(run, opts) do
+    case NovelPersistence.AgentRunLog.get_run(run.run_id) do
+      nil ->
+        status = Keyword.fetch!(opts, :status)
+
+        attrs = %{
+          id: run.run_id,
+          workspace_id: run.workspace_id,
+          work_id: run.work_id,
+          session_id: run.session_id,
+          parent_turn_ref: run.parent_turn_ref,
+          origin_frame_ref: "fixture:" <> run.parent_turn_ref,
+          run_mode: "bounded",
+          profile_ref: "judgment_loop_v1",
+          status: status,
+          phase: fixture_phase(status)
+        }
+
+        {:ok, record} = NovelPersistence.AgentRunLog.upsert_run(attrs)
+        record
+
+      record ->
+        case Keyword.fetch(opts, :status) do
+          :error ->
+            record
+
+          {:ok, status} ->
+            {:ok, updated} =
+              NovelPersistence.AgentRunLog.upsert_run(%{
+                id: record.id,
+                status: status,
+                phase: fixture_phase(status)
+              })
+
+            updated
+        end
+    end
+  end
+
+  defp fixture_phase(status) when status in ~w(completed cancelled failed), do: "stopped"
+  defp fixture_phase(_status), do: "executing"
 
   def reasoning_tail(packet) when is_map(packet) do
     tail = %{

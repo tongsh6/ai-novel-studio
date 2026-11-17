@@ -1,6 +1,6 @@
 defmodule NovelPersistence.Schemas.ProviderRunRecord do
   @moduledoc """
-  Persisted author-safe summary for one ProviderExecution run.
+  Provider execution identity and author-safe facts, plus a private operation recovery capsule.
   """
 
   use Ecto.Schema
@@ -24,6 +24,7 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     field(:model, :string)
     field(:owner_refs, :map)
     field(:metadata, :map)
+    field(:operation_checkpoint, :map, redact: true)
     field(:finite_mode_name, :string)
     field(:started_at, :utc_datetime_usec)
     field(:completed_at, :utc_datetime_usec)
@@ -45,6 +46,7 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     :model,
     :owner_refs,
     :metadata,
+    :operation_checkpoint,
     :finite_mode_name,
     :started_at,
     :completed_at

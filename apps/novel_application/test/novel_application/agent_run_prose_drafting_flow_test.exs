@@ -1418,8 +1418,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.provider_calls == 7
     # 改进闭环终局：pending 只剩改进稿（首稿已被替代）。
     assert length(state.run.pending_artifact_refs) == 1
-    # 改进稿即最终 TurnResult（completed + 单 pending）。
-    assert get_in(state.final_turn_result, [:agent_run, :status]) == :completed
+    # 改进稿保留交付时真实运行态；后来完成事件不能倒写旧业务回应。
+    {_, last_created} = List.last(created_events)
+    assert state.final_turn_result == last_created.payload.turn_result
+    assert get_in(state.final_turn_result, [:agent_run, :status]) == :running
     assert length(get_in(state.final_turn_result, [:adoption_state, :pending]) || []) == 1
 
     {:artifact_superseded, superseded_event} =

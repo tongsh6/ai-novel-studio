@@ -572,13 +572,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
   end
 
   defp finalize(turn_result, run) do
-    AgentFinalizer.attach_run_summary(turn_result, %{
-      run_id: run.run_id,
-      run_mode: run.run_mode,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      status: :completed
-    })
+    AgentFinalizer.attach_run_summary(turn_result, run)
   end
 
   defp provider_call_count(turn_result) do

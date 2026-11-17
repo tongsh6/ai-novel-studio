@@ -314,6 +314,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         versions: %{"work:work_1" => 1},
         content: %{role: "主角"}
       })
+      |> with_recent_compaction_turn(run_id)
 
     planner = fn _run, _sequence, _snapshot ->
       {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
@@ -334,7 +335,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     # 作者显式压缩：只表达整理意图，范围/证据/摘要由 canonical 事实派生。
     assert {:ok, receipt} = AgentRunService.compact_transcript(run_id)
-    assert %{compacted: true, covered_exchanges: 1} = receipt
+
+    assert %{
+             compacted: true,
+             covered_counts: %{tool_exchanges: 1, scope_updates: 0, discussion_messages: 0}
+           } = receipt
+
     assert receipt.summary =~ "1 项已完成操作"
     assert [_ | _] = receipt.omissions
 
@@ -348,13 +354,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert task.checkpoint_data["agent_run"]["authoring_segment_ref"]["run_id"] == run_id
     refute Map.has_key?(task.checkpoint_data, "authoring_transcript")
 
-    assert Enum.map(restored.messages, & &1.role) == [
-             "application_base",
-             "user",
-             "assistant",
-             "tool",
-             "checkpoint"
-           ]
+    assert Enum.reject(restored.messages, &(&1.role == "checkpoint")) == transcript.messages
+    assert List.last(restored.messages).role == "checkpoint"
 
     in_memory = state.stage_state[:judgment_transcript]
     assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(in_memory)
@@ -365,7 +366,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert inspect(restored.messages) =~ "compact-call"
     assert {:ok, body} = Projection.project(after_ir, "chat_completions")
-    refute Enum.any?(body.messages, &(&1.role == "tool"))
+    refute Enum.any?(body.messages, &(&1.role == "tool" and &1.tool_call_id == "compact-call"))
+    assert Enum.count(body.messages, &(&1.role == "tool")) == 4
   end
 
   test "durable 压缩持久失败不确认成功，也不推进内存历史" do
@@ -390,6 +392,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           source_refs: [],
           content: %{summary: "已读取角色"}
         })
+        |> with_recent_compaction_turn(run_id)
 
       planner = fn _run, _sequence, _snapshot ->
         {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
@@ -2967,6 +2970,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         source_refs: [],
         content: %{summary: "已读取角色"}
       })
+      |> with_recent_compaction_turn(run_id)
 
     planner = fn _run, _sequence, _snapshot ->
       {:error, :paused_for_compaction, %{judgment_transcript: transcript}}
@@ -3013,7 +3017,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
 
     assert {:ok, receipt} = AgentRunService.compact_transcript(run_id)
-    assert %{compacted: true, covered_exchanges: 1} = receipt
+
+    assert %{
+             compacted: true,
+             covered_counts: %{tool_exchanges: 1, scope_updates: 0, discussion_messages: 0}
+           } = receipt
+
     assert receipt.summary =~ "1 项已完成操作"
 
     after_segment = TestAgenticLoopFixtures.persisted_segment(run_id)
@@ -3151,6 +3160,29 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute recovered.authoring_transcript
     assert recovered.authoring_history.status == :invalid
     assert recovered.authoring_transcript_error == :checkpoint_version_mismatch
+  end
+
+  defp with_recent_compaction_turn(transcript, run_id) do
+    transcript =
+      AuthoringTranscript.append_author_turn(
+        transcript,
+        "继续核对其他资料。",
+        "author_turn:recent:" <> run_id
+      )
+
+    Enum.reduce(1..4, transcript, fn index, acc ->
+      call_id = "recent-#{run_id}-#{index}"
+
+      acc
+      |> AuthoringTranscript.append_assistant("", [
+        RequestIR.tool_call_block("read_character", %{}, call_id)
+      ])
+      |> AuthoringTranscript.append_observation(call_id, %{
+        status: "ok",
+        source_refs: [],
+        content: %{summary: "已读取其他角色"}
+      })
+    end)
   end
 
   defp transcript_identity(run_id) do

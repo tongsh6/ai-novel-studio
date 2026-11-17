@@ -27,10 +27,11 @@ defmodule NovelCommon.RequestIR.Operation do
         }
 
   @doc """
-  非 AgentRun 的独立文本操作请求（章摘要、设定盘点、工具结果叙述等）。
+  有界的独立文本操作请求（章摘要、设定盘点、工具结果叙述、会话讨论摘要等）。
 
-  这些操作没有 AgentRun 的 run 事实：只携带真实操作 profile 与来源 refs，不伪造
-  run_id/session_id，也不伪造作者消息。材料由应用作为 `application_base` 提供，
+  属于现有 AgentRun 的操作显式携带其真实 run envelope；无 run 的辅助操作只携带
+  实际 profile 与来源 refs，不伪造 run_id/session_id 或作者消息。材料由应用作为
+  `application_base` 提供，
   显式 author_text/source_input_ref 必须成对提供，以独立 `author` provenance 保留原字节；
   作者来源不加入 Base/Observation，也不从 run、目标或工具来源推导。请求仍走同一 IR 投影边界
   （VS-00L §19.1），不再经 giant prompt 形态转译。

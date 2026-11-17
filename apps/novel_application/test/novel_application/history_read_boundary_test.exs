@@ -356,8 +356,12 @@ defmodule NovelApplication.HistoryReadBoundaryTest do
       )
       |> AuthoringTranscript.append_assistant("先读取角色。", [tool_call(call_id)])
       |> AuthoringTranscript.append_observation(call_id, observation())
+      |> AuthoringTranscript.append_author_turn(
+        "保留刚才的结果，继续后续创作。",
+        "input:history-current-#{run_id}"
+      )
       |> AuthoringTranscript.compact(
-        %{call_ids: [call_id]},
+        %{call_ids: [call_id], message_refs: []},
         [],
         %{},
         ["旧细节已省略"],

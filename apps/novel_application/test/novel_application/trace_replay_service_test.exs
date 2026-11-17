@@ -296,8 +296,12 @@ defmodule NovelApplication.TraceReplayServiceTest do
         source_refs: [%{ref: "chapter:internal-03", display_name: "第03章：旧誓", version: 2}],
         versions: %{"chapter:internal-03" => 2}
       })
+      |> NovelApplication.AuthoringTranscript.append_author_turn(
+        "接着讨论矿区人物。",
+        turn_id <> ":next"
+      )
       |> NovelApplication.AuthoringTranscript.compact(
-        %{call_ids: ["call-checkpoint"]},
+        %{call_ids: ["call-checkpoint"], message_refs: []},
         [%{ref: "chapter:internal-03", display_name: "第03章：旧誓", version: 2}],
         %{"chapter:internal-03" => 2},
         ["较早的工具调用细节已省略，原始记录仍可回查。"],
@@ -500,8 +504,12 @@ defmodule NovelApplication.TraceReplayServiceTest do
         status: "ok",
         source_refs: source_refs
       })
+      |> NovelApplication.AuthoringTranscript.append_author_turn(
+        "继续比较人物动机。",
+        "turn-history-safe-next"
+      )
       |> NovelApplication.AuthoringTranscript.compact(
-        %{call_ids: ["call-history"], turn_range: "早期轮次"},
+        %{call_ids: ["call-history"], message_refs: [], turn_range: "早期轮次"},
         source_refs,
         %{},
         ["reasoning_content 含内部推理"],
@@ -578,8 +586,12 @@ defmodule NovelApplication.TraceReplayServiceTest do
         status: "ok",
         source_refs: []
       })
+      |> NovelApplication.AuthoringTranscript.append_author_turn(
+        "保留旧誓线索，继续讨论人物。",
+        input_turn_ref <> ":next"
+      )
       |> NovelApplication.AuthoringTranscript.compact(
-        %{call_ids: ["call-history"]},
+        %{call_ids: ["call-history"], message_refs: []},
         [],
         %{},
         ["省略细节"],

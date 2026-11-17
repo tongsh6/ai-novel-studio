@@ -238,6 +238,60 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert error.type == :provider_internal
   end
 
+  test "execution admission sees the actual route and preserves the same refs after dispatch" do
+    parent = self()
+
+    dependency =
+      Execution.dependency(provider: :stub, model: "admission-model", purpose: :other)
+      |> Execution.with_owner_refs(%{
+        operation: "transcript_compaction",
+        coverage_key: "coverage"
+      })
+
+    assert {:ok, prepared} =
+             Execution.with_admission(dependency, fn initialized ->
+               send(parent, {:admitted, initialized})
+               :ok
+             end)
+
+    assert {:ok, facts} = Execution.execute(prepared, ir("one admitted execution"))
+    assert_received {:admitted, initialized}
+    assert initialized.status == :initialized
+    assert initialized.provider_id == "stub"
+    assert initialized.model == "admission-model"
+    assert initialized.owner_refs.operation == "transcript_compaction"
+    assert facts.provider_run.provider_run_id == initialized.provider_run_id
+    assert facts.provider_run.provider_call_ref == initialized.provider_call_ref
+    assert facts.output.provider_run_ref == initialized.provider_run_id
+    assert facts.provider_run.status == :completed
+  end
+
+  test "rejected admission has no dispatched events or output and cannot synthesize a completion" do
+    parent = self()
+
+    dependency =
+      Execution.dependency(provider: :stub, purpose: :other)
+      |> Execution.with_event_sink(fn facts -> send(parent, {:unexpected_dispatch, facts}) end)
+
+    assert {:ok, prepared} =
+             Execution.with_admission(dependency, fn _initialized ->
+               {:error, :already_attempted}
+             end)
+
+    assert {:error, %{provider_run: initialized, events: [], output: nil, error: error}} =
+             Execution.execute(prepared, ir("must not dispatch"))
+
+    assert initialized.status == :initialized
+    assert error == %{type: :provider_execution_not_admitted, reason: :already_attempted}
+    refute_received {:unexpected_dispatch, _}
+
+    assert {:error, :provider_admission_unavailable} =
+             Execution.with_admission(
+               %Execution{result_fn: fn _ -> {:ok, %{content: "fake"}} end},
+               fn _ -> :ok end
+             )
+  end
+
   defp provider_ctx(purpose) do
     %{
       provider_name: :stub,

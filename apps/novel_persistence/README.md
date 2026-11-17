@@ -46,6 +46,8 @@ be found at <https://hexdocs.pm/novel_persistence>.
 
 ## B81 会话级 canonical 创作历史（ADR-0035 / VS-00L §16.8）
 
+- [authoring_session_integrity.ex](lib/novel_persistence/authoring_session_integrity.ex)：读写共享的纯身份/格式规则与快照完整性校验，绑定真实 run、段头、消息序号/首尾和角色；不执行查询、不产生第二历史源。由 `AuthoringSessionLog` 的段读写和 `AgentRunLog` 的 durable checkpoint header 写入校验共同消费，事务与回滚仍留在各自存储入口。
+
 - [authoring_session_log.ex](lib/novel_persistence/authoring_session_log.ex)：唯一会话 canonical 存储边界——消息流 + run 执行段头；事务内读快照、追加（`run_sequence`/会话 `sequence` 接续）、前缀不可变校验、坏段/未知版本 fail-closed；`segment_format_version/0`、`task_checkpoint_version/0`、`header_data_keys/0` 为存储格式契约的单一来源。
 - [schemas/authoring_session_message.ex](lib/novel_persistence/schemas/authoring_session_message.ex)：会话消息行（append-only；`session_id`+`sequence` 与 `run_id`+`run_sequence` 双唯一）。
 - [schemas/authoring_run_segment.ex](lib/novel_persistence/schemas/authoring_run_segment.ex)：run 执行段头（身份五元组、格式版本、header data 键契约、消息数/首尾序号）。
@@ -63,6 +65,12 @@ be found at <https://hexdocs.pm/novel_persistence>.
 
 ## B71 Provider 执行事实有序提交（VS-00L §16.12）
 
+- [migration 20261117000001](priv/repo/migrations/20261117000001_add_provider_operation_checkpoint.exs)：既有 ProviderRun 增加私有 `operation_checkpoint`，准入冻结计划、终态同事务保存收到的摘要原文；canonical 提交同事务清除。不新建执行状态或来源表，不进入安全活动投影，不回填未知历史原文。
+
 - [provider_run_log.ex](lib/novel_persistence/provider_run_log.ex)：run/event/output 的唯一持久提交边界；进入 read-compare-write 事务即声明 SQLite 写意图（`mode: :immediate`），复用既有 `busy_timeout`，不靠 sleep/次数重试；同一事务提交整批事实，冲突/写入失败回滚，重复事实幂等，晚到早期事件按真实 identity/sequence 留存且不回滚终态或清空输出；错误与正常载荷在比较/写入前统一为作者安全 JSON 形态，失败返回安全 error。
 - [provider_fact_merge.ex](lib/novel_persistence/provider_fact_merge.ex)：纯归并判据——同调用身份/归属不可换绑、生命周期只前进、终态不互换、event/output 内容冲突拒绝；无 I/O，由 `ProviderRunLog` 真实消费。
+
+- [provider_fact_projection.ex](lib/novel_persistence/provider_fact_projection.ex)：Provider 执行契约与持久行的纯表示策略，统一作者安全 JSON、真实输出字节摘要及用量/活动读投影；不查询、不提交、不归并，不授予执行资格，由 `ProviderRunLog` 唯一消费。
+- [provider_fact_projection_test.exs](test/novel_persistence/provider_fact_projection_test.exs)：递归隐私字段移除、atom/string JSON 等价和真实文本 digest 边界，避免把工具参数当模型正文。
+- [provider_operation_admission_test.exs](test/novel_persistence/provider_operation_admission_test.exs)：真实 immediate 事务中的一次来源执行资格、并发/重分组、未知结果保留、写失败回滚及后续事实不能删除或改绑归属。
 - [provider_run_log_test.exs](test/novel_persistence/provider_run_log_test.exs)：乱序终态保护、完全重复幂等、同序/同 id 冲突、run/call/work/session 换绑、失败/取消终态、正常取消推进、整批回滚，以及 atom/string 等价实际 JSON 重放、真冲突回滚、隐私字段不落库和真实 Ecto 连接回调写意图回归。

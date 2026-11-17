@@ -44,7 +44,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   @type execution_error :: %{
           provider_run: ProviderRun.t(),
           events: [ProviderEvent.t()],
-          output: ProviderOutput.t(),
+          output: ProviderOutput.t() | nil,
           error: map()
         }
 
@@ -101,6 +101,10 @@ defmodule NovelAgent.Provider.AdapterExecution do
     do: fallback
 
   defp effective_fallback(_fallback, default), do: default
+
+  @doc "实际 Gateway 路由已准备但尚未 dispatch 的同一 ProviderRun 事实。"
+  @spec initialized_run(context()) :: ProviderRun.t()
+  def initialized_run(ctx), do: provider_run!(ctx, :initialized)
 
   @doc "Initial provider execution facts shared by all adapters."
   @spec initial_events(map()) :: [ProviderEvent.t()]

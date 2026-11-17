@@ -768,14 +768,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   defp maybe_put_plan_run_patch(result, _meta), do: result
 
   defp finalize(turn_result, run) do
-    AgentFinalizer.attach_run_summary(turn_result, %{
-      run_id: run.run_id,
-      run_mode: run.run_mode,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      trigger: run.trigger,
-      status: :completed
-    })
+    AgentFinalizer.attach_run_summary(turn_result, run)
   end
 
   defp artifact_refs(turn_result) do

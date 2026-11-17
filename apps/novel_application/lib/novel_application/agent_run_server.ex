@@ -10,18 +10,16 @@ defmodule NovelApplication.AgentRunServer do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
+  alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunBudget
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AgentRunMaintenance
   alias NovelApplication.AgentRunPersistence
   alias NovelApplication.AgentRunService
   alias NovelApplication.AgentRunStartup
   alias NovelApplication.AuthorActionAdmission
   alias NovelApplication.AuthorContentRegistration
-  alias NovelApplication.AuthoringSessionHistory
-  alias NovelApplication.CompactionRecord
-  alias NovelApplication.ContextPressure
-  alias NovelApplication.TranscriptCompaction
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
@@ -63,9 +61,11 @@ defmodule NovelApplication.AgentRunServer do
 
   defstruct run: nil,
             next_step_planner: nil,
+            provider_execution: nil,
             next_sequence: 1,
             current_task_ref: nil,
             current_task_pid: nil,
+            current_task_kind: nil,
             event_sequence: 0,
             events: [],
             observations: [],
@@ -112,7 +112,7 @@ defmodule NovelApplication.AgentRunServer do
   持久化成功提交后才推进内存并回报；作者可见回执经 `AuthoringReplay` 投影。
   """
   @spec compact_transcript(GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
-  def compact_transcript(server, timeout \\ 5_000),
+  def compact_transcript(server, timeout \\ :infinity),
     do: GenServer.call(server, {:command, :compact_transcript}, timeout)
 
   @spec resume(GenServer.server(), timeout()) ::
@@ -235,6 +235,7 @@ defmodule NovelApplication.AgentRunServer do
     %__MODULE__{
       run: run,
       next_step_planner: Keyword.get(opts, :next_step_planner),
+      provider_execution: Keyword.get(opts, :provider_execution),
       interaction_store: Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
       provider_cancellation_token: provider_cancellation_token,
       events: startup.events,
@@ -294,36 +295,11 @@ defmodule NovelApplication.AgentRunServer do
 
   @impl true
   def handle_continue(:run_next_step, state), do: run_next_step(state)
+  def handle_continue(:run_after_maintenance, state), do: run_next_step(state, false)
 
   @impl true
-  def handle_call(
-        {:command, :compact_transcript},
-        _from,
-        %{
-          current_task_ref: ref
-        } = state
-      )
-      when not is_nil(ref),
-      do: {:reply, {:error, :execution_in_progress}, state}
-
-  def handle_call({:command, :compact_transcript}, _from, state) do
-    case session_view(state) do
-      {:ok, view} ->
-        case TranscriptCompaction.plan(view) do
-          {:ok, :nothing_to_compact} ->
-            {:reply, {:ok, TranscriptCompaction.receipt(:nothing_to_compact)}, state}
-
-          {:ok, plan} ->
-            apply_compaction(plan, state)
-
-          {:error, _reason} = error ->
-            {:reply, error, state}
-        end
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
+  def handle_call({:command, :compact_transcript}, from, state),
+    do: AgentRunMaintenance.start(state, from, :explicit)
 
   @impl true
   def handle_call(:state, _from, state) do
@@ -607,7 +583,12 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp apply_author_steer(state, run) do
-    resume? = state.run.status == :awaiting_author and is_nil(state.current_task_ref)
+    # 等待作者时的后台维护不占用新作者方向；先排队恢复，task guard 保持串行。
+    maintenance? = match?(%{type: :transcript_maintenance}, state.current_task_kind)
+
+    resume? =
+      state.run.status == :awaiting_author and (is_nil(state.current_task_ref) or maintenance?)
+
     {run, grant} = maybe_grant_writer_timeout_retry(run, state.events)
 
     state =
@@ -778,12 +759,30 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   @impl true
+  def handle_info(
+        {:DOWN, ref, :process, _pid, _reason},
+        %{current_task_ref: ref, current_task_kind: %{type: :transcript_maintenance} = owner} =
+          state
+      ) do
+    finish_maintenance(state, owner, {:error, :maintenance_task_down, 0})
+  end
+
+  def handle_info(
+        {ref, result},
+        %{current_task_ref: ref, current_task_kind: %{type: :transcript_maintenance} = owner} =
+          state
+      ) do
+    Process.demonitor(ref, [:flush])
+    finish_maintenance(state, owner, result)
+  end
+
   # 真实执行 Task 的 DOWN：以 current_task_ref 精确归属。
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{current_task_ref: ref} = state) do
     state =
       state
       |> Map.put(:current_task_ref, nil)
       |> Map.put(:current_task_pid, nil)
+      |> Map.put(:current_task_kind, nil)
       |> settle_run_failed({:step_task_down, reason}, ["step_task_down"])
 
     {:noreply, state}
@@ -796,6 +795,7 @@ defmodule NovelApplication.AgentRunServer do
       state
       |> Map.put(:current_task_ref, nil)
       |> Map.put(:current_task_pid, nil)
+      |> Map.put(:current_task_kind, nil)
       |> handle_step_result(result)
 
     cond do
@@ -808,7 +808,7 @@ defmodule NovelApplication.AgentRunServer do
       state.run.status == :awaiting_author ->
         # VS-00L §16.16 第 2 类入口：进入等待作者前是无执行中任务的安全点，
         # 按真实上下文压力自动维护（只整理更早工作回合；失败静默）。
-        {:noreply, maybe_auto_maintain(state)}
+        {:noreply, AgentRunMaintenance.maybe_start(state)}
 
       terminal?(state) ->
         {:noreply, state}
@@ -839,12 +839,50 @@ defmodule NovelApplication.AgentRunServer do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp run_next_step(state) do
-    # VS-00L §16.16 第 2 类入口：下一步调度前无执行中任务（覆盖 step 完成后与
-    # durable 恢复后的首个安全点），按真实上下文压力自动维护；失败静默。
-    state = maybe_auto_maintain(state)
+  defp finish_maintenance(state, owner, result) do
+    received =
+      state
+      |> Map.put(:current_task_ref, nil)
+      |> Map.put(:current_task_pid, nil)
+      |> Map.put(:current_task_kind, nil)
 
+    {reply, next} =
+      case AgentRunMaintenance.provider_call_count(state.run, owner, result) do
+        {:ok, count} ->
+          received
+          |> add_consumed_budget(%{provider_call_count: count})
+          |> AgentRunMaintenance.finish(owner, result)
+
+        {:error, reason} ->
+          failed = settle_run_failed(received, reason, ["maintenance_accounting_unavailable"])
+          {{:error, reason}, failed}
+      end
+
+    # 成功路径的 checkpoint 事务已提交本次计费；失败仍须保存实调用预算。
+    next = if match?({:ok, _}, reply), do: next, else: persist_run_state(next)
+
+    next =
+      cond do
+        cancel_requested?(next) -> cancel_now(next)
+        pause_requested?(next) -> pause_now(next)
+        true -> next
+      end
+
+    # 回执不能越过计费或取消/暂停的必要收尾。
+    if owner.from, do: GenServer.reply(owner.from, reply)
+
+    if next.run.status in [:awaiting_author, :paused, :completed, :cancelled, :failed],
+      do: {:noreply, next},
+      else: {:noreply, next, {:continue, :run_after_maintenance}}
+  end
+
+  defp run_next_step(state), do: run_next_step(state, true)
+
+  defp run_next_step(state, maintenance?) do
     cond do
+      not is_nil(state.current_task_ref) ->
+        {:noreply, state}
+
       blocking_interrupt_requested?(state) ->
         {:noreply, state}
 
@@ -856,12 +894,25 @@ defmodule NovelApplication.AgentRunServer do
 
         {:noreply, state}
 
-      AgentRun.budget_exhausted?(state.run) ->
+      true ->
+        # 已持久接收的响应先完成零调用恢复；新摘要仍在维护 owner 内检查预算。
+        state = if maintenance?, do: AgentRunMaintenance.maybe_start(state), else: state
+        continue_after_maintenance(state)
+    end
+  end
+
+  defp continue_after_maintenance(state) do
+    cond do
+      state.current_task_ref != nil ->
+        {:noreply, state}
+
+      AgentRun.budget_exhausted?(state.run) or
+          AgentRunMaintenance.provider_budget_exhausted?(state.run) ->
         {summary, reason_codes} = budget_exhausted_outcome(state.run)
         state = settle_budget_shortfall(state, summary, reason_codes)
         {:noreply, persist_run_state(state)}
 
-      is_function(state.next_step_planner, 3) ->
+      true ->
         start_dynamic_next_step(state)
     end
   end
@@ -915,7 +966,8 @@ defmodule NovelApplication.AgentRunServer do
         | run: run_for_step,
           next_sequence: sequence + 1,
           current_task_ref: task.ref,
-          current_task_pid: task.pid
+          current_task_pid: task.pid,
+          current_task_kind: :step
       }
       |> put_run_status(:running)
       |> put_run_phase(:executing)
@@ -1113,6 +1165,7 @@ defmodule NovelApplication.AgentRunServer do
   # checkpoint 同一事务 → 提交成功后才发布。模型/工具执行与作者等待都不进来。
   defp commit_result(state, run, turn_result, trace, prepare, publish_from \\ nil) do
     before = %{state | run: run, defer_delivery: true}
+    turn_result = AgentFinalizer.attach_run_summary(turn_result, run)
     publish_from = publish_from || before
 
     result =
@@ -1150,19 +1203,55 @@ defmodule NovelApplication.AgentRunServer do
   # 只登记本次新产生/变更的派生出口；继承的旧 final_turn_result 不是本次交付，
   # 即使它非空也不能被重新登记或覆盖旧作者输入。
   defp persist_delivery_decision(next, effective, state) do
+    next = finalize_delivery(next, state)
     delivery = next.final_turn_result
 
     if is_map(delivery) and delivery != effective and delivery != state.final_turn_result do
       attrs = TurnInteractionService.result_attrs(next.run, delivery)
 
       case TurnInteractionService.persist_result(attrs, state.interaction_store, delivery) do
-        :ok -> {:ok, next}
-        {:ok, persisted} -> {:ok, %{next | final_turn_result: persisted}}
-        {:error, reason} -> {:error, reason}
+        :ok ->
+          {:ok, next}
+
+        {:ok, persisted} ->
+          {:ok,
+           %{next | final_turn_result: AgentFinalizer.attach_run_summary(persisted, next.run)}}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:ok, next}
     end
+  end
+
+  # 只投影本次新交付/事件；历史前缀和继承的旧 final 不随本次状态追溯改写。
+  defp finalize_delivery(next, before) do
+    {historical, fresh} = Enum.split(next.events, length(before.events))
+
+    fresh =
+      Enum.map(fresh, fn
+        %{payload: %{turn_result: result} = payload} = event when is_map(result) ->
+          %{
+            event
+            | payload:
+                Map.put(
+                  payload,
+                  :turn_result,
+                  AgentFinalizer.attach_run_summary(result, next.run)
+                )
+          }
+
+        event ->
+          event
+      end)
+
+    delivery =
+      if next.final_turn_result == before.final_turn_result,
+        do: next.final_turn_result,
+        else: AgentFinalizer.attach_run_summary(next.final_turn_result, next.run)
+
+    %{next | events: historical ++ fresh, final_turn_result: delivery}
   end
 
   # 去重裁决已在 persist_result_decision 先发生；状态推进后再把作者输入的处置状态
@@ -1187,6 +1276,8 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp commit_question_delivery(working, next, steps, trace) do
+    next = finalize_delivery(next, working)
+
     with {:ok, attrs} <- question_delivery_attrs(next, steps, trace) do
       deliver_question(attrs, next, working.interaction_store)
     end
@@ -1243,9 +1334,10 @@ defmodule NovelApplication.AgentRunServer do
       |> emit(:run_failed, failure_author_summary(reason), reason_codes, [], %{
         turn_result: turn_result
       })
+      |> finalize_delivery(before)
 
     result =
-      case commit_failure_delivery(next, turn_result) do
+      case commit_failure_delivery(next, next.final_turn_result) do
         {:ok, committed} ->
           publish_committed_events(before, committed)
 
@@ -1487,14 +1579,6 @@ defmodule NovelApplication.AgentRunServer do
         tool_called: false,
         artifact_adopted: false,
         production_write_performed: false
-      },
-      agent_run: %{
-        run_id: run.run_id,
-        run_mode: run.run_mode,
-        parent_turn_ref: run.parent_turn_ref,
-        profile_ref: run.profile_ref,
-        trigger: run.trigger,
-        status: :failed
       }
     }
   end
@@ -1749,7 +1833,10 @@ defmodule NovelApplication.AgentRunServer do
   # 失败/有界纠错也消耗调用；统一 provider 事件是实际调用的下界，不能只累计成功结果。
   defp observed_provider_calls(state) do
     state.events
-    |> Enum.filter(&(&1.event_type == :provider_progress))
+    |> Enum.filter(fn event ->
+      event.event_type == :provider_progress and
+        AgentRunMaintenance.counts_provider_call?(event.payload)
+    end)
     |> Enum.map(
       &(Map.get(&1.payload, :provider_call_ref) || Map.get(&1.payload, "provider_call_ref"))
     )
@@ -2220,118 +2307,6 @@ defmodule NovelApplication.AgentRunServer do
 
   defp persist_event(%AgentEvent{}), do: :ok
 
-  # 压缩只追加 canonical checkpoint 并与一条 author-safe 整理记录同边界提交；
-  # 不改变运行状态、不产生 TurnResult。失败保留旧 state 且不广播。
-  defp apply_compaction(plan, state) do
-    case compact_and_commit(plan, state) do
-      {:ok, receipt, committed} -> {:reply, {:ok, receipt}, committed}
-      {:error, _reason} = error -> {:reply, error, state}
-    end
-  end
-
-  # 显式命令与安全点自动维护共用的压缩执行：只派生/提交/发布，不改运行状态。
-  # 失败由调用方决定「作者可见回执」或「静默保留旧 state」。
-  defp compact_and_commit(plan, state) do
-    transcript = Map.get(state.stage_state, :judgment_transcript)
-
-    case AuthoringSession.compact(transcript, plan) do
-      {:ok, compacted} ->
-        next = merge_stage_state(state, AuthoringSession.transcript_state(compacted))
-
-        case CompactionRecord.commit(next, plan, compacted) do
-          {:ok, receipt, committed} -> {:ok, receipt, committed}
-          {:error, _reason} = error -> error
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  # ── 安全点自动维护（VS-00L §16.16 第 2 类入口；§18 a–h）────────────────
-  #
-  # 只在无执行中任务的安全点调用：`run_next_step/1` 开头（step 完成后 / durable
-  # 恢复后的首个调度）与 step 完成后进入 awaiting_author 的分支。
-  # 阈值只决定触发时机，不决定整理范围；失败静默、保留旧 state、下一安全点重试。
-  defp maybe_auto_maintain(state) do
-    with true <- auto_maintenance_enabled?(),
-         false <- terminal?(state),
-         true <- ContextPressure.maintenance_due?(state.run.run_id) do
-      run_auto_maintenance(state)
-    else
-      _ -> state
-    end
-  end
-
-  defp run_auto_maintenance(state) do
-    # B81 CP3：压缩作用域=会话历史。计划在「历史 + 本 run 段」的会话视图上派生；
-    # 计划准备期间其他 run 可能已提交，因此写入事务在写锁内按最新历史重新校验，
-    # 覆盖冲突时整笔提交回滚（调用方按最新状态重试或 nothing），不在 snapshot
-    # 构造时提前放行。checkpoint 追加到本 run 段，投影折叠由既有
-    # RequestIR.Compaction 按 call_id 完成。历史读取失败 fail-closed（保留旧 state、
-    # 下一安全点重试），不静默退化为 run 内压缩。
-    with {:ok, view} <- session_view(state),
-         {:ok, plan} when is_map(plan) <-
-           TranscriptCompaction.plan_maintenance(view,
-             keep_recent_items: auto_maintenance_keep_recent_items()
-           ) do
-      case compact_and_commit(plan, state) do
-        {:ok, _receipt, committed} ->
-          committed
-
-        {:error, reason} ->
-          log_auto_maintenance_error(state, reason)
-          state
-      end
-    else
-      _nothing_or_error -> state
-    end
-  end
-
-  # 会话视图 = 会话历史（除本 run 已提交消息）前置到本 run 执行段；段 transcript
-  # 本身保持只含本 run 消息（持久化边界）。
-  defp session_view(state) do
-    transcript = Map.get(state.stage_state, :judgment_transcript)
-
-    if is_nil(transcript) do
-      {:ok, nil}
-    else
-      with {:ok, history} <- AuthoringSessionHistory.fetch(state.run) do
-        {:ok, AuthoringSessionHistory.compose(transcript, history)}
-      end
-    end
-  end
-
-  defp log_auto_maintenance_error(state, reason) do
-    LogEmit.emit(:agent_run, :auto_maintenance, :error, %{
-      run_id: state.run.run_id,
-      reason: inspect(reason)
-    })
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
-  end
-
-  defp auto_maintenance_enabled? do
-    Map.get(auto_maintenance_config(), :enabled, true) == true
-  end
-
-  defp auto_maintenance_keep_recent_items do
-    case Map.get(auto_maintenance_config(), :keep_recent_items) do
-      keep when is_integer(keep) and keep >= 0 -> keep
-      _other -> 4
-    end
-  end
-
-  defp auto_maintenance_config do
-    case Application.get_env(:novel_application, :auto_maintenance, %{}) do
-      config when is_list(config) -> Map.new(config)
-      config when is_map(config) -> config
-      _other -> %{}
-    end
-  end
-
   defp persist(fun) when is_function(fun, 0) do
     case fun.() do
       {:ok, _record} -> :ok
@@ -2589,16 +2564,6 @@ defmodule NovelApplication.AgentRunServer do
         tool_called: false,
         artifact_adopted: false,
         production_write_performed: false
-      },
-      agent_run: %{
-        run_id: run.run_id,
-        run_mode: run.run_mode,
-        status: :awaiting_author,
-        phase: :stopped,
-        parent_turn_ref: run.parent_turn_ref,
-        profile_ref: run.profile_ref,
-        trigger: run.trigger,
-        long_run_task_ref: run.long_run_task_ref
       }
     }
   end

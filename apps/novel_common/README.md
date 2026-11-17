@@ -59,7 +59,10 @@ novel_agent / novel_application / novel_persistence / novel_web → novel_common
   system 事实边界（身份 + run 角色规则/输出协议 + 版本引用）与稳定 system 前缀
   `system_text/1`。VS-00L §3.2/§19.1。
 - [request_ir/compaction.ex](lib/novel_common/request_ir/compaction.ex)：显式压缩视图派生
-  （`covers.call_ids` 精确选择已闭合交换；原始消息永不删除）。VS-00L §16.2。
+  （闭合工具组与精确消息覆盖共用唯一入口；原始消息永不删除）。VS-00L §16.2/§16.2.1。
+- [request_ir/message_coverage.ex](lib/novel_common/request_ir/message_coverage.ex)：既有 run/message 坐标的纯来源核验、Scope/讨论保护与精确选择规则，不读库。
+- [request_ir/discussion_summary.ex](lib/novel_common/request_ir/discussion_summary.ex)：真实模型摘要原文的格式、来源、义务精确引用与纯投影；不把摘要升级为 canon 或授权。
+- [request_ir/compaction_test.exs](test/novel_common/request_ir/compaction_test.exs)：纯覆盖与讨论摘要判据；验证显式来源、当前回合/外运行保护、原文及义务引用、三类 wire 投影，不用被测投影反推预期。
 - [request_ir/operation.ex](lib/novel_common/request_ir/operation.ex)：计划/使命/创作/评审共用
   的纯阶段构造器（稳定角色规则 + 动态 scope/工具目录）。VS-00L §16.6。
 - [system_identity.ex](lib/novel_common/system_identity.ex)：VS-00H 系统身份消息唯一代码真源

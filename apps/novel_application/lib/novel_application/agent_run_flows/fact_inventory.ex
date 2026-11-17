@@ -223,13 +223,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
             batch_fallback?,
             context_refs
           )
-          |> AgentFinalizer.attach_run_summary(%{
-            run_id: run.run_id,
-            run_mode: run.run_mode,
-            parent_turn_ref: run.parent_turn_ref,
-            profile_ref: run.profile_ref,
-            status: :completed
-          })
+          |> AgentFinalizer.attach_run_summary(run)
 
         refs = artifact_refs(turn_result)
 

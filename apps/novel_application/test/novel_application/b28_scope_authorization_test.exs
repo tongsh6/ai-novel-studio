@@ -16,6 +16,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
 
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
+  alias NovelDomain.AgentRun
   alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{LocalizedRevision, ReadingProjectionRepo, Repo, WorkSessionRepo}
@@ -355,25 +356,31 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   end
 
   defp g2_run(ctx, author) do
-    %{
-      run_id: "run-g2-observed-target",
-      run_mode: :bounded,
-      profile_ref: "judgment_loop_v1",
-      budget: %{max_tool_calls: 3, max_provider_calls: 6},
-      consumed_budget: %{
-        steps: 0,
-        execution_steps: 0,
-        tool_calls: 0,
-        provider_calls: 0,
-        replans: 0
-      },
-      authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
-      workspace_id: ctx.work.id,
-      work_id: ctx.work.id,
-      session_id: ctx.session.id,
-      parent_turn_ref: "turn-g2-observed-target",
-      goal: %{text: author, version: 1}
-    }
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-g2-observed-target",
+        origin_frame_ref: "frame-g2-observed-target",
+        status: :running,
+        phase: :executing,
+        run_mode: :bounded,
+        profile_ref: "judgment_loop_v1",
+        budget: %{max_tool_calls: 3, max_provider_calls: 6},
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: 0,
+          replans: 0
+        },
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+        workspace_id: ctx.work.id,
+        work_id: ctx.work.id,
+        session_id: ctx.session.id,
+        parent_turn_ref: "turn-g2-observed-target",
+        goal: %{text: author, version: 1}
+      })
+
+    run
   end
 
   defp g2_execution(test_pid, mode) do

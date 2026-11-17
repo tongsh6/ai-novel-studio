@@ -22,14 +22,14 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentRunFlows.AuthoringSession
-  alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.JudgmentProtocol
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
   alias NovelDomain.{AgentRun, ChapterMissionInputs}
-  alias NovelPersistence.{AuthoringSessionLog, Repo}
+  alias NovelPersistence.Repo
 
   @first_author_text "第一轮作者原话：请核对全章是否有重复"
   @second_author_text "第二轮作者原话：继续按刚才的问题处理"
@@ -54,18 +54,6 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     )
   end
 
-  defp run_record(run_id) do
-    identity = identity(run_id)
-
-    %{
-      id: identity.run_id,
-      workspace_id: identity.workspace_id,
-      work_id: identity.work_id,
-      session_id: identity.session_id,
-      parent_turn_ref: identity.parent_turn_ref
-    }
-  end
-
   defp first_round_transcript do
     AuthoringTranscript.new(identity("run-cp2-1"),
       base_text: "CP2 历史 Base",
@@ -85,13 +73,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
 
   defp seed_first_round! do
     transcript = first_round_transcript()
-    record = run_record("run-cp2-1")
-
-    {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(transcript)
-
-    {:ok, _} =
-      Repo.transaction(fn -> AuthoringSessionLog.append_run(record, segment) end)
-
+    TestAgenticLoopFixtures.append_segment!(transcript, status: "completed")
     transcript
   end
 
@@ -108,17 +90,19 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     }
   end
 
+  # 纯协议边界场景明确表示一个已完成历史 run；DB 集成场景使用真实 append/fetch。
   defp history_rows(run_id, messages) do
     messages
-    |> Enum.with_index(1)
+    |> Enum.with_index(2)
     |> Enum.map(fn {message, sequence} ->
-      %{
+      Map.merge(identity(run_id), %{
         sequence: sequence,
-        run_id: run_id,
         run_sequence: sequence,
+        run_status: "completed",
+        format_version: "authoring-session-message/v1",
         role: message.role,
         message: message
-      }
+      })
     end)
   end
 
@@ -126,7 +110,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     seed_first_round!()
 
     assert {:ok, history} =
-             AuthoringSessionHistory.fetch(%{run_id: "run-cp2-2", session_id: "sess-cp2"})
+             AuthoringSessionHistory.fetch(identity("run-cp2-2"))
 
     assert is_map(history)
 

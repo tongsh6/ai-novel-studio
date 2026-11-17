@@ -97,6 +97,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
   end
 
   defp seed_encoded_segment!(record, segment) do
+    {:ok, _record} = AgentRunLog.upsert_run(run_attrs(record))
     {:ok, state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
     state
   end
@@ -119,6 +120,52 @@ defmodule NovelApplication.AuthoringCheckpointTest do
       },
       extra
     )
+  end
+
+  test "候选压缩后仍可从持久 canonical 记录逐字回查模型产物", %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    body = "雨落在门槛上。\n\n她没有回答。\n"
+    arguments = %{"items" => [%{"item_id" => "candidate-1", "title" => "夜雨", "body" => body}]}
+
+    source =
+      identity
+      |> transcript()
+      |> AuthoringTranscript.append_assistant("", [
+        RequestIR.tool_call_block("submit_tentative_artifact", arguments, "candidate-call")
+      ])
+      |> AuthoringTranscript.append_validation("candidate-call", "passed", "tentative_validated")
+      |> AuthoringTranscript.append_author_turn(
+        "先保留这个候选，继续讨论人物动机。",
+        "input:later:#{identity.run_id}"
+      )
+
+    assert {:ok, compacted} =
+             AuthoringTranscript.compact(
+               source,
+               %{call_ids: ["candidate-call"], message_refs: []},
+               [],
+               %{},
+               ["候选原文从请求中省略，仍保留在历史记录中。"],
+               "已提出夜雨候选，尚未采纳。"
+             )
+
+    seed_segment!(record, compacted)
+
+    assert {:ok, restored, :session_segment} =
+             AuthoringCheckpoint.restore(record, durable_data(record))
+
+    calls =
+      for message <- restored.messages,
+          block <- message.blocks,
+          Map.get(block, :type) == "tool_call",
+          do: block
+
+    assert [%{arguments: ^arguments}] = calls
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(restored)
+    assert {:ok, request} = Projection.project(ir, "chat_completions")
+    refute Jason.encode!(request) =~ "雨落在门槛上"
+    assert inspect(request) =~ "尚未采纳"
   end
 
   test "有会话段时按 run 读取 canonical，durable 段引用只核对不复制", %{
@@ -308,7 +355,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
     assert json_normalize(segment.messages) ==
              json_normalize(AuthoringCheckpoint.checkpoint(transcript).transcript.messages)
 
-    {:ok, state} = AuthoringSessionLog.append_run(run_attrs(record), segment)
+    state = seed_encoded_segment!(record, segment)
     assert state.message_count == length(segment.messages)
 
     assert {:ok, restored, :session_segment} = AuthoringCheckpoint.restore(record, nil)

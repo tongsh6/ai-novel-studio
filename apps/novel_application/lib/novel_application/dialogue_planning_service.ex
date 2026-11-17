@@ -1313,7 +1313,7 @@ defmodule NovelApplication.DialoguePlanningService do
       frame
       |> TurnResultBuilder.build(trace_summary, candidates, reply_decision)
       |> scope_judgment_turn_result(input, run)
-      |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
+      |> AgentFinalizer.attach_run_summary(run)
       |> Map.put(
         :outcome,
         if(judgment.action == "capability_gap", do: "goal_unfulfilled", else: judgment.action)
@@ -1662,16 +1662,6 @@ defmodule NovelApplication.DialoguePlanningService do
       matched_terms: [],
       summary: judgment.narrative,
       confidence: 1.0
-    }
-  end
-
-  defp judgment_run_summary(run, settle) do
-    %{
-      run_id: run.run_id,
-      run_mode: run.run_mode,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      status: settle
     }
   end
 

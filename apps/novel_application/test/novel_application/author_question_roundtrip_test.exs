@@ -218,6 +218,12 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
     assert q.status == "open"
     assert {:ok, %{run: run}} = AgentRunService.state(id)
     assert run.status == :awaiting_author
+    assert run.phase == :stopped
+    assert source["agent_run"]["status"] == "awaiting_author"
+    assert source["agent_run"]["phase"] == "stopped"
+    assert_receive {:question_event, :turn_result_ready, %{payload: %{turn_result: delivered}}}
+    assert delivered.agent_run.status == run.status
+    assert delivered.agent_run.phase == run.phase
     assert run.consumed_budget.provider_calls == 1
   end
 
@@ -634,7 +640,8 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
     {result, _trace} = AuthorQuestion.turn_result(run, judgment)
     assert result.frame_summary.frame_type == :capability_gap
     assert result.outcome == "goal_unfulfilled"
-    assert result.agent_run.status == :completed
+    assert result.agent_run.status == :awaiting_author
+    assert result.agent_run.phase == :stopped
     refute Map.has_key?(result, :author_question)
     assert result.available_actions == []
     refute result.truthfulness.production_write_performed

@@ -407,7 +407,8 @@ defmodule NovelApplication.WorkSessionService do
           |> Map.delete("events")
           |> Map.delete(:provider_runs)
           |> Map.delete("provider_runs")
-          |> Map.put(:activity_loaded, false)
+          |> Map.delete(:activity_loaded)
+          |> Map.delete("activity_loaded")
 
         turn_result
         |> Map.delete(:agent_run)
@@ -430,23 +431,7 @@ defmodule NovelApplication.WorkSessionService do
   # 只把当前 DB run 的白名单事实投影给作者；过期 TurnResult 的 status/phase/
   # provider_run_count/events 等不得作为最新运行事实保留。
   defp put_agent_run_summary(turn_result, run) do
-    agent_run = %{
-      run_id: run.id,
-      run_mode: run.run_mode,
-      status: run.status,
-      phase: run.phase,
-      parent_turn_ref: run.parent_turn_ref,
-      profile_ref: run.profile_ref,
-      trigger: run.trigger,
-      long_run_task_ref: run.long_run_task_ref,
-      plan_ref: run.plan_ref,
-      plan_version: run.plan_version,
-      activity_loaded: false
-    }
-
-    turn_result
-    |> drop_agent_run_summary()
-    |> Map.put(:agent_run, agent_run)
+    NovelApplication.AgentFinalizer.attach_run_summary(turn_result, run)
   end
 
   defp text_from_content(content) when is_map(content),

@@ -537,7 +537,10 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       assert metadata.provider_call_count == 1
       assert metadata.tool_call_count == 1
-      assert metadata.judgment_transcript.messages == ir.messages
+
+      assert metadata.judgment_transcript.messages ==
+               Enum.map(ir.messages, &Map.delete(&1, :canonical_ref))
+
       assert author_text(metadata.judgment_transcript) == @author_text
       refute Map.has_key?(metadata, :provider_result)
     end
@@ -584,7 +587,9 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       assert metadata.provider_call_count == 2
       assert metadata.tool_call_count == 1
-      assert metadata.judgment_transcript.messages == ir.messages
+
+      assert metadata.judgment_transcript.messages ==
+               Enum.map(ir.messages, &Map.delete(&1, :canonical_ref))
     end
 
     test "metadata 外层不复制 raw provider_result、stage_state 或函数" do
@@ -609,7 +614,9 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       metadata = AuthoringSession.provider_metadata(session)
 
-      assert metadata.judgment_transcript.messages == ir.messages
+      assert metadata.judgment_transcript.messages ==
+               Enum.map(ir.messages, &Map.delete(&1, :canonical_ref))
+
       refute Map.has_key?(metadata, :provider_result)
       refute Map.has_key?(metadata, :stage_state)
       refute Map.has_key?(metadata, :callback)
@@ -640,7 +647,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
       assert restored.messages == transcript.messages
-      assert restored.messages == ir.messages
+      assert restored.messages == Enum.map(ir.messages, &Map.delete(&1, :canonical_ref))
 
       assert {:ok, restored_ir} = AuthoringTranscript.to_request_ir(restored)
       assert {:ok, restored_body} = Projection.project(restored_ir, "chat_completions")
@@ -684,7 +691,16 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
 
       assert %RequestIR{} = bound.input["request_ir"]
       assert bound.input["request_ir"] == derived_ir
-      assert bound.input["request_ir"].messages == transcript.messages
+
+      assert Enum.map(bound.input["request_ir"].messages, &Map.delete(&1, :canonical_ref)) ==
+               transcript.messages
+
+      assert Enum.map(
+               bound.input["request_ir"].messages,
+               &Map.take(&1.canonical_ref, [:run_id, :run_sequence])
+             ) ==
+               [%{run_id: run.run_id, run_sequence: 1}, %{run_id: run.run_id, run_sequence: 2}]
+
       assert author_text(bound.input["request_ir"]) == @author_text
       assert Enum.count(bound.input["request_ir"].messages, &(&1.role == "user")) == 1
 
@@ -696,7 +712,8 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSessionTest do
       refute contains_function?(bound.input)
 
       assert AuthoringSession.request_ir(snapshot) == derived_ir
-      assert derived_ir.messages == transcript.messages
+      assert Enum.map(derived_ir.messages, &Map.delete(&1, :canonical_ref)) == transcript.messages
+      refute Enum.any?(transcript.messages, &Map.has_key?(&1, :canonical_ref))
     end
 
     test "绑定后的真实 Common ToolRequest 可被 AuthorizedToolExecutor 识别，0 预算不调模型" do
