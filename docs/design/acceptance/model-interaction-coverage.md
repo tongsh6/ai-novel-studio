@@ -209,3 +209,17 @@ G2 已有真实观察→下一次请求的核验从其私有 pageCheck 整体迁
 非成功 native 流日志可能只保存 status=0、body=event_stream 和耗时；这些占位单独不构成失败证据。只有准确 pcall/prun、workspace/work/session/parent/AgentRun 归属一致，既有只读数据库快照明确给出 ProviderRun failed/cancelled 与同次 ProviderOutput error，且没有与该调用冲突的成功 canonical assistant，才可将其请求归入非成功调用账。来源冲突、缺输出、重复引用、scope不一致、completed+占位均失败关闭。扩充现役只读reader读取已有 ProviderOutput 事实，不增加产品 hook、验收入口或第二调用权威表。
 
 失败调用的请求材料仍参与字节成本对账，实际调用数独立计数；缺usage保持未知，不填零、不套用后续成功用量、不声称原始SSE终结已验证。独立反例必须覆盖失败后成功同轮双调用、伪失败/错归属/缺持久output/重复refs/成功与失败冲突。重算只能落独立派生目录，原十轮失败、零合法checkpoint与未完成原生语义判据保持不变。
+
+### 5.8 普通成本批次的有限主体窗口与固定后继观察
+
+仅新 `b87-r01-request-cost-manifest/v2` 的普通 native 预注册讨论批次启用：主体仍为冻结原文的3/10/20条，3条低压对照不追加；10/20条各预注册恰一次后继观察。原v1 manifest及旧批次保持原行为/partial，不补发或改签。现有交错控制中的“复述最后选择”不适用于普通未选择会话；单条通用后继输入另存冻结来源，询问已实际交付、未交付/证据不足、尚待作者选择，不暗示已选择，不读取或改写作品。原20条及交错5条字节不变。
+
+v2 `successor_observation` 严格冻结 `source:{path,sha256,expected_turns:1}`、`author:{id,sha256}`、`lengths:[10,20]`、`count:1`；复用原作者输入schema、hash校验、原turn等待预算、零harness重试与真实页面输入机制。capture在启动前封存原文和配置，driver不能按结果选题、追加次数或改变预算。
+
+**目标集合与竞态**：主体作者/run归属来自冻结输入与实际唯一回执/canonical身份，不信driver自报名单。N条可见completed只是必要条件；发送后继前须以同一只读事实快照确认全部主体run completed、归属主体的已准入维护均terminal、成功响应已提交canonical并清除pending载荷（失败/未知响应不得冒充合法提交）。存在在途执行、已接收未提交载荷或未知归属就partial停止，不发送后继。主体目标包括所有归属这些主体run的checkpoint；最终再次由完整canonical/events/ProviderRun/Output核对，不允许主体迟到checkpoint改算为后继维护。未证明集合闭合不能签过。
+
+**下一请求**：每个主体checkpoint使用严格在其commit之后的首个真实非摘要业务Provider请求；沿现役C5覆盖/原文/无重放oracle，不复制来源权威。首请求缺证或覆盖错误不能借纠错或较后请求洗绿。后继必须唯一真实作者输入和独立run、正常completed；摘要调用、仅构造请求、回查UI均不能代签。目标集合通过显式主体边界限定，但全部事实保留；后继产生的新维护单独列为“窗口外、尚无后继消费证据”，不删事件、不递归追加，不声称全批每条checkpoint都已验证。
+
+**计量与报告**：主体N轮和后继观察分别绑定实际全部业务/维护调用、usage和未知项，并给总计；cached始终为input子集，后继不冒充第N+1主体。原文数量分别严格对账。完整共同证据下界按实际预注册动作推导；后继失败、意外追问或身份不明保留partial/失败，不自动猜答。主体语义预期来自原作者要求与原始实际交付，由独立审查判断，后继回复、摘要自述与单测都不是质量oracle。
+
+独立反例：漏主体末checkpoint、封边界时维护在途/未提交、主体迟到提交、错边界归属、后继改字节/重复/错会话/缺页面、首请求错而后请求对、摘要冒充后继、后继新维护漏计/被删、未知usage填零、旧manifest自动发输入。正例须覆盖合法主体尾维护由固定后继消费及后继新维护如实未证；不更改产品生命周期、原预算、原失败记录或交错/C8代码。

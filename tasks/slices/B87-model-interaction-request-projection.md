@@ -1375,3 +1375,11 @@ f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用�
 第10回复明显改善：四场确实逐项比较单/双收益、风险及多数证据。但旧灯塔双视角的证据格仍只有要明确守谁/欠谁的动机条件，没有可观察/可核对呈现，却宣称全部完成，独立语义仍partial。另第3未读档案即断言内容不存在、若干回指轮次错误单独记录。结尾决定仍未代答；这些不与机械缺证混淆，不用更多提示词或盲重跑代替责任分析。尚未启动20轮。
 
 直接核第10轮、整理展开、完整原文橙框定位、刷新后展开恢复四张真实图，Markdown与可见状态正常；UI通过不代签语义。各批independent-review.md和visual-review.json保存独立结论，旧partial保留。另按既有C8完整驱动推进交错/取消/客户端重开/持久失败与BEAM重启后原响应恢复，使用独立B71 seed及新runtime事实，不复制request-cost快照，不宣称已通过。
+
+### 14.25 固定后继观察的有限验收责任（2026-11-18，设计先行）
+
+§14.24的末维护缺下一请求是有限观察边界，不是许可删除最后checkpoint。按验收矩阵§5.8新增普通manifest v2显式一次后继；3轮不加，10/20主体输入不变。旧manifest、旧partial及原报告不改。当前交错/C8另行执行，不修改其driver/evidence。
+
+七问：Contract=验收§5.8及VS-00L真实checkpoint/来源/后继请求；Invariant=完整主体归属、准入维护terminal且接收结果已提交、最终反查迟到、首请求不可挑选、一次后继不递归、所有费用计量；Boundary=现役request-cost manifest/capture/driver/batch/compaction证据；Consumer=普通10/20原生批次；Proof=冻结literal与原canonical/events/ProviderRun/Output独立事实，先边界竞态/漏项/重复输入/成本漏计反例，再普通node验证，单测不代签模型质量；Acceptance Driver=既有真实页面输入/typed等待，原预算与零重试；Exploration=无新产品知识或状态，只新增通用作者核对输入。复用审核：原manifest版本冻结、作者输入校验、readonly快照、call binding与C5 owner均已有消费者，保持单一来源；不新增产品hook或评审器。
+
+关键实施约束：不改正在执行的交错/C8文件；普通compaction消费者仅在完整主体边界已证后以限定事件集合复用C5，保留完整canonical和Provider事实，避免新来源校验器。若现役C5结构无法安全复用而必须改共享运行文件，先报告并等待C8退出，不绕过冻结。此节为设计承诺，不宣称新批次已执行或通过。
