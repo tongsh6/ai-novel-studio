@@ -1205,3 +1205,21 @@ I-CACHE 按 VS-00L §19.2 / VS-00M §5.2.2 的既有最小供给裁决，在 VS-
 **整合证据与边界**：`final-gates-01` 当前工作区 mix check **3,348/0**、外部 55 文件 **1,108/0**；完整 `bash scripts/ai_static_scan.sh --top 10` **19 pass / 2 fail / 7 findings**，源码前后哈希不变。未关闭项仍为 task_done 旧清单/UI 完整验收 pending、五项既有 gitleaks false_positive（Pencil、确认 fixture、RFC 示例 nonce、B63 历史标识、E2E 标识）及 ProjectGod 历史配置 accepted_risk；未改规则/台账，无新增扫描发现。`existing-call-ref-review.json` 以候选代码只读复核已有 native-3-02 的三条调用，request.refs 与原记录相同、删除元数据后仍为 unknown、HTTP body/原批次全部文件不变；只证明已有日志读取，不代表新原生运行或材料语义完整，新增模型调用为 0。
 
 **剩余积压及恢复入口**：本节提交后剩余 216 路径（192 tracked 修改、24 untracked）：后端实现/测试 110、外部脚本 75、前端 16、设计/原 R03 任务 10、原保护 WIP 5。逐文件事实清单见本证据目录 backlog-inventory/final-state；上述分类不声称剩余每个文件已经独立审查，也不把它们一概认定不可提交。WorkspaceChat 的 Markdown hunk 已在历史提交，当前 M 是事件归属/历史恢复的其它 hunk，不是提交丢失。主线仍需闭合私有摘要到 Checkpoint 的故障恢复、原生历史重启、取消交错和原十轮后二十轮；可独立交付部分继续按依赖拆出验证，不再把完整 R03 未完成作为所有代码不提交的理由。
+
+### 14.13 已接收摘要到 Checkpoint 的持久恢复（2026-11-17，实施前）
+
+现场起点 `47a12bc1`、216 路径 WIP、暂存区为空；基线/哈希在 `artifacts/model-contracts/b87-r03/20261117/summary-recovery-01/before.json`，编译基线通过。目标是故障后仍以同一份已持久接收的摘要完成合法提交，不重新请求模型、不丢原文、不把取消或旧方向重新激活。只证明来源不重发、新来源能继续，不满足此目标。
+
+七问：Contract=VS-00L §16.2.1 已接收摘要恢复修订；Invariant=来源唯一执行、冻结计划/响应原字节、原文与当前保护集、提交/事件/恢复载荷同事务；Boundary=Summary/AgentRunMaintenance → ProviderRunLog 与 AgentRunLog 原事务；Consumer=现役显式/自动维护安全点；Proof=先写持久原文缺失与失败后零调用恢复反例，再覆盖重复/篡改/取消/目标变更/外 run/事务回滚；Acceptance Driver=既有真实工作台与取消/重启驱动，不增加产品测试钩子，机制证据不代签原生；Exploration=不产生作品事实，既有原文读口不变。
+
+存在性审查：ProviderRun 是已有唯一执行所有者，复用并补一列私有 operation_checkpoint；ProviderOutput 的安全摘要不能承载可恢复正文；LongRunTask 仅 durable、不能借给 bounded；canonical 历史只存已提交事实，不能塞入未生效计划；LLMLog 不具事务恢复保证。拒绝新表、新任务状态机、日志回读和全局重试。私有列、增量迁移及专属恢复测试文件为当前真实消费者所需新增，索引同批维护；纯恢复规则归既有 Summary/ProviderFactMerge，存储与消费归原事务。无来源内容副本，提交时把暂存原文转交 canonical 并原子清除；不覆盖作者数据库或五份保护 WIP。
+
+**续行候选依赖与职责审查**：独立候选原先漏带 13 个 Finalizer 真实调用方与已退役摘要 helper 的移除；补齐后，40 个回归失败均定位到真实 AgentRun 夹具、交付时运行事实或 canonical 身份/历史覆盖夹具未同批迁移。选取必要 hunk，不带人物探索/最小供给的其它修改，9 处现有测试迁移后候选全量断言通过。规模门禁随后暴露 AgentRunLog 571 行超过 563 上限；先在 ADR-0035 明确纯 checkpoint header 规则归既有 AuthoringSessionIntegrity，事务/回滚仍归 AgentRunLog，保留原错误与判定顺序，不新增实体、不提高基线、不机械压行。证据保留在 `artifacts/model-contracts/b87-r03/20261117/summary-recovery-resume-02/`；候选通过不代签 R03 原生恢复。
+
+**接收方的独立反例与修复**：提交前进一步发现旧接收快照能覆盖已经持久取消/暂停或改变目标的接收 run。先在 VS-00L 明确双运行持久事实边界，再以公开 CompactionRecord 提交反例实证失败；既有 ProviderRunLog 在写锁内、upsert 前读取接收行，ProviderFactMerge 分别校验原计划/原响应字节与双运行资格，不新增锁、状态或重试器。缺行、身份/目标版本不符、持久取消/暂停均拒绝；失败保留响应且不产生 checkpoint/作者事件。相关 37 项回归通过，原 durable header/事务边界 42 项回归通过，严格 Credo 与规模门禁通过。
+
+**独立代码提交**：`e33bb71669916660bffb99ea98aa4c9c7e1f5b84`（82 个必要路径）提交 canonical 覆盖、来源执行权、私有响应恢复、运行事实消费者及配套测试/契约；不夹带人物探索、最小供给、客户端事件归属和其它未验收原生驱动。`b8917b6f199fd7b4826879e9ea6a3cd14359ba05`（2 文件）单独迁移外部恢复 oracle：提交 run 可不同，原 Provider 执行身份不可改绑。两组均正常 hooks、暂存密钥检查通过，不 push、不改历史。原五份保护 WIP 哈希全部保持。核心提交树 `efbbf255968a8338c2dff976b6de10178619c4f3` 相对完整验证树 `4905482fd4cc6f7962067336557612f91d86dcf8` 仅补 common README 测试索引，运行代码字节一致；外部提交树与独立验证快照完全一致。
+
+**验证与范围**：核心候选全量后端 **3,331/0**，前端 **54 文件 497/0**、typecheck/lint/build，以及 compile、架构、xref、ADR、Credo、规模、I1/I2/I3/N-NARR/I-CACHE 均通过；外部候选相关 **222/0**。随后整合工作区后端 **3,360/0**、55 个外部测试文件 **1,109/0**，源码前后 SHA 无变化。`integrated-final-01` 完整扫描为 **19 pass / 2 fail，7 条发现**：旧 task_done/UI 全验收 pending，六项历史 gitleaks（五误报、一 ProjectGod 历史配置 accepted_risk），没有新发现。两个暂存补丁另经 gitleaks protect --staged，无泄漏。构建的已有大 chunk 告警保留。原失败/编译/夹具/规模反例日志均保留，不改签。
+
+**下一恢复入口**：后端恢复机制已有真实事务及运行时集成证据，本轮新增真实模型调用为 0、未执行新原生页面批次，R03 仍 doing。现役验收矩阵 §5.2/§5.3 已把 C8 的“新来源继续”纠正为原 D 响应跨进程恢复；原生驱动/完整 oracle 必须按此补证，不能因原脚本测试绿灯继续沿用旧目标。先用零 Provider 的真实历史重启实验定位窗口消失，再迁移故障阶段取证，复验原十轮、二十轮及取消/交错，最终由真实 task_done 入口闭环。两组代码提交后剩余 145 路径 WIP（131 tracked、14 untracked）；最终状态与保护哈希见本目录 final-state.json，不把其它 WIP 全部判为可提交或不可提交。
