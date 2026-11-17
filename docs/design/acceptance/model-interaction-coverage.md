@@ -1,6 +1,6 @@
 # 场景与完整性覆盖矩阵
 
-> 归档注：以下正文保留源包 `f13ff640` 的候选设计，不代表当前运行实现；后续契约差异与归属见 [归档说明](../contracts/model-interaction/integration-notes.md)。
+> 范围说明：第 1–4 节保留源包 `f13ff640` 的候选归档设计，不代表当前运行实现；差异与归属见 [归档说明](../contracts/model-interaction/integration-notes.md)。第 5 节为现役 R03 原生验收设计，消费 VS-00L/VS-00M 与 B87 §14，不沿用归档假设。
 ## 1. 已交付正例（全部为合成，非线上调用）
 | Case | 场景 | 请求数 | 工具/输出 | 设计成熟度 |
 |---|---|---:|---|---|
@@ -126,3 +126,70 @@
 
 ## 4. 不声称覆盖的东西
 所有37要素的payload都有Schema定义，但这不证明37要素所有层级/三态的每一种组合都已有生产表或测试。Unicode段落字节例子有中文，没有全面语言学分词/排版验证。智能模式和作者资产是目标提案，实测token和文学得分均未编造。
+
+## 5. 现役 R03 原生交错、取消与恢复验收
+
+本节消费现役 [VS-00L §16.2.1/§16.16](../contracts/VS-00L-authoring-run-transcript-request-ir-contract-pack.md)、[VS-00M](../contracts/VS-00M-model-interaction-request-response-contract-pack.md) 与 [B87 §14](../../../tasks/slices/B87-model-interaction-request-projection.md)；第 1–4 节的候选归档状态不适用于本节。这里只规定输入、判据与取证边界，不登记执行进度。
+
+### 5.1 存在性与消费者审核
+
+既有 `native_b71_batch.sh` 和 `tauri_slice_verify.sh` 已拥有隔离批次启动、真实端口和 owned Tauri 清理；`NativeScenarioHarness` 已拥有可见 AX 动作及客户端重启；`authoring_capture_evidence` 已拥有输入封存与真实 DB 快照；`authoring_auto_maintenance_evidence` 已拥有压力、覆盖、交错及恢复判据。R03 继续这些入口，不新增 bootstrap、第二 driver 框架、产品 hook 或 DB reader。
+
+既有 `request_cost_runtime_recipe` 是 Splash 参数的唯一 owner。auto-maintenance 路径消费其 `b87-r03-splash-product-maintenance-budget` profile 和同一后端进程产生的 `runtime-facts.json`：模型能力 262144，产品维护预算 32000、触发比例 0.70、最近项 4。模型实际 usage 必须达到真实阈值；不得伪造 usage、缩小模型能力或临时改窗口。既有外部 Splash 服务不属于批次资源，驱动和清理均不发 load/unload/stop 请求，也不接管该服务。批次只清理其创建的应用与进程/端口；`native-driver-ready.json.owned_ports` 从 runner 实际启动的 backend/proxy 端口产生，未启动 proxy 为明确 null，不用全局固定端口推断。
+
+现役 20 条冻结讨论原文继续复用 `scripts/lib/native_ui/fixtures/r03-discussion-author-inputs.json`，原文件不改。新增 `r03-interleaved-author-inputs.json` 只存该链实际需要的 A/B/回答/后继核对/取消 5 条作者原文、哈希和观察目标，复用同一 `b87-author-inputs/v1` 结构及纯校验 owner 的显式条数参数，不增加模型或协议。capture 在窗口操作前封存两份输入并验证逐字哈希；driver 只消费封存副本，失败后不得换材料、加轮次或改维护阈值。
+
+**后端换代的存在性审计**：`tauri_slice_verify.sh` 已独占 BEAM 启动/进程树回收，`native_ui_wait.mjs` 已独占分型等待、owned PID 与健康监督，但均没有后端重启入口。只在这两个 owner 增加一次受控换代：ready 增 `backend_owner`（真实 runner/backend PID 与本批 DB realpath）；请求/准入/监督确认/完成四份 `native-backend-restart/v1` 事实复用现有批次文件边界，逐份绑定 run_ref、request_id、活动 restore wait_id 与旧 PID。driver 只能请求，不能 spawn/kill BEAM；runner 在监督已确认的唯一恢复窗口内复用同一启动函数、同 env/同隔离 DB，既不重跑外层 seed，也不覆盖首次 runtime facts。只有新真实 PID、实际 health 200、同 DB 文件身份和新进程白名单 runtime facts 一致时才产生完成事实；其它进程继续监督，普通 restore 不获得后端健康豁免。`native_ui_wait.readBackendRestartReceipt(dir)` 统一核四份记录、原等待账、实际 runtime 文件哈希和 DB 身份，driver 与事后 oracle 共同消费；事后核验不要求 cleanup 后 PID 仍活，也不声称当前健康。测试放现役 `native_ui_wait.test.mjs`；协议只属外部验收，不新增产品状态或恢复框架。
+
+### 5.2 冻结动作顺序与独立预期
+
+1. 按既有原文第 1–10 条完成早期讨论。每条都必须经过真实页面和真实 completed 回执；意外追问或失败记录未闭环，不自动猜答或补发。
+2. 发送新 A，请作者在两个结尾之间选择。只有真实 open 问题、同源 waiting run 与可见回答区出现后，点击“开始新讨论”，发送新 B。B 明确 completed 后，A 仍须保持原 question_ref 与未答状态；B 可以整理更早已完成历史，不能覆盖 active A 的作者原话、问题或讨论。
+3. 回到 A 原问题，以冻结回答明确选择“保留父亲留下的秘密”。作答必须绑定真实 question/run/goal version 与唯一 ACK；随后冻结核对请求证明整理进入下一次实际业务判断，维护摘要请求不充当后继业务请求。
+4. 发送冻结 C，沿既有 turn 有界等待观察本 run 唯一仍在运行的 `transcript_compaction` Provider：必须已有同 prun 的 `request_dispatched` 和非空正文 chunk 回流，且不存在 terminal event/output。记录真实 pcall/prun 与 observed_at，命中后、点击前保存原始 DB 快照，再在真实控制坞点击“终止任务”。点击“确认终止”前重新读取并核验同一 pcall/prun 仍在途；目标已结束或改变就如实失败，不改取消对象、不补发输入。采集实际命令/ACK、真实终态、Provider 归属、调用计数和 canonical 快照；只有该摘要执行与 run 均实际 cancelled、迟到结果未提交新 checkpoint 才满足摘要取消。普通业务调用取消不能代签；没有真实目标则保留缺证，不改输入、压力窗口或等待预算。
+5. 由现役 ownership 边界重启 Tauri 客户端并重新连接同一会话，核对原文、事件和来源资格保持；本动作明确只证明客户端重新连接，不冒充后端进程重启或 durable AgentRun 恢复。
+6. 在隔离批次数据库注入 checkpoint 提交失败 trigger，以既有原文第 11 条运行故障 D，随后移除 trigger。由原 runner 执行一次真实 BEAM 后端换代并等待同会话重连，在发送新输入前证明 canonical、事件与已授予来源执行资格保持、没有新增 Provider 调用。该阶段取证的是故障提交后的静止会话恢复，不冒充进程中途被杀的 active Task 续跑。再固定按第 12–20 条运行恢复回合，再发送冻结核对请求。每个已调用来源只取得一次持久执行资格；D 的原文保持，恢复只能由新的合法来源 E 产生新 checkpoint，不重发结果未知或提交失败的 D。原文/Provider/事件/事务快照由既有 reader 独立对账。
+
+输入、动作和等待的先后顺序在运行前固定；脚本只根据真实已完成/等待/取消状态决定能否安全进入下一既定步骤，不从 projector、摘要或 DB 最新行选有利目标。独立预期来自冻结作者输入、动作前 canonical/Interaction 原文、真实 Provider 请求与输出、唯一命令/问题回执和事务结果。没有压力、没有可整理来源、没有 B 的合法整理或没有摘要取消时保留缺证，不能写 PASS。
+
+### 5.3 旧验收假设的退役
+
+旧 G6 “B 必须折叠仍在等待的 A 的闭合交换”与 R03 active foreign run 保护目标冲突，退役该判据；更早已完成历史与 A 的待答义务必须分别核验。旧 C8 把“下一回合重新摘要失败 D”视为恢复不符合一次执行资格机制，退役该要求，改核原文保留、同源无第二次调用及新来源 E 的真实成功。auto-maintenance 的 Strata4096 和卸载外部模型服务假设退役；其它仍在使用 Strata 的独立 live 场景不为本节的 provider 状态代签。
+
+机械检查、真实原生动作、真实模型语义及后端 durable 恢复各自保留证据边界。任何局部绿灯都不能代替完整 R03。
+
+**故障恢复完成边界**：§5.2 第 6 步的同源不重发与新来源成功，只证明执行资格和失败后继续创作，不证明已收到摘要的恢复。已收到合法摘要而 Checkpoint 尚未提交时中断，仍须证明能从已有持久私有事实恢复同一结果并完成原子提交；只有 hash 不能重建原文，不能因此把来源永久搁置或把目标改成“从不重试即正确”。该故障窗口、未知执行结果的真实呈现与恢复证据未闭合时，完整 R03 仍不得 PASS。
+
+### 5.4 原生产物与完成门禁契约
+
+`scenario_evidence.assertCommonEvidence` 是现役原生身份、同批 run、截图和等待账的唯一共同核验者；`writeNativeSummary` 是现役原生摘要出口。R03 的成本批次与交错维护批次必须复用这两个 owner，原生 driver/slice 身份只能来自已经核验的 ready/UI 事实。本批明确声明 `surface=tauri-native`，完成门禁必须再核旁侧 `native-ui-complete.json` 的 driver/scope；`--out` 派生结果不复制或冒充原始证据目录。共同核验失败时仍保留成本报告的失败或缺证事实，但不得生成可被完成门禁接受的原生摘要；不补写成功文件，不放宽 `task_done_check`。
+
+成本批次的共同证据下界由实际固定动作推出：N 条冻结输入需要至少 `3 + 3*N` 个等待记录，种类为 maintenance/input/turn，至少 `N + 1` 张实际截图；N 始终是预注册长度，不能按已完成输入缩小。交错维护沿用自身真实共同证据约束。场景既有 status/required 判据是机制完整性的唯一裁决者；通用摘要只投影 pass/partial/fail 到完成门禁所需的 `all_checks_passed`，保留原始检查计数、非必需的 null/观察事实及全部 not_signed，不把缺证或失败写成完整通过，也不让可选观察代替必需判据。
+
+成本出口复用现役不可覆盖的派生文件写入函数，重复 verify 与 `--out` 不改首份证据；通用摘要函数只增加这一个真实消费者所需的写入依赖，不新增第二报告、第二身份校验器或验收框架。最终 `task_done.sh` 必须消费本批真实 summary 的明确路径并执行完整静态扫描，真实模型语义与截图视觉仍须回原始证据审阅。
+
+同一规则适用于本次复用的 B71 live 页面出口 verifyAuthorVisibleBatch：共同事实仍经 assertCommonEvidence，实际 visible.ok 经 writeNativeSummary 投影 status/all_checks_passed，并保留其页面范围及 not_signed。该摘要不代签 G2 的机制或模型取证；还必须独立运行现役 audit-g2 并回读真实请求/输出。
+
+### 5.5 最小判断供给的真实探索正例
+
+本节消费 VS-00M §5.2.2 与 B87 §14.6 的责任修订。移除默认作品 DTO 后，除原冻结 3/10/20 与交错输入不变，还必须证明真实模型的按需读取仍完整可用；低 token 或无工具调用本身不能作为正例。此处是 R03 材料责任修复的回归证据，不提前签收 B82 的后继开放任务。
+
+复用既有 B82 G2 writer-refs 作者原文、seed 和 B71 live 驱动：作者要求先读第 02 章《灰烬中的手印》已保存正文、前后核对，再将重复写法改成候选且不保存。保持原文和 7000 字来源不变；新批次在执行前冻结真实 Splash 参数、一次发送、零自动重试及独立输出目录。必须回读首次真实请求无全章材料预装、真实两页调用与完整范围、下一次 judgment 及 writer 的实际 Observation、模型真实 self-report.used_context_refs 和候选状态；每步绑定本次 pcall/prun。旧 G2 PASS 只提供可复用场景，不能代签改后的请求。
+
+人物精确操作复用既有 `scripts/seed_b29_character_role_revision.exs`、`native_b29_evidence.INPUTS.t1` 原文“指定老沈为主角”、`native_b29_drive` 与现役启动入口 `tauri_slice_verify.sh b29-existing-character-role-revision`。外部 `B29_NATIVE_MODE=r03-candidate` 在既有 prepare/config.scope 中冻结该场景与真实 Splash model/runtime；作品仍为“B29 已有角色叙事身份复现作品”，保留老沈 ENSEMBLE_POV、顾青 PROTAGONIST、同名小沈 MINOR、阿鸢 SUPPORTING 的真实 accepted 来源，不改 seed 凑行为。实际页面依次选择作品、发送唯一原文、等到角色修订候选和旧值→新值卡片后截图，再采集 t1-after/final；明确结束在采纳前，不点击采纳、不进入旧 T2，不声称完成旧 B29 全矩阵。真实模型须先通过正常目录发现对象，再主动读到所需身份/消歧字段、narrative_role、accepted 状态和真实 base_fingerprint；详情观察进入下一次真实判断，模型实际 ref、候选 ref/基线指纹及本作品来源一致。目录不能冒充已读正文，猜中隐藏合法 ref 不得取得执行资格，期间来源变化必须拒绝或重新真实取证。长 summary 的未读页如实标明，不以无关全文读取作为此单字段候选的前提。作者未采纳时权威角色及正文前后保持；现役 history/call/refs 读取 owner 对实际 pcall/prun、读取工具与后续请求交叉核验，不用候选构造的内部读基线冒充模型已探查，单测不能代签模型行为。
+
+B71 live 的 provider 参数、预检和清理由现有 batch/tauri runner 负责，消费已有 request_cost_runtime_recipe 的真实 Splash 配置及运行时事实，不能仅把 Strata 标签改名，不对外部 Splash 发 load/unload/stop。已有同请求 IR.refs.base_refs 与实际 Observation 来源是唯一 Base/探索证据；若日志尚未保留本字段，应在现役日志投影 owner 补真实值，缺证不得从 Scope.source_refs、累计会话 refs 或模型自报反推。真实模型和原生工作统一串行，由本批原 owner 管理，任何失败均保留首份证据。
+
+B29 与 G2 的参数冻结共同复用 validatePreregistrationFile、assertManifestRuntime 和唯一 splashRuntime 读口；每个实际 caller 显式固定自身 scenarioId（G2 为 b82-g2，B29 为 b29-r03-candidate），不能由外来文件放宽。B29 的 B29_NATIVE_PREREGISTRATION 经原 runner 校验后复制至既有 preregistration.json，与 B29_NATIVE_MODE=r03-candidate 一起形成事实边界。新增的 authoring_character_candidate_evidence 是纯目标判据 owner：旧 B29 的 candidateFacts/stateChecks/zeroWriteBetween/候选字段规则整体迁入，新旧入口共用，IO 仍在原 owner；新 native_b29_evidence.test.mjs 核既定正反例，无新 reader/框架。人物 source 指纹由同一已有 SQL 读口补齐 updated_at 原字段后，以真实 before 行的八字段规范独立核对，不以候选或观察指纹生成预期；正文/权威角色的 before/after 完整事实同样独立核对。
+
+G2 已有真实观察→下一次请求的核验从其私有 pageCheck 整体迁入既有 authoring_call_evidence.observationNextRequestEvidence，保留原 call/output/canonical/request 身份、顺序、完整 Observation 与 refs 判据；G2 和 B29 同用此唯一纯规则。原私有实现与 helper 退役，不新增 reader/解析器或第二份匹配。沿原 G2 反例及 B29 独立来源反例验证，不从候选结果构造读取预期。
+
+现役 B71 处置后原文“资料处理进度怎么样？”要求回应实际候选身份、处置状态与前后继关系。followup Scope 只供应唯一 artifact_ref/status/title/revision_of、计数及覆盖；不得为满足旧 oracle 重新预装候选正文。独立预期从原 source/revision Artifact 与真实采纳回执取得，缺身份/标题/前后继、重复记录、错状态或省略覆盖均失败；候选正文仍由 writerArtifactMatch 和采纳前后 canon 对账逐字核验。回复须绑定同次 Provider 字节并识别已采纳候选和两种处置状态，仅出现正文片段不能替代候选身份。原 body_preview Scope 断言及正文替代身份规则同批退役，原作者输入和实际操作链不变。
+
+### 5.6 维护请求的独立来源与成本边界
+
+维护请求不是新作者输入。成本核验不能要求伪造当前作者消息，也不能仅凭 operation 标签、应用前缀或报告自称通过。复用 `authoring_checkpoint_coverage` 的 canonical 来源校验与 `authoring_history_evidence` 同一只读快照；`request_cost_batch_evidence` 是调用关联消费者，`request_cost_evidence` 仅计量已经绑定的请求材料。
+
+独立目标：真实 ProviderRun/日志 pcall、prun、workspace/work/session/parent 必须一一对应；现役 source keys 必须可规范解码、范围一致、没有重复，并唯一定位当前作者回合之前、其它已完成 run 的纯讨论原文。每条作者原话从该来源之前同 run 的真实 author 消息读取；材料必须与这些原始字节及顺序完全一致。额外作者、工具、额外应用消息、缺来源、跨作品/会话、未知/未来坐标、字段或原文篡改均不能取得可信成本证据。来源判据不读取摘要文本反推预期。
+
+独立反例覆盖错 pcall/prun、伪 operation、同坐标改字节、作者文本改写、来源重排/重复、非讨论块、活动或当前 run、缺当前作者边界和非规范 source key。成功执行但未产生 Checkpoint 的调用也必须计成本；来源可信不代表摘要有效、已提交、可恢复或完整保留义务。分类必须为 application_base、当前作者数和当前作者字节均为零；原成本字节守恒、模型/usage及真实终态核验不变。旧失败批次只读复算另存派生证据，不覆盖原 FAIL，不重新调用模型。
