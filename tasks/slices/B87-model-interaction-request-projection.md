@@ -1187,3 +1187,21 @@ I-CACHE 按 VS-00L §19.2 / VS-00M §5.2.2 的既有最小供给裁决，在 VS-
 **最终复验与提交**：负例字面化后相关 43 tests / 0 failures，随后 `current-gates-02` 的同一 55 文件回归再次 **1,108/0**，源码前后 SHA 无变化。完整 `bash scripts/ai_static_scan.sh --top 10` 为 **19 pass / 2 fail / 0 skip，7 条发现**；新增 Semgrep 已清，未关闭项为 task_done 旧清单/UI 完整验收 pending，以及六项历史 gitleaks（Pencil、确认 fixture、RFC 示例 nonce、B63 历史标识、E2E 标识五项既有 false_positive；ProjectGod 历史配置一项 accepted_risk，非误报）。不改规则、历史或原保护处置台账。负例修正独立提交 **`654f6497c4dd66a338c9eec25ab1d022ff433227`**（1 文件），正常 hooks 未禁用，无 push。
 
 **下一恢复入口**：页面 Markdown/同源交付、外部多段落观察和维护来源核验已经分别落入上述真实提交，不再作为“交叠所以不能提交”的遗留项。仍需完成原生历史恢复窗口原因定位、已收到摘要到 Checkpoint 的持久原文恢复、取消/交错及原十轮后二十轮全矩阵；达到完整目标后由现役 task_done 入口生成对应真实完成证据，不用本次只读核验或三轮控制替代。其余产品/外部脚本 WIP 继续按依赖与独立快照验证分组，不全量 git add，不重写历史。
+
+### 14.12 未提交积压审计与独立交付（2026-11-17）
+
+作者要求核清大量未提交文件并继续执行。现场 `3d172743`、空暂存区，202 个 tracked 修改及 24 个 untracked 文件，共 226 路径；不是 Markdown 提交丢失，而是之前 R03 跨层实现、测试迁移和外部验收变更长期没有及时形成提交边界。仅按目录的事实分布：apps 116、scripts 78、frontend 16、docs 10、AGENTS/reports/tasks 6；五份原保护 WIP 保持不动。基线与逐文件 SHA 位于 `artifacts/model-contracts/b87-r03/20261117/backlog-closeout-01/before.json`，不以路径计数代替依赖审查。
+
+本轮先收口既有日志证据链，不扩展 R03 范围。Contract=愿景可审计性、ADR-0034 请求证据与通用日志分责；Invariant=每次真实请求引用准确、未知与空值不同、跨调用/进程不串资料、HTTP body 和业务行为不改变；Boundary=Gateway → LogContext → LLMLog，不带执行准入/压缩/数据库/UI 的其它未提交修改；Consumer=真实 adapter 同步日志；Proof=独立提交快照的编译/测试、真实 Gateway→adapter→JSONL 逐调用对账、普通 metadata/snapshot 无资料及嵌套/异常/并行边界；Acceptance Driver=仅日志合同 checkpoint，不以局部测试签 R03 或新原生页面；Exploration=不物化作品要素、不增加模型调用。查重裁决为复用现有 LogContext/LLMLog/Gateway，无新实体；Gateway 只选择传入 ir.refs 的必要 hunk，旧三参接口全部现役消费者同批迁移。
+
+提交前反方审查发现嵌套调用中的 turn 切换/显式 restore 会被旧 finally 恢复为父级资料，违反已有清空与隔离目标。已先修 ADR-0034 的嵌套失效规则，再用两个公开 API 反例复现（26 tests / 2 failures）；沿既有 binding 所有权修复，不新增标记/状态，相关 LogContext/LLMLog/Gateway 37 tests / 0 failures。第一次候选全量通过只证明旧快照，不能替代修正后候选复验。
+
+第二独立交付消费同一 ADR 的真实 request.refs：既有 authoring_request_facts 只读取当前记录明确登记的引用，liveRefsCheck 继续按 pcall/prun、Scope 与实际 Observation 审核；缺失/坏形状返回未知，不用其它请求、Scope 标签、body.refs 或累计段头 refs 补证。无新实体/reader，4 个现有文件的真实消费者与独立正反例闭环；本组不带后续 checkpoint 选择解析与长会话脚本，不以引用元数据代签模型实际使用或 R03 语义。验收为候选快照 Node 套件和已有真实调用只读对账，不调用模型、不改原 FAIL。
+
+提交纪律：候选树先独立验证，正常 git add/apply --cached/commit，提交树须等于验证快照，保留所有其它工作区字节及五份保护 WIP；不 push、不 reset、不为清空状态降低 R03 验收标准。仍缺原生恢复/摘要持久恢复/取消交错的主链继续明确标为未闭环。
+
+**实际交付**：`05faaf3de397994480bc33f4714ffe63c7f32699`（8 路径，日志证据及嵌套失效修复）对应独立候选树 `30bcaedc4711d0e85faec1051a94391f33513f90`，该快照 mix check 3,248 tests / 0 failures，另 Credo strict、I1/I2/I3/N-NARR/I-CACHE 通过。`2c6a86b633ca444037baffad7b7110fd9aada7e8`（4 路径，外部材料引用核验）对应候选树 `990c84dd4750665a5fd81f6bbf09d53bff39ddd1`，9 个相关 Node 文件 273 tests / 0 failures。实际 commit tree 均与已验快照一致；正常 hooks 未禁用（全局 hook 报仓库缺 lefthook 配置），无 push。12 个路径中 Gateway 和 request facts 只提交目标 hunk，其它 R03 hunk 保留，因此净清出 10 个未提交路径，而不是 12。
+
+**整合证据与边界**：`final-gates-01` 当前工作区 mix check **3,348/0**、外部 55 文件 **1,108/0**；完整 `bash scripts/ai_static_scan.sh --top 10` **19 pass / 2 fail / 7 findings**，源码前后哈希不变。未关闭项仍为 task_done 旧清单/UI 完整验收 pending、五项既有 gitleaks false_positive（Pencil、确认 fixture、RFC 示例 nonce、B63 历史标识、E2E 标识）及 ProjectGod 历史配置 accepted_risk；未改规则/台账，无新增扫描发现。`existing-call-ref-review.json` 以候选代码只读复核已有 native-3-02 的三条调用，request.refs 与原记录相同、删除元数据后仍为 unknown、HTTP body/原批次全部文件不变；只证明已有日志读取，不代表新原生运行或材料语义完整，新增模型调用为 0。
+
+**剩余积压及恢复入口**：本节提交后剩余 216 路径（192 tracked 修改、24 untracked）：后端实现/测试 110、外部脚本 75、前端 16、设计/原 R03 任务 10、原保护 WIP 5。逐文件事实清单见本证据目录 backlog-inventory/final-state；上述分类不声称剩余每个文件已经独立审查，也不把它们一概认定不可提交。WorkspaceChat 的 Markdown hunk 已在历史提交，当前 M 是事件归属/历史恢复的其它 hunk，不是提交丢失。主线仍需闭合私有摘要到 Checkpoint 的故障恢复、原生历史重启、取消交错和原十轮后二十轮；可独立交付部分继续按依赖拆出验证，不再把完整 R03 未完成作为所有代码不提交的理由。
