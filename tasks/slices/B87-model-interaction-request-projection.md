@@ -1277,3 +1277,23 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 **原因与证据边界**：用户确认发生过断电，但上述退出记录只证明本批第五轮等待失败；不能仅据断电通知把该失败归为产品缺陷、模型超时或受控恢复成功。第五轮 AX 观察存在长时间采集空档，最终只读快照不能确认本轮作者/回复归属；后端在失败附近落下 completed 也不补足作者可见交付。该批不得与先前已证的全屏桌面转换混为同一个原因，亦不得当成 C8 原摘要跨 BEAM 恢复实验。原记录保留，不改签、不从第六轮接发来拼接十轮成功。
 
 **恢复后验证及下一入口**：本轮通过现役 `scripts/node_test.sh` 复跑 Swift producer 与 NativeScenarioHarness 两个相关测试文件，29 项通过、0 失败/跳过，日志见 `power-recovery-05/focused-tests.log`；这只是断电后的局部复核。提交记录、当前完整扫描和最终 Git/保护文件核对统一落该目录，原始批次证据仍留原目录。本轮新增模型调用/创作输入为 0；先独立对账第五轮原请求/响应终结与原页面观察的时间线，再按冻结场景决定后续批次，不修改原输入、阈值或等待预算。完整十轮、二十轮、取消/交错及 C8 真实后端换代仍未闭环，R03 保持 doing，R04 不启动。
+
+### 14.17 响应流终结的独立完整性反例（2026-11-18，实施与验收边界）
+
+起点 `828526cd`、82 路径 WIP；基线 `artifacts/model-contracts/b87-r03/20261118/stream-closeout-06/before.json`。第五轮原记录只包含 decoder 派生结果，未保留原始 SSE 终结帧；不能据此断言该历史调用缺 `[DONE]`，也不重写其 FAIL。代码审查独立发现 Chat decoder 无终结状态、framing 丢弃 `[DONE]`、Anthropic decoder 不核 `message_stop`，而 Responses 已拒绝无终结流；须以公开 adapter 的独立截断反例先验证，不从旧 completed 反推正确性。
+
+七问：Contract=VS-00L §19.3 / VS-00M §6.4 的流式事实完整性；Invariant=半截预览不成为成功结果/可执行工具或摘要来源，取消/错误优先且不重发；Boundary=既有 SSEStream framing、各 wire decoder 与现役 Result/Execution，保持产品 UI/DB/任务模型不增实体；Consumer=Splash/OpenAI-compatible/Anthropic 的真实 execute 入口及 R03 摘要来源；Proof=HTTP200但缺终结、伪终结、未封闭帧、工具参数完整但流未终结、合法分片终结、错误/取消反例及原生场景分层取证；Acceptance Driver=复用现役外部 NativeScenarioHarness 和 runner，不新增产品 hook；Exploration=不物化作品知识。复用审查：终结归 decoder、SSE帧归 framing、错误物化归 Result，均已有消费者；只扩展现役 decoder 对协议结束信号的输入，不新增并行流处理器。缺用量的现役表示与全部长会话/真实供应商证据不得由本步代签。
+
+**低电量休眠的新增因果证据**：本机 powerd 原日志在 UTC+8 03:42:55.021 明确进入 Low Power Sleep，03:50:01.562 从 Hibernate 唤醒，覆盖原第五轮 428.484 秒 AX 采集空档；恢复后墙钟等待预算超限。这将 §14.16 的未定原因收窄到系统低电量休眠/唤醒，不是新一次受控 BEAM 恢复。`fifth-power-events.json` 与 `power-causal-review.json` 保存原日志哈希和证据边界；原始 SSE 仍未留存，因此不据此宣称旧调用一定缺终结帧，不改写旧 FAIL。
+
+**实现与提交**：`2fbd456bdb20c34ee1d44cfbf9793661d00fe276`（11 文件，316 行新增/29 行删除）提交既有 SSEStream、Chat/Anthropic decoder、必要正例夹具迁移和独立反例。HTTP200、完整工具 JSON、usage、finish_reason 或正文中的终结字样都不能替代原 wire 的终结事实。EOF 丢弃未封闭尾部，不补造 SSE 空行；已合法终结后的未封闭心跳/尾部也不被误判为失败。保留片尾 CR，使 CRLF 跨分片不产生假空行。没有新建模块、恢复框架或兼容分支，没有改写正文或添加模型重试。缺失/错误终结沿既有错误结果路径结束，预览和调用身份不被抹除；普通业务层已有的后续调用不由本步冒充零调用。
+
+**独立验证**：先用公开 adapter 得到 5 项目标测试中的 4 个失败，另以所有切分位置复现 CRLF 假空行，最后补齐正常终结后未封闭心跳的正反例。真实 loopback HTTP 对照使用生产 Req 通道：同为 HTTP200，有/无合法终结分别成功/失败，不只测 eventsource 替身。11 个旧正例夹具漏结束帧或错用其它 wire 标记，按协议修正输入，保留原业务断言。最终 Provider 目录 406/0；独立提交快照 `f4ec09f972f1b72b95621fa95986c1e421f46027` 的 `mix check` 3,339/0，强制零警告、codegen、循环/架构、ADR、I-CACHE、I1/I2/I3/N-NARR 与 Credo 通过，实际提交树完全一致。包含原 WIP 的整合工作区 `mix check` 3,368/0，分别记账；早期失败与选错测试行的诊断记录保留，不冒充有效红例。
+
+**最终版本原生三轮控制**：`native-3-stream-final` 使用原冻结 manifest/snapshot/三条输入和原预算，真实 Splash/Tauri 32/32 检查通过，3 个业务运行、3 次调用完成，最大输入 14,056 小于 22,400 阈值，未误触发整理。实际截图 `turn-3.jpg` 已复核，Markdown 标题/列表正常，未完成风险表仍显示为欠项。该批代码 SHA 与最终候选一致；HTTP/数据库对账保持作者原文和作品内容。它只证明三轮低压正常路径，不代签完整 R03。
+
+**原生十轮达到的新断点，仍 FAIL**：`native-10-stream-01` 在 EOF 尾部丢弃行为最终完善前的候选上实际完成十条冻结作者输入和十个业务回复，10 次判断成功、1 次判断 provider_internal 失败后由原流程后续调用完成、1 次摘要响应成功，共 12 次模型调用。第八轮原回答仍明确保留风险表与揭密程度两项独立义务；第十轮按码头/修钟铺/旧灯塔/档案馆分别给出单/双视角收益、误导风险和可观察证据，未代答结尾，但其形式为地点分节比较，未证明完整章节场景清单。原文与截图见 `native-ten-independent-review.json`，不从运行 completed 推断文学或整理效果。
+
+**本批未关闭的真实失败**：合法 Checkpoint 为 0，历史回查等待整理入口失败，不是再一次窗口丢失。独立按冻结来源逐字对账，摘要 4 段 retained_obligations 中 2 段不是其原文的精确子串（`summary-source-review.json`）；私有原响应仍持久保留。不能模糊匹配、转义修补或删掉义务来让摘要通过，也不能把未整理长会话的语义保持代签整理后的保持。第三轮 provider_internal 的具体原因尚未充分取证；该轮多次实际调用还使原 native binding 报 unsupported/missing/counts mismatch，全部调用不能算已完整对账。原批次报告保持 fail，未补造 summary/完成清单，未自动重跑十轮或提前开二十轮。
+
+**扫描、保护与下一入口**：整合验证后执行完整 `bash scripts/ai_static_scan.sh --top 10`，仍 19 pass/2 fail/7 findings，源文件 SHA 未变；剩余为完整 UI/task_done pending，五项历史 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）及一项 ProjectGod 历史配置 accepted_risk，无新发现，不改扫描规则/处置台账。原 82 路径 WIP 与五份保护文件保持，不 push；最终提交后扫描及 Git 状态在本目录 `post-commit-scan/`、`final-state.json`。本轮新实模调用合计 15（十轮 12 + 三轮 3）。下一步从无效保留义务引用的来源表达与待提交响应恢复职责入手，审查为何一个不能提交的摘要持续占据恢复入口，并补齐同轮多调用证据绑定；不再围绕已确认的休眠反复跑模型。二十轮、取消/交错和 C8 真正跨 BEAM 恢复仍未闭环，R03 doing，R04 不启动。
