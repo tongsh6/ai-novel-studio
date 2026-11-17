@@ -54,3 +54,10 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 
 - [readingProjectionQuery.ts](src/lib/readingProjectionQuery.ts)：ADR-0016只读查询、整组成功/失败与作品级缓存；采纳hint仅失效查询。
 - [readingProjectionQuery.test.ts](src/lib/__tests__/readingProjectionQuery.test.ts)：刷新新正文、失败不冒充完整结果、空历史scene不进入阅读。
+
+## 只读 Markdown 与流式接管（ADR-0036 / 46 §9.5）
+
+- [MarkdownText.tsx](src/components/MarkdownText.tsx)：助手讨论/过程叙事的唯一只读渲染与安全边界；不改变保存原文，不解析作者输入或小说正文。
+- [MarkdownText.module.css](src/components/MarkdownText.module.css)：文档流排版、代码与表格局部滚动，沿用现有 token。
+- [MarkdownText.test.tsx](src/components/MarkdownText.test.tsx)：中文强调、结构、安全 URL/HTML/外图与非生成状态的独立反例。
+- [WorkspaceChat.agentRunTimeline.test.tsx](src/components/WorkspaceChat.agentRunTimeline.test.tsx)：已有来源接管、跨调用/运行隔离、独立过程与流式字节；不是原生页面验收替代。

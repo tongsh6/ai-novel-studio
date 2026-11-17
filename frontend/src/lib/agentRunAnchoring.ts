@@ -133,27 +133,6 @@ export function agentRunActivityQueryTurn(turnResult: AgentRunAnchorTurnResult):
   );
 }
 
-export function assistantMessageTextForAgentRun(
-  messages: readonly AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],
-  runId: string | null,
-): string | undefined {
-  if (runId === null) return undefined;
-
-  const texts = Array.from(
-    new Set(
-      messages
-        .filter(
-          (message) =>
-            message.role === "assistant" && turnResultAgentRunId(message.turnResult) === runId,
-        )
-        .map((message) => message.text.trim())
-        .filter((text) => text !== ""),
-    ),
-  );
-
-  return texts.length > 0 ? texts.join("\n\n") : undefined;
-}
-
 function turnResultParentTurnId(
   turnResult: AgentRunAnchorTurnResult,
   messages: AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],

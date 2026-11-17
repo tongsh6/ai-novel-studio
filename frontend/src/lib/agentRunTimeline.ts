@@ -1,5 +1,6 @@
 import { WORKBENCH } from "./copy";
 import type { AgentEventData } from "./socket";
+import type { WireTurnResult } from "./turnResultWire";
 
 export interface AgentRunProviderUsageData {
   run_id?: string;
@@ -31,6 +32,7 @@ export interface AgenticLoopNarrativeEvent {
   label: string;
   narrative: string;
   sequence: number;
+  streaming?: boolean;
 }
 
 export interface AgenticLoopReasoningFlow {
@@ -40,25 +42,30 @@ export interface AgenticLoopReasoningFlow {
   narrativeEvents: AgenticLoopNarrativeEvent[];
 }
 
-function normalizedNarrativeForComparison(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+function callSourceKey(runId: unknown, callRef: unknown): string | null {
+  return typeof runId === "string" &&
+    runId.trim() !== "" &&
+    typeof callRef === "string" &&
+    callRef.trim() !== ""
+    ? JSON.stringify([runId, callRef])
+    : null;
 }
 
-export function omitNarrativesRepeatedInAssistantMessage(
-  events: AgenticLoopNarrativeEvent[],
-  assistantMessageText?: string,
-): AgenticLoopNarrativeEvent[] {
-  if (!assistantMessageText?.trim()) return events;
+function deliveredNarrativeSources(results: ReadonlyArray<WireTurnResult>): Set<string> {
+  const sources = new Set<string>();
+  for (const result of results) {
+    if (!result.assistant_message?.text) continue;
+    const record = recordValue(result.trace_summary?.reply_record);
+    if (record?.response_kind !== "plain_text") continue;
+    const source = callSourceKey(result.agent_run?.run_id, record?.provider_call_ref);
+    if (source !== null) sources.add(source);
+  }
+  return sources;
+}
 
-  const assistantNarrativeBlocks = new Set(
-    [assistantMessageText, ...assistantMessageText.split(/\n\s*\n+/)]
-      .map(normalizedNarrativeForComparison)
-      .filter((value) => value !== ""),
-  );
-
-  return events.filter(
-    (event) => !assistantNarrativeBlocks.has(normalizedNarrativeForComparison(event.narrative)),
-  );
+function deliveredNarrative(event: AgentEventData, delivered: ReadonlySet<string>): boolean {
+  const key = callSourceKey(event.run_ref, event.payload?.provider_call_ref);
+  return key !== null && delivered.has(key);
 }
 
 interface AgentRunDialogueStatusVisibility {
@@ -116,19 +123,23 @@ function numberPayloadValue(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function agentRunReasoningFlow(events: AgentEventData[]): AgenticLoopReasoningFlow {
+export function agentRunReasoningFlow(
+  events: AgentEventData[],
+  deliveredResults: ReadonlyArray<WireTurnResult> = [],
+): AgenticLoopReasoningFlow {
+  const delivered = deliveredNarrativeSources(deliveredResults);
   const reasoningEvents = events
     .filter(isAgenticLoopReasoningEvent)
     .sort((a, b) => a.sequence - b.sequence);
   const streamedEvents = streamedAuthorReasoningEvents(
     events,
     boundReasoningProviderRuns(reasoningEvents),
+    delivered,
   );
-  const narrativeEvents = compactAdjacentNarrativeEvents(
-    [...streamedEvents, ...narrativeEventsFromReasoning(reasoningEvents)].sort(
-      (a, b) => a.sequence - b.sequence,
-    ),
-  );
+  const narrativeEvents = [
+    ...streamedEvents,
+    ...narrativeEventsFromReasoning(reasoningEvents),
+  ].sort((a, b) => a.sequence - b.sequence);
   const latestPlanEvent =
     [...reasoningEvents]
       .reverse()
@@ -206,6 +217,8 @@ export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivit
 }
 
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
+  if (event.visibility !== "author") return false;
+
   if (
     ![
       "plan_drafted",
@@ -228,76 +241,56 @@ function narrativeEventsFromReasoning(events: AgentEventData[]): AgenticLoopNarr
     key: event.event_id,
     eventType: event.event_type,
     label: WORKBENCH.agenticLoopEventLabels[event.event_type] ?? event.event_type,
-    narrative: stringPayloadValue(event.payload, "author_narrative") ?? event.summary ?? "",
+    narrative: rawStringPayloadValue(event.payload, "author_narrative") ?? event.summary ?? "",
     sequence: event.sequence,
   }));
 }
 
-function compactAdjacentNarrativeEvents(
-  events: AgenticLoopNarrativeEvent[],
-): AgenticLoopNarrativeEvent[] {
-  return events.reduce<AgenticLoopNarrativeEvent[]>((compacted, event) => {
-    const previous = compacted.at(-1);
-
-    if (previous?.narrative === event.narrative) {
-      compacted[compacted.length - 1] = {
-        ...event,
-        key: `${previous.key}:${event.key}`,
-      };
-      return compacted;
-    }
-
-    compacted.push(event);
-    return compacted;
-  }, []);
+function streamSourceKey(event: AgentEventData): string {
+  return JSON.stringify([
+    event.run_ref,
+    stringPayloadValue(event.payload, "provider_run_ref") ??
+      stringPayloadValue(event.payload, "provider_call_ref") ??
+      event.event_id,
+  ]);
 }
 
 function streamedAuthorReasoningEvents(
   events: AgentEventData[],
   boundProviderRunRefs: Set<string>,
+  delivered: ReadonlySet<string>,
 ): AgenticLoopNarrativeEvent[] {
-  const groups = new Map<
-    string,
-    {
-      key: string;
-      sequence: number;
-      parts: string[];
-    }
-  >();
-
-  events
+  const ended = new Set(
+    events
+      .filter(
+        (event) =>
+          event.event_type === "provider_progress" &&
+          (event.reason_codes ?? []).some((code) =>
+            ["provider_final_output", "provider_error", "provider_cancelled"].includes(code),
+          ),
+      )
+      .map(streamSourceKey),
+  );
+  const groups = new Map<string, { sequence: number; parts: string[] }>();
+  for (const event of events
     .filter(isAuthorReasoningDeltaEvent)
-    .sort((a, b) => a.sequence - b.sequence)
-    .forEach((event) => {
-      const providerRunRef = stringPayloadValue(event.payload, "provider_run_ref");
-      const providerCallRef = stringPayloadValue(event.payload, "provider_call_ref");
-      const groupKey = providerRunRef ?? providerCallRef ?? event.event_id;
-
-      if (providerRunRef && boundProviderRunRefs.has(providerRunRef)) return;
-
-      const delta = rawStringPayloadValue(event.payload, "author_narrative_delta");
-      if (delta === null) return;
-
-      const existing =
-        groups.get(groupKey) ??
-        ({
-          key: `stream:${groupKey}`,
-          sequence: event.sequence,
-          parts: [],
-        } satisfies { key: string; sequence: number; parts: string[] });
-
-      existing.sequence = event.sequence;
-      existing.parts.push(delta);
-      groups.set(groupKey, existing);
-    });
-
-  return [...groups.values()]
-    .map((group) => ({
-      key: group.key,
+    .sort((a, b) => a.sequence - b.sequence)) {
+    const groupKey = streamSourceKey(event);
+    if (boundProviderRunRefs.has(groupKey) || deliveredNarrative(event, delivered)) continue;
+    const delta = rawStringPayloadValue(event.payload, "author_narrative_delta");
+    if (delta === null) continue;
+    const group = groups.get(groupKey) ?? { sequence: event.sequence, parts: [] };
+    group.parts.push(delta);
+    groups.set(groupKey, group);
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({
+      key: `stream:${key}`,
       eventType: "provider_progress",
       label: WORKBENCH.agenticLoopEventLabels.provider_progress ?? "推理",
       narrative: group.parts.join(""),
       sequence: group.sequence,
+      streaming: !ended.has(key),
     }))
     .filter((event) => event.narrative.trim() !== "");
 }
@@ -343,6 +336,8 @@ function isAuthorContentDeltaEvent(event: AgentEventData): boolean {
 }
 
 function isAuthorReasoningDeltaEvent(event: AgentEventData): boolean {
+  if (event.visibility !== "author") return false;
+
   return (
     event.event_type === "provider_progress" &&
     rawStringPayloadValue(event.payload, "author_narrative_delta") !== null
@@ -354,8 +349,9 @@ function boundReasoningProviderRuns(events: AgentEventData[]): Set<string> {
 
   events.forEach((event) => {
     const source = recordValue(event.payload?.author_narrative_source);
+    if (source?.source_type !== "provider_output") return;
     const providerRunRef = stringRecordValue(source, "provider_run_ref");
-    if (providerRunRef) refs.add(providerRunRef);
+    if (providerRunRef) refs.add(JSON.stringify([event.run_ref, providerRunRef]));
   });
 
   return refs;

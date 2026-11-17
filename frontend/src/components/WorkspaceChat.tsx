@@ -138,7 +138,6 @@ import {
   activeToolActivity,
   agentRunProseStream,
   agentRunReasoningFlow,
-  omitNarrativesRepeatedInAssistantMessage,
   shouldShowAgentRunDialogueStatus,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
@@ -200,7 +199,6 @@ import {
   agentRunActivityQueryTurn,
   agentRunDockRenderMode,
   agentRunRuntimeAuthority,
-  assistantMessageTextForAgentRun,
   bindAgentRunAckToUserMessage,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
@@ -227,6 +225,7 @@ import {
   setAssistantDisplayName,
 } from "../lib/assistantDisplayName";
 
+import { MarkdownText } from "./MarkdownText";
 import styles from "./WorkspaceChat.module.css";
 
 // TurnResult 线格式来自 codegen（docs/design/schemas/foundation/turn_result_v3.json，
@@ -815,7 +814,7 @@ interface AgentRunDialogueFlowProps {
   preparing?: boolean;
   // 46§9.4 进度行：待采纳草稿总字数（由调用方从 adoption_state 计算；无产物为 null）。
   draftCharCount?: number | null;
-  assistantMessageText?: string;
+  deliveredResults?: ReadonlyArray<TurnResult>;
   // 46 §9.9：整理记录细条「查看完整记录」打开既有 Why/trace 面板；无对应 turn 时不传（隐藏入口）。
   onOpenHistory?: () => void;
 }
@@ -825,19 +824,16 @@ export function AgentRunDialogueFlow({
   events,
   preparing = false,
   draftCharCount = null,
-  assistantMessageText,
+  deliveredResults = [],
   onOpenHistory,
 }: AgentRunDialogueFlowProps) {
   // 46 §9.9：整理记录只在当前工作回合内展开一次；事件更新不重置展开态（不闪烁）。
   const [compactionExpanded, setCompactionExpanded] = useState(false);
   const compactionView = transcriptCompactionView(events);
   const elapsedSeconds = useAgentRunElapsedSeconds(run?.status, events);
-  const reasoningFlow = agentRunReasoningFlow(events);
+  const reasoningFlow = agentRunReasoningFlow(events, deliveredResults);
   const proseStream = agentRunProseStream(events, run?.status ?? null);
-  const visibleNarrativeEvents = omitNarrativesRepeatedInAssistantMessage(
-    reasoningFlow.narrativeEvents,
-    assistantMessageText,
-  );
+  const visibleNarrativeEvents = reasoningFlow.narrativeEvents;
   const statusTone = agenticLoopStatusTone(run);
   const statusLabel =
     run &&
@@ -930,13 +926,16 @@ export function AgentRunDialogueFlow({
         // 不再叠一层 aria-label=「推理」的 landmark region（读屏会出现重复区域声明）。
         <div className={styles.agenticLoopReasoning}>
           {visibleNarrativeEvents.map((event) => (
-            <p
+            <div
               key={event.key}
               className={styles.agenticLoopNarrativeParagraph}
               data-tone={narrativeTone(event.eventType)}
             >
-              {event.narrative}
-            </p>
+              <MarkdownText
+                text={event.narrative}
+                streaming={event.streaming === true && run?.status === "running"}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -2414,6 +2413,10 @@ export function WorkspaceChat() {
     agentRunInputDecision.reason === "active_has_model_question" ? agentRunInputDecision.run : null;
   const latestAgentRun = answeringRun ?? visibleAgentRuns.at(-1) ?? null;
   const latestMessage = messages.at(-1);
+  const deliveredResults = messages.flatMap((message) =>
+    message.turnResult ? [message.turnResult] : [],
+  );
+
   const continuedCandidatesBySourceTurn = new Map<string, string>();
   for (const message of messages) {
     const selection = message.candidateSelection;
@@ -5100,7 +5103,11 @@ export function WorkspaceChat() {
                           </div>
                         ) : null;
                       })()}
-                    <div className={styles.text}>{msg.text}</div>
+                    {msg.role === "assistant" ? (
+                      <MarkdownText text={msg.text} />
+                    ) : (
+                      <div className={styles.text}>{msg.text}</div>
+                    )}
 
                     {msg.role === "assistant" &&
                       messageAgentRun &&
@@ -5109,7 +5116,7 @@ export function WorkspaceChat() {
                           run={messageAgentRun}
                           events={messageAgentRunEvents}
                           draftCharCount={pendingDraftCharCount(msg.turnResult)}
-                          assistantMessageText={msg.text}
+                          deliveredResults={deliveredResults}
                           onOpenHistory={openMessageTrace}
                         />
                       )}
@@ -5471,6 +5478,7 @@ export function WorkspaceChat() {
                           <AgentRunDialogueFlow
                             run={actionTriggeredAgentRun}
                             events={actionTriggeredAgentRunEvents}
+                            deliveredResults={deliveredResults}
                             onOpenHistory={openMessageTrace}
                           />
                         </div>
@@ -5485,10 +5493,7 @@ export function WorkspaceChat() {
                       <AgentRunDialogueFlow
                         run={anchoredAgentRun}
                         events={anchoredAgentRunEvents}
-                        assistantMessageText={assistantMessageTextForAgentRun(
-                          messages,
-                          anchoredAgentRun?.run_id ?? null,
-                        )}
+                        deliveredResults={deliveredResults}
                         onOpenHistory={openMessageTrace}
                       />
                     </div>
@@ -5510,7 +5515,11 @@ export function WorkspaceChat() {
                 <div className={styles.role}>
                   {assistantRoleLabel("assistant", assistantDisplayName)}
                 </div>
-                <AgentRunDialogueFlow run={latestAgentRun} events={latestAgentRunEvents} />
+                <AgentRunDialogueFlow
+                  run={latestAgentRun}
+                  events={latestAgentRunEvents}
+                  deliveredResults={deliveredResults}
+                />
               </div>
             )}
 

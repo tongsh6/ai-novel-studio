@@ -927,3 +927,29 @@ B26 使用 `provider=slice_verify`，捕获的是 `fixture_request_ir`；离线�
 | 既有领域数据/采纳映射缺陷、R19 总验 | 卷纲仍在阅读中，archive-only 目标未达成；原始 Markdown/表格与重复、冗长技术答复的页面质量问题也保留。整体模型交互与最终产品验收未完成。 |
 
 **提交与恢复**：外部会话证据修复为 `9025200128fc4a3b9b85c966b4fff7cd17936908`，共用 seed 修复为 `3c66fc91b85a7273df8cd527c52a0aee9475ddf4`；文档/排期另组提交。原五份 WIP 哈希不变，不纳入提交；无 push。NEXT 仍为 B87，下一独立批次为 R03，按共享 README §1 使用全新上下文读取 README + R03 卡 + 本节及其唯一设计契约，重新完成七问/存在性审计再实现；本会话不滚动实现 R03，也不借本批 PASS 关闭 R06–R09 或 R19。
+
+### 14.10 流式内容保真、同源接管与 Markdown 展示（2026-11-17）
+
+作者明确批准开工。该 checkpoint 处理作者新发现的双份输出与裸 Markdown；不替代 R03 其它恢复、10/20 轮和实模语义验收。工作区基线为 `artifacts/model-contracts/b87-r03/20261117/markdown-output-01/before.json`，HEAD f7f8e461，233项既有改动及原五份 WIP 保留。
+
+**独立目标/反例**：连续原始 chunk 拼接必须逐字等于收到的公开输出（纯空格/换行/缩进不丢）；同一调用的临时与最终内容只显示一份，维护仍 running 时也完成接管；其它来源同文不误删；取消没有最终交付时保留已收内容。中文强调/标题/列表/引用/表格/围栏正确渲染；恶意 HTML/URL/图片不得执行/请求；保存原文、作者输入及小说正文不改变。
+
+**根因证据**：native-3-reconnect-01 同 prun 的 Provider chunks 为831/1146/816，纯空白15/19/23；WS恰少相应数量，换行24/36/25全部丢失。完整Provider增量等于最终回复、只删纯空白后等于WS。ProviderActivityProjector把delta兼作summary，AgentRunServer trim空summary后忽略整个事件。读取数据库前后SHA一致；删除空白的比较仅用于诊断，不作为产品去重。
+
+**七问/新增审查（编码前）**：Contract=愿景、46 §9.5、ADR-0036、现有reply_record/事件与TurnResult；Invariant=原字节/来源/独立过程/作者安全；Boundary=application事件投影→前端投影/渲染，不动DB/Provider/采纳；Consumer=真实WorkspaceChat讨论和过程；Proof=先独立反例，再同源交付/跨run/安全/取消测试及门禁；Acceptance Driver=复用现役原生harness与工作台入口，先零Provider启动观测，再小批次真实输入，不加产品hook；Exploration=不涉及新要素物化。已查全仓无Markdown owner，批准唯一薄MarkdownText及其样式/测试；来源与显示归并复用agentRunTimeline、trace_summary.reply_record.provider_call_ref与agent_run身份，不新建消息ID、状态表或订阅。
+
+**顺序**：先修责任层设计（ADR-0036/46/tech-stack），再空白红例与修复、来源接管红例与修复、共享渲染/安全反例、真实页面及全量门禁。Pencil ZOwOi/DM8gx 已只读核对；本次沿用文档流布局，不编辑 .pen。包版本已实际核对 streamdown 2.7.1 / @streamdown/cjk 1.0.4。状态以本节末尾实际验证记录为准；功能证据不代签 R03 完整闭环。
+
+**外部观察责任修订（实施前）**：46 §9.5 的普通已交付回复不保留重复过程段，现役 shouldShowAgentRunDialogueStatus 原本也隐藏普通完成态，因此外部 axTurnOutcome 不能再依赖每条回复必有过程组。复用 authoring_g2_evidence 的作者边界/Why/路径辅助；只在当前最后一条作者边界内有真实助手回复及 Why、顶栏同容器的“无任务”、无任务控制/待答区时接受可见交付空闲。无窗口、无正文、旧轮Why、后轮完成、仍在维护或只有模型自称完成均拒绝；真实同run终态仍由原 wireTerminal 与DB双证另验。不改产品补状态钩子，不放宽等待或降低语义门禁；独立外部反例先红后绿。
+
+**同调用不同通道的反例补审**：JudgmentProtocol 已明确 reply_record.response_kind=plain_text/structured_tool，AgentNarrativeSource 已区分 provider_output 与 provider_output_tool_narrative。接管仅适用于明确 plain_text 的已交付回复与该调用公开文字流；工具字段叙事与过程记录不能因 pcall 相同被整组删除，来源未知也不猜测。复用这些现役字段，不新增身份；独立反例覆盖同调用两个通道和缺来源种类。流式块位置锚定首个chunk，不随token到达漂移。HTML源码可安全转义显示；安全断言针对真实元素/属性/资源加载，不把字符串包含src=误判为执行。
+
+**实现与局部验证**：已实施结构摘要/原始增量分责、plain_text 同源交付接管、退役文本比较/相邻同文折叠、独立过程与私有内容边界，以及共用 MarkdownText。现役 reply_record/AgentRun/agentEvents 复用，不新增消息身份或存储。`frontend-check-03` 的 typecheck/lint、54 文件 511 tests、Vite build 全通过；`backend-full-02` 的 mix check（3,346 tests/0 failures）、Credo strict、compile/xref/arch/ADR、I1/I2/I3/N-NARR/I-CACHE 全通过；外部观察器关联用例 267/0。red-backend/red-frontend/source-channel-red/native-observer-red/native-multiblock-red 与环境 PATH/夹具类型失败均保留；失败并未改记成通过。
+
+**真实页面与字节证据**：首次 `native-3` 已真实交付首轮且页面正确渲染，但外部观察器错误假设回复为单个 AXGroup；实际 Markdown 标题/段落/列表是多个平级节点，故等待超时，原批 FAIL 保留。独立多块反例先红后绿，改为按当前助手显示名、作者边界、Why 与真实空闲共同观察，不增产品钩子、不改原输入/阈值/模型。新批 `native-3-02` 实际三轮/三次调用、32/32 检查、0 工具/0 业务写入、真实终态 PASS，源码前后哈希一致、cleanup remaining=[]。独立只读 DB/WS/交付对账 `independent-markdown-source-review.json`：三轮 Provider 与 wire chunk 数分别1277/1413/1015，含32/33/43个纯空白chunk，顺序与字节全等；换行43/44/38原样保留；全部源标题对应页面唯一一份，重复过程组0。turn-3.jpg 及首轮诊断截图已直接视觉复核，正常标题/加粗/列表/段距可见，无裸 Markdown 与双份回复。该报告不签全部 R03 语义；表格/代码块/危险URL/取消中间态在组件与机制层验证，未声称全部经过原生场景。原始 SSE 未采集。
+
+**构建与完整扫描**：`final-gates-01` 的 `pnpm tauri build` exit0，生成当前 macOS arm64 release app/DMG（本地临时签名，未公证），源码前后不变。`bash scripts/ai_static_scan.sh --top 10` 仍19pass/2fail/0skip：task_done旧manifest/UI闭环pending；六条既有gitleaks中五条false_positive（Pencil元数据、确认fixture、示例nonce、B63历史标识、E2E标识），ProjectGod历史配置一条accepted_risk，非误报。未改扫描规则/历史/长期处置台账，不能声明全仓全绿。前端主包由之前约742KB增长到1296KB（gzip约386KB），构建保留原500KB告警，未实测性能收益或将警告抹去。
+
+**提交与恢复入口**：仅独立且开工前无WIP的后端空白修复/测试已按正常Git hooks提交 `d7485088bd9892c058c2d9b59e9d6a977bd18deb`（2文件，fix: 保留作者可见流式输出的空白增量）；全局hook实际执行但提示仓库没有lefthook配置，未禁用hooks。前端展示与前轮R03事件owner/历史导航未提交改动交叠，当前未整包提交，避免夹带未验收的R03部分；未push。证据基目录均为 `artifacts/model-contracts/b87-r03/20261117/markdown-output-01/`。本checkpoint功能已落地并有真实三轮证据，完整任务仍doing：最终completion gate、全量R03取消/交错/恢复/10与20轮、前端分组提交仍待收口；不得以本次页面修复关闭原§14.7/§14.9缺口或推进R04。
+
+**独立提交边界复核（2026-11-17 续行）**：已从 `d7485088` 构造只包含 Markdown/公开文字流同源接管的候选树，保留实际工作区原样，不把 R03 事件归属、历史导航、运行状态或 Schema 的未提交修改带入。既有 `reply_record.response_kind/provider_call_ref` 在提交基线中已存在；候选沿真实 WorkspaceChat 入口消费，不是孤立组件。隔离快照实际运行 typecheck、lint、54 文件497 tests及Vite build均通过（`closeout-continuation-01/markdown-isolated-check-01.*`）；497是独立提交快照的测试数，不把工作区511当作该快照结果。原生三轮证据仍严格属于上一段记录的集成工作区，不改写为本次候选树的独立原生验证。候选patch/树和隔离日志均在 `artifacts/model-contracts/b87-r03/20261117/closeout-continuation-01/`；本组不关闭R03，也不以提交代签恢复场景。

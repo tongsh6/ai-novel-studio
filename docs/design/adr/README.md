@@ -26,6 +26,8 @@
 >
 > **2026-11-04 R1 更新**：能力事实改为 Gateway 按本次实际路由单次解析并派生——已删除构造侧 `target`/`capability_profile`、执行侧二次身份比对、`to_provider_prompt/2` 与生产 Stub 注册；三类 adapter 直接消费原生投影，初始快照按 VS-00L §19.2 构造。R1 已提交（2026-11-05）并通过确定性门禁；R2 统一流式与 Responses SSE 已完成确定性机制层（2026-11-07）；未闭环为 CP3b 实模、G6 压缩后真实请求、真实页面证据与 CP5（2026-11-08 状态更正）。
 
+- [ADR-0036：同源流式接管与只读 Markdown 展示](ADR-0036-streaming-markdown-presentation.md)：2026-11-17 作者批准，修复流式空白丢失、来源接管与 Markdown 渲染；实施/验收见 B87 §14.10。
+
 ## 1. 定位
 
 v3 ADR 记录会影响系统长期演化的架构决策。

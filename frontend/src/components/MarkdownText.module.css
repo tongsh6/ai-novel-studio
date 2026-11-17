@@ -1,0 +1,115 @@
+.root {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.root > :first-child {
+  margin-top: 0;
+}
+.root > :last-child {
+  margin-bottom: 0;
+}
+.root p,
+.root ul,
+.root ol,
+.root blockquote,
+.root pre,
+.table {
+  margin: 0.75em 0;
+}
+.root h1,
+.root h2,
+.root h3,
+.root h4,
+.root h5,
+.root h6 {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.root h1 {
+  font-size: 1.4em;
+}
+.root h2 {
+  font-size: 1.25em;
+}
+.root h3,
+.root h4,
+.root h5,
+.root h6 {
+  font-size: 1.1em;
+}
+.root strong {
+  font-weight: 600;
+}
+.root ul {
+  list-style: disc;
+  padding-left: 1.6em;
+}
+.root ol {
+  list-style: decimal;
+  padding-left: 1.6em;
+}
+.root li + li {
+  margin-top: 0.3em;
+}
+.root li > p {
+  margin: 0.25em 0;
+}
+.root blockquote {
+  border-left: 3px solid var(--border-subtle);
+  padding-left: 1em;
+  color: var(--foreground-secondary);
+}
+.root code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+}
+.root pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background: var(--surface-secondary);
+  white-space: pre;
+}
+.root pre code {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.root table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: inherit;
+}
+.root th,
+.root td {
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.root th {
+  font-weight: 600;
+  text-align: left;
+  background: var(--surface-secondary);
+}
+.root hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1em 0;
+}
+.link {
+  overflow-wrap: anywhere;
+}

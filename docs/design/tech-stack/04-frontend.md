@@ -100,6 +100,10 @@ Phoenix Channels 官方 JS 客户端，npm 包名是 `phoenix`，提供：
 
 ---
 
+## 2.10 只读 Markdown 展示（2026-11-17）
+
+依据 [ADR-0036](../adr/ADR-0036-streaming-markdown-presentation.md)，助手讨论和作者可见过程叙事统一使用 Streamdown 2.7.1 + @streamdown/cjk 1.0.4；只在真实生成时解析不完整语法，历史/交付静态渲染。组件不持有业务状态，不改原始文本，作者输入/小说正文不自动 Markdown 化。禁用 HTML 执行、自动外图及库内复制/下载/全屏；链接只读呈现，不能导航当前 Tauri WebView。不增加 AI SDK、富文本编辑器或无消费者插件。当前元数据来自 npm，具体版本由 package/lock 锁定。
+
 ## 3. 关键架构纪律
 
 ### 3.1 UI 不发明语义

@@ -7,11 +7,139 @@ import {
   activeToolActivity,
   agentRunProseStream,
   agentRunReasoningFlow,
-  omitNarrativesRepeatedInAssistantMessage,
   shouldShowAgentRunDialogueStatus,
 } from "../lib/agentRunTimeline";
 
 describe("AgentRun reasoning flow", () => {
+  it("a tool-field delivery cannot consume independent content from the same call", () => {
+    const content: AgentEventData = {
+      event_id: "content",
+      run_ref: "run-channels",
+      sequence: 1,
+      visibility: "author",
+      event_type: "provider_progress",
+      summary: "provider_event:chunk",
+      reason_codes: [],
+      refs: [],
+      payload: {
+        provider_run_ref: "provider-channels",
+        provider_call_ref: "call-channels",
+        author_narrative_delta: "公开说明",
+      },
+    };
+    const process: AgentEventData = {
+      ...content,
+      event_id: "process",
+      sequence: 2,
+      event_type: "plan_drafted",
+      payload: {
+        author_narrative: "独立工具字段",
+        author_narrative_source: {
+          source_type: "provider_output_tool_narrative",
+          provider_run_ref: "provider-channels",
+          provider_call_ref: "call-channels",
+        },
+      },
+    };
+    const delivery = {
+      turn_id: "turn-channels",
+      phase: "completed",
+      status: "completed",
+      assistant_message: { text: "工具字段交付" },
+      agent_run: { run_id: "run-channels" },
+      trace_summary: {
+        reply_record: { provider_call_ref: "call-channels", response_kind: "structured_tool" },
+      },
+    };
+    expect(
+      agentRunReasoningFlow([content, process], [delivery]).narrativeEvents.map((e) => e.narrative),
+    ).toEqual(["公开说明", "独立工具字段"]);
+    expect(
+      agentRunReasoningFlow(
+        [content],
+        [
+          {
+            ...delivery,
+            trace_summary: {
+              reply_record: { provider_call_ref: "call-channels" },
+            },
+          },
+        ],
+      ).narrativeEvents,
+    ).toHaveLength(1);
+  });
+
+  it("delivery takes over only its own stream while the run is still active", () => {
+    const stream = (id: string, run: string, call: string, text: string): AgentEventData => ({
+      event_id: id,
+      run_ref: run,
+      sequence: 1,
+      event_type: "provider_progress",
+      visibility: "author",
+      summary: "provider_event:chunk",
+      reason_codes: [],
+      refs: [],
+      payload: {
+        provider_run_ref: `provider-${call}`,
+        provider_call_ref: call,
+        author_narrative_delta: text,
+      },
+    });
+    const events = [
+      stream("a", "run-a", "call-a", "# 标题\n\n**中文**"),
+      stream("b", "run-a", "call-b", "# 标题\n\n**中文**"),
+      stream("c", "run-b", "call-a", "另一个运行"),
+    ];
+    const delivered = {
+      schema_version: "3.0-draft",
+      turn_id: "turn-a",
+      status: "completed",
+      phase: "completed",
+      assistant_message: { text: "# 标题\n\n**中文**" },
+      agent_run: { run_id: "run-a", status: "running", phase: "executing" },
+      trace_summary: { reply_record: { provider_call_ref: "call-a", response_kind: "plain_text" } },
+    };
+    expect(
+      agentRunReasoningFlow(events, [delivered]).narrativeEvents.map((e) => e.narrative),
+    ).toEqual(["# 标题\n\n**中文**", "另一个运行"]);
+    expect(agentRunReasoningFlow(events, []).narrativeEvents).toHaveLength(3);
+    expect(agentRunReasoningFlow(events, [delivered, delivered]).narrativeEvents).toHaveLength(2);
+  });
+
+  it("different narrative sources with equal words are not folded; private deltas never render", () => {
+    const event = (id: string, call: string): AgentEventData => ({
+      event_id: id,
+      run_ref: "run-a",
+      sequence: id === "one" ? 1 : 2,
+      event_type: "plan_drafted",
+      visibility: "author",
+      summary: "结构摘要",
+      reason_codes: [],
+      refs: [],
+      payload: {
+        author_narrative: "相同的公开文字",
+        author_narrative_source: { provider_call_ref: call, provider_run_ref: `provider-${call}` },
+      },
+    });
+    const privateDelta: AgentEventData = {
+      ...event("private", "call-private"),
+      event_type: "provider_progress",
+      visibility: "developer",
+      payload: {
+        provider_run_ref: "provider-private",
+        provider_call_ref: "call-private",
+        author_narrative_delta: "不可见的私有内容",
+      },
+    };
+    expect(
+      agentRunReasoningFlow([
+        event("one", "call-1"),
+        event("two", "call-2"),
+        privateDelta,
+      ]).narrativeEvents.map((e) => e.narrative),
+    ).toEqual(["相同的公开文字", "相同的公开文字"]);
+  });
+
   it("hides only a trivial completed ordinary-chat status summary", () => {
     expect(
       shouldShowAgentRunDialogueStatus({
@@ -45,39 +173,6 @@ describe("AgentRun reasoning flow", () => {
         pendingArtifactCount: 0,
       }),
     ).toBe(true);
-  });
-
-  it("does not repeat assistant message paragraphs in the AgentRun narrative flow", () => {
-    const narratives = [
-      {
-        key: "intent",
-        eventType: "plan_drafted",
-        label: "计划",
-        narrative: "我会先核对当前作品上下文。",
-        sequence: 1,
-      },
-      {
-        key: "result",
-        eventType: "evaluation_made",
-        label: "评估",
-        narrative: "上下文已经足够，可以直接继续讨论。",
-        sequence: 2,
-      },
-      {
-        key: "distinct",
-        eventType: "exploration_observed",
-        label: "观察",
-        narrative: "已查阅角色档案。",
-        sequence: 3,
-      },
-    ];
-
-    expect(
-      omitNarrativesRepeatedInAssistantMessage(
-        narratives,
-        "我会先核对当前作品上下文。\n\n上下文已经足够，可以直接继续讨论。",
-      ),
-    ).toEqual([narratives[2]]);
   });
 
   it("builds the author-visible flow only from 46§9 narrative events", () => {
@@ -265,11 +360,13 @@ describe("AgentRun reasoning flow", () => {
 
     expect(activeFlow.narrativeEvents).toEqual([
       {
-        key: "stream:prun_streaming_reasoning",
+        key: 'stream:["run_streaming_reasoning","prun_streaming_reasoning"]',
         eventType: "provider_progress",
         label: "推理",
         narrative: "先读取当前作品上下文。",
-        sequence: 2,
+        // Its position is anchored at the first chunk, not moved on every token.
+        sequence: 1,
+        streaming: true,
       },
     ]);
 
