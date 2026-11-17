@@ -771,6 +771,30 @@ export function axTurnOutcome(
     if (gap) {
       return capabilityGapOutcome(author, authorCount, gap, { group_title: null });
     }
+    // 普通回复按 46§9.5 隐藏空过程组：真实交付入口 + 顶栏空闲共同证明可见终局。
+    // 只认最后作者边界；后台维护/其它活动任务存在时不从回复猜测终态。
+    const idle = list.some((node) => node.role === "AXStaticText" &&
+      axValue(node) === "无任务" && axParentPath(node) === container &&
+      compareAxPath(node, { path: authorGroup }) < 0);
+    const busy = list.some((node) => ["当前创作任务操作", "回答当前问题"]
+      .includes(axTitle(node)));
+    const following = followingInBoundary(list,
+      { container, afterPath: authorGroup, beforePath: null }, { path: authorGroup });
+    const why = gapWhyButton(following);
+    const assistantName = list.find((node) => node.role === "AXPopUpButton" &&
+      node.desc === "助手名称")?.title;
+    const label = nonBlank(assistantName) ? following.find((node) => node.role === "AXGroup" &&
+      directTextValues(list, axPath(node)).includes(assistantName)) : null;
+    // Markdown 段落/标题/列表可能成为平级 AX 节点，不能要求 Why 的前一个节点就是整条回复。
+    const reply = label && why ? following.find((block) => compareAxPath(block, label) > 0 &&
+      compareAxPath(block, why) < 0 && list.some((node) => node.role === "AXStaticText" &&
+        (axPath(node) === axPath(block) || axPath(node).startsWith(axPath(block) + "/")) &&
+        nonBlank(axValue(node)))) : null;
+    if (nextAuthor === null && list.some((node) => node.role === "AXWindow") &&
+      idle && !busy && reply) {
+      return outcomeBase("completed", author, authorCount,
+        { group_title: null, reply_path: axPath(reply), why_path: axPath(why), idle: true });
+    }
     // 没有真实活动组也没有 gap 结构时不能自行声称 running；缺可见状态就是 unknown。
     return outcomeBase("unknown", author, authorCount, { group_title: null });
   }

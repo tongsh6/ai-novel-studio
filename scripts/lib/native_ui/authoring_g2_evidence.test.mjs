@@ -1209,6 +1209,38 @@ function axDock(path, label = "等待你回复 · 创作") {
 
 const AX_CONTAINER = "0/0/0/0/0";
 
+test("普通 Markdown 回复：交付入口与空闲同时成立，不能借旧轮或在途状态", () => {
+  const message = "本轮只讨论";
+  const nodes = [
+    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
+    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "自定义助手"), desc: "助手名称" },
+    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "自定义助手"),
+    axNode(`${AX_CONTAINER}/13`, "AXGroup"),
+    axNode(`${AX_CONTAINER}/13/0`, "AXHeading", "", "分析"),
+    axNode(`${AX_CONTAINER}/13/0/0`, "AXStaticText", "", "实际回复"),
+    ...axMessageGroup(`${AX_CONTAINER}/14`, "第二个 Markdown 段落"),
+    axNode(`${AX_CONTAINER}/15`, "AXList"),
+    axNode(`${AX_CONTAINER}/15/0`, "AXStaticText", "", "列表项"),
+    { ...axNode(`${AX_CONTAINER}/16`, "AXButton", "为什么"), desc: "查看这轮回应的依据" },
+  ];
+  assert.equal(axTurnOutcome(nodes, { message }).kind, "completed");
+  assert.equal(axTurnOutcome(nodes.filter((n) => n.value !== "无任务"), { message }).kind, "unknown");
+  assert.equal(axTurnOutcome(nodes.filter((n) => n.role !== "AXWindow"), { message }).kind, "unknown");
+  assert.equal(axTurnOutcome(nodes.filter((n) => n.title !== "为什么"), { message }).kind, "unknown");
+  assert.equal(axTurnOutcome(nodes.filter((n) => ![13, 14, 15].some((i) =>
+    n.path === `${AX_CONTAINER}/${i}` || n.path.startsWith(`${AX_CONTAINER}/${i}/`))), { message }).kind, "unknown");
+  assert.equal(axTurnOutcome(nodes.filter((n) => n.role !== "AXPopUpButton"), { message }).kind, "unknown");
+  assert.equal(axTurnOutcome([...nodes, ...axDock(`${AX_CONTAINER}/20`, "进行中")], { message }).kind, "unknown");
+  const next = [...nodes, ...axMessageGroup(`${AX_CONTAINER}/17`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/18`, "新的一轮")];
+  assert.equal(axTurnOutcome(next, { message: "新的一轮" }).kind, "unknown");
+  assert.equal(axTurnOutcome(next, { message }).kind, "unknown");
+});
+
+
 test("AX 本轮终态：旧页底等待+新 running 不能判 terminal；旧终局不算新结果", () => {
   const message = "第三条";
   const nodes = [
