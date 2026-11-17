@@ -25,7 +25,7 @@ import {
   openTestRunScope,
 } from "../test_env.mjs";
 import { joinNativeCallEvidence, readProviderRuns } from "./authoring_call_evidence.mjs";
-import { base, scope } from "./fixtures/authoring_call_fixture.mjs";
+import { base, scope, sseBase, sseExchange } from "./fixtures/authoring_call_fixture.mjs";
 import {
   AUTHORING_CALL_DB_REL,
   authoringCallFixtureSpec,
@@ -60,6 +60,30 @@ function assertTemplateSealed(fixture) {
   assert.deepEqual(fs.readdirSync(fixture.dir).sort(), [".fixture-control.json", "database"]);
   assert.deepEqual(templateDbFiles(fixture), ["ai_novel_studio_test.sqlite3"]);
 }
+
+test("失败输出在同一只读快照按执行身份读取，缺失与冲突不补造", (t) => {
+  const copy = createWorkingCopy(fixture, { scope: runScope, context: t });
+  const db = new DatabaseSync(copy.files.get(AUTHORING_CALL_DB_REL));
+  try {
+    db.exec("CREATE TABLE provider_outputs (provider_run_id TEXT, provider_call_ref TEXT, agent_run_id TEXT, status TEXT)");
+    db.prepare("UPDATE provider_runs SET status = 'failed' WHERE id = ?").run("prun-1");
+    const input = sseBase();
+    input.records = [sseExchange(1, { status: 0, body: "event_stream" })];
+    input.transcript.messages = [];
+    const inspect = () => joinNativeCallEvidence({
+      ...input, providerRuns: readProviderRuns(copy.dir, scope()),
+    });
+    assert(inspect().failures.some((item) => item.reason === "missing"));
+    db.prepare("INSERT INTO provider_outputs VALUES (?, ?, ?, ?)").run(
+      "prun-1", "pcall-1", scope().run_id, "error");
+    allPass(inspect());
+    db.prepare("UPDATE provider_outputs SET status = 'ok'").run();
+    assert(inspect().failures.some((item) => item.reason === "mismatched"));
+  } finally {
+    db.close();
+    copy.cleanup();
+  }
+});
 
 test("只读 SQLite 模板：DELETE 封存无辅助文件，真实 reader 读取且 hash 稳定", () => {
   assertTemplateSealed(fixture);

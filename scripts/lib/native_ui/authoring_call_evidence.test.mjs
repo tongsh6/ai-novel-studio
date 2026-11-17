@@ -43,6 +43,39 @@ const sseResult = (patch = {}) => {
   return joinNativeCallEvidence(value);
 };
 
+test("真实流失败后成功：持久失败事实绑定两次调用，不把占位当成功", () => {
+  const value = sseBase();
+  const failed = pair("failed", { status: "failed", recorded_outputs: [{
+    provider_run_id: "prun-failed", provider_call_ref: "pcall-failed",
+    agent_run_id: RUN, status: "error",
+  }] });
+  value.providerRuns.unshift(failed);
+  value.records.unshift(sseExchange("failed", { status: 0, body: "event_stream" }));
+  value.consumedProviderCalls = 2;
+  const joined = joinNativeCallEvidence(value);
+  allPass(joined);
+  assert.deepEqual(joined.counts, { provider_runs: 2, bound_requests: 2,
+    completed: 1, errors: 1, consumed_provider_calls: 2 });
+  assert.deepEqual(value.records[0].response.usage, {});
+  for (const patch of [
+    { recorded_outputs: [] }, { status: "completed" },
+    { recorded_outputs: [{ ...failed.recorded_outputs[0], status: "ok" }] },
+    { recorded_outputs: [{ ...failed.recorded_outputs[0], provider_call_ref: "other" }] },
+    { recorded_outputs: [{ ...failed.recorded_outputs[0], agent_run_id: "other" }] },
+    { recorded_outputs: [...failed.recorded_outputs, ...failed.recorded_outputs] },
+  ]) {
+    const invalid = structuredClone(value);
+    Object.assign(invalid.providerRuns[0], patch);
+    assert(joinNativeCallEvidence(invalid).failures.length > 0);
+  }
+  const leaked = structuredClone(value);
+  leaked.transcript.messages.push(assistant("failed", [{ type: "text", text: "伪成功" }]));
+  assert(joinNativeCallEvidence(leaked).failures.some((failure) => failure.phase === "error"));
+  const duplicate = structuredClone(value);
+  duplicate.records.push(duplicate.records[0]);
+  assert(joinNativeCallEvidence(duplicate).failures.some((failure) => failure.reason === "duplicate"));
+});
+
 test("摘要执行按真实operation计入分母，不要求伪造作者或assistant消息；未提交摘要仍保留调用事实", () => {
   const raw = '{"version":"authoring-discussion-summary/v1","entries":[]}';
   const summary = pair("summary", { purpose: "other", owner_refs: { operation: "transcript_compaction" } });

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   analyzeAuthorCall,
+  joinRootRun,
   NATIVE_REPORT_SCHEMA,
   buildNativeReport,
   freshnessFromObservation,
@@ -574,6 +575,45 @@ function runVerify(records, setup = syntheticSetup(records)) {
   });
   return { ...result, failures, notCollected };
 }
+
+test("真实非成功流与后续成功同轮：join到成本汇总保留两次调用和缺失用量", () => {
+  const records = [
+    syntheticRecord({ messages: [{ role: "user", content: AUTHOR_TEXT }], usage: {} }),
+    syntheticRecord({ messages: [{ role: "user", content: AUTHOR_TEXT }], pcall: "p2", prun: "r2" }),
+  ];
+  records[0].response.status = 0;
+  records[0].response.body = "event_stream";
+  records[1].response.status = 200;
+  records[1].response.body = { source: "sse_decoder", tool_calls: [] };
+  const setup = syntheticSetup(records);
+  const scope = { run_id: "run-1", workspace_id: "ws", work_id: "work",
+    session_id: "session", parent_turn_ref: "turn-1" };
+  setup.binding.providerRuns = records.map((record, index) => ({
+    ...scope, agent_run_id: scope.run_id, id: record.provider_run_ref,
+    provider_call_ref: record.provider_call_ref, status: index === 0 ? "failed" : "completed",
+    recorded_outputs: index === 0 ? [{ provider_run_id: "r1", provider_call_ref: "p1",
+      agent_run_id: "run-1", status: "error" }] : [],
+  }));
+  setup.binding.history.transcript = { run: scope, messages: [
+    { role: "assistant", provider_call_ref: "p2", provider_run_ref: "r2", blocks: [] },
+  ] };
+  const joinFailures = [];
+  const bound = joinRootRun({ scope, history: setup.binding.history,
+    providerRuns: setup.binding.providerRuns, records, plan: setup.config.plan[0],
+    fail: (...args) => joinFailures.push(args) });
+  assert.deepEqual(joinFailures, []);
+  assert.equal(bound.counts.errors, 1);
+  setup.binding.records = bound.records;
+  setup.binding.counts = bound.counts;
+  const verified = runVerify(records, setup);
+  assert.deepEqual(verified.failures, []);
+  assert.equal(verified.allCalls.length, 2);
+  assert(verified.notCollected.includes("turn_1_call_1_usage"));
+  const summary = nativeSummary({ config: setup.config, ...verified });
+  assert.equal(summary.calls, 2);
+  assert.equal(summary.input_tokens.total, null);
+  assert.equal(summary.input_tokens.missing_calls, 1);
+});
 
 test("verifyTurns 公共契约：合法记录 call_index/root_run/缺测字段精确", () => {
   const record = syntheticRecord({ messages: [{ role: "user", content: AUTHOR_TEXT }] });

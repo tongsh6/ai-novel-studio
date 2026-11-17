@@ -137,6 +137,7 @@ const SSE_DECODER_SOURCE = "sse_decoder";
 // 但请求必须是已识别 native wire。响应体形状只用于该来源内的校验，不做嗅探。
 const RECORD_SOURCE = Object.freeze({
   FIXTURE: "fixture",
+  PERSISTED_STREAM_ERROR: "persisted_stream_error",
   SSE_DECODER_TOOL_ONLY: "sse_decoder_tool_only",
 });
 
@@ -284,11 +285,29 @@ function sseFailure(record) {
   return sseBodyFailure(record.response);
 }
 
-function classifyRecord(record) {
+function persistedStreamErrorFailure(record, row) {
+  const facts = requestFactsFromRecord(record);
+  if (!facts.ok || facts.format !== NATIVE_CHAT_WIRE ||
+      record.response?.status !== 0 || record.response?.body !== "event_stream") return "unsupported";
+  if (!ERROR_RUN_STATUSES.includes(row.status)) return "mismatched";
+  const outputs = row.recorded_outputs;
+  if (!Array.isArray(outputs) || outputs.length === 0) return "missing";
+  if (outputs.length !== 1) return "duplicate";
+  const output = outputs[0];
+  return output.status === "error" && output.provider_run_id === row.id &&
+    output.provider_call_ref === row.provider_call_ref && output.agent_run_id === row.agent_run_id
+    ? null : "mismatched";
+}
+
+function classifyRecord(record, row) {
   if (record.response_format === FIXTURE_RESPONSE_FORMAT) {
     return { source: RECORD_SOURCE.FIXTURE, failure: fixtureFailure(record) };
   }
   if (record.response_format !== undefined) return { failure: "unsupported" };
+  if (record.response?.status === 0 && record.response?.body === "event_stream") {
+    return { source: RECORD_SOURCE.PERSISTED_STREAM_ERROR,
+      failure: persistedStreamErrorFailure(record, row) };
+  }
   const failure = sseFailure(record);
   return failure ? { failure } : { source: RECORD_SOURCE.SSE_DECODER_TOOL_ONLY, failure: null };
 }
@@ -652,7 +671,7 @@ function joinScopedRecords({ records, runsByPrun, runsByCall, scope, add }) {
       add("duplicate", "binding", refs);
       continue;
     }
-    const classified = classifyRecord(record);
+    const classified = classifyRecord(record, pair.run);
     if (classified.failure) {
       add(classified.failure, "binding", refs);
       continue;
@@ -829,7 +848,8 @@ function countBoundPairs(bound) {
   let sseToolOnly = 0;
   for (const { record, source } of bound.values()) {
     if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY) sseToolOnly += 1;
-    if (source === RECORD_SOURCE.FIXTURE && record.response.status === "error") errors += 1;
+    if (source === RECORD_SOURCE.PERSISTED_STREAM_ERROR ||
+        (source === RECORD_SOURCE.FIXTURE && record.response.status === "error")) errors += 1;
     else completed += 1;
   }
   return { completed, errors, sseToolOnly };
@@ -958,11 +978,18 @@ export function joinNativeCallEvidence(input) {
 // DB 边界只负责按 agent_run_id 读取；ownership 由纯函数再次逐字段核对。
 export function readProviderRuns(dir, scope) {
   const identity = normalizeScope(scope);
-  return withDb(dir, (db) =>
-    all(
-      db,
-      "SELECT * FROM provider_runs WHERE agent_run_id = ? ORDER BY id",
-      [identity.run_id],
-    ),
-  );
+  return withDb(dir, (db) => {
+    db.exec("BEGIN");
+    try {
+      const rows = all(db,
+        "SELECT * FROM provider_runs WHERE agent_run_id = ? ORDER BY id", [identity.run_id]);
+      return rows.map((row) => ERROR_RUN_STATUSES.includes(row.status)
+        ? { ...row, recorded_outputs: all(db,
+          "SELECT provider_run_id, provider_call_ref, agent_run_id, status FROM provider_outputs WHERE provider_run_id = ?",
+          [row.id]) }
+        : row);
+    } finally {
+      db.exec("ROLLBACK");
+    }
+  });
 }
