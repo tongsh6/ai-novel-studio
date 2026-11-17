@@ -168,9 +168,66 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
 
     assert_receive {:published, event, persisted_events}
     assert event.visibility == :author
-    assert event.summary == "内心推理"
+    assert event.summary == "provider_event:chunk"
     assert event.payload.author_narrative_delta == "内心推理"
     assert [%{sequence: 1}] = persisted_events
+  end
+
+  test "public chunk bytes do not become the required event summary, including whitespace" do
+    run_id = unique("run-projector-whitespace")
+    provider_run_id = unique("prun-projector-whitespace")
+    provider_call_ref = unique("pcall-projector-whitespace")
+    run = agent_run(run_id)
+    owner = self()
+    chunks = ["# 标题", "\n\n", "  ", "\t", "**中文**"]
+    expected = "# 标题\n\n  \t**中文**"
+
+    events =
+      chunks
+      |> Enum.with_index(1)
+      |> Enum.map(fn {text, index} ->
+        provider_event(
+          provider_run_id,
+          provider_call_ref,
+          "#{provider_run_id}:#{index}",
+          index,
+          :chunk,
+          %{payload: %{author_narrative_delta: text, chunk_index: index}}
+        )
+      end)
+
+    facts =
+      {:ok,
+       %{
+         provider_run:
+           provider_run(provider_run_id, provider_call_ref, :completed, %{purpose: :conversation}),
+         events: events,
+         output:
+           provider_output(provider_run_id, provider_call_ref, %{content: %{text: expected}}),
+         result: Result.new(expected)
+       }}
+
+    execution =
+      %Execution{result_fn: fn _request -> facts end, purpose: :conversation}
+      |> ProviderActivityProjector.with_stage_sink(
+        %{run: run, stage_sink: fn event -> send(owner, {:public_chunk, event}) end},
+        purpose: :conversation,
+        content_visibility: :author
+      )
+
+    assert {:ok, %Result{content: ^expected}} = Execution.result_fn(execution).("公开输出")
+
+    received =
+      for expected_delta <- chunks do
+        assert_receive {:public_chunk, event}
+        assert event.visibility == :author
+        assert event.summary == "provider_event:chunk"
+        assert event.payload.author_narrative_delta == expected_delta
+        event.payload.author_narrative_delta
+      end
+
+    assert Enum.join(received) == expected
+    assert length(ProviderRunLog.list_events(provider_run_id)) == 5
   end
 
   test "preserves the runtime fact-persistence disable switch" do

@@ -135,10 +135,8 @@ defmodule NovelApplication.ProviderActivityProjector do
     :ok
   end
 
-  defp summary(%ProviderEvent{}, _purpose, _output, %{author_narrative_delta: delta})
-       when is_binary(delta) and delta != "",
-       do: delta
-
+  # 摘要仅描述事件；公开增量（包括纯空白）只在 payload 中保留原字节。
+  # 不用正文兼任 summary，否则上层非空摘要校验会丢弃合法的换行/缩进 chunk。
   defp summary(%ProviderEvent{event_type: :progress, payload: payload}, _purpose, _output, _attrs) do
     case payload_phase(payload) do
       phase when is_binary(phase) -> "provider_event:progress phase=#{phase}"
