@@ -39,7 +39,11 @@ test("维护来源拒绝标签自证、身份/原文/作者/顺序及范围篡�
     ["operation", (s) => { s.options.providerRuns[0].owner_refs.operation = "chapter_summary"; }],
     ["missing source keys", (s) => { delete s.options.providerRuns[0].owner_refs.discussion_source_keys; }],
     ["duplicate source", (s) => { const keys = s.options.providerRuns[0].owner_refs.discussion_source_keys; keys.push(keys[0]); }],
-    ["noncanonical key", (s) => { const refs=s.options.providerRuns[0].owner_refs; refs.discussion_source_keys[0]=refs.discussion_source_keys[0].replace('[', '[ '); }],
+    ["noncanonical key", (s) => {
+      // 同一坐标的合法 JSON 空白别名仍不应取得第二份身份；不是清洗/转义逻辑。
+      s.options.providerRuns[0].owner_refs.discussion_source_keys[0] =
+        'authoring-session-source/v1:[ "work-discussion","work-discussion","session-discussion","early",4]';
+    }],
     ["source text", (s) => { s.messages[2].blocks[0].text += "新增建议"; }],
     ["author text", (s) => { s.messages[0].blocks[0].text = "同意执行"; }],
     ["missing author", (s) => { s.messages.splice(0, 1); }],
