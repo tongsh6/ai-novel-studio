@@ -50,20 +50,16 @@ function countingInput() {
   };
 }
 
-test("tryPollAx 以命名观测读取真实控件匹配结果", async (t) => {
-  const { dir, harness } = makeHarness({});
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+test("tryPollAx 只读当前控件事实，不借观察激活或输入", async (t) => {
   const nodes = [{ role: "AXButton", title: "开始新讨论" }];
-  const labels = [];
-  harness.dumpNodesForInteraction = (label) => {
-    labels.push(label);
-    return nodes;
-  };
-
+  let reads = 0;
+  const { dir, harness } = makeHarness({ dump: () => { reads += 1; return nodes; } });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  harness.input = countingInput();
   const found = await harness.tryPollAx((text) => text === "开始新讨论", 50, "return_to_question");
-
   assert.deepEqual(found, { nodes, text: "开始新讨论" });
-  assert.deepEqual(labels, ["try_poll_ax:return_to_question"]);
+  assert.equal(reads, 1);
+  assert.deepEqual(harness.input.calls, []);
 });
 
 test("capture 透传窗口截图选项并保留默认采集契约", (t) => {
@@ -288,36 +284,42 @@ test("failure observation is persisted even when supervisor already wrote failur
   assert.equal(observation.screenshot.ok, false);
 });
 
-test("dumpNodes is read-only until an explicit interaction recovery is requested", async () => {
-  const windowNodes = Array.from({ length: 9 }, (_, index) => ({
-    role: index === 0 ? "AXWindow" : "AXStaticText",
-    title: `node-${index}`,
-  }));
-  let dumps = 0;
-  const { harness } = makeHarness({
-    dump: () => {
-      dumps += 1;
-      return dumps <= 2 ? [] : windowNodes;
-    },
-    screenshot: () => ({ ok: true }),
-    startup: () => ({ ok: true }),
+for (const method of ["pollAx", "tryPollAx"]) {
+  test(`${method}: 启动中先缺窗口再就绪，不投递猜测的 Escape 或激活动作`, async (t) => {
+    const ready = [{ role: "AXWindow" }, { role: "AXWebArea" },
+      { role: "AXStaticText", title: "真实历史已恢复" },
+      ...Array.from({ length: 6 }, () => ({ role: "AXStaticText" }))];
+    let reads = 0;
+    const { dir, harness } = makeHarness({ dump: () => ++reads <= 2 ? [] : ready });
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    harness.input = countingInput();
+    // 只替换动作边界，旧实现仍真正执行它的缺窗口恢复分支；不触碰系统桌面。
+    harness.recoverInteractionSurface = () => {
+      harness.input.activate(); harness.input.key("escape");
+    };
+    harness.activateForInteraction = () => harness.input.activate();
+    const result = await harness[method]((text) => text.includes("真实历史已恢复"), 3000, "history");
+    assert.deepEqual(result.nodes, ready);
+    assert.equal(reads, 3);
+    assert.deepEqual(harness.input.calls, [], "等待不能通过输入改变被测窗口");
   });
+}
+
+test("pollAx 的 AX 读取异常不借输入恢复，后续真实读仍可完成", async (t) => {
+  const nodes = [{ role: "AXStaticText", title: "已恢复" }];
+  let reads = 0;
+  const { dir, harness } = makeHarness({ dump: () => {
+    if (++reads === 1) throw new Error("AX暂不可得");
+    return nodes;
+  } });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   harness.input = countingInput();
-
-  assert.deepEqual(harness.dumpNodes(), []);
-
-  const nodes = harness.dumpNodesForInteraction("unit_test");
-  assert.equal(nodes.length, 9);
-  assert.deepEqual(harness.input.calls, ["activate", "key:escape"]);
-  assert.deepEqual(
-    harness.log.filter((entry) => entry.op === "interaction_recovery").map((entry) => entry.reason),
-    ["unit_test"],
-  );
-});
-
-// 启动观测测试的 seam：只覆盖 open/target 解析/输入边界，不启动真实窗口、
-// 不投递真实事件；被覆盖方法保持与真实实现相同的签名与职责。
-function stubLaunchSeams(harness, { calls, startups, activate }) {
+  harness.recoverInteractionSurface = () => harness.input.key("escape");
+  harness.activateForInteraction = () => harness.input.activate();
+  const result = await harness.pollAx((text) => text === "已恢复", 3000, "history-read");
+  assert.deepEqual(result.nodes, nodes);
+  assert.deepEqual(harness.input.calls, []);
+});function stubLaunchSeams(harness, { calls, startups, activate }) {
   harness.launchSettleIntervalMs = 1;
   harness.launchSettleTimeoutMs = 5;
   harness.launchRetryDelayMs = 1;
@@ -673,7 +675,7 @@ test("rawSubmitAuthorText 只做可见输入/回读/点击，旧 rawTypeAndSend 
   let value = "";
   const composer = { path: "0/1", role: "AXTextField", desc: "输入", enabled: true, frame: [0, 0, 10, 10] };
   harness.checkSupervisor = () => {};
-  harness.dumpNodesForInteraction = () => [{ ...composer, value }];
+  harness.dumpNodes = () => [{ ...composer, value }];
   harness.findComposer = () => ({ ...composer, value });
   harness.clickSend = () => calls.push("send");
   harness.ensureInput = () => ({

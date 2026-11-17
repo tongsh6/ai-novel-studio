@@ -164,7 +164,7 @@ async function waitNeedsConfirmation() {
 
 async function clickConfirmation(mode, cardLines) {
   const spec = CONFIRMATION_MODES[mode];
-  const nodes = harness.dumpNodesForInteraction("b71-confirmation:locate");
+  const nodes = harness.dumpNodes();
   const located = visibleConfirmationButton(nodes, spec.label, cardLines);
   if (!located.ok) {
     throw new Error(`b71-confirmation:locate_${spec.label}:${located.reason}:${JSON.stringify(located).slice(0, 300)}`);
@@ -236,7 +236,7 @@ async function openWhyAndCount() {
   const candidatesOf = () => {
     try {
       return harness
-        .dumpNodesForInteraction("b71-confirmation:why_scan")
+        .dumpNodes()
         .filter(
           (node) =>
             node?.role === "AXButton" &&
@@ -263,7 +263,7 @@ async function openWhyAndCount() {
       const scan = candidatesOf();
       candidates = scan;
       try {
-        scanNodes = harness.dumpNodesForInteraction("b71-confirmation:why_scan:size");
+        scanNodes = harness.dumpNodes();
       } catch (error) {
         attempts.push({ strategy: "scan", attempt, ok: false, reason: error.message });
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -372,7 +372,7 @@ async function duplicateCheck(mode, cardLines) {
     };
     return result;
   };
-  const nodes = harness.dumpNodesForInteraction("b71-confirmation:duplicate");
+  const nodes = harness.dumpNodes();
   const located = visibleConfirmationButton(nodes, spec.label, cardLines);
   if (!located.ok) {
     result.reason = `not_actionable:${located.reason}`;
@@ -416,7 +416,7 @@ async function restoreCheck(config) {
   const selected = await harness.runStep("maintenance", "work_selected_restored", () =>
     harness.rawTrySelectWork(config.target.work_title, "b71-confirmation:restored"),
   );
-  const restoredNodes = harness.dumpNodesForInteraction("b71-confirmation:restored");
+  const restoredNodes = harness.dumpNodes();
   const restoredText = harness.axText(restoredNodes);
   const after = readDbCounts();
   const actionableButtons = restoredNodes.filter(

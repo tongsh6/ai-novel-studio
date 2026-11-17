@@ -98,9 +98,7 @@
 - PID 绑定是生命周期：启动后由 `bindRunningTarget`/`bindBatchTarget` 一次性持有；输入入口不再自动解析 PID，
   `bindTarget` 对已绑定不同 PID 抛 `target_already_bound`，只有显式 relaunch 才换代。
 - 只读 `dump/dumpall` 保留通用应用名用途；批次输入不再有按名字/`exact.first`/`partial.first` 的 fallback。
-- 读路径与动作分离：`dumpNodes`/`capture` 只读 AX，不 activate/key/click/type；正常交互需要
-  关闭 tooltip 或恢复前台时，由命名的 `recoverInteractionSurface`/`activateForInteraction` 显式执行并
-  落 `interaction_recovery`/`interaction_activation` 日志，不藏在 dump/read 里。
+- 读路径与动作分离：`dumpNodes`/`capture`/`pollAx`/`tryPollAx` 只读 AX；缺窗口、暂时读失败或条件未满足不 activate/key/click/type。旧 `dumpNodesForInteraction` 与盲发 Escape 的 `recoverInteractionSurface` 已退役，所有现役扫描消费者直接读 `dumpNodes`。需要恢复前台的实际动作显式调用 `activateForInteraction` 并落日志；关闭菜单只由已明确打开菜单的场景动作承担。
 - failure 采集只观察同一本批 target/PID：`failure.json.observation` 记录 `startup`（真实
   `is_finished_launching`/`launch_date`/`activation_policy`/`is_hidden`/`is_active` 与
   `has_ax_window`/`has_ax_web_area`）、`ax`（不可得时为 `ok:false` + 原因；可读但无主窗口时

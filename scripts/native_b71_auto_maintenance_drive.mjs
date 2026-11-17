@@ -356,7 +356,7 @@ async function sendRequest(index, text, { settlePaused = false, checkpointEarlyS
 }
 
 async function clickStripAndExpand() {
-  const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:strip`);
+  const nodes = harness.dumpNodes();
   const button = findStripButton(nodes);
   const streak = { found: Boolean(button), clicked: false, path: button?.path ?? null };
   if (button) {
@@ -381,7 +381,7 @@ async function captureTriggeredMaintenanceEvidence() {
 
 function authorErrorVisible() {
   try {
-    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:failure_scan`);
+    const nodes = harness.dumpNodes();
     const alerts = nodes.filter((node) => ["AXSheet", "AXDialog"].includes(node?.role));
     const texts = nodes.map((node) => `${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`).join("\n");
     return alerts.length > 0 && /失败|错误|异常/u.test(texts);
@@ -636,7 +636,7 @@ function planObservedAnswer(observation, strategy) {
 // driver 只允许点「返回」取消，绝不允许点「确认终止」（会终止真实 run/丢失当前工作）。
 async function dismissTerminationDialogIfPresent(label) {
   try {
-    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:dialog_check:${label}`);
+    const nodes = harness.dumpNodes();
     const text = nodes
       .map((node) => `${node?.title ?? ""} ${node?.desc ?? ""} ${node?.value ?? ""}`)
       .join(" ");
@@ -660,7 +660,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   // 回答面板出现后 app 可能因用户切窗失焦：点击前显式恢复交互面（前台/关闭 tooltip）。
   try {
     const recovered = await harness.runStep("maintenance", "recover_answer_surface", () =>
-      harness.recoverInteractionSurface(`${FLOW_LABEL}:answer_panel`),
+      harness.activateForInteraction(`${FLOW_LABEL}:answer_panel`),
     );
     attempts.push({ step: "recover_answer_surface", ok: Boolean(recovered), recovered });
   } catch (error) {
@@ -671,7 +671,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   const dialog = await dismissTerminationDialogIfPresent("before_answer");
   attempts.push({ step: "dismiss_termination_dialog", ...dialog });
   const nodes = await harness.runStep("maintenance", `${FLOW_LABEL}:dump_answer_panel`, () =>
-    harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_panel`),
+    harness.dumpNodes(),
   );
 
   // 新交互（46 §9.7 等待即回答）：底部主输入区接管为回答面板
@@ -805,7 +805,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
           typeText(harness.APP, answerText);
           await sleep(800);
           return findButtonByText(
-            harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_composer_send`),
+            harness.dumpNodes(),
             (value) => value === "回答并继续",
           );
         },
@@ -833,7 +833,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
     if (replyButton) {
       harness.safeClick(replyButton, `${FLOW_LABEL}:answer_reply_open`);
       await sleep(600);
-      const formNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_textarea`);
+      const formNodes = harness.dumpNodes();
       const textarea =
         formNodes.find(
           (node) => node?.role === "AXTextArea" || /对此问题的补充/u.test(`${node?.title ?? ""} ${node?.desc ?? ""}`),
@@ -845,7 +845,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
       typeText(harness.APP, answerText);
       await sleep(800);
       const send = findButtonByText(
-        harness.dumpNodesForInteraction(`${FLOW_LABEL}:answer_send`),
+        harness.dumpNodes(),
         (value) => value === "发送回复",
       );
       attempts.push({ step: "find_answer_send", ok: Boolean(send), title: send?.title ?? null });
@@ -863,7 +863,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   if (replyButton) {
     harness.safeClick(replyButton, `${FLOW_LABEL}:reply_question`);
     await sleep(600);
-    const replyNodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:reply_field`);
+    const replyNodes = harness.dumpNodes();
     const field =
       replyNodes.find(
         (node) =>
@@ -879,7 +879,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
     typeText(harness.APP, steerText);
     await sleep(800);
     const send = findButtonByText(
-      harness.dumpNodesForInteraction(`${FLOW_LABEL}:reply_send`),
+      harness.dumpNodes(),
       (value) => value === "发送" || value === "发送调整",
     );
     attempts.push({ step: "find_reply_send", ok: Boolean(send), title: send?.title ?? null });
@@ -913,7 +913,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
   typeText(harness.APP, steerText);
   await sleep(800);
   const send = findButtonByText(
-    harness.dumpNodesForInteraction(`${FLOW_LABEL}:pause_send`),
+    harness.dumpNodes(),
     (value) => value === "发送调整",
   );
   attempts.push({ step: "find_send_adjust", ok: Boolean(send), title: send?.title ?? null });
@@ -936,7 +936,7 @@ async function respondToRunPause(steerText, attempts, options = {}) {
 // 消息流「创作问题记录」区域只读证据：该区域只应包含问题文本/状态文本，不含操作按钮。
 function readProblemRecord() {
   try {
-    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:problem_record`);
+    const nodes = harness.dumpNodes();
     const region = nodes.find((node) => String(node?.title ?? "").includes("创作问题记录"));
     if (!region) return { group_found: false, child_button_count: null };
     const prefix = `${region.path}/`;

@@ -53,7 +53,7 @@ function findMemoryRow(nodes) {
 }
 
 async function openMemoryPage(attempts) {
-  const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:nav_scan`);
+  const nodes = harness.dumpNodes();
   const entry = findMemoryNav(nodes);
   attempts.push({ step: "find_memory_entry", ok: Boolean(entry), role: entry?.role ?? null, title: entry?.title ?? null });
   if (!entry) throw new Error("memory_entry_not_found");
@@ -66,7 +66,7 @@ async function openMemoryPage(attempts) {
 
 async function openMemoryDetail(attempts) {
   await harness.runStep("maintenance", "select_memory_row", () => {
-    const nodes = harness.dumpNodesForInteraction(`${FLOW_LABEL}:row_scan`);
+    const nodes = harness.dumpNodes();
     const row = findMemoryRow(nodes);
     attempts.push({ step: "find_memory_row", ok: Boolean(row), role: row?.role ?? null, title: row?.title ?? null });
     if (!row) throw new Error("memory_row_not_found");

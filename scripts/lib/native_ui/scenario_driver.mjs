@@ -213,23 +213,6 @@ export class NativeScenarioHarness {
     return this.io.dump(this.APP, AX_MAX_NODES);
   }
 
-  // 正常交互需要关闭 tooltip/恢复前台时，走这个显式动作，而不是藏在读路径里。
-  recoverInteractionSurface(reason) {
-    if (!this.input) return { ok: false, reason: "input_unbound" };
-    const frontmostBefore = frontmost();
-    const activation = this.input.activate();
-    const escape = this.input.key("escape", { focusRequired: false });
-    this.log.push({
-      op: "interaction_recovery",
-      reason,
-      at: this.nowIso(),
-      frontmost_before: frontmostBefore,
-      activation,
-      escape,
-    });
-    return { activation, escape };
-  }
-
   activateForInteraction(reason) {
     const frontmostBefore = frontmost();
     const activation = this.input.activate();
@@ -241,17 +224,6 @@ export class NativeScenarioHarness {
       activation,
     });
     return activation;
-  }
-
-  // 供正常交互步骤使用：沿用原 dumpNodes 的 tooltip 恢复行为，但恢复动作是命名的。
-  dumpNodesForInteraction(reason = "interaction") {
-    let nodes = this.dumpNodes();
-    for (let attempt = 0; attempt < 12 && !this.mainWindowDump(nodes); attempt += 1) {
-      this.recoverInteractionSurface(reason);
-      execFileSync("sleep", ["0.25"]);
-      nodes = this.dumpNodes();
-    }
-    return nodes;
   }
 
   // 启动/失败观测只读；任何观测错误都折成事实字段，不抛给调用方。
@@ -285,16 +257,13 @@ export class NativeScenarioHarness {
       this.checkSupervisor();
       let nodes = null;
       try {
-        nodes = this.dumpNodesForInteraction(`poll_ax:${label}`);
+        nodes = this.dumpNodes();
       } catch {
         await sleep(600);
         continue;
       }
       lastText = this.axText(nodes);
       if (predicate(lastText, nodes)) return { nodes, text: lastText };
-      if (!nodes.some((node) => node.role === "AXWindow")) {
-        this.activateForInteraction(`poll_ax:${label}`);
-      }
       await sleep(600);
     }
     throw new Error(`wait_ax_timeout:${label}:${lastText.slice(-400)}`);
@@ -306,16 +275,13 @@ export class NativeScenarioHarness {
       this.checkSupervisor();
       let nodes = null;
       try {
-        nodes = this.dumpNodesForInteraction(`try_poll_ax:${label}`);
+        nodes = this.dumpNodes();
       } catch {
         await sleep(600);
         continue;
       }
       const text = this.axText(nodes);
       if (predicate(text, nodes)) return { nodes, text };
-      if (!nodes.some((node) => node.role === "AXWindow")) {
-        this.activateForInteraction(`try_poll_ax:${label}`);
-      }
       await sleep(600);
     }
     return null;
@@ -621,7 +587,7 @@ export class NativeScenarioHarness {
 
   async rawSwitchWork(title, label) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      let nodes = this.dumpNodesForInteraction(`work_switch:${label}`);
+      let nodes = this.dumpNodes();
       if (this.visibleWorkTitle(nodes) === title) return nodes;
       const trigger = nodes.find(
         (node) => node.role === "AXPopUpButton" && String(node.desc ?? "") === "作品",
@@ -646,7 +612,7 @@ export class NativeScenarioHarness {
         click: clickResult,
       });
       await sleep(800);
-      nodes = this.dumpNodesForInteraction(`work_menu:${label}`);
+      nodes = this.dumpNodes();
       if (attempt === 1) {
         writeAX(nodes, path.join(this.dir, `${label}-work-menu.ax.txt`), this.APP);
         fs.writeFileSync(path.join(this.dir, `${label}-work-menu.text.txt`), this.axText(nodes));
@@ -706,7 +672,7 @@ export class NativeScenarioHarness {
         click: itemClickResult,
         attempt,
         at: this.nowIso(),
-        visible_title: this.visibleWorkTitle(this.dumpNodesForInteraction(`work_menu_item:${label}`)),
+        visible_title: this.visibleWorkTitle(this.dumpNodes()),
         frontmost: frontmost(),
       });
       const switched = await this.pollAx(
@@ -748,7 +714,7 @@ export class NativeScenarioHarness {
   // 在真实作品菜单里尝试切到目标作品；不重启应用（重启必须在 restore 分型步内做，
   // 否则监督会把「原生窗口进程退出」判成非法退出）。返回是否已选中。
   async rawTrySelectWork(title, label) {
-    let nodes = this.dumpNodesForInteraction(`select_work:${label}`);
+    let nodes = this.dumpNodes();
     if (this.visibleWorkTitle(nodes) === title) return true;
     try {
       nodes = await this.rawSwitchWork(title, `${label}:menu`);
@@ -800,7 +766,7 @@ export class NativeScenarioHarness {
   async rawSubmitAuthorText(text, label) {
     this.checkSupervisor();
     const startedAt = this.nowIso();
-    let nodes = this.dumpNodesForInteraction(`type_and_send:${label}`);
+    let nodes = this.dumpNodes();
     let composer = this.findComposer(nodes);
     if (!composer) throw new Error("composer_not_found");
     if (composer.enabled === false) throw new Error(`composer_disabled:${label}`);
@@ -823,7 +789,7 @@ export class NativeScenarioHarness {
     let typedValue = "";
     const deadline = Date.now() + 6_000;
     while (Date.now() < deadline) {
-      composer = this.findComposer(this.dumpNodesForInteraction(`type_and_send:observed:${label}`));
+      composer = this.findComposer(this.dumpNodes());
       typedValue = String(composer?.value ?? "");
       if (typedValue === text) break;
       await sleep(200);
@@ -831,7 +797,7 @@ export class NativeScenarioHarness {
     if (typedValue !== text) {
       throw new Error(`composer_text_incomplete:${label}:got=${typedValue.length}:want=${text.length}`);
     }
-    nodes = this.dumpNodesForInteraction(`type_and_send:send:${label}`);
+    nodes = this.dumpNodes();
     this.clickSend(nodes, expected);
     return startedAt;
   }
