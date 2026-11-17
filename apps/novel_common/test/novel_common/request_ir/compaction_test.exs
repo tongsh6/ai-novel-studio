@@ -3,6 +3,7 @@ defmodule NovelCommon.RequestIR.CompactionTest do
 
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.DiscussionSummary
   alias NovelCommon.RequestIR.MessageCoverage
   alias NovelCommon.RequestIR.Projection
 
@@ -10,6 +11,99 @@ defmodule NovelCommon.RequestIR.CompactionTest do
   @promise "等你确定视角后，我还会把第二方案与第三方案的代价逐项比较。"
   @old_text "这段早期长答的逐字论证不再常驻请求。\n" <> @promise
   @targets ~w(chat_completions anthropic_messages responses_api)
+
+  test "v2 完整行材料保留混合换行与末行；片段选择不能拼造跨行引文" do
+    source = %{
+      source_index: 0,
+      source: %{run_id: "old", run_sequence: 4},
+      text: "甲\r\n乙\r丙\n丁",
+      author_text: "作者"
+    }
+
+    assert {:ok, material} = Compaction.discussion_material([source])
+    [input] = Jason.decode!(material)["sources"]
+    refute Map.has_key?(input, "text")
+
+    assert input["fragments"] == [
+             %{"fragment_index" => 0, "text" => "甲\r\n"},
+             %{"fragment_index" => 1, "text" => "乙\r"},
+             %{"fragment_index" => 2, "text" => "丙\n"},
+             %{"fragment_index" => 3, "text" => "丁"}
+           ]
+
+    make = fn indices ->
+      text =
+        Jason.encode!(%{
+          version: "authoring-discussion-summary/v2",
+          entries: [%{source_index: 0, summary: "待回答", retained_fragment_indices: indices}]
+        })
+
+      %{
+        response_text: text,
+        response_sha256: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower),
+        provider_call_ref: "call",
+        provider_run_ref: "run"
+      }
+    end
+
+    discussion = make.([0, 2])
+    assert :ok = Compaction.validate_discussion(discussion, [source])
+
+    assert %{entries: [%{retained_obligations: ["甲\r\n", "丙\n"]}]} =
+             DiscussionSummary.projection(discussion, [source])
+
+    assert %{entries: [%{retained_obligations: ["甲\r\n乙\r丙\n丁"]}]} =
+             DiscussionSummary.projection(make.([0, 1, 2, 3]), [source])
+
+    for invalid <- [[-1], [4], [1.0], ["0"], [0, 0], [2, 0]] do
+      assert {:error, :checkpoint_invalid_discussion} =
+               Compaction.validate_discussion(make.(invalid), [source])
+    end
+  end
+
+  test "v2 三 wire 从 checkpoint 之前的原历史取片段，不改变 canonical" do
+    raw =
+      ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"比较未完成","retained_fragment_indices":[1]}]})
+
+    original = checkpoint()
+    [block] = original.blocks
+    current = %{original | blocks: [%{block | discussion: discussion(raw)}]}
+    messages = history() ++ [current]
+    assert :ok = RequestIR.validate(ir(messages))
+
+    for target <- @targets do
+      assert {:ok, body} = Projection.project(ir(messages), target)
+      assert Enum.any?(wire_texts(body), &String.contains?(&1, @promise))
+      refute @old_text in wire_texts(body)
+    end
+
+    assert hd(List.last(messages).blocks).discussion.response_text == raw
+    assert Enum.drop(messages, -1) == history()
+
+    assert {:error, :invalid_checkpoint_message} =
+             RequestIR.validate(ir(Compaction.project(messages)))
+  end
+
+  test "v2 编号保留空行和尾换行且预算包含编号元数据" do
+    source = %{
+      source_index: 0,
+      source: %{run_id: "source", run_sequence: 3},
+      author_text: "",
+      text: "\r\n\n末\r"
+    }
+
+    assert {:ok, material} = Compaction.discussion_material([source])
+
+    assert get_in(Jason.decode!(material), ["sources", Access.at(0), "fragments"]) == [
+             %{"fragment_index" => 0, "text" => "\r\n"},
+             %{"fragment_index" => 1, "text" => "\n"},
+             %{"fragment_index" => 2, "text" => "末\r"}
+           ]
+
+    # 原文本小于预算，但完整片段 JSON 超限；不可截断原文迁就预算。
+    assert {:error, :discussion_summary_input_budget_exceeded} =
+             Compaction.discussion_material([%{source | text: String.duplicate("x\n", 5000)}])
+  end
 
   test "来源身份由真实坐标确定；正文、作者上下文和分组序号不得创造新来源" do
     source = %{

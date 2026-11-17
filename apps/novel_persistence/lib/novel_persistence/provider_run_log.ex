@@ -281,7 +281,7 @@ defmodule NovelPersistence.ProviderRunLog do
         not is_nil(existing) ->
           {:error, :provider_operation_identity_conflict}
 
-        not ProviderFactMerge.valid_operation_checkpoint?(attrs.operation_checkpoint) ->
+        not ProviderFactMerge.valid_new_operation_checkpoint?(attrs.operation_checkpoint) ->
           {:error, :provider_operation_checkpoint_invalid}
 
         true ->

@@ -5,7 +5,8 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
   """
   alias NovelCommon.RequestIR.MessageCoverage
 
-  @version "authoring-discussion-summary/v1"
+  @version "authoring-discussion-summary/v2"
+  @historical_version "authoring-discussion-summary/v1"
   @source_key_prefix "authoring-session-source/v1:"
   @discussion_keys ~w(response_text response_sha256 provider_call_ref provider_run_ref)a
   @entry_keys ~w(source_index summary retained_obligations)
@@ -46,7 +47,22 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
 
   @doc "规划与执行共用完整来源的实际 JSON 字节边界；绝不截原文以满足预算。"
   def material(sources) when is_list(sources) do
-    case Jason.encode(%{material_kind: "quoted_discussion_sources", sources: sources}) do
+    inputs =
+      Enum.map(sources, fn source ->
+        source
+        |> Map.delete(:text)
+        |> Map.put(
+          :fragments,
+          source.text
+          |> fragments()
+          |> Enum.with_index()
+          |> Enum.map(fn {text, index} ->
+            %{fragment_index: index, text: text}
+          end)
+        )
+      end)
+
+    case Jason.encode(%{material_kind: "quoted_discussion_sources", sources: inputs}) do
       {:ok, text} when byte_size(text) <= @max_input_bytes -> {:ok, text}
       {:ok, _text} -> {:error, :discussion_summary_input_budget_exceeded}
       {:error, _reason} -> {:error, :discussion_summary_input_invalid}
@@ -58,9 +74,9 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
 
   def validate(discussion, [_ | _] = sources) when is_map(discussion) do
     with :ok <- validate_source(discussion),
-         {:ok, entries} <- decode(discussion.response_text),
+         {:ok, version, entries} <- decode(discussion.response_text),
          true <- length(entries) == length(sources),
-         true <- Enum.all?(Enum.zip(entries, sources), &valid_entry?/1) do
+         true <- Enum.all?(Enum.zip(entries, sources), &valid_entry?(&1, version)) do
       :ok
     else
       _ -> {:error, :checkpoint_invalid_discussion}
@@ -70,14 +86,15 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
   def validate(_discussion, _sources), do: {:error, :checkpoint_discussion_required}
 
   def entries(%{response_text: text}) do
-    {:ok, entries} = decode(text)
+    {:ok, _version, entries} = decode(text)
     entries
   end
 
   def projection(nil, _references), do: nil
 
-  def projection(discussion, references) do
-    sources = Enum.filter(references, &(&1.role == "assistant"))
+  def projection(discussion, sources) do
+    :ok = validate(discussion, sources)
+    {:ok, version} = response_version(discussion)
 
     projected =
       discussion
@@ -85,10 +102,10 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
       |> Enum.zip(sources)
       |> Enum.map(fn {entry, source} ->
         %{
-          source: MessageCoverage.source_ref(source),
-          locator: Map.take(source, [:run_id, :run_sequence]),
+          source: MessageCoverage.source_ref(source.source),
+          locator: Map.take(source.source, [:run_id, :run_sequence]),
           summary: entry["summary"],
-          retained_obligations: entry["retained_obligations"]
+          retained_obligations: obligations(entry, source, version)
         }
       end)
 
@@ -107,23 +124,75 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
 
   defp decode(text) do
     case Jason.decode(text) do
-      {:ok, %{"version" => @version, "entries" => [_ | _] = entries} = value}
-      when map_size(value) == 2 ->
-        {:ok, entries}
+      {:ok, %{"version" => version, "entries" => [_ | _] = entries} = value}
+      when map_size(value) == 2 and version in [@version, @historical_version] ->
+        {:ok, version, entries}
 
       _ ->
         {:error, :invalid_discussion_output}
     end
   end
 
-  defp valid_entry?({entry, source}) when is_map(entry) do
+  defp valid_entry?({entry, source}, @historical_version) when is_map(entry) do
     Enum.sort(Map.keys(entry)) == Enum.sort(@entry_keys) and
       Map.get(entry, "source_index") == source.source_index and
       nonblank?(Map.get(entry, "summary")) and
       valid_obligations?(Map.get(entry, "retained_obligations"), source.text)
   end
 
-  defp valid_entry?(_entry), do: false
+  defp valid_entry?({entry, source}, @version) when is_map(entry) do
+    indices = Map.get(entry, "retained_fragment_indices")
+
+    Enum.sort(Map.keys(entry)) == ~w(retained_fragment_indices source_index summary) and
+      Map.get(entry, "source_index") == source.source_index and
+      nonblank?(Map.get(entry, "summary")) and valid_indices?(indices, fragments(source.text))
+  end
+
+  defp valid_entry?(_entry, _version), do: false
+
+  defp valid_indices?(indices, fragments) when is_list(indices) do
+    indices == Enum.sort(Enum.uniq(indices)) and
+      Enum.all?(indices, &(is_integer(&1) and &1 >= 0 and &1 < length(fragments)))
+  end
+
+  defp valid_indices?(_, _), do: false
+
+  def validate(discussion, sources, expected_version) do
+    with :ok <- validate(discussion, sources),
+         {:ok, ^expected_version} <- response_version(discussion) do
+      :ok
+    else
+      _ -> {:error, :checkpoint_invalid_discussion}
+    end
+  end
+
+  def response_version(%{response_text: text} = discussion) do
+    with :ok <- validate_source(discussion),
+         {:ok, version, _entries} <- decode(text),
+         do: {:ok, version}
+  end
+
+  # Split only at complete line boundaries, never between CR and LF.
+  defp fragments(text), do: Regex.split(~r/(?<=\n)|(?<=\r)(?!\n)/, text, trim: true)
+
+  defp obligations(entry, _source, @historical_version), do: entry["retained_obligations"]
+
+  defp obligations(entry, source, @version) do
+    lines = fragments(source.text)
+
+    entry["retained_fragment_indices"]
+    |> Enum.reduce([], fn index, groups ->
+      case groups do
+        [{last, text} | rest] when index == last + 1 ->
+          [{index, text <> Enum.at(lines, index)} | rest]
+
+        _ ->
+          [{index, Enum.at(lines, index)} | groups]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.map(&elem(&1, 1))
+  end
 
   defp valid_obligations?(quotes, text) when is_list(quotes) do
     length(Enum.uniq(quotes)) == length(quotes) and

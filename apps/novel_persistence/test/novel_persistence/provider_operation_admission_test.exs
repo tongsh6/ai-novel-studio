@@ -363,11 +363,49 @@ defmodule NovelPersistence.ProviderOperationAdmissionTest do
     end)
   end
 
+  test "new admission requires the frozen v2 protocol while historical v1 remains read-only" do
+    plan = %{
+      "covers" => %{},
+      "source_refs" => [],
+      "versions" => %{},
+      "omissions" => [],
+      "summary" => "原计划"
+    }
+
+    historical = %{
+      "version" => "provider-operation-checkpoint/v1",
+      "goal_version" => 1,
+      "plan" => plan
+    }
+
+    for {capsule, index} <-
+          Enum.with_index([
+            historical,
+            %{
+              "version" => "provider-operation-checkpoint/v2",
+              "goal_version" => 1,
+              "plan" => plan
+            },
+            %{
+              "version" => "provider-operation-checkpoint/v2",
+              "goal_version" => 1,
+              "plan" => plan,
+              "discussion_protocol_version" => "authoring-discussion-summary/v1"
+            }
+          ]) do
+      scope = context("bad-capsule-#{index}", %{operation_checkpoint: capsule})
+
+      assert {:error, :provider_operation_checkpoint_invalid} =
+               admit(initialized("bad-capsule-#{index}", scope), scope)
+    end
+  end
+
   test "admission owns a private frozen plan and terminal facts retain the exact response" do
     scope = context("recoverable")
 
     capsule = %{
-      "version" => "provider-operation-checkpoint/v1",
+      "version" => "provider-operation-checkpoint/v2",
+      "discussion_protocol_version" => "authoring-discussion-summary/v2",
       "goal_version" => 1,
       "plan" => %{
         "covers" => %{"call_ids" => [], "message_refs" => [], "turn_range" => "source-turn"},
@@ -451,7 +489,8 @@ defmodule NovelPersistence.ProviderOperationAdmissionTest do
   # 此层只验证事务/归属；真实会话材料证明由 application 的生产消费者与集成测试负责。
   defp admit(run, scope) do
     checkpoint = %{
-      "version" => "provider-operation-checkpoint/v1",
+      "version" => "provider-operation-checkpoint/v2",
+      "discussion_protocol_version" => "authoring-discussion-summary/v2",
       "goal_version" => 1,
       "plan" => %{
         "covers" => %{},

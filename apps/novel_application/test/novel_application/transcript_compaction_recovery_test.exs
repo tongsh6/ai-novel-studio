@@ -20,7 +20,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
   @author "  先比较，不要执行；风险表还没完成。\r\n"
   @discussion "早期建议仍是暂定方案。稍后我会逐项比较风险。"
   @response " \n" <>
-              ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期 AI 提出暂定方案，比较风险尚未完成。","retained_obligations":["稍后我会逐项比较风险。"]}]}) <>
+              ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"早期 AI 提出暂定方案，比较风险尚未完成。","retained_fragment_indices":[0]}]}) <>
               "\r\n"
 
   setup tags do
@@ -38,12 +38,56 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     prior = transcript("history", @author) |> AuthoringTranscript.append_assistant(@discussion)
     :ok = TestAgenticLoopFixtures.append_segment!(prior, status: "completed")
     state = state("owner")
-    {execution, context} = received_response(state.run, response: tags[:response] || @response)
+
+    {execution, context} =
+      received_response(state.run,
+        response: tags[:response] || @response,
+        historical: tags[:historical]
+      )
+
     %{state: state, prior: prior, execution: execution, context: context}
   end
 
+  @tag historical: true,
+       response:
+         ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期建议仍待确认","retained_obligations":["稍后我会逐项比较风险。"]}]})
+  test "pre-upgrade v1 request recovers original bytes and stays valid after canonical transfer",
+       facts do
+    original = ProviderRunLog.get_run("prun-recovery")
+    assert {:ok, plan} = TranscriptCompactionSummary.pending_plan(facts.state.run)
+    assert plan.discussion.response_text == original.operation_checkpoint["response_text"]
+
+    assert {:reply, {:ok, %{compacted: true}}, recovered} =
+             AgentRunMaintenance.start(facts.state, nil, :automatic)
+
+    restored = TestAgenticLoopFixtures.persisted_transcript("owner")
+    checkpoint = Enum.find(restored.messages, &(&1.role == "checkpoint"))
+
+    assert hd(checkpoint.blocks).discussion.response_text ==
+             original.operation_checkpoint["response_text"]
+
+    assert {:reply, {:ok, %{compacted: false}}, _} =
+             AgentRunMaintenance.start(recovered, nil, :explicit)
+
+    assert ProviderRunLog.get_run("prun-recovery").operation_checkpoint == nil
+    assert length(ProviderRunLog.list_runs("owner")) == 1
+    assert {:ok, nil} = TranscriptCompactionSummary.pending_plan(facts.state.run)
+  end
+
+  @tag historical: true, response: "{ malformed historical response"
+  test "malformed v1 response uses frozen request version and preserves the claim", facts do
+    original = ProviderRunLog.get_run("prun-recovery")
+    assert {:ok, nil} = TranscriptCompactionSummary.pending_plan(facts.state.run)
+    assert ProviderRunLog.get_run("prun-recovery") == original
+
+    assert {:reply, {:ok, %{compacted: false}}, _} =
+             AgentRunMaintenance.start(facts.state, nil, :automatic)
+
+    assert length(ProviderRunLog.list_runs("owner")) == 1
+  end
+
   @tag response:
-         ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期讨论","retained_obligations":["风险比较已经完成。"]}]})
+         ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"早期讨论","retained_fragment_indices":[1]}]})
   test "a verified invalid response preserves source ownership but does not block later recovery",
        facts do
     original = ProviderRunLog.get_run("prun-recovery")
@@ -104,7 +148,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
   end
 
   @tag response:
-         ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期讨论","retained_obligations":["不存在的原文"]}]})
+         ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"早期讨论","retained_fragment_indices":[0,0]}]})
   test "invalid model content cannot hide an unverified persisted response", facts do
     original = ProviderRunLog.get_run("prun-recovery").operation_checkpoint
     changed = Map.update!(original, "response_text", &(&1 <> " "))
@@ -119,6 +163,20 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
 
     assert pending_text() == changed["response_text"]
     assert checkpoints("owner") == []
+  end
+
+  @tag response:
+         ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"早期讨论","retained_fragment_indices":[0,0]}]})
+  test "duplicate v2 fragment selection preserves immutable response and permanent ownership",
+       facts do
+    original = ProviderRunLog.get_run("prun-recovery")
+    assert {:ok, nil} = TranscriptCompactionSummary.pending_plan(facts.state.run)
+
+    assert {:reply, {:ok, %{compacted: false}}, _} =
+             AgentRunMaintenance.start(facts.state, nil, :automatic)
+
+    assert ProviderRunLog.get_run("prun-recovery") == original
+    assert length(ProviderRunLog.list_runs("owner")) == 1
   end
 
   test "failed canonical commit retains the original response; retry submits without a provider",
@@ -411,6 +469,11 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     suffix = Keyword.get(opts, :suffix, "")
     response = Keyword.get(opts, :response, @response)
 
+    protocol =
+      if opts[:historical],
+        do: "authoring-discussion-summary/v1",
+        else: "authoring-discussion-summary/v2"
+
     source = %{
       "source_index" => 0,
       "source" => %{"run_id" => history, "run_sequence" => 3},
@@ -419,8 +482,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     }
 
     digest =
-      {"authoring-discussion-summary/v1", "ws-recovery", "work-recovery", "session-recovery",
-       [source]}
+      {protocol, "ws-recovery", "work-recovery", "session-recovery", [source]}
       |> :erlang.term_to_binary([:deterministic])
       |> sha()
 
@@ -475,7 +537,8 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     }
 
     checkpoint = %{
-      "version" => "provider-operation-checkpoint/v1",
+      "version" => "provider-operation-checkpoint/v2",
+      "discussion_protocol_version" => "authoring-discussion-summary/v2",
       "goal_version" => 1,
       "plan" => plan
     }
@@ -498,6 +561,20 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
       {:ok, %{provider_run: %{provider | status: :completed}, output: output, events: []}}
 
     assert :ok = ProviderRunLog.record_execution(execution, context)
+    # Reconstruct a pre-upgrade persisted capsule without allowing v1 through new admission.
+    if opts[:historical] do
+      old =
+        checkpoint
+        |> Map.delete("discussion_protocol_version")
+        |> Map.put("version", "provider-operation-checkpoint/v1")
+        |> Map.put("response_text", response)
+
+      SQL.query!(Repo, "UPDATE provider_runs SET operation_checkpoint = ? WHERE id = ?", [
+        Jason.encode!(old),
+        provider.provider_run_id
+      ])
+    end
+
     {execution, context}
   end
 

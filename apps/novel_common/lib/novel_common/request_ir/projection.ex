@@ -79,7 +79,9 @@ defmodule NovelCommon.RequestIR.Projection do
   压缩 checkpoint 投影文本：显式携带覆盖范围与省略声明（I-ART-7），
   不把不可见截断当成正常历史。
   """
-  def checkpoint_text(blocks) when is_list(blocks) do
+  def checkpoint_text(blocks, sources \\ [])
+
+  def checkpoint_text(blocks, sources) when is_list(blocks) do
     case Enum.find(blocks, &(Map.get(&1, :type) == "checkpoint")) do
       nil ->
         text_of(blocks)
@@ -100,16 +102,16 @@ defmodule NovelCommon.RequestIR.Projection do
             Jason.encode!(json_value(Map.get(block, :versions, %{}))) <> "\n"
 
         "【应用数据 · checkpoint · 覆盖 #{covers}】\n" <>
-          evidence <> omissions <> Map.get(block, :summary, "") <> discussion_text(block)
+          evidence <> omissions <> Map.get(block, :summary, "") <> discussion_text(block, sources)
     end
   end
 
-  def checkpoint_text(_blocks), do: ""
+  def checkpoint_text(_blocks, _sources), do: ""
 
-  defp discussion_text(block) do
+  defp discussion_text(block, sources) do
     case DiscussionSummary.projection(
            Map.get(block, :discussion),
-           Map.get(block.covers, :message_refs, [])
+           sources
          ) do
       nil ->
         ""

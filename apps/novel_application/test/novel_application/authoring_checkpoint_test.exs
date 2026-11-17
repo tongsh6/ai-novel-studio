@@ -15,6 +15,7 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
   alias NovelApplication.{AuthoringCheckpoint, AuthoringTranscript}
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
   alias NovelCommon.RequestIR.Projection
 
   alias NovelPersistence.{
@@ -330,6 +331,39 @@ defmodule NovelApplication.AuthoringCheckpointTest do
 
     assert {:error, :checkpoint_version_mismatch} =
              AuthoringCheckpoint.restore(record, %{"agent_run" => %{"checkpoint_version" => 2}})
+  end
+
+  test "Provider 派生的 checkpoint 文本不能经真实 codec 和 snapshot 事务回写 canonical",
+       %{work: work, session: session} do
+    identity = run_identity(work, session)
+    record = record(identity)
+    original = transcript(identity)
+
+    block =
+      RequestIR.checkpoint_block(
+        %{call_ids: ["past-call"], message_refs: []},
+        [],
+        %{},
+        ["原文保留"],
+        "历史整理"
+      )
+
+    checkpoint = RequestIR.message(:checkpoint, :application, [block])
+    projected = %{original | messages: Compaction.project(original.messages ++ [checkpoint])}
+    assert [%{type: "text"}] = List.last(projected.messages).blocks
+    assert {:ok, segment} = AuthoringCheckpoint.encode_segment_for_write(projected)
+
+    assert {:error, :invalid_checkpoint_message} =
+             AuthoringCheckpoint.validate_segment(record, segment)
+
+    assert {:error, :invalid_checkpoint_message} =
+             AgentRunLog.commit_snapshot(run_attrs(record),
+               authoring_segment: segment,
+               authoring_validator: &AuthoringCheckpoint.validate_segment/2
+             )
+
+    assert AgentRunLog.get_run(record.id) == nil
+    assert {:ok, nil} = AuthoringSessionLog.fetch_run_segment(record.id)
   end
 
   test "写入边界用共享 codec/IR 拒绝损坏语义，并输出可回读的段形状", %{

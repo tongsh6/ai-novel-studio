@@ -720,9 +720,9 @@ defmodule NovelApplication.AutoMaintenanceTest do
 
     summary =
       Jason.encode!(%{
-        version: "authoring-discussion-summary/v1",
+        version: "authoring-discussion-summary/v2",
         entries: [
-          %{source_index: 0, summary: "早期AI提出建议，动机待确认。", retained_obligations: ["稍后我会确认动机。"]}
+          %{source_index: 0, summary: "早期AI提出建议，动机待确认。", retained_fragment_indices: [0]}
         ]
       })
 

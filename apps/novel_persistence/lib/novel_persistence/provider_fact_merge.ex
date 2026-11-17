@@ -131,23 +131,51 @@ defmodule NovelPersistence.ProviderFactMerge do
 
   def valid_operation_sources?(_sources, _scope), do: false
 
-  @operation_checkpoint_version "provider-operation-checkpoint/v1"
+  @operation_checkpoint_version "provider-operation-checkpoint/v2"
+  @historical_checkpoint_version "provider-operation-checkpoint/v1"
   @plan_fields ~w(covers source_refs versions omissions summary retained_items scope history_target)
   @required_plan_fields ~w(covers source_refs versions omissions summary)
 
   def operation_checkpoint_version, do: @operation_checkpoint_version
 
-  def valid_operation_checkpoint?(
-        %{"version" => @operation_checkpoint_version, "goal_version" => version, "plan" => plan} =
-          checkpoint
+  def valid_operation_checkpoint?(checkpoint),
+    do: match?({:ok, _}, operation_protocol_version(checkpoint))
+
+  def valid_new_operation_checkpoint?(%{"version" => @operation_checkpoint_version} = checkpoint),
+    do: valid_operation_checkpoint?(checkpoint)
+
+  def valid_new_operation_checkpoint?(_checkpoint), do: false
+
+  def operation_protocol_version(
+        %{"version" => encoding, "goal_version" => version, "plan" => plan} = checkpoint
       ) do
-    is_integer(version) and version > 0 and is_map(plan) and
-      Enum.sort(Map.keys(checkpoint)) == ~w(goal_version plan version) and
-      Enum.all?(Map.keys(plan), &(&1 in @plan_fields)) and
-      Enum.all?(@required_plan_fields, &Map.has_key?(plan, &1))
+    protocol =
+      case {encoding, Enum.sort(Map.keys(checkpoint))} do
+        {@historical_checkpoint_version, ~w(goal_version plan version)} ->
+          "authoring-discussion-summary/v1"
+
+        {@operation_checkpoint_version, ~w(discussion_protocol_version goal_version plan version)} ->
+          if checkpoint["discussion_protocol_version"] == Compaction.discussion_version(),
+            do: checkpoint["discussion_protocol_version"]
+
+        _ ->
+          nil
+      end
+
+    if is_binary(protocol) and valid_frozen_plan?(version, plan),
+      do: {:ok, protocol},
+      else: {:error, :discussion_summary_recovery_mismatch}
   end
 
-  def valid_operation_checkpoint?(_checkpoint), do: false
+  def operation_protocol_version(_checkpoint), do: {:error, :discussion_summary_recovery_mismatch}
+
+  defp valid_frozen_plan?(version, plan)
+       when is_integer(version) and version > 0 and is_map(plan),
+       do:
+         Enum.all?(Map.keys(plan), &(&1 in @plan_fields)) and
+           Enum.all?(@required_plan_fields, &Map.has_key?(plan, &1))
+
+  defp valid_frozen_plan?(_version, _plan), do: false
 
   # Raw terminal bytes have one temporary owner. Replayed final events cannot recreate
   # a capsule that the canonical commit already consumed.
@@ -177,7 +205,8 @@ defmodule NovelPersistence.ProviderFactMerge do
     target_id = field(target, :run_id) || field(target, :id)
     target_version = field(target, :goal_version) || field(field(target, :goal), :version)
 
-    is_map(checkpoint) and checkpoint["version"] == @operation_checkpoint_version and
+    is_map(checkpoint) and
+      checkpoint["version"] in [@operation_checkpoint_version, @historical_checkpoint_version] and
       operation_scope_matches?(record, origin, target) and
       operation_direction_matches?(checkpoint, origin, target_id, target_version) and
       operation_states_allow?(origin, target, target_id)

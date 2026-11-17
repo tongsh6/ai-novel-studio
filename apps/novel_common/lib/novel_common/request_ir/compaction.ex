@@ -8,6 +8,7 @@ defmodule NovelCommon.RequestIR.Compaction do
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.DiscussionSummary
   alias NovelCommon.RequestIR.MessageCoverage
+  alias NovelCommon.RequestIR.Projection
 
   @result_types ~w(observation validation_result)
 
@@ -20,6 +21,10 @@ defmodule NovelCommon.RequestIR.Compaction do
     as: :valid_source_key?
 
   defdelegate validate_discussion(discussion, sources), to: DiscussionSummary, as: :validate
+
+  defdelegate validate_discussion(discussion, sources, version),
+    to: DiscussionSummary,
+    as: :validate
 
   @doc "核对已通过 RequestIR 形状校验的消息所声明的压缩事实。"
   @spec validate([map()]) :: :ok | {:error, atom()}
@@ -43,7 +48,22 @@ defmodule NovelCommon.RequestIR.Compaction do
       |> Enum.flat_map(&Map.get(&1.covers, :message_refs, []))
       |> MapSet.new(&MessageCoverage.key/1)
 
-    Enum.reject(messages, fn message ->
+    {projected, _history} =
+      Enum.map_reduce(messages, [], fn message, previous ->
+        rendered =
+          Enum.map(message.blocks, fn
+            %{type: "checkpoint"} = block ->
+              {:ok, sources} = discussion_sources(Enum.reverse(previous), block.covers)
+              %{type: "text", text: Projection.checkpoint_text([block], sources)}
+
+            block ->
+              block
+          end)
+
+        {%{message | blocks: rendered}, [message | previous]}
+      end)
+
+    Enum.reject(projected, fn message ->
       ids = exchange_ids(message)
 
       MapSet.member?(references, MessageCoverage.key(MessageCoverage.identity(message))) or

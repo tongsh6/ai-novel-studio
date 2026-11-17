@@ -332,6 +332,10 @@ defmodule NovelCommon.RequestIR do
       not is_list(blocks) ->
         {:error, :invalid_message_blocks}
 
+      role == "checkpoint" and
+          (blocks == [] or not Enum.all?(blocks, &match?(%{type: "checkpoint"}, &1))) ->
+        {:error, :invalid_checkpoint_message}
+
       true ->
         with :ok <- validate_execution_refs(message),
              :ok <- validate_blocks(blocks),
