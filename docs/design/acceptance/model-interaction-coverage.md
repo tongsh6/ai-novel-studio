@@ -199,3 +199,13 @@ G2 已有真实观察→下一次请求的核验从其私有 pageCheck 整体迁
 独立目标：真实 ProviderRun/日志 pcall、prun、workspace/work/session/parent 必须一一对应；现役 source keys 必须可规范解码、范围一致、没有重复，并唯一定位当前作者回合之前、其它已完成 run 的纯讨论原文。每条作者原话从该来源之前同 run 的真实 author 消息读取；材料必须与这些原始字节及顺序完全一致。额外作者、工具、额外应用消息、缺来源、跨作品/会话、未知/未来坐标、字段或原文篡改均不能取得可信成本证据。来源判据不读取摘要文本反推预期。
 
 独立反例覆盖错 pcall/prun、伪 operation、同坐标改字节、作者文本改写、来源重排/重复、非讨论块、活动或当前 run、缺当前作者边界和非规范 source key。成功执行但未产生 Checkpoint 的调用也必须计成本；来源可信不代表摘要有效、已提交、可恢复或完整保留义务。分类必须为 application_base、当前作者数和当前作者字节均为零；原成本字节守恒、模型/usage及真实终态核验不变。旧失败批次只读复算另存派生证据，不覆盖原 FAIL，不重新调用模型。
+
+**v2精确片段的独立oracle（2026-11-18）**：新材料source为source_index/source/author_text/fragments，fragments逐项含fragment_index/text，不重复整源text。外部authoring_checkpoint_coverage从真实canonical原文独立验证CRLF/CR/LF/末行及编号、顺序、完整覆盖，不能调用产品split/投影函数生成自己的预期。v2响应retained_fragment_indices只能选择本源合法有序唯一编号，非相邻片段保持分离，字节预期来自预注册literal/真实源而非摘要。v1原材料/输出只用于真实旧历史读取；请求与响应协议错配、改字节、额外text、坏编号、缺项仍失败关闭。新capsule冻结版本与coverage检查按VS-00L §16.2.1；复算不重写任何原始响应或原批结论。
+
+### 5.7 非成功流式调用的独立计量证据
+
+消费 VS-00M §6.4 的流式事实/缺用量边界与 VS-00L §16.2.1 的真实调用计费。请求可被计量、执行终态已知、成功响应已完整三者不是同一结论。现役 authoring_call_evidence 负责真实调用关联，request_cost_batch_evidence 消费关联结果，不能以一轮后来成功漏掉同轮早先失败调用，也不能为补数量把未知响应当成成功。
+
+非成功 native 流日志可能只保存 status=0、body=event_stream 和耗时；这些占位单独不构成失败证据。只有准确 pcall/prun、workspace/work/session/parent/AgentRun 归属一致，既有只读数据库快照明确给出 ProviderRun failed/cancelled 与同次 ProviderOutput error，且没有与该调用冲突的成功 canonical assistant，才可将其请求归入非成功调用账。来源冲突、缺输出、重复引用、scope不一致、completed+占位均失败关闭。扩充现役只读reader读取已有 ProviderOutput 事实，不增加产品 hook、验收入口或第二调用权威表。
+
+失败调用的请求材料仍参与字节成本对账，实际调用数独立计数；缺usage保持未知，不填零、不套用后续成功用量、不声称原始SSE终结已验证。独立反例必须覆盖失败后成功同轮双调用、伪失败/错归属/缺持久output/重复refs/成功与失败冲突。重算只能落独立派生目录，原十轮失败、零合法checkpoint与未完成原生语义判据保持不变。

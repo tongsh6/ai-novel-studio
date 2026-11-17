@@ -1311,3 +1311,33 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 **扫描与未闭环**：`bash scripts/ai_static_scan.sh --top 10` 完整执行，仍 19 pass/2 fail/7 findings；最终实现的编译、xref、架构、Credo、I1/I2/I3/N-NARR/I-CACHE、前端各门禁均通过。剩余五项历史 gitleaks false_positive、一项 ProjectGod accepted_risk、一项真实 UI/task_done pending，延续既有处置，无本次新增发现，不改扫描规则/处置台账。扫描原始报告位于 `artifacts/static-scan/`，执行日志在本证据目录。不能把本 checkpoint 标为完整 R03 PASS。原 82 路径逐文件 SHA 全相同（`wip-preservation.json`），本次只改 4 个此前干净文件，不 push；新模型调用/作者输入均为 0。
 
 **下一入口**：源引用表达应从机械复制义务转向可信冻结来源定位，但须先核真实合法历史 checkpoint 与原文保护，不凭‘未发布’重写响应或使旧历史不可读。此设计未在本轮实施；同轮多调用绑定、provider_internal 原因、原生十/二十轮、取消/交错及真正跨 BEAM 恢复仍待后续证据。R03 doing，R04 不启动。
+
+### 14.19 非成功调用绑定与本地流消费阻塞（2026-11-18，实施 checkpoint）
+
+`c1cdc1a9` 后继续核查 §14.17 的第二断点。原第三轮 `pcall_mwl4zcbv_1pd/prun_mwl4zcbv_1pe` 的日志为 status=0、body=event_stream、usage={}、duration_ms=22784；现役真实 Chat join 只认 2xx+sse_decoder 或 fixture error，故该调用 unsupported 后整轮两次调用均未计，形成 10/12。这不是现役不支持多个成功调用，也不能直接放行占位。原 backend.log:44320 明确包含 SSEStream.handle_wire_chunk 的 Agent.update 5000ms timeout；这证明本地 accumulator 调用超时，不证明原始 SSE 缺终结或网络超时，慢回调的进一步原因仍需独立审查。
+
+七问：Contract=VS-00M §6.4、VS-00L §16.2.1 及验收矩阵新 §5.7；Invariant=每次实际调用分别计量、完整scope/ref因果关联、失败不得冒充成功、缺usage保持未知；Boundary=现役外部native只读reader/纯join/成本消费者，不修改产品验收hook或原始批次；Consumer=R03 request_cost_batch_evidence；Proof=先独立失败→成功双调用及错ref/缺output/冲突反例，再原批只读派生对账；Acceptance Driver=现役原生driver继续使用原冻结输入，当前无新实模批次，不代签UI/语义；Exploration=非作品知识物化，不适用。新读取字段来自已有ProviderOutput，与既有ProviderRun同一快照；不建新reader/账本。
+
+设计先落验收矩阵 §5.7，再实现外部证据绑定。SSE消费副作用责任与精确源引用协议独立审查，不能靠增加5秒超时或改写旧响应掩盖真正问题。原82路径WIP仍保护，R03保持doing。
+
+**实现与证据**：`9af55a06` 提交4个外部脚本/测试文件。独立红例后最终97/0，包含真实SQLite reader与batch层失败→成功两次计量回归。原十轮只读派生重算12/12绑定（11 completed+1 error），全部join failures为空；失败usage present=false、input/output/cached=null，聚合保留notCollected，不填零。原报告仍FAIL且前后SHA均为48820e62894291abfee1124466cdb48598cf8940dc49c8d1b32f29d5ff70ddbb。证据在`failed-call-binding-08/`；未改原报告、未调用模型、未补签原始SSE或语义。
+
+### 14.20 流状态容器与同步事件消费分责（2026-11-18，实施 checkpoint）
+
+对 §14.19 原始 timeout 只作有证据的责任归因：handle_wire_chunk 的 Agent.update 闭包经 consume_frame→append_delta/append_tool_argument_delta→AdapterExecution.emit_events 同步运行任意外部sink；默认5秒Agent RPC把消费耗时包成provider_internal。先按VS-00L §19.3新增责任边界，不直接调大超时，不从现状测试反推正确性。
+
+七问：Contract=VS-00L §19.3 既有同一流生命周期及TimeoutPolicy；Invariant=无外部IO进入accumulator原子更新、事件唯一有序、取消/deadline仍权威、缺协议终结不成功；Boundary=现役SSEStream与既有公开adapter测试，不新建任务/队列/服务，不改DB/UI；Consumer=三wire真实HTTP on_data及EOF flush；Proof=先建立超过5秒慢sink但低于真实配置时限的独立反例，另测多帧顺序/取消/显式deadline/EOF/异常清理；Acceptance Driver=原NativeScenarioHarness，后续仍需真实模型/页面证据，局部测试不代签原十轮；Exploration=不物化作品知识。复用既有Agent状态所有者、同步HTTP回调与AdapterExecution事件出口，均有现役消费者；变更仅移出外部副作用，不另建发布权威。
+
+本步与外部失败调用绑定独立，分别验证与分组提交；旧批次、原始失败和82路径WIP保留。
+
+**实现与验证**：`5304fd65` 提交现役SSEStream及既有预览测试。真正5.1秒sink红例先产生5000ms Agent.update超时（red-02.log）；移出外部副作用后目标13/0、Provider目录411/0，新增慢sink/顺序/取消/显式deadline/EOF异常清理五例。最终完整mix check 3375/0；完整扫描首次18pass/3fail/9发现，其中本次测试新增2项Credo AliasUsage，正在修正复跑，不能报扫描无新问题。其余7项仍为UI/task_done pending、5历史误报及1accepted risk；I1/I2/I3/N-NARR/I-CACHE等门禁已通过。早期fixture漏endpoint、事务拒绝后旧代码仍失败的日志保留不冒称绿。证据在`stream-consumer-boundary-09/`；无新模型调用或原生验收，R03仍未闭环。
+
+### 14.21 精确片段引用与真实历史保留（2026-11-18，实施 checkpoint）
+
+源引用不能靠让模型反复准确回抄来保证。只读核实continue-closeout-03/native-10-current-01验收副本的真实v1 checkpoint（run_mwl151vc_5fv:5、prun_mwl15w62_6lz、pcall_mwl15w62_6ly）有2条摘要/2源，义务均为源子串，原响应/ProviderOutput hash一致。这证明真实历史读取消费者存在；旧副本capsule尚在，不能据此代签事务转交。未扫描日常作者库，不读取无关正文，不因未发布而删除内容。
+
+先修订VS-00L §16.2.1：新v2请求用预编号完整行片段、模型只选择本源编号，引用字节由冻结原文派生；只保留有真实消费者的v1历史读取，禁止旧请求生产/旧来源重派。新capsule v2必填冻结discussion协议，旧capsule v1明确只读解释，坏JSON也不猜版本；coverage显式绑定原请求版本。原文预算、保护集、唯一执行及三wire共同投影不变。
+
+七问：Contract=VS-00L §16.2.1及现役discussion/capsule字节契约；Invariant=精确源字节、旧历史可读但无新执行资格、未知拒绝、摘要不授权、原响应单一真源；Boundary=现役common来源/压缩/投影、Application摘要准入恢复、Persistence事实校验及外部checkpoint证据，不增加表/后台/独立摘要服务；Consumer=真实压力维护与三wire历史投影；Proof=先独立行片段/CRLF/非连续/越界/旧canonical/旧坏pending/请求版本冲突反例，再跨层回归与全门禁；Acceptance Driver=原3/10/20 NativeScenarioHarness与冻结输入，最终必须真实模型义务保留和原生整理，当前设计不代签；Exploration=复用现役session_message_read原文可达，不增加专用知识packet。复用查重：MessageCoverage已有源解析，DiscussionSummary已有材料预算，Compaction已有完整历史，ProviderRun已有唯一capsule，各自责任内扩展，不建重复所有者。
+
+本节为实施前目标，未声称实现/验证完成；与§14.19/§14.20分文件推进，最终逐项报告。

@@ -398,10 +398,14 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 **模型派生摘要。** 范围由应用从上述可信事实确定，模型只概括已选纯 assistant 原文并保留未完成承诺的精确引用。沿同一 run 的既有 RequestIR/Provider.Execution 进行有界单次调用；不新建 Agent loop/Run/后台调度，不借章摘要形成第二会话历史。来源输入明确原角色与坐标，是不可信历史材料，不是当前应用事实/作者新指令。每次至多 4 个完整源，包含对应作者原文的完整输入 JSON 总量不得超过 131072 UTF-8 字节；计划与执行消费同一纯材料编码/预算规则，不截断原文，不以单条大小代替整批预算。超出预算的源保持原样，后续合格来源仍可被选中。每个选中源恰有一项输出：
 
 ```json
-{"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"有来源的讨论概括","retained_obligations":["该源中仍需履行的原文承诺"]}]}
+{"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"有来源的讨论概括","retained_fragment_indices":[0,1]}]}
 ```
 
-索引绑定本次冻结 source 列表，必须完整、唯一、顺序一致；未知版本、额外字段、缺项/重复项、非原文的 obligation 引用或坏类型拒绝。每个引用逐字绑定真实原文，全部作者诉求另以原文保留，不由摘要决定删除。结构校验不证明语义无遗漏，真实模型跨轮义务验收单列。
+**精确来源表达（2026-11-18，R03工程裁决）**：新请求只生成上述v2。输入由现役DiscussionSummary共同material边界将每源完整text派生为从0开始预编号的完整行片段；保留CRLF/LF/CR及末行无换行的全部原字节，不trim、不Unicode归一、不Markdown重写，不复制第二份原文。完整输入预算包含编号结构，超限仍保留整源而不截断。模型选择该源内retained_fragment_indices，不回抄引文或计算字节offset；编号必须为有序、唯一、合法整数，跨源/越界/重复/乱序/坏类型拒绝，不静默修正。全部片段连回原text必须逐字相同；相邻选中行可按原字节组成连续引用，非相邻片段分开呈现，不拼造连续引文。无换行来源自然只有一个完整片段，允许选择全部片段但不能将所有来源永远保留作为压缩成功。每个source_index仍恰有一个条目、顺序一致；未知版本/额外字段/缺项均拒绝。作者诉求另以原文保留，模型选片段不授予删除作者内容或解除责任的权力；编号只保证来源字节，不证明语义无遗漏，真实模型跨轮义务验收仍单列。
+
+v2完整材料形状固定为`{material_kind:"quoted_discussion_sources",sources:[{source_index,source:{run_id,run_sequence},author_text,fragments:[{fragment_index,text}]}]}`，source不再重复携带顶层text，fragment_index从0连续编号。原source.text仍仅属于可信来源读取与coverage完整性计算，不因展示片段而变化。
+
+**真实历史读取而非旧请求兼容**：已核实历史验收副本存在合法v1 canonical checkpoint及真实ProviderOutput同hash原响应，实际消费者要求保持可读。现役纯契约保留v1原格式的严格读取/逐字引文校验/投影，不再生成v1新请求，不改写原响应，也不释放已占用来源。现役Compaction在每个checkpoint之前完整canonical历史上复用MessageCoverage解析源，然后为三个wire生成仅本次展示材料；Projection只渲染该派生结果，不能从摘要反推原文。派生片段或展示字段不进入canonical/codec/私有capsule，不保存第二份摘要。v1/v2都绑定相同真实消息身份；历史缺源/冲突仍失败关闭。
 
 checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_ref/provider_run_ref`：原始响应字节及真实执行归因；entries 从原文解析，不双存第二份摘要真源。SHA-256 对真实 UTF-8 响应计算，并由既有 ProviderOutput 的安全内容摘要持有同一 hash；实际 Provider 事实提交成功且身份/状态/hash匹配后，才允许 checkpoint 生效。恢复同样核验来源，不补造调用或猜相同长度。普通系统整理说明与模型讨论摘要分开，后者不能升格为 canon、观察、已执行结果或授权。
 
@@ -410,6 +414,8 @@ checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_
 恢复是原响应的确定性提交，不是重新执行旧 bounded run。现役维护安全点先检查同作品/会话的待提交响应：本 run 或已经结束的旧 run 可作为执行来源，活动外 run、取消/暂停、方向版本已变者不得被接管；真实源坐标、冻结材料 digest、ProviderOutput hash、合法覆盖及当前保护集均重新核验，原计划不重新挑选来源，恢复不计第二次 Provider 调用且不依赖新的压力或模型预算。跨 run 应用时 checkpoint 归属当前提交 run、discussion 仍引用原 Provider 执行，两个身份不可混淆。checkpoint、作者事件和私有载荷清除在同一 immediate 事务内完成；任一失败全部回滚、保留待提交原响应；并发消费者由同一写事务和 canonical 覆盖校验裁决，成功后重复终态不能重新建立恢复载荷。canonical 成为唯一摘要正文所有者，来源执行资格始终不释放。已有完成事实却缺原文不得从日志补造，也不自动再调用模型。
 恢复提交必须在同一写锁内、upsert 之前同时核实原执行 run 和接收 run 的已持久事实。旧接收快照不能覆盖已经提交的取消/暂停或新目标版本再自行证明可恢复；身份/目标版本必须与持久接收方一致，缺行不猜测可用。复用既有运行行、ProviderFactMerge 纯判据与 ProviderRunLog 事务，不新增锁或恢复状态。
 
+
+**冻结请求协议与恢复版本（2026-11-18）**：新准入只接受provider-operation-checkpoint/v2完整键集，必填discussion_protocol_version=authoring-discussion-summary/v2，并冻结原目标版本与计划；缺字段/未知值拒绝，不默认当前版本。既存provider-operation-checkpoint/v1按其完整旧键集只读识别，对应真实旧请求的discussion v1；不能把损坏新capsule伪装成可省略字段的旧格式。coverage digest显式使用该次冻结请求版本，不能用当前版本常量替代历史。pending即使原响应JSON损坏，仍先从持久capsule版本核冻结材料与ProviderOutput hash，再作确定性输出校验，不从坏响应猜请求版本。合法canonical历史可从受支持的原响应声明核其版本，再与原执行覆盖digest/hash对账；请求/响应版本不一致拒绝。历史读取支持仅服务已存在不可改写的内容/执行事实，不保留旧准入、不迁移重写旧响应、不新增表/迁移/重试。
 
 **确定性无效响应不占据恢复选择入口（2026-11-18，R03 责任修订）。** 持久收到响应不等于存在可提交摘要。恢复沿既有归属判据筛选候选（活动、失活不合资格或归属不可确定者不取得接管权）；对资格成立的候选，先核实冻结计划、真实来源与完整性、ProviderOutput hash，这些恢复事实缺失、冲突或读取未知仍失败关闭，不能据模型内容错误掩盖事实损坏。只有来源事实和原响应 hash 均已证实后，纯输出契约判定为无效的响应才不作为可提交候选，继续检查同会话其它合格原响应；没有合格候选时返回现役规划流程。原私有响应、调用事实、来源执行资格和未覆盖 canonical 原文全部保留，不清空、不修补、不重新调用，不把排除候选解释为整理成功或责任解除。不新增拒绝状态、恢复表或第二权威集；重复安全点从同一持久事实确定同一选择。合法响应的提交失败仍阻断并可按原事务重试，事实未知不得跳过。此项只解除不合格候选对独立工作的阻塞，不解决模型引文质量、不代签整理成功；后续来源表达审查和真实跨轮验收仍属 R03。
 
@@ -723,6 +729,7 @@ checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_
 
 - **单一生命周期骨架**：`NovelAgent.Provider.SSEStream` 统一三 wire 的取消（token 取消即 halt 并物化 cancelled，不伪造成功）、最长 wire 静默窗口（有数据即续命）、显式配置的总时长兜底、SSE 帧分割/JSON 失败标记、ProviderEvent chunk 与作者叙事增量、终止物化与错误分类。Chat/Anthropic/Responses 只提供 decoder，不再各自复制传输生命周期。
 - **正常终结的必要事实（2026-11-18，B87 R03 来源完整性）**：HTTP 2xx/连接结束只证明传输返回；文本增量、完整 JSON 工具参数、usage 或 choice 级 `finish_reason` 都不能单独证明整条流已正常结束。Chat 由完整 SSE 帧中的 `[DONE]`，Anthropic 由 `message_stop`，Responses 继续由 `response.completed/incomplete` 确认各自终结；其它 wire 的结束标记不得替代。SSE framing 将 `[DONE]` 作为无正文的协议事实交给既有 decoder，不复制生命周期、不合成终结帧。EOF 时未封闭的 SSE 帧不得补成事件。缺终结或显式错误必须沿既有 error 路径结束：已收到的预览/调用身份保留，不生成成功 ProviderOutput、可执行工具结果或已完成交付，不自动重发；完整终结也不代签内容语义或作者目标完成。协议依据沿 VS-00M §12，并核对 WHATWG SSE parsing/interpreting 的 EOF 不派发未封闭事件规则。
+- **流状态与外部消费分责（2026-11-18，B87 R03）**：SSE accumulator 只解析、累积并按序分配事件，不在状态更新闭包内运行任意 event_sink。既有 HTTP on_data 回调取得本次新事件后同步投递，再核取消/显式deadline；EOF flush 复用同一边界。保持原传输背压、initial→chunks→terminal 顺序与每事件恰一次投递，不新增异步队列/发布任务/重放路径，不扩大或隐藏失败。sink 返回前不能声称取消已抢占；返回后取消/deadline必须阻止继续读取及假成功。外部消费耗时不能由状态容器默认5秒RPC期限误判为provider_internal，也不能靠简单增大该期限掩盖职责错误。原协议终结、真实wire静默和配置deadline规则不变；任意执行异常不得遗留本次accumulator。
 - **工具调用不再隐式非流式**：三 wire 的 tool_calls / tool_use 均走 SSE，参数在结束前只作增量事实，结束时由同一 wire 解析归一为 canonical `Result.tool_calls`（保留 `call_id` 与 `raw_arguments` 原字节）；不存在「带工具调用就退化为 final-only」的旁路。
 - **Responses 事实边界**：非流式 `output` 与流式 done items 共用 `ResponsesWire` 解析；工具身份只认 `call_id`，`item.id` 是 provider 私有输出标识不得混用；`response.completed`/`response.incomplete` 是正常终止事实，`response.failed`/`error` 是显式失败，两者都不允许被静默改写为成功。
 - **私有推理**：供应商私有 reasoning 增量只在流内累积为私有事实，由 adapter 绑定 provider_state 并经真实 provider/model 门回放；正文与作者可见事件不携带。
