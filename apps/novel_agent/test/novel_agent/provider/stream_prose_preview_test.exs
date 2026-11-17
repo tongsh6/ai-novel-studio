@@ -12,8 +12,10 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Anthropic
+  alias NovelAgent.Provider.CancellationToken
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.OpenAI
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelTest.TestRequestIR
 
   @json ~s([{"item_id":"i1","title":"标题","body":"正文第一句。正文第二句。"}])
@@ -114,13 +116,13 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
   end
 
   test "cancellation during synchronous consumption halts before another wire chunk" do
-    {:ok, token} = NovelAgent.Provider.CancellationToken.start_link()
+    {:ok, token} = CancellationToken.start_link()
     on_exit(fn -> if Process.alive?(token), do: Agent.stop(token) end)
 
     sink = fn {_status, facts} ->
       if Enum.any?(facts.events, &(&1.event_type == :chunk)) do
         Process.sleep(20)
-        NovelAgent.Provider.CancellationToken.cancel(token)
+        CancellationToken.cancel(token)
       end
     end
 
@@ -143,7 +145,7 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
       {:ok, 200, ""}
     end
 
-    policy = %NovelAgent.Provider.TimeoutPolicy{deadline_ms: 50, response_ms: 300_000}
+    policy = %TimeoutPolicy{deadline_ms: 50, response_ms: 300_000}
 
     assert {:error, %{error: error}} = boundary_execute(eventsource, sink, timeout_policy: policy)
     assert error.type == :timeout
