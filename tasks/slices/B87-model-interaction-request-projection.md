@@ -1345,3 +1345,19 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 外部oracle单独提交fbfee1b5，独立核对冻结来源/完整片段/响应版本；v1/v2均须唯一正确系统声明。实查真实旧v1有该声明后，修正旧fixture而不放宽核验。完整native脚本测试1045/1045通过。初次全门禁发现summary测试826行规模门禁：按实际消费者拆分prepare用例8个与AgentRunService生命周期7个，单一test support共享Provider/setup，删除原内嵌重复责任；不压行、删反例、放宽阈值或豁免。最终完整mix check3384/0；全扫描19pass/2fail/7发现，新增Credo/规模问题均已消除，I1/I2/I3/N-NARR/I-CACHE、架构、前端等通过。剩余是尚待真实UI证据的task_done及既有5项误报、1项accepted risk，不能称全扫描通过。
 
 证据fragment-protocol-10/保留所有红/绿/首次扫描失败与scan-final-pre-native。原82路径中81个字节不变；test README仅增一条新runtime索引，先快照逐字比较并按独立index patch只提交新增行，原3条WIP仍未提交。真实3→10→20及交错/C8/取消尚待执行，独立语义检查已在实模前按冻结20轮作者原文记录semantic-review-plan.md。R03仍doing，不以单元测试/静态检查代签模型义务保留、实际页面整理或恢复闭环。
+
+### 14.22 首次 v2 原生批次与外部空值边界（2026-11-18）
+
+冻结03ad27a8及原manifest/快照/模型/预算运行fragment-native-11：三轮job正常结束、32/32，3调用全部对账，13条typed等待、4张真实截图；独立语义确认风险表未做、暂选不授权。三轮低压max14511<22400、无checkpoint，不代签压缩。
+
+十轮实际完成10次业务回复及5次维护，最终机器报告32/42 FAIL：外部requestVersion在解码前将SQLite TEXT 'null'当成未清capsule。独立DB确认5个v2 checkpoint覆盖6条讨论、原响应/ProviderOutput hash一致、索引原字节合法、5个capsule均已清。6bda7c59仅修该JSON边界，坏shape仍拒绝；先红绿，全native1046/0。只读重审另存capsule-null-12/review，10/10轮15调用完整绑定、原解析错误消失；原report/summary/failure三SHA不变，派生报告继续保留原failure存在的FAIL，不覆盖证据或重发模型。
+
+另按同一实际协议升级C8外部oracle（45250f35）：复用auditDiscussionRequest而不复制source.text/来源解析；严格v1/v2 capsule完整键、冻结协议与响应一致、JSON null清载荷，保留原plan/hash/身份/时间/原响应一次恢复等反例。全native1048/0；尚未运行真实C8，不能用oracle绿替代恢复事实。
+
+真实图像已核第8/10轮、展开整理、完整原文定位、高亮与刷新恢复；这些不是语义成功。第10完整回复虽交四场单/双收益风险与共用证据，但未完整比较两视角证据需求/呈现差异，却称已完成不再挂账，独立结论为semantic partial（不是强制24格排版）。结尾仍未代选。原独立复核写入各批independent-review.md；R03不通过，未启动20轮。
+
+### 14.23 完成声明与实际交付覆盖（2026-11-18，实施前）
+
+先沿愿景作者诉求持续、UA-01运行完成不等于目标满足修订责任：普通回复也须对作者要求与已交付内容逐项核对；不新增文学内容状态机。当前共享规则仅笼统禁止近似效果，result_narration专属的不虚报段不能覆盖本次planner普通回复，现役AuthoringSemantics.shared_rules是唯一正确责任owner。
+
+七问：Contract=UA-01实际交付/完成声明及愿景§2.1；Invariant=欠项按事实保留、已交付不否认、模型承诺/偏好/摘要/运行状态不构成履行；Boundary=现役共有规则与真实消费者/版本测试，不动冻结作者输入、预算、作品数据或引入新状态；Consumer=AuthoringTaskPolicy判断与专业角色共用规则；Proof=共同材料不能替代差异比较的负例、共同确适用可合并的正例、部分/完整交付状态对照；确定性检查只证规则布线，实模独立核内容；Acceptance Driver=同原输入3/10/20及独立语义，不靠重复直到出现有利输出；Exploration=现役原文读取已足够，不新增工具。实施前核语义版本变更的实际持久消费者，不盲改真实历史，也不添无消费者兼容。

@@ -390,6 +390,8 @@ judgment_decision 移除 reply_included、author_narrative、record_only、autho
 
 失败/缺口不撤销本 run 早先已提交的其他候选或事实；表中“零写”指当前操作，回执须列已保留效果，不能用统一失败文案否认先前成果。completed 的 failure_ref 为空，真正 failed 时写具体失败引用/代码；gap 通过 outcome/reason_codes 表达未满足，不冒充技术故障。gap 结束是“诚实报告已完成”，不是创作目标完成；除有独立证据外，上表普通回复/方向/登记也不自动附 goal_satisfied。
 
+**实际交付与完成声明（2026-11-18，R03 实证修订）**：上述边界同样约束普通讨论回复，不只约束工具结果叙述。作者要求多个对象或维度时，完成声明须对应实际已交付内容的覆盖；共同材料不能自动替代所要求的差异比较，共同内容确实适用时可合并表达，不强制重复排版。未交付或证据不足部分应具体保留，不能因偏好选择、承诺、摘要声称或运行结束而关闭；已经交付且有来源的部分也不应被否认。静态规则沿现役 `AuthoringSemantics.shared_rules/0` 单一真源进入判断/专业消费者，不新增目标状态、专用内容审判器或场景识别，不把文学质量硬编码成协议合法性。确定性测试只证明责任规则进入真实请求，实际内容及完成声明仍须独立语义审查；加强规则不等于证明模型必然遵守。
+
 副作用与恢复：
 1. operation_key 绑定 run、source_input_ref、goal version、step、有效 provider_call_ref 与 native tool_call_id；一个输入/step 的结果槽只允许一个有效提交，整组响应校验在前。相同响应重放复用既有 artifact/question/direction IDs，不再铸造。
 2. 新候选/方向/问题与 assistant Interaction/源 trace/operation outcome 在发布前可靠保存；运行终态以该已提交 outcome 为依据落盘。若仅终态事件/广播丢失，恢复只补记终态与重播持久结果，不重新执行。发布失败但提交成功不得按“未执行”回滚或再调模型。旧来源去重与 operation_key 去重同时保留。
