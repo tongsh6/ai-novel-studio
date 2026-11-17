@@ -720,6 +720,7 @@ checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_
 ### 19.3 R2 同一流式生命周期（2026-11-07，确定性机制层）
 
 - **单一生命周期骨架**：`NovelAgent.Provider.SSEStream` 统一三 wire 的取消（token 取消即 halt 并物化 cancelled，不伪造成功）、最长 wire 静默窗口（有数据即续命）、显式配置的总时长兜底、SSE 帧分割/JSON 失败标记、ProviderEvent chunk 与作者叙事增量、终止物化与错误分类。Chat/Anthropic/Responses 只提供 decoder，不再各自复制传输生命周期。
+- **正常终结的必要事实（2026-11-18，B87 R03 来源完整性）**：HTTP 2xx/连接结束只证明传输返回；文本增量、完整 JSON 工具参数、usage 或 choice 级 `finish_reason` 都不能单独证明整条流已正常结束。Chat 由完整 SSE 帧中的 `[DONE]`，Anthropic 由 `message_stop`，Responses 继续由 `response.completed/incomplete` 确认各自终结；其它 wire 的结束标记不得替代。SSE framing 将 `[DONE]` 作为无正文的协议事实交给既有 decoder，不复制生命周期、不合成终结帧。EOF 时未封闭的 SSE 帧不得补成事件。缺终结或显式错误必须沿既有 error 路径结束：已收到的预览/调用身份保留，不生成成功 ProviderOutput、可执行工具结果或已完成交付，不自动重发；完整终结也不代签内容语义或作者目标完成。协议依据沿 VS-00M §12，并核对 WHATWG SSE parsing/interpreting 的 EOF 不派发未封闭事件规则。
 - **工具调用不再隐式非流式**：三 wire 的 tool_calls / tool_use 均走 SSE，参数在结束前只作增量事实，结束时由同一 wire 解析归一为 canonical `Result.tool_calls`（保留 `call_id` 与 `raw_arguments` 原字节）；不存在「带工具调用就退化为 final-only」的旁路。
 - **Responses 事实边界**：非流式 `output` 与流式 done items 共用 `ResponsesWire` 解析；工具身份只认 `call_id`，`item.id` 是 provider 私有输出标识不得混用；`response.completed`/`response.incomplete` 是正常终止事实，`response.failed`/`error` 是显式失败，两者都不允许被静默改写为成功。
 - **私有推理**：供应商私有 reasoning 增量只在流内累积为私有事实，由 adapter 绑定 provider_state 并经真实 provider/model 门回放；正文与作者可见事件不携带。

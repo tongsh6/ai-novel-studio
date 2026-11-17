@@ -16,7 +16,7 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
 
   @impl true
   def init(_state) do
-    %{content: [], tool_calls: %{}, usage: nil, model: nil, error: nil}
+    %{content: [], tool_calls: %{}, usage: nil, model: nil, error: nil, terminal?: false}
   end
 
   @impl true
@@ -38,7 +38,7 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
       tool_calls: completed_tool_calls(state.tool_calls),
       usage: state.usage,
       model: state.model,
-      error: state.error
+      error: state.error || terminal_error(state)
     }
   end
 
@@ -48,6 +48,11 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
   def usage(usage, model, duration) when is_map(usage) do
     Usage.from_anthropic_response(%{"usage" => usage, "model" => model}, model, duration)
   end
+
+  defp terminal_error(%{terminal?: true}), do: nil
+
+  defp terminal_error(_state),
+    do: %{type: :parse, message: "响应流未正常终止（缺少 message_stop）"}
 
   # ── 事件处理 ──────────────────────────────────────────────────────────────
 
@@ -112,6 +117,9 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
          }
      }, ""}
   end
+
+  defp apply_event(state, %{"type" => "message_stop"}),
+    do: {%{state | terminal?: true}, ""}
 
   defp apply_event(state, _decoded), do: {state, ""}
 

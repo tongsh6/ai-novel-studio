@@ -128,6 +128,7 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
         })
       )
 
+      on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
       {:ok, 200, ""}
     end
 
@@ -412,6 +413,7 @@ defmodule NovelAgent.Provider.StreamProsePreviewToolCallTest do
         })
       )
 
+      on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
       {:ok, 200, ""}
     end
 

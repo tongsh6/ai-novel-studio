@@ -13,10 +13,30 @@ defmodule NovelAgent.Provider.SSEStream.ChatDecoder do
 
   @impl true
   def init(_state) do
-    %{content: [], tool_calls: %{}, usage: nil, model: nil, private_reasoning: []}
+    %{
+      content: [],
+      tool_calls: %{},
+      usage: nil,
+      model: nil,
+      private_reasoning: [],
+      terminal?: false,
+      error: nil
+    }
   end
 
   @impl true
+  def decode(state, :done), do: {%{state | terminal?: true}, %{text: "", activity?: false}}
+
+  def decode(state, %{"error" => _error}) do
+    {%{state | error: %{type: :invalid_response, message: "响应流包含供应商错误"}},
+     %{text: "", activity?: false}}
+  end
+
+  def decode(%{terminal?: true} = state, _decoded) do
+    {%{state | error: state.error || %{type: :parse, message: "响应流终止后仍收到数据"}},
+     %{text: "", activity?: false}}
+  end
+
   def decode(state, decoded) do
     {state, tool_arguments_delta} =
       state
@@ -44,7 +64,7 @@ defmodule NovelAgent.Provider.SSEStream.ChatDecoder do
       usage: state.usage,
       model: state.model,
       private_reasoning: state.private_reasoning |> Enum.reverse() |> Enum.join(),
-      error: nil
+      error: state.error || terminal_error(state)
     }
   end
 
@@ -54,6 +74,11 @@ defmodule NovelAgent.Provider.SSEStream.ChatDecoder do
   def usage(usage, model, duration) when is_map(usage) do
     Usage.from_openai_response(%{"usage" => usage, "model" => model}, model, duration)
   end
+
+  defp terminal_error(%{terminal?: true}), do: nil
+
+  defp terminal_error(_state),
+    do: %{type: :parse, message: "响应流未正常终止（缺少 [DONE]）"}
 
   # ── delta 解析 ────────────────────────────────────────────────────────────
 

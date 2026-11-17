@@ -70,6 +70,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       eventsource = fn _url, body, _opts, on_data ->
         send(test_pid, {:none_request, body})
         on_data.(sse_delta("判断", "gpt-4o-mini"))
+        on_data.("data: [DONE]\n\n")
         {:ok, 200, ""}
       end
 

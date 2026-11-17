@@ -192,6 +192,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
           on_data.(sse_delta(content, "local-model"))
         end
 
+        on_data.("data: [DONE]\n\n")
         {:ok, 200, ""}
       end
 

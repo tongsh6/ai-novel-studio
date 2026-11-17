@@ -637,6 +637,7 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         })
       )
 
+      on_data.(sse_event("message_stop", %{"type" => "message_stop"}))
       {:ok, 200, ""}
     end
   end

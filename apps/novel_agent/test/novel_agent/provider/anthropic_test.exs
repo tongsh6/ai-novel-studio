@@ -57,7 +57,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
           })
         )
 
-        on_data.("data: [DONE]\n\n")
+        on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
         {:ok, 200, ""}
       end
 
@@ -132,6 +132,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
             )
         end
 
+        on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
         {:ok, 200, ""}
       end
 
@@ -349,6 +350,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
           })
         )
 
+        on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
         {:ok, 200, ""}
       end
 
@@ -473,7 +475,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
           })
         )
 
-        on_data.("data: [DONE]\n\n")
+        on_data.(anthropic_sse("message_stop", %{"type" => "message_stop"}))
         {:ok, 200, ""}
       end
 

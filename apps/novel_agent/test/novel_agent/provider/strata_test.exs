@@ -248,6 +248,7 @@ defmodule NovelAgent.Provider.StrataTest do
       eventsource = fn _url, body, _opts, on_data ->
         send(test_pid, {:none_body, body})
         on_data.(sse_delta("判断说明", @model, %{"prompt_tokens_details" => %{"cached_tokens" => 0}}))
+        on_data.("data: [DONE]\n\n")
         {:ok, 200, ""}
       end
 

@@ -32,14 +32,13 @@ defmodule NovelAgent.Provider.SSEStream do
   @callback init(state :: term()) :: term()
 
   @doc """
-  解码一条已成功 JSON 解码的 SSE data 帧。
-
+  解码一条已封闭的 SSE data 帧：JSON map，或精确 `[DONE]` 帧的 `:done` 信号。
   返回 `{decoder_state, %{text: binary, activity?: boolean}}`：
   - `text` 是本次需要进入 ProviderEvent chunk 的正文增量（可为空）；
   - `activity?` 标记本帧是真实生成活动（文本或工具参数增量），用于 TTFT 诊断；
   - 工具参数增量由 decoder 自行累积，不进入 `text`。
   """
-  @callback decode(decoder_state :: term(), decoded :: map()) ::
+  @callback decode(decoder_state :: term(), decoded :: map() | :done) ::
               {term(), %{text: binary(), activity?: boolean()}}
 
   @doc """
@@ -183,32 +182,35 @@ defmodule NovelAgent.Provider.SSEStream do
   defp deadline_exceeded?(_started, _deadline_ms), do: false
 
   defp consume_wire_chunk(ctx, acc, chunk) when is_binary(chunk) do
+    raw = acc.buffer <> chunk
+
+    # 暂留片尾 CR，下一片才能判断它是否与 LF 构成同一个换行。
     buffer =
-      (acc.buffer <> chunk)
-      |> normalize_newlines()
+      if String.ends_with?(raw, "\r") do
+        normalize_newlines(binary_part(raw, 0, byte_size(raw) - 1)) <> "\r"
+      else
+        normalize_newlines(raw)
+      end
 
-    {frames, rest} = split_complete_frames(buffer)
-
-    acc =
-      acc
-      |> Map.put(:buffer, rest)
-      |> Map.update!(:wire_chunks, &(&1 + 1))
-
-    frames
-    |> List.wrap()
-    |> Enum.reduce(acc, fn frame, current -> consume_frame(ctx, current, frame) end)
+    consume_buffer(ctx, Map.update!(acc, :wire_chunks, &(&1 + 1)), buffer)
   end
 
   defp consume_wire_chunk(ctx, acc, chunk), do: consume_wire_chunk(ctx, acc, to_string(chunk))
 
-  defp flush_buffer(ctx, %{buffer: buffer} = acc) do
-    case String.trim(buffer) do
-      "" ->
-        %{acc | buffer: ""}
+  defp consume_buffer(ctx, acc, buffer) do
+    {frames, rest} = split_complete_frames(buffer)
 
-      _ ->
-        consume_frame(ctx, %{acc | buffer: ""}, buffer)
-    end
+    Enum.reduce(frames, %{acc | buffer: rest}, fn frame, current ->
+      consume_frame(ctx, current, frame)
+    end)
+  end
+
+  # EOF 可以确认末尾 CR 的换行身份，但不能凭空补 SSE 空行。
+  defp flush_buffer(ctx, acc) do
+    acc = consume_buffer(ctx, acc, normalize_newlines(acc.buffer))
+
+    # SSE 规则丢弃未封闭尾部（包括心跳注释）；各 wire 自己裁决终结是否已确认。
+    %{acc | buffer: ""}
   end
 
   defp split_complete_frames(buffer) do
@@ -234,7 +236,7 @@ defmodule NovelAgent.Provider.SSEStream do
         acc
 
       "[DONE]" ->
-        acc
+        consume_decoded(ctx, acc, :done)
 
       payload ->
         case Jason.decode(payload) do
