@@ -23,7 +23,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
               ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期 AI 提出暂定方案，比较风险尚未完成。","retained_obligations":["稍后我会逐项比较风险。"]}]}) <>
               "\r\n"
 
-  setup do
+  setup tags do
     :ok = Sandbox.checkout(Repo)
     Sandbox.mode(Repo, {:shared, self()})
     old = Application.get_env(:novel_application, :auto_maintenance)
@@ -38,8 +38,87 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     prior = transcript("history", @author) |> AuthoringTranscript.append_assistant(@discussion)
     :ok = TestAgenticLoopFixtures.append_segment!(prior, status: "completed")
     state = state("owner")
-    {execution, context} = received_response(state.run)
+    {execution, context} = received_response(state.run, response: tags[:response] || @response)
     %{state: state, prior: prior, execution: execution, context: context}
+  end
+
+  @tag response:
+         ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期讨论","retained_obligations":["风险比较已经完成。"]}]})
+  test "a verified invalid response preserves source ownership but does not block later recovery",
+       facts do
+    original = ProviderRunLog.get_run("prun-recovery")
+
+    for _ <- 1..2 do
+      assert {:reply, {:ok, %{compacted: false}}, unchanged} =
+               AgentRunMaintenance.start(facts.state, nil, :automatic)
+
+      assert unchanged == facts.state
+      assert checkpoints("owner") == []
+      assert length(ProviderRunLog.list_runs("owner")) == 1
+    end
+
+    assert {:ok, nil} = TranscriptCompactionSummary.pending_plan(facts.state.run)
+    assert ProviderRunLog.get_run("prun-recovery") == original
+
+    assert TestAgenticLoopFixtures.persisted_transcript("history").messages ==
+             facts.prior.messages
+
+    later_history =
+      transcript("history-later", @author) |> AuthoringTranscript.append_assistant(@discussion)
+
+    :ok = TestAgenticLoopFixtures.append_segment!(later_history, status: "completed")
+    target = state("later-owner")
+    received_response(target.run, history: "history-later", suffix: "-later")
+    assert {:ok, _} = AgentRunLog.upsert_run(%{id: "owner", status: "failed", phase: "stopped"})
+
+    valid_checkpoint = ProviderRunLog.get_run("prun-recovery-later").operation_checkpoint
+    tampered = Map.update!(valid_checkpoint, "response_text", &(&1 <> " "))
+
+    SQL.query!(Repo, "UPDATE provider_runs SET operation_checkpoint = ? WHERE id = ?", [
+      Jason.encode!(tampered),
+      "prun-recovery-later"
+    ])
+
+    assert {:error, :discussion_summary_persistence_mismatch} =
+             TranscriptCompactionSummary.pending_plan(target.run)
+
+    SQL.query!(Repo, "UPDATE provider_runs SET operation_checkpoint = ? WHERE id = ?", [
+      Jason.encode!(valid_checkpoint),
+      "prun-recovery-later"
+    ])
+
+    assert {:ok, plan} = TranscriptCompactionSummary.pending_plan(target.run)
+    assert plan.discussion.provider_run_ref == "prun-recovery-later"
+
+    assert {:reply, {:ok, %{compacted: true}}, recovered} =
+             AgentRunMaintenance.start(target, nil, :explicit)
+
+    assert recovered.run.consumed_budget.provider_calls == 0
+    assert ProviderRunLog.get_run("prun-recovery") == original
+    assert ProviderRunLog.get_run("prun-recovery-later").operation_checkpoint == nil
+    assert length(ProviderRunLog.list_runs("owner")) == 1
+    assert length(ProviderRunLog.list_runs("later-owner")) == 1
+
+    assert TestAgenticLoopFixtures.persisted_transcript("history").messages ==
+             facts.prior.messages
+  end
+
+  @tag response:
+         ~s({"version":"authoring-discussion-summary/v1","entries":[{"source_index":0,"summary":"早期讨论","retained_obligations":["不存在的原文"]}]})
+  test "invalid model content cannot hide an unverified persisted response", facts do
+    original = ProviderRunLog.get_run("prun-recovery").operation_checkpoint
+    changed = Map.update!(original, "response_text", &(&1 <> " "))
+
+    SQL.query!(Repo, "UPDATE provider_runs SET operation_checkpoint = ? WHERE id = ?", [
+      Jason.encode!(changed),
+      "prun-recovery"
+    ])
+
+    assert {:error, :discussion_summary_persistence_mismatch} =
+             TranscriptCompactionSummary.pending_plan(facts.state.run)
+
+    assert pending_text() == changed["response_text"]
+    assert checkpoints("owner") == []
   end
 
   test "failed canonical commit retains the original response; retry submits without a provider",
@@ -327,10 +406,14 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     end
   end
 
-  defp received_response(run) do
+  defp received_response(run, opts) do
+    history = Keyword.get(opts, :history, "history")
+    suffix = Keyword.get(opts, :suffix, "")
+    response = Keyword.get(opts, :response, @response)
+
     source = %{
       "source_index" => 0,
-      "source" => %{"run_id" => "history", "run_sequence" => 3},
+      "source" => %{"run_id" => history, "run_sequence" => 3},
       "text" => @discussion,
       "author_text" => @author
     }
@@ -346,20 +429,20 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
         "call_ids" => [],
         "message_refs" => [
           %{
-            "run_id" => "history",
+            "run_id" => history,
             "run_sequence" => 3,
             "role" => "assistant",
             "source_refs" => [],
             "versions" => %{}
           }
         ],
-        "turn_range" => "turn-history"
+        "turn_range" => "turn-" <> history
       },
-      "source_refs" => [%{"ref" => "session_message:history:3", "version" => 1}],
+      "source_refs" => [%{"ref" => "session_message:#{history}:3", "version" => 1}],
       "versions" => %{},
       "omissions" => ["原文保留，摘要不代表作者授权。"],
       "summary" => "较早讨论整理",
-      "history_target" => %{"session_id" => run.session_id, "turn_id" => "turn-history"}
+      "history_target" => %{"session_id" => run.session_id, "turn_id" => "turn-" <> history}
     }
 
     context = %{
@@ -373,8 +456,8 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
     }
 
     provider = %ProviderRun{
-      provider_run_id: "prun-recovery",
-      provider_call_ref: "pcall-recovery",
+      provider_run_id: "prun-recovery" <> suffix,
+      provider_call_ref: "pcall-recovery" <> suffix,
       purpose: :other,
       execution_mode: :event_stream,
       status: :initialized,
@@ -386,7 +469,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
           coverage_key: digest,
           discussion_source_keys: [
             "authoring-session-source/v1:" <>
-              Jason.encode!([run.workspace_id, run.work_id, run.session_id, "history", 3])
+              Jason.encode!([run.workspace_id, run.work_id, run.session_id, history, 3])
           ]
         })
     }
@@ -408,7 +491,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
       provider_run_ref: provider.provider_run_id,
       provider_call_ref: provider.provider_call_ref,
       status: :ok,
-      content: %{text: @response}
+      content: %{text: response}
     }
 
     execution =

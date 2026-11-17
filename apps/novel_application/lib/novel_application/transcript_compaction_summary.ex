@@ -131,18 +131,21 @@ defmodule NovelApplication.TranscriptCompactionSummary do
 
   @doc "读取同会话待提交响应；恢复原计划，不取得新执行权，也不再次调用 Provider。"
   def pending_plan(%AgentRun{} = run) do
-    execution =
-      run
-      |> ProviderRunLog.pending_operations(@operation)
-      |> Enum.find(fn execution ->
-        ProviderFactMerge.recoverable_operation?(
-          execution,
-          AgentRunLog.get_run(execution.agent_run_id),
-          run
-        )
-      end)
-
-    if execution, do: restore_pending(execution, run), else: {:ok, nil}
+    run
+    |> ProviderRunLog.pending_operations(@operation)
+    |> Stream.filter(fn execution ->
+      ProviderFactMerge.recoverable_operation?(
+        execution,
+        AgentRunLog.get_run(execution.agent_run_id),
+        run
+      )
+    end)
+    |> Enum.reduce_while({:ok, nil}, fn execution, no_candidate ->
+      case restore_pending(execution, run) do
+        :invalid_response -> {:cont, no_candidate}
+        result -> {:halt, result}
+      end
+    end)
   rescue
     _error in [DBConnection.ConnectionError, DBConnection.OwnershipError, Exqlite.Error] ->
       {:error, :discussion_summary_history_unavailable}
@@ -166,9 +169,14 @@ defmodule NovelApplication.TranscriptCompactionSummary do
          true <- coverage_key(plan, run) == map_get(execution.owner_refs, :coverage_key),
          true <-
            source_keys(sources, run) == map_get(execution.owner_refs, :discussion_source_keys),
-         :ok <- Compaction.validate_discussion(discussion, sources),
          :ok <- verify_persisted(discussion) do
-      {:ok, Map.put(plan, :discussion, discussion)}
+      # Only a verified immutable response may be excluded as invalid model output.
+      # Its private bytes and permanent source claim remain untouched.
+      case Compaction.validate_discussion(discussion, sources) do
+        :ok -> {:ok, Map.put(plan, :discussion, discussion)}
+        {:error, :checkpoint_invalid_discussion} -> :invalid_response
+        {:error, _} = error -> error
+      end
     else
       false -> {:error, :discussion_summary_recovery_mismatch}
       {:error, _} = error -> error

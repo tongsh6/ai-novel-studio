@@ -1297,3 +1297,17 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 **本批未关闭的真实失败**：合法 Checkpoint 为 0，历史回查等待整理入口失败，不是再一次窗口丢失。独立按冻结来源逐字对账，摘要 4 段 retained_obligations 中 2 段不是其原文的精确子串（`summary-source-review.json`）；私有原响应仍持久保留。不能模糊匹配、转义修补或删掉义务来让摘要通过，也不能把未整理长会话的语义保持代签整理后的保持。第三轮 provider_internal 的具体原因尚未充分取证；该轮多次实际调用还使原 native binding 报 unsupported/missing/counts mismatch，全部调用不能算已完整对账。原批次报告保持 fail，未补造 summary/完成清单，未自动重跑十轮或提前开二十轮。
 
 **扫描、保护与下一入口**：整合验证后执行完整 `bash scripts/ai_static_scan.sh --top 10`，仍 19 pass/2 fail/7 findings，源文件 SHA 未变；剩余为完整 UI/task_done pending，五项历史 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）及一项 ProjectGod 历史配置 accepted_risk，无新发现，不改扫描规则/处置台账。原 82 路径 WIP 与五份保护文件保持，不 push；最终提交后扫描及 Git 状态在本目录 `post-commit-scan/`、`final-state.json`。本轮新实模调用合计 15（十轮 12 + 三轮 3）。下一步从无效保留义务引用的来源表达与待提交响应恢复职责入手，审查为何一个不能提交的摘要持续占据恢复入口，并补齐同轮多调用证据绑定；不再围绕已确认的休眠反复跑模型。二十轮、取消/交错和 C8 真正跨 BEAM 恢复仍未闭环，R03 doing，R04 不启动。
+
+### 14.18 无效摘要不垄断恢复入口（2026-11-18，实施 checkpoint）
+
+接手原《机制保证唯一性》会话并逐条核对作者原始要求；判断仍按愿景→元原则→设计→任务→代码。基线 `f2dcace4`、82 路径 WIP，原任务与真实原生失败不改签。首先在 VS-00L §16.2.1 修订持久候选与可提交摘要的责任边界，再实施；不能以错误摘要通过不了为由放松引文校验或释放来源资格。
+
+七问：Contract=VS-00L §16.2.1 的来源、字节及持久恢复；Invariant=原文与未完成义务保留、每源唯一执行、未知事实失败关闭、坏模型输出不得占据整个会话恢复入口；Boundary=现役 Application 选择与 common 校验、Persistence 事实读取，不新增 DB/状态/调度或修改 UI；Consumer=AgentRunMaintenance 真实安全点；Proof=独立构造首坏后好、仅坏、坏内容叠加 hash 损坏反例，保留取消/并发/事务失败回归及全门禁；Acceptance Driver=现役外部 NativeScenarioHarness，本文只是后端机制 checkpoint，原生十/二十轮及恢复仍待完整证据；Exploration=不物化作品知识，原文按需探索入口保持不变。复用审查：pending_operations 是事实候选而非成功判据，Summary 负责候选合法性，已有 source claims 是执行唯一性所有者，三者都有现役消费者，不增加第二恢复模型。
+
+独立红例已先运行：recovery 文件 12 项中 2 项按预期失败，分别证明坏引文阻断候选以及内容错误遮住 hash 冲突；原记录位于 `artifacts/model-contracts/b87-r03/20261118/invalid-summary-recovery-07/red.log`。来源表达仍需单独审查，不能贸然升级唯一 decoder 协议导致真实历史 checkpoint 不可读；本 checkpoint 不改协议、不修补旧响应、不启动实模批次。
+
+**实现与独立验证**：现役 Summary 按原归属判据惰性筛选候选，再逐项核恢复事实；只有已核 ProviderOutput hash 的确定性非法输出被排除。零新增持久状态/实体/重试/兼容分支。独立复审后补强仅坏候选两次经过真实维护入口仍零新增调用/Checkpoint、坏候选后遇第二份 hash 损坏仍报错、随后合法原响应实际提交的断言。最终目标文件 12/0；最终完整 `mix check` 3,370/0，强制零警告、codegen、xref、架构、ADR 和 I-CACHE 通过。I1/I2/I3 全通过；Credo 首次发现本次嵌套层数，改为惰性资格筛选后复跑无问题。最终全量测试日志 `verified-mix-check.log`，早期红例和工具环境错误记录保留。
+
+**扫描与未闭环**：`bash scripts/ai_static_scan.sh --top 10` 完整执行，仍 19 pass/2 fail/7 findings；最终实现的编译、xref、架构、Credo、I1/I2/I3/N-NARR/I-CACHE、前端各门禁均通过。剩余五项历史 gitleaks false_positive、一项 ProjectGod accepted_risk、一项真实 UI/task_done pending，延续既有处置，无本次新增发现，不改扫描规则/处置台账。扫描原始报告位于 `artifacts/static-scan/`，执行日志在本证据目录。不能把本 checkpoint 标为完整 R03 PASS。原 82 路径逐文件 SHA 全相同（`wip-preservation.json`），本次只改 4 个此前干净文件，不 push；新模型调用/作者输入均为 0。
+
+**下一入口**：源引用表达应从机械复制义务转向可信冻结来源定位，但须先核真实合法历史 checkpoint 与原文保护，不凭‘未发布’重写响应或使旧历史不可读。此设计未在本轮实施；同轮多调用绑定、provider_internal 原因、原生十/二十轮、取消/交错及真正跨 BEAM 恢复仍待后续证据。R03 doing，R04 不启动。
