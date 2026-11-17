@@ -1239,3 +1239,23 @@ Contract=VS-00L 恢复事实与外部原生验收边界；Invariant=读取/等�
 **整合验证与未关闭项**：`integrated-gates-01` 55 文件 1,111/0，验证前后源码 SHA 不变；完整 `bash scripts/ai_static_scan.sh --top 10` 仍 19 pass / 2 fail / 7 findings。剩余为完成清单/UI 证据 pending，及五项既有 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）与一项 ProjectGod 历史配置 accepted_risk；未改规则或受保护台账。候选/原生对照/截图评审与扫描见本节目录 `observation-review.json`、各 diagnostic-result、`observation-isolated-02.log`、`integrated-gates-01/`。原五份保护 WIP 哈希全部未变，未 push。
 
 **下一执行入口**：原窗口消失尚无因果结论；原生回查还需在当前产品构建中验证整理面板真实可见，不能只用 AX 存在代替截图。C8 的外部故障驱动/完整 oracle 仍需按 §14.13 原 D 响应跨 BEAM 恢复迁移，不得用新来源 E 成功代签；本轮未启动新的十轮/二十轮模型执行，也未进行后端进程摘要恢复验收。完整 R03 保持 doing，不进入 R04。
+
+### 14.15 原响应恢复证据与当前构建可见性（2026-11-18，实施与实际验收边界）
+
+起点 `111e3af8`、144 路径 WIP、空暂存；基线和逐文件 SHA 在 `artifacts/model-contracts/b87-r03/20261118/recovery-closeout-02/before.json`。本步消费 VS-00L §16.2.1 和验收矩阵 §5.2/§5.3，目标是外部 C8 必须证明原 D 摘要持久保留、跨进程保留及同字节转交，不接受新 E 成功；历史整理面板必须实际位于视口且截图可见，不以 AX 存在代签。
+
+Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原文完整、恢复零额外 D 调用、只读等待不改现场；Boundary=既有外部 evidence/driver/fixture 与当前产品构建，产品无验收钩子；Consumer=现役自动维护和历史回查验收；Proof=独立原始事实正反例、隔离提交快照、真实窗口/HTTP/数据库证据分别核验；Acceptance Driver=既有 NativeScenarioHarness、历史序列及原 owned runner，不新造框架；Exploration=不物化作品要素，不更改冻结作者输入或模型预算。复用审查：恢复 oracle、快照 reader、重启 receipt、覆盖校验及滚动输入边界已有当前消费者，只修其职责内缺口。原五保护文件及其它 WIP 保持；未执行的长会话/跨 BEAM 原生场景继续列为未闭环，不以脚本单测代签。
+
+**中断后的现场对账**：上一轮虽无正常最终回复，仓库已存在 `45a296e7fa847670d691f911fc6581b9d3c45860`（17 文件：统一整理事件视图、按历史 DOM 提交定位原文）及 `e244ea12e02239dc1d583283a14944e87e69e023`（34 文件：原 D 摘要的 C8 证据/驱动与必要消费者）。接续现场为 e244ea12、101 路径 WIP，不重复创建上述提交。UI 独立候选 54 文件 511/0，C8 独立候选 1,157/0；这些是已有日志与候选树核验，不等于新跑跨 BEAM 原生恢复。C8 已拒绝丢失原载荷后用新 E 成功代签，必须按原 pcall/prun、冻结计划/响应和事务转交取证。
+
+**当前构建的历史可见性实证**：重新构建当前 Tauri debug app，`continue-closeout-03/current-native-02` 在原失败十轮数据库的隔离副本上运行现役历史回查序列，6 项机械检查通过。直接复核 `history-restored-expanded.jpg`：完整整理面板、真实类别计数、原文保留文案和链接进入视口；`history-original-located.jpg`：原作者消息与模型回复定位高亮，标题/强调已渲染。两次客户端重启后事件集与原文不变。新增作者创作输入/模型调用均为 0；逐表核对源列 ProviderRun/Output/Event 619/610/150420、AgentRun/消息/Interaction 134/57/318，完全一致，原库 SHA 未变。此批只证明客户端历史恢复，不是 BEAM 摘要故障恢复或跨分页验收。
+
+**取证错误保留**：该诊断 wrapper 在原生成功后的 SQLite 只读后验阶段失败；没有改写原退出记录或重跑 UI 凑成功。确认所有 owned 进程结束且无非空 WAL 后，以 immutable 只读重新核原库/副本的完整原列与哈希，独立结论落 `current-native-02/independent-review.json`。首次前置副本读取失败发生在 UI/服务启动前，保留为准备错误，不冒充产品失败。外部候选并行测试曾因原生端口仍占用而使 D8 清场断言失败；清场后原断言不改，1,210/0/skip0。全部原日志保留。
+
+**历史证据链提交**：`0d5ba3d1033d0a597f852055b451215274bc465a`（20 文件）提交历史回查、真实 HTTP/页面证据和必要索引/fixture；提交树 `e2d63790853e998933b66a9f78f6c35f177126cb` 与独立 1,210 项验证树一致。它不夹带 README、G2 材料/候选边界及其它未审 WIP。三组既有/新增提交均未 push，正常 hooks 与暂存密钥扫描，无历史重写。
+
+**首批十轮的真实失败与源头修复**：按原 manifest、原十条输入、原窗口预算和零 harness retry 执行 `native-10-current-01`，第六轮等待超时。实际 6 个业务 run completed、6 次判断及 1 次摘要 completed、1 条 checkpoint。页面原始 AX 已有本轮正文/Why/顶栏无任务，但仅含整理细条的“本轮创作过程”组让 `axTurnOutcome` 跳过普通交付判定。先在验收矩阵 §5.4 固化记录/运行态分责，再独立正反例先红后绿；沿既有 AX owner 分类已知记录容器，不放宽缺正文/Why/空闲/窗口、活动控制坞、未知组及跨作者边界。`a447f03aa539b8b60760c9dee3404c150f9f8f24`（3 文件，tree `4157668251cb63dc5b040ddb994f0e60e36e6dc7`）与独立 1,211/0 快照一致，相关 111/0；保存的真实 AX 修后判 completed，移除 idle 仍 unknown。原批次 FAIL 不改签，不补发第七条，不把离线重算称十轮通过。该组只改外部观察，不给产品加状态或验收钩子。
+
+**第二批十轮与更精确的窗口事实**：修复后另起 `native-10-current-02`，仍用相同 manifest/snapshot/输入/预算，第三轮再次超时；实际 3 个业务 run 和 3 次判断均 completed，尚无整理调用。只读取证记录 `live-readonly-window.json` 与 `native-window-os-facts.json`：原 app PID 仍在、非 hidden、AX 读取成功但窗口数为 0；WindowServer 的全部窗口集合仍登记该 PID 的 1280×801 窗口，但屏幕可见集合中没有目标窗口，目标截图不可得，前台是另一个应用。本轮未盲发 Escape/激活/重启改变故障现场；不能据此推断窗口已被销毁，也未确定桌面切换、最小化、窗口排序或其它因素的因果。旧“Escape 导致消失”仍不是已证根因。原等待上限未延长，未启动第三次实模重跑；两批都保持 FAIL，不能以后台 completed 替代真实页面。
+
+**验证和下一断点**：`continue-closeout-03/full-scan-01` 与 `terminal-scan` 均实际执行完整 `bash scripts/ai_static_scan.sh --top 10`：19 pass/2 fail/7 findings，源码前后 SHA 不变。剩余为旧完成清单/UI 全验收 pending，以及五项历史 gitleaks 误报（Pencil、确认 fixture、RFC nonce、B63、E2E）和一项 ProjectGod 历史配置 accepted_risk；规则与处置台账未变。本轮证据总目录 `artifacts/model-contracts/b87-r03/20261118/continue-closeout-03/`，两次实模共实际发生 9 次判断、1 次摘要，不是十轮验收通过。先取得原生窗口从可见到不可见的生命周期/桌面归属证据，禁止靠读操作抢前台或增加模型重试；之后仍需原十轮、二十轮、取消/交错及 C8 真正跨 BEAM 恢复，风险表第十轮履行的语义尚未到达。R03 保持 doing，R04 未开始。最终 Git 清单、五保护文件哈希及提交后扫描见本目录 final-state 与 post-commit-scan；本节提交前剩余 83 路径，未把其它 WIP 全部判为可提交或不可提交。
