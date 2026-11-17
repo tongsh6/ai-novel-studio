@@ -1383,3 +1383,11 @@ f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用�
 七问：Contract=验收§5.8及VS-00L真实checkpoint/来源/后继请求；Invariant=完整主体归属、准入维护terminal且接收结果已提交、最终反查迟到、首请求不可挑选、一次后继不递归、所有费用计量；Boundary=现役request-cost manifest/capture/driver/batch/compaction证据；Consumer=普通10/20原生批次；Proof=冻结literal与原canonical/events/ProviderRun/Output独立事实，先边界竞态/漏项/重复输入/成本漏计反例，再普通node验证，单测不代签模型质量；Acceptance Driver=既有真实页面输入/typed等待，原预算与零重试；Exploration=无新产品知识或状态，只新增通用作者核对输入。复用审核：原manifest版本冻结、作者输入校验、readonly快照、call binding与C5 owner均已有消费者，保持单一来源；不新增产品hook或评审器。
 
 关键实施约束：不改正在执行的交错/C8文件；普通compaction消费者仅在完整主体边界已证后以限定事件集合复用C5，保留完整canonical和Provider事实，避免新来源校验器。若现役C5结构无法安全复用而必须改共享运行文件，先报告并等待C8退出，不绕过冻结。此节为设计承诺，不宣称新批次已执行或通过。
+
+### 14.26 C8 取消/故障固定来源前置（2026-11-18）
+
+真实失败证据 `c8-native-16`：第14次请求取消C（run_mwlbgdjv_hga）正常 completed，仅 planner 一次，无摘要 Provider。输入44,689 tokens，调用1/33，随后checkpoint只覆盖两条Scope；四条未覆盖讨论受keep4保护，另两项ask_author禁止整理。故无在途摘要，不是漏过短时调用，故障/BEAM重启未执行，不签C8通过。
+
+先修责任契约验收§5.2，再改现役driver及同源外部检查：前10讨论/交错A/B/回答/核对不变，第11条唯一固定预热→C摘要取消→第12条故障D→第13–20条恢复+既有control3。二十条讨论及五条控制输入的字节/哈希不改，不运行中追加至绿。取消前B回复应自然成为最近四项外候选，故障前A恢复回复应自然变旧；以真实坐标、未覆盖/未占用、完成状态、作用域和压力证明，实际准入来源再次匹配。条件不成立即停止原批，不放宽保护、不伪造模型hook、不重调已占用来源。
+
+存在性七问：Contract=验收§5.2真实摘要取消及原响应跨进程恢复；Invariant=固定输入顺序/keep4/永久来源资格/原字节/单次真实调用；Boundary=现役driver、canonical reader与auto-maintenance evidence；Consumer=真实C8批次；Proof=旧四项保护反例、新合法候选正例及错scope/未完成/被覆盖或占用/压力不足反例；Acceptance Driver=既有AX取消/owned backend重启，实际原生未获本次启动许可；Exploration=不新建产品实体或模型机制，仅更正冻结场景前置。原失败记录保留。此节先登记设计与实现约束，验证结果另补，R03仍doing。
