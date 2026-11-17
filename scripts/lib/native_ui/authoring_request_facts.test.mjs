@@ -43,6 +43,35 @@ function irRecord(body) {
   };
 }
 
+
+test("真实 native request.refs 登记同次 IR 引用，不改 HTTP body 或冒充 IR 格式", () => {
+  const body = { model: "local/Q4-PLE4", messages: [{ role: "user", content: "作者原文" }] };
+  const refs = { base_refs: [{ ref: "chapter:actual", version: 2 }],
+    observation_refs: [{ ref: "observation:actual" }], used_refs: ["chapter:actual"] };
+  const record = { provider: "splash", provider_call_ref: "pcall-refs", provider_run_ref: "prun-refs",
+    request: { body, refs } };
+  const facts = requestFactsFromRecord(record);
+  assert.equal(facts.ok, true);
+  assert.equal(facts.format, NATIVE_CHAT_WIRE);
+  assert.deepEqual(facts.refs, refs);
+  assert.strictEqual(facts.rawBody, body);
+  assert.deepEqual(body, { model: "local/Q4-PLE4", messages: [{ role: "user", content: "作者原文" }] });
+  assert.equal(requestFactsFromBody(body).refs, null);
+});
+
+test("native 引用缺失或未知格式保持 unknown，body.refs 与顶层 refs 不得补来源", () => {
+  const valid = { base_refs: [{ ref: "chapter:actual" }], observation_refs: [], used_refs: [] };
+  const body = { messages: [{ role: "user", content: "作者原文" }], refs: valid };
+  for (const refs of [undefined, null, [], "unknown", { base_refs: [] },
+    { ...valid, observation_refs: {} }, { ...valid, used_refs: null },
+    { ...valid, base_refs: [{ ref: "" }] }, { ...valid, used_refs: [null] }]) {
+    const facts = requestFactsFromRecord({ provider: "splash", refs: valid, request: { body, refs } });
+    assert.equal(facts.ok, true);
+    assert.equal(facts.refs, null);
+    assert.strictEqual(facts.rawBody, body);
+  }
+});
+
 test("canonical IR 直接按 role/provenance/blocks 读取作者、应用 Base、scope 与工具事实", () => {
   const body = irBody([
     irMessage("system", "application", [{ type: "text", text: "系统" }]),

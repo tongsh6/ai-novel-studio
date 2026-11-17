@@ -368,6 +368,48 @@ test("L7 不授信来源：system/author/history assistant/失败 observation/va
   for (const [label, messages, ref] of cases) assertViolation(messages, ref, label);
 });
 
+
+test("L7 native Scope 只消费同 pcall/prun 的 request.refs，保留真实 Scope 与观察核验", () => {
+  const scope = realScope({ sourceRefs: ["chapter:actual", "chapter:source-only"] });
+  const record = nativeRecord({ messages: [scope] });
+  record.provider = "splash";
+  record.request.refs = { base_refs: [{ ref: "chapter:actual", version: 2 }],
+    observation_refs: [{ ref: "observation:metadata-only" }], used_refs: ["chapter:actual"] };
+  const check = (used, records = [record], scopes = [scope]) => {
+    const call = assistantCall({ refs: used });
+    const messages = [...scopes, call];
+    return liveRefsCheck({ llmRecords: records, transcript: { messages }, sessionMessages: messages });
+  };
+  const result = check(["chapter:actual"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.reports[0].base_refs, ["chapter:actual"]);
+  assert.deepEqual(result.reports[0].observation_refs, []);
+  assert.equal(check(["chapter:source-only"]).ok, false);
+  assert.equal(check(["observation:metadata-only"]).ok, false);
+  const altered = structuredClone(scope);
+  altered.versions.scope_revision += 1;
+  assert.equal(check(["chapter:actual"], [record], [altered]).reason, "scope_provenance_unbound");
+  const wrongRun = structuredClone(record);
+  wrongRun.provider_run_ref = "prun-other";
+  assert.equal(check(["chapter:actual"], [wrongRun]).ok, null);
+});
+
+test("L7 native request.refs 不跨调用借用，缺失或坏格式不由累计 refs 补齐", () => {
+  const scope = realScope({ sourceRefs: ["chapter:actual"] });
+  const first = nativeRecord({ messages: [scope] });
+  const second = nativeRecord({ providerCallRef: "pcall_2", providerRunRef: "prun_2", messages: [scope] });
+  second.request.refs = { base_refs: [{ ref: "chapter:actual" }], observation_refs: [], used_refs: [] };
+  const call = assistantCall({ refs: ["chapter:actual"] });
+  const messages = [scope, call];
+  for (const refs of [undefined, { base_refs: [] }, { base_refs: [{ ref: "" }], observation_refs: [], used_refs: [] }]) {
+    first.request.refs = refs;
+    const result = liveRefsCheck({ llmRecords: [first, second],
+      transcript: { base_refs: [{ ref: "chapter:actual" }], messages }, sessionMessages: messages });
+    assert.equal(result.ok, null);
+    assert.equal(result.reason, "request_base_refs_unavailable");
+  }
+});
+
 test("L7 现役 Scope：普通来源不授 Base，缺同次 Base 登记为 unknown，旧文本与引用不授信", () => {
   const actualScope = realScope({ sourceRefs: ["turn:author", "chapter:material", "observation:source-only"] });
   const actualAuthor = irMessage("user", "author", [{ type: "text", text: AUTHOR }], {

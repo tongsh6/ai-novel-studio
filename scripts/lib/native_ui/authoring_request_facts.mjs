@@ -418,6 +418,17 @@ function wireShapeReason(body) {
   return malformed ? "native_request_body_malformed_message" : null;
 }
 
+// 同一真实调用的 IR 引用由 Gateway/LLMLog 登记在 request 元数据，不进入 HTTP body。
+// 缺失或未知形状保留 null；不从 Scope 来源、wire 文本或其它调用反推。
+function nativeRequestRefs(record) {
+  const refs = record?.request?.refs;
+  if (!isRecord(refs)) return null;
+  const sources = (value) => Array.isArray(value) &&
+    value.every((source) => isRecord(source) && nonBlank(source.ref));
+  return sources(refs.base_refs) && sources(refs.observation_refs) &&
+    Array.isArray(refs.used_refs) && refs.used_refs.every(nonBlank) ? refs : null;
+}
+
 function wireFacts(record, body) {
   const shapeReason = wireShapeReason(body);
   if (shapeReason !== null) {
@@ -439,7 +450,7 @@ function wireFacts(record, body) {
     toolChoice: body.tool_choice ?? null,
     run: null,
     system: null,
-    refs: null,
+    refs: nativeRequestRefs(record),
     projection: null,
     ...classified,
     malformedCalls: parsed.malformedCalls,

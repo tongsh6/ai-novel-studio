@@ -5,9 +5,10 @@
 // tool_call.arguments.self_report.used_context_refs。边界只从配对 record 经
 // requestFactsFromRecord 读取：application_base 沿用其来源边界；现役结构化 Scope
 // 必须经 sessionMessages 的同次 canonical 前缀逐项绑定，不能以当前 run 段代替
-// 会话前缀；历史 run 自报不计入当前 used。Base 只取该请求 IR.refs.base_refs 的明确登记。
+// 会话前缀；历史 run 自报不计入当前 used。Base 只取该请求 IR.refs.base_refs 的明确登记，
+// 真实 wire 从同一 LLMLog request.refs 读取；HTTP body 与 pcall/prun 仍分别核对。
 // Scope.source_refs 只是来源，prose、目标、引用和历史 text 块都不扩充 Base/observation。
-// 原生 wire 未提供同次 canonical Base 时如实缺证，最终段头的累计 refs 不能代签。
+// 原生调用未记录同次 Base 元数据时如实缺证，最终段头的累计 refs 不能代签。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
 // 与同请求原生 content.observation_ref 身份。直接 observation 只认自身 status=ok；
 // planned_exploration 聚合父块 status=ok/partial 时只接纳各自 ok 的叶，叶 refs/身份沿用
