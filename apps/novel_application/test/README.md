@@ -4,6 +4,8 @@
 
 ## 文件与目录
 
+- [novel_application/agentic_plan_completed_prefix_test.exs](novel_application/agentic_plan_completed_prefix_test.exs)：已完成计划前缀的纯不变量；保留、改写、缺失及无当前计划边界，与真实 Provider/IR 规划编排测试分离，不复制 Provider 支撑。
+
 - [test_helper.exs](test_helper.exs)：启动 ExUnit/Sandbox，定义 `NovelApplication.TestAssertions` 与 `NovelApplication.TestAgenticLoopFixtures`。`prompt_text/1` 对 `%NovelCommon.RequestIR{}` 读取 canonical `role/blocks`，对 binary 或 Gateway 注入后的真实 system/user list 复用 `NovelTest.TestProviderPrompt.text/1`；`message_text/1` 只提取消息文本块，不合成 canonical 字段。
 - [support/README.md](support/README.md)：可被 `novel_application` 与 `novel_web` 共同加载的测试生命周期 helper 索引。
 - `novel_application/`：应用用例、flow、canonical transcript/请求构造与历史消费者测试。Provider 请求断言直接消费 `RequestIR` 的 `role/provenance/blocks/tools/projection`，不再经旧 wire bridge 反解析；测试构造 `projection` 只用真实字段（`tool_choice` / `finite_mode` 等），不写 `target`/`capability_profile`，能力事实由 Gateway 按实际 fixture route 派生。
