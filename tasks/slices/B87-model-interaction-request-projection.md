@@ -1330,7 +1330,7 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 
 本步与外部失败调用绑定独立，分别验证与分组提交；旧批次、原始失败和82路径WIP保留。
 
-**实现与验证**：`5304fd65` 提交现役SSEStream及既有预览测试。真正5.1秒sink红例先产生5000ms Agent.update超时（red-02.log）；移出外部副作用后目标13/0、Provider目录411/0，新增慢sink/顺序/取消/显式deadline/EOF异常清理五例。最终完整mix check 3375/0；完整扫描首次18pass/3fail/9发现，其中本次测试新增2项Credo AliasUsage，正在修正复跑，不能报扫描无新问题。其余7项仍为UI/task_done pending、5历史误报及1accepted risk；I1/I2/I3/N-NARR/I-CACHE等门禁已通过。早期fixture漏endpoint、事务拒绝后旧代码仍失败的日志保留不冒称绿。证据在`stream-consumer-boundary-09/`；无新模型调用或原生验收，R03仍未闭环。
+**实现与验证**：`5304fd65` 提交现役SSEStream及既有预览测试。真正5.1秒sink红例先产生5000ms Agent.update超时（red-02.log）；移出外部副作用后目标13/0、Provider目录411/0，新增慢sink/顺序/取消/显式deadline/EOF异常清理五例。最终完整mix check 3375/0；完整扫描首次18pass/3fail/9发现，其中本次测试新增2项Credo AliasUsage，已由cbf582a9修正，后续§14.21最终扫描确认Credo通过。其余7项仍为UI/task_done pending、5历史误报及1accepted risk；I1/I2/I3/N-NARR/I-CACHE等门禁已通过。早期fixture漏endpoint、事务拒绝后旧代码仍失败的日志保留不冒称绿。证据在`stream-consumer-boundary-09/`；无新模型调用或原生验收，R03仍未闭环。
 
 ### 14.21 精确片段引用与真实历史保留（2026-11-18，实施 checkpoint）
 
@@ -1340,4 +1340,8 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 
 七问：Contract=VS-00L §16.2.1及现役discussion/capsule字节契约；Invariant=精确源字节、旧历史可读但无新执行资格、未知拒绝、摘要不授权、原响应单一真源；Boundary=现役common来源/压缩/投影、Application摘要准入恢复、Persistence事实校验及外部checkpoint证据，不增加表/后台/独立摘要服务；Consumer=真实压力维护与三wire历史投影；Proof=先独立行片段/CRLF/非连续/越界/旧canonical/旧坏pending/请求版本冲突反例，再跨层回归与全门禁；Acceptance Driver=原3/10/20 NativeScenarioHarness与冻结输入，最终必须真实模型义务保留和原生整理，当前设计不代签；Exploration=复用现役session_message_read原文可达，不增加专用知识packet。复用查重：MessageCoverage已有源解析，DiscussionSummary已有材料预算，Compaction已有完整历史，ProviderRun已有唯一capsule，各自责任内扩展，不建重复所有者。
 
-本节为实施前目标，未声称实现/验证完成；与§14.19/§14.20分文件推进，最终逐项报告。
+**实施与验证**：b7d4e75d完成现役7个生产文件与针对性测试：新v2完整行索引、混合CRLF/CR/LF原字节、相邻片段拼合/非连续分开、预算边界、三wire投影、冻结capsule版本、历史v1合法及malformed pending读取、请求响应版本错配拒绝。独立评审另发现临时wire文本可伪装canonical，先复现common/application错误接受，再由RequestIR消息契约拒绝无结构checkpoint的checkpoint角色；真实codec→validate_segment→commit_snapshot拒绝且不落run/segment。恢复反例改为真实v2越界/重复索引，hash损坏仍优先失败，不靠版本错配制造假覆盖。
+
+外部oracle单独提交fbfee1b5，独立核对冻结来源/完整片段/响应版本；v1/v2均须唯一正确系统声明。实查真实旧v1有该声明后，修正旧fixture而不放宽核验。完整native脚本测试1045/1045通过。初次全门禁发现summary测试826行规模门禁：按实际消费者拆分prepare用例8个与AgentRunService生命周期7个，单一test support共享Provider/setup，删除原内嵌重复责任；不压行、删反例、放宽阈值或豁免。最终完整mix check3384/0；全扫描19pass/2fail/7发现，新增Credo/规模问题均已消除，I1/I2/I3/N-NARR/I-CACHE、架构、前端等通过。剩余是尚待真实UI证据的task_done及既有5项误报、1项accepted risk，不能称全扫描通过。
+
+证据fragment-protocol-10/保留所有红/绿/首次扫描失败与scan-final-pre-native。原82路径中81个字节不变；test README仅增一条新runtime索引，先快照逐字比较并按独立index patch只提交新增行，原3条WIP仍未提交。真实3→10→20及交错/C8/取消尚待执行，独立语义检查已在实模前按冻结20轮作者原文记录semantic-review-plan.md。R03仍doing，不以单元测试/静态检查代签模型义务保留、实际页面整理或恢复闭环。

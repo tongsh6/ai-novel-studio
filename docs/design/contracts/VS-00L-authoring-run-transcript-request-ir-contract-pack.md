@@ -409,7 +409,7 @@ v2完整材料形状固定为`{material_kind:"quoted_discussion_sources",sources
 
 checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_ref/provider_run_ref`：原始响应字节及真实执行归因；entries 从原文解析，不双存第二份摘要真源。SHA-256 对真实 UTF-8 响应计算，并由既有 ProviderOutput 的安全内容摘要持有同一 hash；实际 Provider 事实提交成功且身份/状态/hash匹配后，才允许 checkpoint 生效。恢复同样核验来源，不补造调用或猜相同长度。普通系统整理说明与模型讨论摘要分开，后者不能升格为 canon、观察、已执行结果或授权。
 
-**已接收摘要的持久恢复（2026-11-17，实施前责任修订）。** 仅保存 hash 不能恢复尚未提交的摘要，日志不是恢复真源。沿既有 ProviderRun 执行归属增加唯一私有 `operation_checkpoint` JSON 列：准入事务冻结版本、原目标版本及精确计划（不复制 canonical 来源原文），终态事实事务将实际公开输出文本加入该载荷；ProviderOutput 继续只存安全摘要/hash。只有该事务成功才称本地已持久接收，失败或此前进程消失保持未知且不重发，不以一次内存接收冒充持久保证。该列不进入 Logger、owner_refs、metadata、activity、usage 或作者事件，普通字段投影不得更新它；不保存 reasoning/密钥。新增列用增量迁移保留真实作者数据，不建立旧协议兼容分支。
+**已接收摘要的持久恢复（2026-11-17，实施前责任修订）。** 仅保存 hash 不能恢复尚未提交的摘要，日志不是恢复真源。沿既有 ProviderRun 执行归属增加唯一私有 `operation_checkpoint` JSON 列：准入事务冻结版本、原目标版本及精确计划（不复制 canonical 来源原文），终态事实事务将实际公开输出文本加入该载荷；ProviderOutput 继续只存安全摘要/hash。只有该事务成功才称本地已持久接收，失败或此前进程消失保持未知且不重发，不以一次内存接收冒充持久保证。该列不进入 Logger、owner_refs、metadata、activity、usage 或作者事件，普通字段投影不得更新它；不保存 reasoning/密钥。新增列用增量迁移保留真实作者数据，不恢复旧请求生产路径；下述严格历史读取只服务已经存在的不可改写内容与执行事实。
 
 恢复是原响应的确定性提交，不是重新执行旧 bounded run。现役维护安全点先检查同作品/会话的待提交响应：本 run 或已经结束的旧 run 可作为执行来源，活动外 run、取消/暂停、方向版本已变者不得被接管；真实源坐标、冻结材料 digest、ProviderOutput hash、合法覆盖及当前保护集均重新核验，原计划不重新挑选来源，恢复不计第二次 Provider 调用且不依赖新的压力或模型预算。跨 run 应用时 checkpoint 归属当前提交 run、discussion 仍引用原 Provider 执行，两个身份不可混淆。checkpoint、作者事件和私有载荷清除在同一 immediate 事务内完成；任一失败全部回滚、保留待提交原响应；并发消费者由同一写事务和 canonical 覆盖校验裁决，成功后重复终态不能重新建立恢复载荷。canonical 成为唯一摘要正文所有者，来源执行资格始终不释放。已有完成事实却缺原文不得从日志补造，也不自动再调用模型。
 恢复提交必须在同一写锁内、upsert 之前同时核实原执行 run 和接收 run 的已持久事实。旧接收快照不能覆盖已经提交的取消/暂停或新目标版本再自行证明可恢复；身份/目标版本必须与持久接收方一致，缺行不猜测可用。复用既有运行行、ProviderFactMerge 纯判据与 ProviderRunLog 事务，不新增锁或恢复状态。
