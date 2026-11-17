@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { evaluatePreregisteredCompaction } from "./request_cost_compaction_evidence.mjs";
+import { auditSubjectWindowBoundary, evaluatePreregisteredCompaction } from "./request_cost_compaction_evidence.mjs";
 import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
 import { discussionMaintenanceFacts } from "./fixtures/authoring_discussion_facts.mjs";
 import { autoMaintenanceConfig } from "./fixtures/authoring_auto_maintenance_facts.mjs";
@@ -136,6 +136,188 @@ function batch(length) {
   refreshHistory(input);
   return { input, plan };
 }
+
+test("主体封边界来自原作者和已终结维护，未提交响应或迟到事实不能自证闭合", () => {
+  const { input } = batch(10);
+  const args = { config: input.config, source: input.source, dbFacts: input.dbFacts };
+  assert.equal(auditSubjectWindowBoundary(args).ok, true);
+  for (const mutate of [
+    s => { s.dbFacts.agent_runs[0].status = "running"; },
+    s => { s.dbFacts.provider_runs.find(r => r.id === "prun-summary").status = "running"; },
+    s => { s.dbFacts.provider_runs.find(r => r.id === "prun-summary").operation_checkpoint = { response_text: "pending" }; },
+    s => { s.dbFacts.provider_outputs = []; },
+    s => { s.dbFacts.authoring_session_messages = s.dbFacts.authoring_session_messages.filter(r => r.role !== "checkpoint"); },
+    s => { s.dbFacts.agent_events = []; },
+    s => { s.source.authors[0].text += "changed"; },
+  ]) {
+    const bad = structuredClone(args); mutate(bad);
+    assert.notEqual(auditSubjectWindowBoundary(bad).ok, true);
+  }
+  const cleared = structuredClone(args);
+  cleared.dbFacts.provider_runs.find(r => r.id === "prun-summary").operation_checkpoint = "null";
+  assert.equal(auditSubjectWindowBoundary(cleared).ok, true);
+});
+
+test("未闭合边界不发送后继时保持partial；坏canonical和多余作者仍fail", () => {
+  const {input}=batch(10);
+  input.config.successor_observation={lengths:[10,20],count:1};
+  input.source.successorAuthor={id:"successor",text:"核对已有交付"};
+  const missing=evaluatePreregisteredCompaction(input);
+  assert.equal(missing.status,"partial");
+  assert.equal(missing.checks.pressure.ok,null);
+  assert.equal(missing.checks.all_author_originals.ok,null);
+  assert.equal(missing.checks.next_request.ok,null);
+  assert.equal(missing.checks.next_request.detail?.checks?.filter(check=>check.ok).length??0,0);
+  const bad=structuredClone(input);
+  changeCheckpoint(bad,block=>{block.discussion.response_sha256="0".repeat(64);});
+  assert.equal(evaluatePreregisteredCompaction(bad).status,"fail");
+  const extra=successorBatch();
+  const row=extra.dbFacts.authoring_session_messages.find(item=>item.run_id==="successor"&&item.role==="user");
+  extra.dbFacts.authoring_session_messages.push({...row,id:"extra-author",sequence:999,run_sequence:99});
+  refreshHistory(extra);
+  assert.equal(evaluatePreregisteredCompaction(extra).checks.all_author_originals.ok,false);
+});
+
+function successorBatch() {
+  const { input } = batch(10);
+  input.config.successor_observation = { lengths: [10,20], count: 1 };
+  input.source.successorAuthor = { id: "successor", text: "只核对已经交付与仍缺少的内容。", sha256: hash("只核对已经交付与仍缺少的内容。") };
+  input.dbFacts.agent_events[0].inserted_at = "2026-11-04T10:00:02.000Z";
+  input.windowBoundary = { captured_at: "2026-11-04T10:00:03.000Z", dbFacts: structuredClone(input.dbFacts) };
+  const db = input.dbFacts, oldRoot = input.bindings.at(-1).root;
+  const root = { ...oldRoot, id: "successor", parent_turn_ref: "turn-successor" };
+  const oldReply = JSON.parse(db.authoring_session_messages.at(-1).message);
+  const record = structuredClone(finalRecord(input));
+  Object.assign(record, { provider_call_ref: "pcall-successor", provider_run_ref: "prun-successor", turn_id: root.parent_turn_ref });
+  record.request.body.messages.push({ role: "assistant", content: text(oldReply) },
+    { role: "user", content: input.source.successorAuthor.text });
+  input.records.push(record);
+  db.agent_runs.push(root);
+  const last = db.authoring_session_messages.at(-1);
+  const add = (runSequence, message) => db.authoring_session_messages.push({ ...last,
+    sequence: last.sequence + runSequence, id: "successor-row-" + runSequence, run_id: root.id,
+    run_sequence: runSequence, role: message.role, message: JSON.stringify(message) });
+  add(1, { role: "user", provenance: "author", blocks: [{ type:"text", text: input.source.successorAuthor.text }],
+    source_refs: [{ref:root.parent_turn_ref}], versions:{} });
+  add(2, { role: "assistant", provenance: "model", blocks: [{type:"text",text:"只按原文核对。"}],
+    provider_call_ref:record.provider_call_ref,provider_run_ref:record.provider_run_ref,source_refs:[],versions:{} });
+  db.provider_runs.push({...root,id:record.provider_run_ref,agent_run_id:root.id,
+    provider_call_ref:record.provider_call_ref,purpose:"planner",owner_refs:{}});
+  db.provider_events.push({provider_run_id:record.provider_run_ref,provider_call_ref:record.provider_call_ref,
+    event_type:"started",emitted_at:"2026-11-04T10:00:04.000Z"});
+  input.successorBinding = { root, records:[record], operations:new Map(), history:{} };
+  refreshHistory(input);
+  input.successorBinding.history.sessionMessages = input.bindings[0].history.sessionMessages;
+  input.wire.push({direction:"sent",at:"2026-11-04T10:00:03.500Z",
+    frame:["join","request","workspace:"+root.workspace_id,"user_message",{turn_id:root.parent_turn_ref,text:input.source.successorAuthor.text}]},
+    {direction:"received",at:"2026-11-04T10:00:05.000Z",
+      frame:[null,null,"workspace:"+root.workspace_id,"turn_result",{turn_id:root.parent_turn_ref,work_id:root.work_id,
+        session_id:root.session_id,agent_run:{run_id:root.id,parent_turn_ref:root.parent_turn_ref,status:"running"}}]});
+  return input;
+}
+
+test("固定后继验证主体尾维护，不将多一次请求混成主体轮数", () => {
+  const input = successorBatch(), result = evaluatePreregisteredCompaction(input);
+  assert.equal(result.status,"pass",JSON.stringify(result.checks));
+  assert.equal(result.checks.author_runs_completed.runs.length,10);
+  assert.equal(result.checks.every_request_preserved.calls.length,11);
+  assert.equal(result.checks.next_request.detail.checks[0].provider_call_ref,"pcall-successor");
+  assert.deepEqual(result.successor_window.successor_checkpoints_unobserved,[]);
+  assert.equal(result.signed,false);
+});
+
+test("后继新增维护完整保留并列为未观察，不递归要求第二次后继", () => {
+  const input=successorBatch(), db=input.dbFacts;
+  const oldScope=db.authoring_session_messages.find(row=>row.run_id==="current" && row.role==="scope_update");
+  const body=JSON.parse(oldScope.message), last=db.authoring_session_messages.at(-1);
+  const scope={...oldScope,id:"successor-scope",run_id:"successor",run_sequence:3,sequence:last.sequence+1};
+  const covers={call_ids:[],message_refs:[{run_id:"current",run_sequence:oldScope.run_sequence,
+    role:"scope_update",source_refs:body.source_refs,versions:body.versions}],turn_range:"turn-current"};
+  const checkpoint={role:"checkpoint",provenance:"application",blocks:[{type:"checkpoint",covers,
+    source_refs:[...body.source_refs,{ref:"session_message:current:"+oldScope.run_sequence,version:1}],
+    versions:{},omissions:["旧范围已整理"]}],source_refs:[],versions:{}};
+  db.authoring_session_messages.push(scope,{...last,id:"successor-checkpoint",run_sequence:4,
+    sequence:last.sequence+2,role:"checkpoint",message:JSON.stringify(checkpoint)});
+  db.agent_events.push({run_id:"successor",sequence:10,event_type:"checkpoint_created",
+    inserted_at:"2026-11-04T10:00:06.000Z",payload:{covered_counts:{tool_exchanges:0,scope_updates:1,discussion_messages:0}}});
+  refreshHistory(input);
+  input.successorBinding.history.sessionMessages=input.bindings[0].history.sessionMessages;
+  const result=evaluatePreregisteredCompaction(input);
+  assert.equal(result.status,"pass",JSON.stringify(result.checks));
+  assert.equal(result.canonical_checkpoints.length,2);
+  assert.equal(result.successor_window.successor_checkpoints_unobserved.length,1);
+  assert.equal(result.checks.next_request.detail.checks.length,1);
+});
+
+test("后继高usage不能替代主体压力，错原文与边界后的提交不能放行", () => {
+  const low=successorBatch();
+  for(const record of low.records) if(record.response?.usage) record.response.usage.input_tokens=1000;
+  low.successorBinding.records[0].response.usage.input_tokens=25000;
+  assert.equal(evaluatePreregisteredCompaction(low).checks.pressure.ok,false);
+  for(const mutate of [
+    s=>{s.wire.find(record=>record.direction==="sent").frame[4].text="tampered";},
+    s=>{s.windowBoundary.captured_at="2026-11-04T10:00:01.000Z";},
+  ]) {
+    const input=successorBatch();mutate(input);
+    assert.notEqual(evaluatePreregisteredCompaction(input).status,"pass");
+  }
+});
+
+test("第一业务请求缺覆盖，后续纠正请求正确也不能洗绿", () => {
+  const input=successorBatch(), first=input.successorBinding.records[0];
+  const later=structuredClone(first);
+  later.provider_run_ref="later-provider";later.provider_call_ref="later-call";
+  input.records.push(later);
+  input.dbFacts.provider_runs.push({...input.dbFacts.provider_runs.at(-1),
+    id:later.provider_run_ref,provider_call_ref:later.provider_call_ref});
+  input.dbFacts.provider_events.push({provider_run_id:later.provider_run_ref,provider_call_ref:later.provider_call_ref,
+    event_type:"started",emitted_at:"2026-11-04T10:00:04.500Z"});
+  first.request.body.messages=first.request.body.messages.filter(message=>!message.content?.includes("· checkpoint ·"));
+  const result=evaluatePreregisteredCompaction(input);
+  assert.equal(result.checks.next_request.ok,false);
+  assert.equal(result.checks.next_request.detail.checks[0].provider_call_ref,"pcall-successor");
+  assert.equal(result.checks.next_request.detail.checks[0].reason,"checkpoint_cover_mismatch");
+});
+
+test("主体边界新增ProviderRun的owner_refs损坏时无法证明闭合", () => {
+  const input=successorBatch();
+  const db=input.windowBoundary.dbFacts;
+  db.provider_runs.push({...db.provider_runs.find(run=>run.id==="prun-summary"),
+    id:"malformed-boundary-provider",provider_call_ref:"malformed-boundary-call",owner_refs:'{"operation":'});
+  assert.equal(auditSubjectWindowBoundary({config:input.config,source:input.source,dbFacts:db}).ok,null);
+  const result=evaluatePreregisteredCompaction(input);
+  assert.equal(result.status,"partial");
+  assert.equal(result.checks.subject_window.ok,null);
+  assert.equal(result.checks.next_request.ok,null);
+});
+
+test("最终新增主体ProviderRun的owner_refs损坏时不能遗漏为非维护", () => {
+  const input=successorBatch();
+  input.dbFacts.provider_runs.push({...input.dbFacts.provider_runs.find(run=>run.id==="prun-summary"),
+    id:"malformed-final-provider",provider_call_ref:"malformed-final-call",owner_refs:'{"operation":'});
+  const result=evaluatePreregisteredCompaction(input);
+  assert.equal(result.status,"partial");
+  assert.equal(result.checks.subject_window.ok,null);
+  assert.equal(result.checks.next_request.ok,null);
+});
+
+test("主体迟到/未闭合、后继缺失/重复/早发与首次请求错误均不得补绿", () => {
+  for (const mutate of [
+    s=>{s.windowBoundary=null;},
+    s=>{s.windowBoundary.dbFacts.provider_runs.find(r=>r.id==="prun-summary").status="running";},
+    s=>{s.dbFacts.authoring_session_messages.push({...s.dbFacts.authoring_session_messages.find(r=>r.role==="checkpoint"),id:"late",sequence:999,run_sequence:99});},
+    s=>{s.dbFacts.provider_runs.push({...s.dbFacts.provider_runs.find(r=>r.id==="prun-summary"),id:"late"});},
+    s=>{s.successorBinding=null;},
+    s=>{s.source.successorAuthor.text+="changed";},
+    s=>{s.wire.push(structuredClone(s.wire.find(r=>r.direction==="sent")));},
+    s=>{s.wire.find(r=>r.direction==="sent").at=s.windowBoundary.captured_at;},
+    s=>{s.successorBinding.root.status="failed";},
+    s=>{s.successorBinding.records[0].request.body.messages = s.successorBinding.records[0].request.body.messages.filter(m=>!m.content?.includes("· checkpoint ·"));},
+  ]) {
+    const input=successorBatch(); mutate(input);
+    assert.notEqual(evaluatePreregisteredCompaction(input).status,"pass");
+  }
+});
 
 for (const length of [3, 10, 20]) {
   test(length + " 轮独立正例：逐字原文、实际前缀、压力与覆盖共同成立，语义仍待审", () => {

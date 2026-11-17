@@ -32,6 +32,9 @@ import {
   verifyConfigMatches,
   verifyDriverShape,
   verifyTurns,
+  verifyTurn,
+  observationCostSummary,
+  verifySuccessorVisible,
 } from "./request_cost_batch_evidence.mjs";
 import {
   LENGTHS,
@@ -39,6 +42,7 @@ import {
   validateAuthorInputs,
   tokenAggregate,
   validateManifest,
+  validateSuccessorObservation,
 } from "./request_cost_manifest.mjs";
 import {
   businessContentCanonSha,
@@ -61,7 +65,7 @@ import {
 } from "./scenario_evidence.mjs";
 import { readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import { readAutoMaintenanceDbFacts } from "./authoring_auto_maintenance_evidence.mjs";
-import { evaluatePreregisteredCompaction } from "./request_cost_compaction_evidence.mjs";
+import { evaluatePreregisteredCompaction, auditSubjectWindowBoundary } from "./request_cost_compaction_evidence.mjs";
 import { verifyCompactionHistoryReport } from "./request_cost_history_drive.mjs";
 import {
   joinNativeCallEvidence,
@@ -166,6 +170,56 @@ function authorFromRecord(records, author) {
   };
 }
 
+const SUCCESSOR_INPUT_FILE = "request-cost-successor-input.json";
+function successorAuthorFromRaw(raw, specification) {
+  validateSuccessorObservation(specification);
+  assert.equal(sha256(raw), specification.source.sha256, "successor input file hash mismatch");
+  const input = validateAuthorInputs(JSON.parse(raw), {expectedCount:1});
+  const author = input.turns[0];
+  assert.equal(author.id, specification.author.id, "successor author id mismatch");
+  assert.equal(author.sha256, specification.author.sha256, "successor author hash mismatch");
+  assert.equal(sha256(author.text), author.sha256, "successor author bytes mismatch");
+  return author;
+}
+
+export function readSuccessorAuthor(batchDir, config) {
+  assert(config.successor_observation, "successor observation not registered");
+  return successorAuthorFromRaw(fs.readFileSync(path.join(batchDir,SUCCESSOR_INPUT_FILE),"utf8"),
+    config.successor_observation);
+}
+
+// One transaction freezes the ordinary batch boundary, not a second interpretation
+// of maintenance facts. The shared pure oracle owns source/commit admissibility.
+export function readCostWindowFacts(batchDir) {
+  return withDb(batchDir, db => {
+    db.exec("BEGIN");
+    try {
+      return Object.fromEntries(["agent_events","agent_runs","authoring_session_messages",
+        "provider_runs","provider_outputs","provider_events","interactions","mutations"]
+        .map(table => [table,all(db, `SELECT * FROM ${table}`).map(row=>({...row}))]));
+    } finally { db.exec("ROLLBACK"); }
+  });
+}
+
+export function captureSubjectWindow({batchDir,config}) {
+  const file=path.join(batchDir,"request-cost-subject-window.json");
+  assert(!fs.existsSync(file),"subject window already captured");
+  const loaded=readManifest(config.manifest.path);
+  assert.equal(loaded.manifestSha256,config.manifest.sha256,"manifest changed before boundary");
+  const source=loadSourceAuthors(loaded.manifest);
+  const checks={};
+  verifyConfigMatches({config,loaded,source,checks,fail:(_key,reason)=>{ throw new Error(reason); }});
+  assert.equal(checks.config_matches_manifest,true,"successor config differs from frozen manifest");
+  assert(config.successor_observation,"successor observation not enabled for this length");
+  assert.deepEqual(readSuccessorAuthor(batchDir,config),source.successorAuthor,"sealed successor differs from frozen source");
+  const dbFacts=readCostWindowFacts(batchDir);
+  const captured_at=new Date().toISOString();
+  const audit=auditSubjectWindowBoundary({config,source,dbFacts});
+  const record={captured_at,dbFacts,audit};
+  fs.writeFileSync(file,JSON.stringify(record,null,2),{flag:"wx"});
+  return record;
+}
+
 function loadPreregisteredAuthors(manifest) {
   const file = resolvePath(manifest.source.path);
   assert.equal(shaFile(file), manifest.source.sha256, "预注册输入文件hash不符，拒绝替换样本");
@@ -178,7 +232,10 @@ function loadPreregisteredAuthors(manifest) {
     return { id: turn.id, text: turn.text, sha256: turn.sha256,
       inputIndex: reference.input_index, target: turn.target, obligations: turn.obligations };
   });
-  return { kind: PREREGISTERED_SOURCE_KIND, authors, inputFile: file };
+  const successorAuthor = manifest.successor_observation
+    ? successorAuthorFromRaw(fs.readFileSync(resolvePath(manifest.successor_observation.source.path),"utf8"),
+      manifest.successor_observation) : null;
+  return { kind: PREREGISTERED_SOURCE_KIND, authors, inputFile: file, ...(successorAuthor ? {successorAuthor} : {}) };
 }
 
 export function loadSourceAuthors(manifest) {
@@ -574,9 +631,17 @@ export function prepareBatch({ manifestPath, batchDir, length }) {
       target: author.target,
     };
   });
+  const successor = loaded.manifest.successor_observation?.lengths.includes(length)
+    ? loaded.manifest.successor_observation : null;
+  if (successor) {
+    const raw=fs.readFileSync(resolvePath(successor.source.path),"utf8");
+    successorAuthorFromRaw(raw,successor);
+    fs.writeFileSync(path.join(batchDir,SUCCESSOR_INPUT_FILE),raw,{flag:"wx"});
+  }
   const config = {
     schema: CONFIG_SCHEMA,
     frozen: true,
+    ...(successor ? {successor_observation:successor} : {}),
     manifest: {
       path: loaded.manifestPath,
       sha256: loaded.manifestSha256,
@@ -1199,7 +1264,7 @@ function writeNativeReport({ batchDir, report, common, outDir = batchDir }) {
     },
   }, (dir, name, value) => writeDerivedJson(path.join(dir, name), value));
 }
-function preregisteredEvidence({ batchDir, config, source, driver, bindings, records, wire }) {
+function preregisteredEvidence({ batchDir, config, source, driver, bindings, successorBinding, records, wire }) {
   if (source.kind !== PREREGISTERED_SOURCE_KIND) return null;
   try {
     const file = path.join(batchDir, "compaction-history-ui.json");
@@ -1209,7 +1274,10 @@ function preregisteredEvidence({ batchDir, config, source, driver, bindings, rec
       required: config.length >= 10, requireOutsideInitialPage: config.length === 20,
     });
     return evaluatePreregisteredCompaction({ config, source, bindings, records, wire,
-      dbFacts: readAutoMaintenanceDbFacts(batchDir), uiEvidence: { ...ui, ...uiCheck } });
+      dbFacts: config.successor_observation ? readCostWindowFacts(batchDir) : readAutoMaintenanceDbFacts(batchDir),
+      windowBoundary: config.successor_observation && fs.existsSync(path.join(batchDir,"request-cost-subject-window.json"))
+        ? readJson(path.join(batchDir,"request-cost-subject-window.json")) : null,
+      successorBinding, uiEvidence: { ...ui, ...uiCheck } });
   } catch (error) {
     return { status: "fail", signed: false, semantic_status: "review_required",
       checks: { evidence: { ok: false, reason: error.message } } };
@@ -1236,12 +1304,15 @@ export function verifyBatch({ batchDir, outDir = null }) {
     if (hard) hardFailures.push(entry);
   };
 
+  const successorSent = Boolean(config.successor_observation && wire.some(record =>
+    record.direction === "sent" && record.frame?.[3] === "user_message" &&
+    record.frame?.[4]?.text === source.successorAuthor?.text));
   let common = null;
   try {
     common = assertCommonEvidence(batchDir, {
       sliceId: "b87-r01-request-cost",
-      minScreenshots: config.length + 1,
-      minimumWaits: 3 + 3 * config.length,
+      minScreenshots: config.length + 1 + (successorSent ? 1 : 0),
+      minimumWaits: 3 + 3 * config.length + (successorSent ? 4 : 0),
       requiredKinds: ["maintenance", "input", "turn"],
     });
     checks.native_ui_evidence = true;
@@ -1274,6 +1345,28 @@ export function verifyBatch({ batchDir, outDir = null }) {
     fail,
     notCollected,
   });
+  let successorBinding = null, successorTurnReport = null;
+  if (config.successor_observation) {
+    const author=readSuccessorAuthor(batchDir,config);
+    assert.deepEqual(author,source.successorAuthor,"sealed successor differs from frozen source");
+    const turn=driver?.successor_observation?.turns?.[0];
+    const plan={turn:config.length+1,author_id:author.id,author_sha256:author.sha256,target:author.target};
+    if (turn) successorBinding=bindRootRunCalls({dir:batchDir,config,turn,records,plan,fail});
+    successorTurnReport=verifyTurn({plan,turn,source:{authors:[author]},wire,config,
+      seenPcalls:new Set(allCalls.map(call=>call.provider_call_ref)),binding:successorBinding,fail,notCollected});
+    if ((driver?.successor_observation?.turns?.length ?? 0) > 1)
+      fail("successor_observation","multiple_successor_inputs");
+    if (!turn || driver?.successor_observation?.completed !== true || turn?.visible_outcome?.kind !== "completed")
+      notCollected.push("completed_successor_observation");
+    const observationFile=path.join(batchDir,`request-cost-turn-observation-${config.length+1}.json`);
+    const observation=fs.existsSync(observationFile) ? readJson(observationFile) : null;
+    const visible=verifySuccessorVisible({turn,author,observation});
+    successorTurnReport.visible=visible;
+    checks.successor_visible = visible.ok;
+    if (turn && !visible.ok)
+      fail("successor_visible",visible.reason,{hard:false});
+    allCalls.push(...successorTurnReport.calls);
+  }
   verifyStartupAndCompleteness({ batchDir, records, allCalls, checks, fail, notCollected });
   verifyProviderRunCompleteness({ batchDir, config, records, checks, notCollected });
   verifyObservedRuntime({ batchDir, config, records, checks, fail, notCollected });
@@ -1291,7 +1384,7 @@ export function verifyBatch({ batchDir, outDir = null }) {
     fail,
     notCollected,
   });
-  const compactionEvidence = preregisteredEvidence({ batchDir, config, source, driver, bindings, records, wire });
+  const compactionEvidence = preregisteredEvidence({ batchDir, config, source, driver, bindings, successorBinding, records, wire });
   for (const [key, check] of Object.entries(compactionEvidence?.checks ?? {})) {
     if (check.ok === false) fail("r03_" + key, check.reason ?? "independent_compaction_check_failed");
   }
@@ -1309,6 +1402,10 @@ export function verifyBatch({ batchDir, outDir = null }) {
     referenceAccounting,
     checkpointChanges,
   });
+  if (config.successor_observation) {
+    report.successor_observation={turn:successorTurnReport,
+      costs:observationCostSummary(turnReports,successorTurnReport,config)};
+  }
   const reportDir = outDir ?? batchDir;
   assert(typeof reportDir === "string" && reportDir.trim() !== "", "verify --out 不能为空");
   writeNativeReport({ batchDir, report, common, outDir: reportDir });

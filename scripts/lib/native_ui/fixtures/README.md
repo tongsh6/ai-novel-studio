@@ -2,6 +2,8 @@
 
 本目录只放测试/对账使用的只读证据夹具；不进入产品路径，不启动原生窗口，也不写回任何历史批次。
 
+- `r03-successor-author-input.json`：manifest v2 普通 10/20 轮的唯一预注册后继作者原文；主体原20条与交错控制不变，不用于追加直到通过。
+
 | 文件 | 角色与实际消费者 |
 |---|---|
 | `authoring_request_ir.mjs` | 测试专用canonical IR夹具构造器：把既有native wire测试消息显式映射为fixture producer实际写出的`authoring-request-ir/v1` body（application_base marker→应用 provenance、当前公共 Scope renderer→唯一 scope block、assistant tool_calls→tool_call blocks、tool JSON→observation/validation_result blocks）。`scopeWireMessage` 在本 fixture owner 生成当前结构 Scope 的独立预期，旧拼串 Scope 不转换为当前夹具。只被 Node 正反例测试消费，生产 reader 不反向使用；不修改真实旧批次 fixture。 |

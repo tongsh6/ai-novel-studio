@@ -7,7 +7,102 @@ import { evaluateAutoMaintenance } from "./authoring_auto_maintenance_evidence.m
 import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { canonicalCoverageForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
-export function evaluatePreregisteredCompaction({ config, source, bindings, records, dbFacts, uiEvidence, wire }) {
+const decode = value => typeof value === "string" ? JSON.parse(value) : value;
+const text = message => message.blocks.map(block => block.text ?? "").join("");
+const requireFact = (condition, reason) => { if (!condition) throw new Error(reason); };
+const cpKey = row => JSON.stringify([row.run_id, row.run_sequence]);
+
+export function auditSubjectWindowBoundary({ config, source, dbFacts }) {
+  try {
+    const runs = dbFacts.agent_runs.filter(run => run.session_id === config.session_id);
+    requireFact(runs.every(run => run.work_id === config.work.id), "subject_scope_mismatch");
+    const rows = dbFacts.authoring_session_messages.filter(row => row.session_id === config.session_id);
+    const messages = canonicalMessagesFromRows(rows, runs);
+    const authors = messages.filter(message => message.role === "user" && message.provenance === "author");
+    requireFact(authors.length === config.length && isDeepStrictEqual(authors.map(text),
+      source.authors.slice(0, config.length).map(author => author.text)), "subject_author_boundary_mismatch");
+    const rootIds = authors.map(author => author.canonical_ref.run_id);
+    requireFact(new Set(rootIds).size === config.length, "subject_root_ambiguous");
+    const roots = rootIds.map(id => runs.filter(run => run.id === id));
+    requireFact(roots.every(found => found.length === 1 && found[0].status === "completed"), "subject_root_not_completed");
+    const turns = new Set(roots.map(found => found[0].parent_turn_ref));
+    const subject = runs.filter(run => turns.has(run.parent_turn_ref));
+    requireFact(subject.every(run => ["completed","failed","cancelled"].includes(run.status)), "subject_run_not_terminal");
+    const ids = new Set(subject.map(run => run.id));
+    const maintenance = dbFacts.provider_runs.filter(run => ids.has(run.agent_run_id) &&
+      decode(run.owner_refs)?.operation === "transcript_compaction");
+    const checkpoints = rows.filter(row => ids.has(row.run_id) && row.role === "checkpoint");
+    const events = dbFacts.agent_events.filter(event => ids.has(event.run_id) && event.event_type === "checkpoint_created");
+    for (const id of ids) {
+      const cp = checkpoints.filter(row => row.run_id === id), ev = events.filter(row => row.run_id === id);
+      requireFact(cp.length === ev.length && new Set(ev.map(row => row.sequence)).size === ev.length,
+        "subject_checkpoint_event_boundary_mismatch");
+    }
+    const discussions = checkpoints.flatMap(row => decode(row.message).blocks.map(block => block.discussion).filter(Boolean));
+    for (const run of maintenance) {
+      requireFact(["completed","failed","cancelled"].includes(run.status), "subject_maintenance_not_terminal");
+      const outputs = dbFacts.provider_outputs.filter(output => output.provider_run_id === run.id);
+      requireFact(outputs.length === 1 && outputs[0].provider_call_ref === run.provider_call_ref &&
+        outputs[0].agent_run_id === run.agent_run_id, "subject_maintenance_output_missing");
+      requireFact(decode(run.operation_checkpoint ?? null) === null, "subject_accepted_response_unresolved");
+      const commits = discussions.filter(d => d.provider_run_ref === run.id && d.provider_call_ref === run.provider_call_ref);
+      if (outputs[0].status === "ok") requireFact(run.status === "completed" && commits.length === 1 &&
+        commits[0].response_sha256 === decode(outputs[0].content_summary)?.content_sha256, "subject_accepted_response_not_committed");
+      else requireFact(outputs[0].status === "error" && commits.length === 0, "subject_output_state_conflict");
+    }
+    return { ok: true, reason: null, subject_run_ids: [...ids], subject_root_ids: rootIds,
+      checkpoint_keys: checkpoints.map(cpKey), maintenance_run_ids: maintenance.map(run => run.id) };
+  } catch (error) { return { ok: null, reason: error.message }; }
+}
+
+function auditSuccessorWindow({ config, source, db, messages, bindings, successorBinding, windowBoundary, wire }) {
+  if (!windowBoundary?.dbFacts) return { ok: null, reason: "subject_boundary_snapshot_missing" };
+  const boundary = auditSubjectWindowBoundary({ config, source, dbFacts: windowBoundary.dbFacts });
+  if (boundary.ok !== true) return boundary;
+  try {
+    const ids = new Set(boundary.subject_run_ids);
+    requireFact(isDeepStrictEqual(bindings.map(b => b?.root?.id), boundary.subject_root_ids), "subject_binding_boundary_mismatch");
+    const sameRows = (table, select) => isDeepStrictEqual(windowBoundary.dbFacts[table].filter(select), db[table].filter(select));
+    requireFact(sameRows("agent_runs", run => ids.has(run.id)), "subject_run_changed_after_boundary");
+    requireFact(sameRows("authoring_session_messages", row => ids.has(row.run_id)), "subject_late_canonical_after_boundary");
+    requireFact(sameRows("agent_events", row => ids.has(row.run_id) && row.event_type === "checkpoint_created"),
+      "subject_late_checkpoint_after_boundary");
+    requireFact(sameRows("provider_runs", run => ids.has(run.agent_run_id) &&
+      decode(run.owner_refs)?.operation === "transcript_compaction"), "subject_late_maintenance_after_boundary");
+    requireFact(sameRows("provider_outputs", row => boundary.maintenance_run_ids.includes(row.provider_run_id)),
+      "subject_maintenance_output_changed_after_boundary");
+    const turns = new Set(windowBoundary.dbFacts.agent_runs.filter(run => ids.has(run.id)).map(run => run.parent_turn_ref));
+    requireFact(isDeepStrictEqual(db.agent_runs.filter(run => turns.has(run.parent_turn_ref)).map(run => run.id),
+      boundary.subject_run_ids), "subject_late_run_after_boundary");
+    const authors = messages.filter(message => message.role === "user" && message.provenance === "author");
+    requireFact(authors.length === config.length + 1, "successor_author_count_mismatch");
+    const author = authors.at(-1), root = successorBinding?.root;
+    requireFact(source.successorAuthor && text(author) === source.successorAuthor.text &&
+      root && root.id === author.canonical_ref.run_id && !ids.has(root.id) &&
+      root.parent_turn_ref === author.canonical_ref.parent_turn_ref && root.work_id === config.work.id &&
+      root.session_id === config.session_id, "successor_identity_mismatch");
+    const sent = wire.filter(record => record.direction === "sent" && record.frame?.[3] === "user_message" &&
+      record.frame?.[4]?.turn_id === root.parent_turn_ref);
+    const at = Date.parse(windowBoundary.captured_at);
+    requireFact(Number.isFinite(at) && sent.length === 1 && Date.parse(sent[0].at) > at &&
+      sent[0].frame[2] === "workspace:" + root.workspace_id &&
+      sent[0].frame[4].text === source.successorAuthor.text, "successor_not_after_boundary");
+    requireFact(windowBoundary.dbFacts.agent_events.filter(event => ids.has(event.run_id) &&
+      event.event_type === "checkpoint_created").every(event => Number.isFinite(Date.parse(event.inserted_at)) &&
+      Date.parse(event.inserted_at) <= at), "subject_commit_after_boundary");
+    requireFact(!messages.filter(message => message.role === "checkpoint" &&
+      !ids.has(message.canonical_ref.run_id)).some(message => message.blocks.some(block =>
+      boundary.maintenance_run_ids.includes(block.discussion?.provider_run_ref))),
+    "subject_response_committed_by_late_receiver");
+    const terminal = wireTerminal(wire, { turnId: root.parent_turn_ref, runId: root.id, runRow: root,
+      topic: "workspace:" + root.workspace_id, workId: config.work.id, sessionId: config.session_id });
+    requireFact(terminal?.kind === "completed", "successor_not_completed");
+    return { ...boundary, successor_run_id: root.id };
+  } catch (error) { return { ...boundary, ok: null, reason: error.message }; }
+}
+
+export function evaluatePreregisteredCompaction({ config, source, bindings, records, dbFacts, uiEvidence, wire,
+  windowBoundary = null, successorBinding = null }) {
   const sessionRuns = dbFacts.agent_runs.filter((run) => run.session_id === config.session_id);
   if (!config.work?.id || sessionRuns.some((run) => run.work_id !== config.work.id))
     throw new Error("preregistered session/work identity mismatch");
@@ -30,8 +125,24 @@ export function evaluatePreregisteredCompaction({ config, source, bindings, reco
   const authors = messages.filter((message) => message.role === "user" && message.provenance === "author");
   const audit = auditCanonicalCoverage(messages, { verifyExecutions: true, verifyRequests: true,
     providerRuns, providerOutputs: db.provider_outputs, providerRecords: records });
-  const maintenance = evaluateAutoMaintenance({ config, dbFacts: db, llmRecords: records, checkpoints: {} }).checks;
-  const requestChecks = bindings.flatMap((binding) => binding === null ? [{ ok: null, reason: "run_binding_missing" }] :
+  const windowEnabled = config.successor_observation?.lengths?.includes(config.length) === true;
+  const window = windowEnabled ? auditSuccessorWindow({ config, source, db, messages, bindings,
+    successorBinding, windowBoundary, wire }) : null;
+  const subjectIds = new Set(window?.subject_run_ids ?? []);
+  // Bound only target events; C5 still receives complete canonical/provider/request facts.
+  const maintenanceDb = windowEnabled ? { ...db, agent_events: db.agent_events.filter(event =>
+    event.event_type !== "checkpoint_created" || subjectIds.has(event.run_id)) } : db;
+  const maintenance = evaluateAutoMaintenance({ config, dbFacts: maintenanceDb, llmRecords: records, checkpoints: {} }).checks;
+  // Successor pressure cannot establish the subject window's maintenance threshold.
+  if (windowEnabled) {
+    const subjectProviderIds = new Set(providerRuns.filter(run => subjectIds.has(run.agent_run_id)).map(run => run.id));
+    maintenance.C1_real_pressure = subjectIds.size === 0
+      ? { ok: null, reason: "subject_window_unclosed" }
+      : evaluateAutoMaintenance({ config, dbFacts: maintenanceDb,
+        llmRecords: records.filter(record => subjectProviderIds.has(record.provider_run_ref)), checkpoints: {} }).checks.C1_real_pressure;
+  }
+  const requestBindings = windowEnabled ? [...bindings, successorBinding] : bindings;
+  const requestChecks = requestBindings.flatMap((binding) => !binding ? [{ ok: null, reason: "run_binding_missing" }] :
     binding.records.filter((record) => binding.operations.get(record.provider_call_ref) !== "transcript_compaction")
       .map((record) => {
         const history = { messages: binding.history.sessionMessages };
@@ -78,14 +189,20 @@ export function evaluatePreregisteredCompaction({ config, source, bindings, reco
       runCompletions.length === config.length && runCompletions.every((item) => item.ok === true) ? true : null,
       runs: runCompletions },
     canonical_coverage: { ok: audit.ok, reason: audit.reason },
-    all_author_originals: { ok: authors.length === config.length && isDeepStrictEqual(authors.map(textOf), source.authors.slice(0, config.length).map((author) => author.text)) },
+    all_author_originals: { ok: windowEnabled && authors.length === config.length &&
+      isDeepStrictEqual(authors.map(textOf), source.authors.slice(0, config.length).map(author => author.text))
+      ? null : authors.length === config.length + (windowEnabled ? 1 : 0) &&
+        isDeepStrictEqual(authors.map(textOf), [...source.authors.slice(0, config.length).map(author => author.text),
+          ...(windowEnabled ? [source.successorAuthor?.text] : [])]) },
+    ...(windowEnabled ? { subject_window: window } : {}),
     every_request_preserved: { ok: requestChecks.some((item) => item.ok === false) ? false :
       requestChecks.length > 0 && requestChecks.every((item) => item.ok === true) ? true : null, calls: requestChecks },
     pressure: requireMaintenance ? maintenance.C1_real_pressure :
       { ok: maintenance.C1_real_pressure.detail.max_input_tokens > 0 &&
         maintenance.C1_real_pressure.detail.max_input_tokens < maintenance.C1_real_pressure.detail.threshold,
         expectation: "three_turn_low_pressure_control", detail: maintenance.C1_real_pressure.detail },
-    next_request: requireMaintenance ? maintenance.C5_next_request_compact :
+    next_request: requireMaintenance ? (windowEnabled && window?.ok !== true
+      ? { ok: null, reason: window.reason } : maintenance.C5_next_request_compact) :
       { ok: audit.checkpoints.length === 0, expectation: "no_checkpoint_for_three_turn_control" },
     early_discussion_covered: { ok: requireMaintenance ? sourceFacts.some((fact) => fact.author_index >= 0 && fact.author_index < 3) :
       selected.length === 0, sources: sourceFacts },
@@ -105,5 +222,7 @@ export function evaluatePreregisteredCompaction({ config, source, bindings, reco
   const values = Object.values(checks).map((check) => check.ok);
   return { status: values.includes(false) ? "fail" : values.every((value) => value === true) ? "pass" : "partial",
     signed: false, checks, canonical_checkpoints: audit.checkpoints, obligations,
+    ...(windowEnabled ? { successor_window: { ...window, successor_checkpoints_unobserved: audit.checkpoints
+      .filter(checkpoint => !subjectIds.has(checkpoint.canonical_ref.run_id)).map(checkpoint => checkpoint.canonical_ref) } } : {}),
     semantic_status: "review_required", not_signed: ["obligation_semantics", "visual_highlight", "interleaved_awaiting_author", "cancellation_failure_recovery", "duplicate_delivery"] };
 }

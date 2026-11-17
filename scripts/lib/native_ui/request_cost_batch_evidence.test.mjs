@@ -10,6 +10,7 @@ import {
   freshnessFromObservation,
   modelBehaviorOf,
   nativeSummary,
+  observationCostSummary,
   observedEffectsOf,
   referenceInvariantsOf,
   semanticReviewOf,
@@ -17,6 +18,7 @@ import {
   verifyCheckpoints,
   verifyConfigMatches,
   verifyDriverShape,
+  verifySuccessorVisible,
   verifyTurns,
 } from "./request_cost_batch_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
@@ -98,6 +100,8 @@ test("buildNativeReport 由 hard failure/缺证推导 status 并声明 scope", (
   const pass = buildNativeReport(base);
   assert.equal(pass.schema, NATIVE_REPORT_SCHEMA);
   assert.equal(pass.status, "pass");
+  assert.equal(buildNativeReport({ ...base, checks: { ...base.checks, successor_visible: false } }).status, "partial");
+  assert.equal(buildNativeReport({ ...base, checks: { ...base.checks, successor_visible: true } }).status, "pass");
   assert.equal(pass.signed, false);
   assert.equal(pass.scope, "r01_measurement_only");
   const fail = buildNativeReport({ ...base, hardFailures: ["join:bad"] });
@@ -899,6 +903,61 @@ test("verifyConfigMatches 逐字段核对 length/plan/model/seed/snapshot", () =
   }
 });
 
+test("后继配置只从v2冻结声明启用，v1及3轮拒绝注入", () => {
+  const authors = Array.from({length:20}, (_,i) => ({id:"a"+i,sha256:"a".repeat(64),target:{id:"t"+i},obligations:[]}));
+  const observation = {source:{path:"scripts/lib/native_ui/fixtures/successor.json",sha256:"b".repeat(64),expected_turns:1},
+    author:{id:"next",sha256:"c".repeat(64)},lengths:[10,20],count:1};
+  const source = {authors,successorAuthor:{id:"next",sha256:"c".repeat(64)}};
+  const manifest = {...nativeManifest(),schema:"b87-r01-request-cost-manifest/v2",
+    source:{kind:"preregistered_author_inputs"},successor_observation:observation};
+  const configFor = length => ({length,plan:authors.slice(0,length).map((a,i)=>({turn:i+1,author_id:a.id,author_sha256:a.sha256,target:a.target})),
+    model:manifest.model,seed:{source_content_sha256:manifest.snapshot.business_content_sha256},
+    snapshot:{content_sha256:manifest.snapshot.content_sha256},preregistered_obligations:[],
+    compaction_history_check:{required:length>=10,require_outside_initial_page:length===20},
+    ...(length>=10?{successor_observation:structuredClone(observation)}:{})});
+  const check = (config, m=manifest, s=source) => {
+    const checks={}; verifyConfigMatches({config,loaded:{manifest:m},source:s,checks,fail:()=>{}});
+    return checks.config_matches_manifest;
+  };
+  assert.equal(check(configFor(10)),true);
+  assert.equal(check(configFor(20)),true);
+  assert.equal(check(configFor(3)),true);
+  const absent=configFor(10); delete absent.successor_observation;
+  assert.equal(check(absent),false);
+  assert.equal(check(configFor(10),manifest,{...source,successorAuthor:null}),false);
+  assert.equal(check(configFor(10),manifest,{...source,successorAuthor:{id:"other",sha256:"c".repeat(64)}}),false);
+  for(const mutate of [o=>o.count=2,o=>o.author.sha256="d".repeat(64),o=>o.extra=true]) {
+    const config=configFor(10); mutate(config.successor_observation); assert.equal(check(config),false);
+  }
+  assert.equal(check({...configFor(3),successor_observation:observation}),false);
+  const old={...manifest,schema:"b87-r01-request-cost-manifest/v1"};delete old.successor_observation;
+  assert.equal(check(absent,old),true);
+  assert.equal(check(configFor(10),old),false);
+});
+
+test("主体/后继/总成本分责，多调用与未知usage不漏计、不重复加cached", () => {
+  const subject=[{...turn(1,"completed"),status:"completed"}];
+  const successor={...turn(2,"completed"),status:"completed"};
+  successor.calls.push({analysis:{usage:{input_tokens:null,cached_tokens:null,output_tokens:null,
+    cost_input_tokens:null,cached_within_input:null}}});
+  const result=observationCostSummary(subject,successor,{length:10,successor_observation:{count:1}});
+  assert.equal(result.subject.turns_expected,10);
+  assert.equal(result.subject.turns_completed,1);
+  assert.equal(result.successor.turns_expected,1);
+  assert.equal(result.successor.calls,2);
+  assert.equal(result.total.turns_expected,11);
+  assert.equal(result.total.turns_completed,2);
+  assert.equal(result.total.calls,3);
+  assert.deepEqual(result.total.input_tokens,{known_sum:20,known_calls:2,missing_calls:1,total:null});
+  assert.equal(result.total.no_cached_double_add,true);
+  const missing=observationCostSummary(subject,null,{length:10,successor_observation:{count:1}});
+  assert.equal(missing.successor.turns_expected,1);
+  assert.equal(missing.successor.turns_completed,0);
+  const old=observationCostSummary(subject,null,{length:3});
+  assert.equal(old.successor.turns_expected,0);
+  assert.equal(old.total.turns_expected,3);
+});
+
 test("verifyCheckpoints：缺失只记缺证，相同/变化都不改硬状态", () => {
   const absent = { checks: {}, failures: [], notCollected: [] };
   const missing = verifyCheckpoints({
@@ -1281,6 +1340,62 @@ test("单轮可见结果与缺 outcome/last 的 observation：fresh 明确", () 
     turnObservations: [{}],
   });
   assert.equal(noFreshness.freshness_recorded, false);
+});
+
+test("后继可见完成必须由原文和原始AX新回显复核，不能信driver自报", () => {
+  const author={text:"核已有交付，不替我作决定。"};
+  const turn={visible_outcome:{kind:"completed"},freshness:{new_author_echo:true,terminal_after_new_echo:true}};
+  const observation={author_message:author.text,baseline_author_count:0,
+    last:{nodes:axNodes({authors:[author.text],status:"已完成"}),outcome:{kind:"completed"}}};
+  const result=verifySuccessorVisible({turn,author,observation});
+  assert.equal(result.ok,true);
+  assert.equal(result.freshness.author_count,1);
+  for(const mutate of [
+    s=>s.observation=null,
+    s=>s.observation.author_message="别的输入",
+    s=>s.observation.last.nodes=[],
+    s=>delete s.observation.last.nodes,
+    s=>s.observation.baseline_author_count=1,
+    s=>s.observation.baseline_author_count=-1,
+    s=>delete s.observation.baseline_author_count,
+    s=>s.observation.last.nodes=axNodes({authors:[author.text],status:"进行中"}),
+    s=>s.turn.visible_outcome.kind="failed",
+    s=>s.turn=null,
+  ]) {
+    const sample=structuredClone({turn,author,observation});mutate(sample);
+    assert.equal(verifySuccessorVisible(sample).ok,false,mutate.toString());
+  }
+  const container="0/0/0/0/0";
+  const ordinaryNodes=[
+    ...axNodes({authors:[author.text]}),
+    {path:container+"/1",role:"AXPopUpButton",title:"AI 助手",desc:"助手名称"},
+    {path:container+"/3",role:"AXStaticText",value:"无任务"},
+    {path:container+"/12",role:"AXGroup"},
+    {path:container+"/12/0",role:"AXStaticText",value:"AI 助手"},
+    {path:container+"/13",role:"AXGroup"},
+    {path:container+"/13/0",role:"AXStaticText",value:"已交付的是前文分析，尚未交付的是正文。"},
+    {path:container+"/14",role:"AXButton",title:"为什么",desc:"查看这轮回应的依据"},
+  ];
+  const ordinary=structuredClone({turn,author,observation});
+  ordinary.observation.last.nodes=ordinaryNodes;
+  assert.equal(verifySuccessorVisible(ordinary).ok,true);
+  for(const nodes of [
+    axNodes({authors:[author.text],status:"进行中"}),
+    ordinaryNodes.filter(n=>!n.path.startsWith(container+"/13")),
+    ordinaryNodes.filter(n=>n.title!=="为什么"),
+    [...ordinaryNodes,{path:container+"/20",role:"AXGroup",title:"当前创作任务操作"}],
+  ]) {
+    const forged=structuredClone(ordinary);
+    forged.observation.last.nodes=nodes;
+    assert.equal(verifySuccessorVisible(forged).ok,false,"raw AX must override claimed completed outcome");
+  }
+  const driverDisagrees=structuredClone(turn);
+  driverDisagrees.freshness={new_author_echo:false,terminal_after_new_echo:false};
+  assert.equal(verifySuccessorVisible({turn:driverDisagrees,author,observation}).ok,true);
+  const staleOutcome=structuredClone(observation);
+  staleOutcome.last.outcome.kind="waiting";
+  assert.equal(verifySuccessorVisible({turn,author,observation:staleOutcome}).ok,true,
+    "last.outcome is derived metadata, raw AX is authoritative");
 });
 
 test("freshness 需要新作者 echo 和本轮终态同时成立，不能被 || 放宽", () => {

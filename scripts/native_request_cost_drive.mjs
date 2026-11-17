@@ -16,6 +16,8 @@ import {
 } from "./lib/native_ui/scenario_driver.mjs";
 import {
   captureBatch,
+  captureSubjectWindow,
+  readSuccessorAuthor,
   loadSourceAuthors,
   readManifest,
 } from "./lib/native_ui/request_cost_capture.mjs";
@@ -303,9 +305,10 @@ export async function runRequestCostSequence({
   harness,
   authors,
   length,
+  startTurn = 1,
   timeoutMs = 360_000,
 }) {
-  const plan = buildTurnPlan(authors, length);
+  const plan = buildTurnPlan(authors, length).map(item => ({...item, turn:item.turn + startTurn - 1}));
   const turns = [];
   let stopReason = null;
 
@@ -368,6 +371,19 @@ export async function runRequestCostSequence({
   };
 }
 
+export async function runFixedSuccessorObservation({harness, config, author, boundary}) {
+  if (!config.successor_observation) return null;
+  const windowBoundary = await harness.runStep("maintenance", "subject_window_boundary", boundary);
+  if (windowBoundary.audit.ok !== true)
+    return {completed:false,partial:true,turns:[],stop_reason:"subject_window_not_closed",windowBoundary};
+  const result = await runRequestCostSequence({harness,authors:[author],length:1,
+    startTurn:config.length+1,timeoutMs:config.budget.turn_timeout_ms});
+  const completed = result.completed && result.turns.length === 1 &&
+    result.turns[0].visible_outcome.kind === "completed";
+  return {...result,completed,partial:!completed,windowBoundary,
+    stop_reason:completed ? null : result.stop_reason ?? "successor_not_completed"};
+}
+
 function readConfig(dir) {
   const file = path.join(dir, "native-request-cost-config.json");
   assert(fs.existsSync(file), "缺少 native-request-cost-config.json");
@@ -422,9 +438,20 @@ export async function runWithHarness({ dir, config, authors, harness, capture = 
         partial: result.partial,
         stop_reason: result.stop_reason,
       };
+      if (result.completed && config.successor_observation) {
+        driverLog.successor_observation = await runFixedSuccessorObservation({
+          harness, config, author:readSuccessorAuthor(dir, config),
+          boundary:()=>captureSubjectWindow({batchDir:dir, config}),
+        });
+        // Unknown closure stops input, not evidence collection. The verifier keeps
+        // the explicit partial boundary; no second observation is attempted.
+      }
       if (result.completed) {
+        const successorTurns = driverLog.successor_observation?.turns ?? [];
         driverLog.compaction_history = await runCompactionHistorySequence({
-          harness, config, authors, turns: result.turns,
+          harness, config,
+          authors: successorTurns.length ? [...authors,readSuccessorAuthor(dir,config)] : authors,
+          turns: [...result.turns,...successorTurns],
         });
       }
       harness.writeDriverLog("native-request-cost-driver-log.json", driverLog);

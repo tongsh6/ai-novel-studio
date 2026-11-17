@@ -2,10 +2,10 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { wireTerminal } from "./live_run_wait.mjs";
-import { countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
+import { axTurnOutcome, countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
-import { LENGTHS, PREREGISTERED_SOURCE_KIND, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
+import { LENGTHS, PREREGISTERED_SOURCE_KIND, SUCCESSOR_MANIFEST_SCHEMA, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
 import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -33,6 +33,20 @@ export function nativeSummary({ config, turnReports, allCalls }) {
     prefix_change_count: allCalls.filter(
       (call) => call.prefix_change && call.prefix_change.kind !== "append",
     ).length,
+  };
+}
+
+// Projection of separately bound calls, not an authorization to execute another turn.
+export function observationCostSummary(subjectTurnReports, successorTurnReport, config) {
+  const successorReports = successorTurnReport ? [successorTurnReport] : [];
+  const summarize = (turnReports, length) => nativeSummary({
+    config: { length }, turnReports, allCalls: turnReports.flatMap(turn => turn.calls),
+  });
+  const successorCount = config.successor_observation ? 1 : 0;
+  return {
+    subject: summarize(subjectTurnReports, config.length),
+    successor: summarize(successorReports, successorCount),
+    total: summarize([...subjectTurnReports, ...successorReports], config.length + successorCount),
   };
 }
 
@@ -288,6 +302,7 @@ export function buildNativeReport({
     !checks.driver_completed ||
     checks.visible_outcomes_recorded === false ||
     checks.freshness_recorded === false ||
+    checks.successor_visible === false ||
     notCollected.some((key) => key.startsWith("turn_") || MEASUREMENT_GAPS.has(key));
   const status = hardFailures.length > 0 ? "fail" : softIncomplete ? "partial" : "pass";
   return {
@@ -746,13 +761,24 @@ function preregisteredConfigMatches(config, loaded, source) {
     author.obligations.map((obligation) => ({ author_id: author.id, author_sha256: author.sha256, ...obligation }))));
 }
 
+function successorConfigMatches(config, manifest, source) {
+  const expected = manifest.schema === SUCCESSOR_MANIFEST_SCHEMA &&
+    manifest.successor_observation?.lengths?.includes(config.length)
+    ? manifest.successor_observation : null;
+  if (expected === null) return !Object.hasOwn(config, "successor_observation");
+  return isDeepStrictEqual(config.successor_observation, expected) &&
+    source?.successorAuthor?.id === expected.author.id &&
+    source?.successorAuthor?.sha256 === expected.author.sha256;
+}
+
 export function verifyConfigMatches({ config, loaded, source, checks, fail }) {
   checks.config_matches_manifest =
     configShapeMatches(config) &&
     configModelMatches(config, loaded.manifest) &&
     configSeedMatches(config, loaded.manifest) &&
     configSnapshotMatches(config, loaded.manifest) &&
-    preregisteredConfigMatches(config, loaded, source);
+    preregisteredConfigMatches(config, loaded, source) &&
+    successorConfigMatches(config, loaded.manifest, source);
   if (!checks.config_matches_manifest) fail("config", "manifest_config_mismatch");
 }
 
@@ -819,6 +845,22 @@ export function freshnessFromObservation(observation) {
     terminal_kind: terminalKind,
     terminal_after_new_echo: terminalAfterNewEcho(terminalKind, newAuthorEcho),
   };
+}
+
+export function verifySuccessorVisible({ turn, author, observation }) {
+  if (typeof author?.text !== "string" || author.text === "" || observation?.author_message !== author.text)
+    return { ok: false, reason: "successor_visible_author_mismatch", freshness: null };
+  if (!Number.isInteger(observation.baseline_author_count) || observation.baseline_author_count < 0)
+    return { ok: false, reason: "successor_visible_baseline_missing", freshness: null };
+  const nodes = observationNodes(observation);
+  const outcome = axTurnOutcome(nodes, { message: author.text,
+    baselineAuthorCount: observation.baseline_author_count });
+  const freshness = freshnessFromObservation({ ...observation,
+    last: { ...observation.last, outcome } });
+  const ok = turn?.visible_outcome?.kind === "completed" &&
+    freshness?.new_author_echo === true && freshness?.terminal_after_new_echo === true &&
+    freshness?.terminal_kind === "completed";
+  return { ok, reason: ok ? null : "successor_visible_completed_not_proven", freshness };
 }
 
 function freshTurn(facts) {

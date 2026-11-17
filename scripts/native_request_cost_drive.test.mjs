@@ -15,6 +15,7 @@ import {
   main,
   resolveAuthors,
   runRequestCostSequence,
+  runFixedSuccessorObservation,
   runWithHarness,
   waitFreshTurn,
 } from "./native_request_cost_drive.mjs";
@@ -437,6 +438,35 @@ test("completed 后仍处于旧回答模式：按当前可见开始新讨论切�
   assert.equal(input.terminal, true);
   assert.equal(input.last.terminal, true);
   assert.equal(input.clicked_new_discussion, true);
+});
+
+test("固定后继只在闭合主体边界后发一次，保留独立序号且不递归", async () => {
+  const { harness, state } = fakeHarness({ outcomes: ["completed"], newDiscussion: true });
+  const result = await runFixedSuccessorObservation({
+    harness, config: {length:10,budget:{turn_timeout_ms:1000},successor_observation:{}},
+    author: authors[0], boundary: () => ({audit:{ok:true},captured_at:"2026-11-18T00:00:00Z"}),
+  });
+  assert.equal(result.completed,true);
+  assert.equal(result.turns.length,1);
+  assert.equal(result.turns[0].index,11);
+  assert.deepEqual(state.sends,[authors[0].text]);
+});
+
+test("固定后继边界未知不发送、旧配置不发送、后继追问不补答", async () => {
+  for (const ok of [null,false]) {
+    const { harness,state }=fakeHarness({outcomes:["completed"]});
+    const result=await runFixedSuccessorObservation({harness,config:{length:10,successor_observation:{}},
+      author:authors[0],boundary:()=>({audit:{ok}})});
+    assert.equal(result.completed,false); assert.equal(state.sends.length,0);
+  }
+  const old=fakeHarness({outcomes:["completed"]});
+  assert.equal(await runFixedSuccessorObservation({harness:old.harness,config:{length:10}}),null);
+  assert.equal(old.state.sends.length,0);
+  const waiting=fakeHarness({outcomes:["waiting"]});
+  const result=await runFixedSuccessorObservation({harness:waiting.harness,
+    config:{length:20,budget:{turn_timeout_ms:1000},successor_observation:{}},
+    author:authors[0],boundary:()=>({audit:{ok:true}})});
+  assert.equal(result.completed,false);assert.equal(waiting.state.sends.length,1);
 });
 
 test("普通 composer 可用时不做新讨论切换", async () => {

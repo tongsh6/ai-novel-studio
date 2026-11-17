@@ -146,6 +146,57 @@ test("native 合法输入接受；路径/身份/冻结/重复 ID 全部拒绝", 
   assert.throws(() => validateManifest({ ...base, authors: "not-array" }), /authors 不能为空/);
 });
 
+function successorManifest() {
+  return {
+    ...nativeManifest(),
+    schema: "b87-r01-request-cost-manifest/v2",
+    source: { kind: "preregistered_author_inputs", path: "scripts/lib/native_ui/fixtures/discussions.json",
+      sha256: "a".repeat(64), expected_turns: 20 },
+    authors: Array.from({ length: 20 }, (_, index) =>
+      ({ id: "discussion-" + index, input_index: index, sha256: "b".repeat(64) })),
+    successor_observation: {
+      source: { path: "scripts/lib/native_ui/fixtures/successor.json", sha256: "c".repeat(64), expected_turns: 1 },
+      author: { id: "successor", sha256: "d".repeat(64) },
+      lengths: [10, 20], count: 1,
+    },
+  };
+}
+
+test("v2明确冻结唯一后继；旧v1不静默增加输入", () => {
+  const manifest = successorManifest();
+  assert.equal(validateManifest(manifest).ok, true);
+  const old = structuredClone(manifest);
+  old.schema = "b87-r01-request-cost-manifest/v1";
+  delete old.successor_observation;
+  assert.equal(validateManifest(old).ok, true);
+  old.successor_observation = structuredClone(manifest.successor_observation);
+  assert.throws(() => validateManifest(old), /successor_observation/);
+  for (const mutate of [
+    value => delete value.successor_observation,
+    value => value.mode = "history",
+    value => value.source = structuredClone(base.source),
+    value => value.successor_observation.extra = true,
+    value => value.successor_observation.count = 2,
+    value => value.successor_observation.count = "1",
+    value => value.successor_observation.lengths = [3, 10, 20],
+    value => value.successor_observation.lengths = [20, 10],
+    value => value.successor_observation.lengths = [10, 10, 20],
+    value => value.successor_observation.source.expected_turns = 2,
+    value => value.successor_observation.source.expected_turns = "1",
+    value => value.successor_observation.source.kind = "other",
+    value => value.successor_observation.source.path = "../successor.json",
+    value => value.successor_observation.source.path = "/tmp/successor.json",
+    value => value.successor_observation.source.sha256 = "bad",
+    value => value.successor_observation.author.sha256 = "bad",
+    value => value.successor_observation.author.input_index = 0,
+    value => value.successor_observation.author.id = value.authors[0].id,
+    value => value.successor_observation.author.id = "",
+  ]) {
+    const bad = structuredClone(manifest); mutate(bad);
+    assert.throws(() => validateManifest(bad), undefined, mutate.toString());
+  }
+});
+
 test("prefix/token 聚合边界", () => {
   assert.equal(prefixComparison([{ a: 1 }], [{ a: 1 }, { b: 2 }]).kind, "append");
   assert.equal(prefixComparison([{ a: 1 }, { b: 2 }], [{ a: 1 }]).kind, "compressed");

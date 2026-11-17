@@ -4,6 +4,8 @@
 并用 AX 动作/CGEvent 输入操作真实窗口。产品代码不读取本目录，也不为此新增任何验收感知逻辑
 （见 `docs/engineering/scenario-acceptance.md` 红线）。
 
+- `request_cost_successor_capture.test.mjs`：普通成本批次固定后继的封存作者/hash、只读事务边界及发送前配置拒绝；复用现役 capture，不启动模型或原生窗口。
+
 ## 组成
 
 | 文件 | 角色 |

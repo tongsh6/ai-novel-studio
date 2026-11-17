@@ -6,6 +6,7 @@ import { stableJson } from "./request_cost_evidence.mjs";
 import { assertManifestRuntime } from "./request_cost_runtime_recipe.mjs";
 
 export const MANIFEST_SCHEMA = "b87-r01-request-cost-manifest/v1";
+export const SUCCESSOR_MANIFEST_SCHEMA = "b87-r01-request-cost-manifest/v2";
 export const LENGTHS = Object.freeze([3, 10, 20]);
 export const AUTHOR_INPUTS_SCHEMA = "b87-author-inputs/v1";
 export const PREREGISTERED_SOURCE_KIND = "preregistered_author_inputs";
@@ -47,7 +48,16 @@ function assertRelativePath(value, label, prefix = null) {
 
 export function validateManifest(manifest) {
   assert(isObject(manifest), "manifest 必须是对象");
-  assert.equal(manifest.schema, MANIFEST_SCHEMA, `manifest schema 必须是 ${MANIFEST_SCHEMA}`);
+  assert([MANIFEST_SCHEMA, SUCCESSOR_MANIFEST_SCHEMA].includes(manifest.schema), "manifest schema 未知");
+  if (manifest.schema === SUCCESSOR_MANIFEST_SCHEMA) {
+    assert(manifest.mode === "native" && manifest.source?.kind === PREREGISTERED_SOURCE_KIND,
+      "v2 successor_observation 仅用于 native 预注册讨论");
+    validateSuccessorObservation(manifest.successor_observation);
+    assert(!list(manifest.authors).some(author => author?.id === manifest.successor_observation.author.id),
+      "successor_observation.author.id 不得重复主体作者");
+  } else {
+    assert(!Object.hasOwn(manifest, "successor_observation"), "v1 不接受 successor_observation");
+  }
   assert(nonBlank(manifest.id), "manifest id 不能为空");
   assert.equal(manifest.frozen, true, "manifest 必须 frozen=true 才能进入测量");
   assert(["history", "native"].includes(manifest.mode), "manifest.mode 必须是 history|native");
@@ -102,6 +112,29 @@ export function validateManifest(manifest) {
   assert(isObject(manifest.evidence), "manifest 缺少 evidence");
   assertRelativePath(manifest.evidence.root, "manifest.evidence.root", "artifacts/");
   return { ok: true, manifest };
+}
+
+// Ordinary finite-window observation only; neither selects a checkpoint nor changes a budget.
+// File bytes and the referenced author identity are checked by the existing capture IO owner.
+export function validateSuccessorObservation(observation) {
+  assert(isObject(observation), "successor_observation 必须是对象");
+  assert.deepEqual(Object.keys(observation).sort(), ["author", "count", "lengths", "source"],
+    "successor_observation 字段必须完整且封闭");
+  assert.equal(observation.count, 1, "successor_observation.count 必须恰好1");
+  assert.deepEqual(observation.lengths, [10, 20], "successor_observation.lengths 必须为10/20");
+  const { source, author } = observation;
+  assert(isObject(source), "successor_observation.source 必须是对象");
+  assert.deepEqual(Object.keys(source).sort(), ["expected_turns", "path", "sha256"],
+    "successor_observation.source 字段必须完整且封闭");
+  assert.equal(source.expected_turns, 1, "successor_observation.source 必须恰好1条");
+  assertRelativePath(source.path, "successor_observation.source.path", "scripts/lib/native_ui/fixtures/");
+  assertSha(source.sha256, "successor_observation.source.sha256");
+  assert(isObject(author), "successor_observation.author 必须是对象");
+  assert.deepEqual(Object.keys(author).sort(), ["id", "sha256"],
+    "successor_observation.author 只定位冻结原文");
+  assertNonBlank(author.id, "successor_observation.author.id");
+  assertSha(author.sha256, "successor_observation.author.sha256");
+  return observation;
 }
 
 function validateSource(source) {
