@@ -1365,3 +1365,13 @@ Contract=上述现役契约；Invariant=原响应/冻结计划/身份/作者原�
 f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用与差异、欠项/已交付规则，版本b27-semantics-v2；新AuthoringTask默认同步，历史from_map缺省仍标v1不伪装当前执行资格。核实现役请求均新建，没有需要扩大兼容的旧任务重派消费者。真实writer IR、planner首次/修正共享规则恰一次；独立红例22/3后目标115/0，证明布线与版本，不能证明模型语义。
 
 完整mix check两次均3385/0。首次扫描新增planner测试1461行超过规模门槛：按纯completed-prefix责任移出4个既有用例至独立102行测试，保留42个Provider/IR编排用例及全部原断言，不复制Provider/setup，不调门槛；独立用例多重集与差异复核通过，目标46/0。最终全扫描19pass/2fail/7发现，新增规模问题消除，Credo及I1/I2/I3/N-NARR/I-CACHE通过；剩余仍是待真实UI的task_done与既有gitleaks处置。证据completion-semantics-14保留首次失败、拆分和最终全量日志；README只独立提交新增顶部索引，原三条WIP保持。旧10轮semantic partial不变，新实现须按同输入/模型/预算重新独立原生验收，尚不代签R03。
+
+### 14.24 完成规则后原生事实与有限窗口缺证（2026-11-18）
+
+92df9acd冻结同manifest、源快照、模型、预算、原20条输入，completion-native-15先3后10；没有改题或重试直到有利输出。三轮机器32/32，3调用/13typed等待，完整原文独立审查与4张实际截图通过，max14144<22400且无checkpoint，仅低压对照。
+
+十轮完成10业务+5维护、15调用usage全知，机器基础32/32。5个v2 checkpoint覆盖6条旧讨论，原文索引/重建、原响应与ProviderOutput hash、capsule清除独立通过；10条作者原文逐字匹配。前4个checkpoint之后的首业务请求通过，最后一次维护在第10轮后提交，无后继业务请求，故严格next_request_evidence_missing、整体partial/runner exit1。不是解析错，不删末次checkpoint、不临时补第11轮、不改原报告；20轮末尾若再维护也会有同类有限观察边界，需先修验收设计而非降低产品条件。
+
+第10回复明显改善：四场确实逐项比较单/双收益、风险及多数证据。但旧灯塔双视角的证据格仍只有要明确守谁/欠谁的动机条件，没有可观察/可核对呈现，却宣称全部完成，独立语义仍partial。另第3未读档案即断言内容不存在、若干回指轮次错误单独记录。结尾决定仍未代答；这些不与机械缺证混淆，不用更多提示词或盲重跑代替责任分析。尚未启动20轮。
+
+直接核第10轮、整理展开、完整原文橙框定位、刷新后展开恢复四张真实图，Markdown与可见状态正常；UI通过不代签语义。各批independent-review.md和visual-review.json保存独立结论，旧partial保留。另按既有C8完整驱动推进交错/取消/客户端重开/持久失败与BEAM重启后原响应恢复，使用独立B71 seed及新runtime事实，不复制request-cost快照，不宣称已通过。
