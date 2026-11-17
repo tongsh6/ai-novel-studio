@@ -717,6 +717,18 @@ function authorBoundary(nodes, message, baselineAuthorCount) {
   };
 }
 
+// 46§9.9 的成功整理记录不是运行态。只识别完整的已知可见结构；
+// 未知内容或真实状态行仍留在过程判定内，不能靠出现一个按钮就放行。
+function maintenanceRecordGroup(nodes, group) {
+  if (group.role !== "AXGroup" || axTitle(group) !== TURN_PROCESS_GROUP) return false;
+  const children = nodes.filter((node) => axParentPath(node) === axPath(group));
+  const notices = children.filter((node) => node.role === "AXButton" &&
+    axTitle(node) === "查看已整理的较早创作过程");
+  const panels = children.filter((node) => node.role === "AXGroup" &&
+    axTitle(node) === "已整理的较早记录");
+  return notices.length === 1 && panels.length <= 1 && children.length === notices.length + panels.length;
+}
+
 function turnGroups(nodes, { authorGroup, container, nextAuthor }) {
   return nodes
     .filter((node) => {
@@ -724,7 +736,8 @@ function turnGroups(nodes, { authorGroup, container, nextAuthor }) {
       if (compareAxPath(node, { path: authorGroup }) <= 0) return false;
       if (nextAuthor && compareAxPath(node, nextAuthor) >= 0) return false;
       const title = axTitle(node);
-      return title === TURN_PROCESS_GROUP || title === AUTHOR_QUESTION_GROUP;
+      return (title === TURN_PROCESS_GROUP || title === AUTHOR_QUESTION_GROUP) &&
+        !maintenanceRecordGroup(nodes, node);
     })
     .sort(compareAxPath);
 }
@@ -786,7 +799,8 @@ export function axTurnOutcome(
     const label = nonBlank(assistantName) ? following.find((node) => node.role === "AXGroup" &&
       directTextValues(list, axPath(node)).includes(assistantName)) : null;
     // Markdown 段落/标题/列表可能成为平级 AX 节点，不能要求 Why 的前一个节点就是整条回复。
-    const reply = label && why ? following.find((block) => compareAxPath(block, label) > 0 &&
+    const reply = label && why ? following.find((block) => !maintenanceRecordGroup(list, block) &&
+      compareAxPath(block, label) > 0 &&
       compareAxPath(block, why) < 0 && list.some((node) => node.role === "AXStaticText" &&
         (axPath(node) === axPath(block) || axPath(node).startsWith(axPath(block) + "/")) &&
         nonBlank(axValue(node)))) : null;

@@ -1241,6 +1241,46 @@ test("普通 Markdown 回复：交付入口与空闲同时成立，不能借旧�
 });
 
 
+test("整理记录不是运行态：同轮回复与空闲成立才完成，细条或面板不能冒充正文", () => {
+  const message = "讨论完成后保留整理记录";
+  const group = `${AX_CONTAINER}/15`;
+  const base = [
+    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
+    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
+    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, message),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "AI 助手"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "独立交付的实际回复"),
+    { ...axNode(`${AX_CONTAINER}/16`, "AXButton", "为什么"), desc: "查看这轮回应的依据" },
+  ];
+  const notice = [axNode(group, "AXGroup", "本轮创作过程"),
+    axNode(`${group}/0`, "AXButton", "查看已整理的较早创作过程")];
+  const panel = [axNode(`${group}/1`, "AXGroup", "已整理的较早记录"),
+    axNode(`${group}/1/0`, "AXStaticText", "", "原始记录仍然保留，不会被删除或改写。"),
+    axNode(`${group}/1/1`, "AXStaticText", "", "进行中"),
+    axNode(`${group}/1/2`, "AXButton", "查看完整记录")];
+  for (const records of [notice, [...notice, ...panel]]) {
+    const nodes = [...base, ...records];
+    assert.equal(axTurnOutcome(nodes, { message }).kind, "completed");
+    const cases = [
+      nodes.filter((node) => !node.path.startsWith(`${AX_CONTAINER}/13`)),
+      nodes.filter((node) => node.value !== "无任务"),
+      nodes.filter((node) => node.title !== "为什么"),
+      nodes.filter((node) => node.role !== "AXWindow"),
+      [...nodes, ...axDock(`${AX_CONTAINER}/20`, "进行中")],
+      [...nodes, ...axMessageGroup(`${AX_CONTAINER}/17`, "你"), ...axMessageGroup(`${AX_CONTAINER}/18`, "下一轮")],
+      [...nodes, axNode(`${group}/2`, "AXGroup", "未知过程内容")],
+      [...nodes, axNode(`${AX_CONTAINER}/14`, "AXGroup", "本轮创作过程")],
+    ];
+    for (const unknown of cases) assert.equal(axTurnOutcome(unknown, { message }).kind, "unknown");
+    for (const [status, kind] of [["进行中", "running"], ["失败", "failed"], ["等待你回复", "waiting"]]) {
+      assert.equal(axTurnOutcome([...nodes, axNode(`${group}/2`, "AXStaticText", "", status)], { message }).kind, kind);
+      assert.equal(axTurnOutcome([...nodes, ...axProcessGroup(`${AX_CONTAINER}/14`, [status])], { message }).kind, kind);
+    }
+  }
+});
+
 test("AX 本轮终态：旧页底等待+新 running 不能判 terminal；旧终局不算新结果", () => {
   const message = "第三条";
   const nodes = [
