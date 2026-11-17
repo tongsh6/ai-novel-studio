@@ -4,8 +4,130 @@
 // ProviderRun.provider_call_ref === pcall。turn/time/tool name/hash 都不参与绑定；
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { NATIVE_CHAT_WIRE, requestFactsFromRecord, scopeContentOf } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
+import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
+
+const list = (value) => Array.isArray(value) ? value : [];
+
+function callsBefore(messages, callId, beforeIndex) {
+  const found = [];
+  messages.forEach((message, messageIndex) => {
+    if (messageIndex >= beforeIndex || message?.role !== "assistant") return;
+    list(message.blocks).forEach((block) => {
+      if (block?.type === "tool_call" && block.call_id === callId) found.push({ block, message });
+    });
+  });
+  return found;
+}
+
+function startRef(start, index) {
+  return start
+    ? {
+      started_index: index,
+      provider_run_id: start.provider_run_id ?? null,
+      provider_call_ref: start.provider_call_ref ?? null,
+    }
+    : null;
+}
+
+function recordFor(start, records) {
+  if (!start) return { record: null, reason: "missing" };
+  const matches = list(records).filter((record) =>
+    record?.provider_run_ref === start.provider_run_id &&
+    record?.provider_call_ref === start.provider_call_ref);
+  if (matches.length === 1) return { record: matches[0], reason: null };
+  return { record: null, reason: matches.length ? "ambiguous" : "missing" };
+}
+
+function hasResult(record, callId) {
+  const facts = requestFactsFromRecord(record);
+  return facts.ok && list(facts.toolResults).some((result) =>
+    result.callId === callId || result.toolCallId === callId);
+}
+
+function laterHasResult(starts, records, fromIndex, callId) {
+  for (let index = fromIndex; index < starts.length; index += 1) {
+    const matched = recordFor(starts[index], records);
+    if (matched.record && hasResult(matched.record, callId)) return true;
+  }
+  return false;
+}
+
+// 已完成 canonical observation 必须完整供应给紧邻的实际 Provider 请求。
+// 调用者先按其领域规则确定 parent/messageIndex；本层只核执行引用与原始 payload。
+export function observationNextRequestEvidence({ messages, records, starts, parent, messageIndex }) {
+  const page = { call_id: null, source: null, next: null, reason: null };
+  const fail = (reason) => { if (page.reason === null) page.reason = reason; };
+  // 真正 call_id 只在父块；同一父调用内的两页共享它去找 canonical assistant 与请求。
+  const callId = parent.call_id;
+  page.call_id = nonBlank(callId) ? callId : null;
+  if (!nonBlank(callId)) {
+    fail("call_id_missing");
+    return page;
+  }
+  const calls = callsBefore(messages, callId, messageIndex);
+  if (calls.length !== 1) {
+    fail(calls.length > 1 ? "assistant_call_ambiguous" : "assistant_call_missing");
+    return page;
+  }
+  const { message: callMessage } = calls[0];
+  const pcall = callMessage?.provider_call_ref;
+  const prun = callMessage?.provider_run_ref;
+  if (!nonBlank(pcall) || !nonBlank(prun)) {
+    fail("assistant_ref_missing");
+    return page;
+  }
+  const sourceIndexes = list(starts).flatMap((item, index) =>
+    item?.provider_run_id === prun && item?.provider_call_ref === pcall ? [index] : []);
+  if (sourceIndexes.length !== 1) {
+    fail(sourceIndexes.length > 1 ? "source_started_ambiguous" : "source_started_missing");
+    return page;
+  }
+  const sourceIndex = sourceIndexes[0];
+  page.source = startRef(starts[sourceIndex], sourceIndex);
+  const source = recordFor(starts[sourceIndex], records);
+  if (!source.record) {
+    fail(source.reason === "ambiguous" ? "source_record_ambiguous" : "source_record_missing");
+  } else if (hasResult(source.record, callId)) {
+    fail("source_already_has_result");
+  }
+
+  const nextIndex = sourceIndex + 1;
+  page.next = startRef(starts[nextIndex], nextIndex);
+  if (!page.next) {
+    fail("next_started_missing");
+    return page;
+  }
+  const next = recordFor(starts[nextIndex], records);
+  if (!next.record) {
+    fail(next.reason === "ambiguous" ? "next_record_ambiguous" : "next_record_missing");
+    return page;
+  }
+  const facts = requestFactsFromRecord(next.record);
+  if (!facts.ok) {
+    fail("next_record_unreadable");
+    return page;
+  }
+  const nextCalls = list(facts.toolCalls).filter((call) => call.callId === callId);
+  const nextResults = list(facts.toolResults).filter((result) =>
+    result.callId === callId || result.toolCallId === callId);
+  if (nextCalls.length !== 1) {
+    fail(nextCalls.length > 1 ? "next_call_ambiguous" : "next_call_missing");
+  } else if (nextResults.length === 1 && nextCalls[0].messageIndex >= nextResults[0].messageIndex) {
+    fail("next_call_order");
+  }
+  if (nextResults.length !== 1) {
+    if (laterHasResult(starts, records, nextIndex + 1, callId)) fail("late_replay");
+    else fail(nextResults.length > 1 ? "next_result_ambiguous" : "next_result_missing");
+  } else if (nextResults[0].toolCallId !== callId) {
+    fail("result_id_mismatch");
+  } else if (!isDeepStrictEqual(nextResults[0].payload, parent)) {
+    fail("next_payload_mismatch");
+  }
+  return page;
+}
 
 export const FIXTURE_RESPONSE_FORMAT = "fixture_provider_result/v1";
 
@@ -595,8 +717,15 @@ function projectedScopeForPrefix(facts, prefix) {
   const content = scopeContentOf(canonical);
   const latest = facts.scopeMessages.at(-1);
   if (content === null || !latest || !sameScope(latest, canonical, content)) return null;
-  // R02 保留同内容历史 Scope；只拒绝无 canonical 来源的额外、漏失或乱序投影。
-  return sameScopeSequence(facts.scopeMessages, prefix) ? latest : null;
+  // R03 只接受独立 canonical 审计通过的显式覆盖；最新 Scope 与原始字段仍逐项核对。
+  const coverage = auditCanonicalCoverage(prefix);
+  if (!coverage.ok) return null;
+  return sameScopeSequence(facts.scopeMessages, coverage.retainedMessages) ? latest : null;
+}
+
+export function canonicalCoverageForProviderCall(record, transcript) {
+  const prefix = canonicalPrefixForCall(record, transcript);
+  return prefix === null ? null : auditCanonicalCoverage(prefix);
 }
 
 export function scopeForProviderCall(record, transcript) {

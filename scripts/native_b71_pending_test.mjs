@@ -188,15 +188,18 @@ function insertCanonicalSegment(db, runId, transcript) {
     used_refs: transcript.used_refs,
     call_ids: transcript.call_ids,
   };
-  db.prepare("INSERT INTO authoring_run_segments (run_id, header, message_count) VALUES (?, ?, ?)").run(
-    runId,
-    JSON.stringify(header),
-    transcript.messages.length,
+  const identity = transcript.run, count = transcript.messages.length;
+  const offset = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS value FROM authoring_session_messages WHERE session_id = ?")
+    .get(identity.session_id).value;
+  db.prepare("INSERT INTO authoring_run_segments (run_id, workspace_id, work_id, session_id, parent_turn_ref, header, message_count, first_sequence, last_sequence, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    runId, identity.workspace_id, identity.work_id, identity.session_id, identity.parent_turn_ref,
+    JSON.stringify(header), count, count ? offset + 1 : null, count ? offset + count : null, SEGMENT_VERSION,
   );
   transcript.messages.forEach((message, index) => {
     db.prepare(
-      "INSERT INTO authoring_session_messages (run_id, sequence, run_sequence, message, format_version) VALUES (?, ?, ?, ?, ?)",
-    ).run(runId, index + 1, index + 1, JSON.stringify(message), MESSAGE_FORMAT_VERSION);
+      "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(`msg-${runId}-${index + 1}`, identity.workspace_id, identity.work_id, identity.session_id,
+      runId, offset + index + 1, index + 1, message.role, JSON.stringify(message), MESSAGE_FORMAT_VERSION);
   });
 }
 
@@ -329,10 +332,12 @@ function createSchema(db) {
     consumed_budget TEXT, budget TEXT, authority_scope TEXT, pending_artifact_refs TEXT
   )`);
   dbExec(db, `CREATE TABLE authoring_run_segments (
-    run_id TEXT PRIMARY KEY, header TEXT, message_count INTEGER
+    run_id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, parent_turn_ref TEXT,
+    header TEXT, message_count INTEGER, first_sequence INTEGER, last_sequence INTEGER, format_version TEXT
   )`);
   dbExec(db, `CREATE TABLE authoring_session_messages (
-    run_id TEXT, sequence INTEGER, run_sequence INTEGER, message TEXT, format_version TEXT
+    id TEXT PRIMARY KEY, workspace_id TEXT, work_id TEXT, session_id TEXT, run_id TEXT,
+    sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT
   )`);
   dbExec(db, `CREATE TABLE provider_runs (
     id TEXT PRIMARY KEY, agent_run_id TEXT, workspace_id TEXT, work_id TEXT, session_id TEXT,
@@ -1082,7 +1087,7 @@ test("writer 应用校验 failed 不能签候选字节合法", (t) => {
   const db = openDb(dir);
   try {
     const rows = db
-      .prepare("SELECT sequence, message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence")
+      .prepare("SELECT run_sequence, message FROM authoring_session_messages WHERE run_id = ? ORDER BY run_sequence")
       .all(REVISION_RUN);
     for (const row of rows) {
       const message = JSON.parse(row.message);
@@ -1097,7 +1102,7 @@ test("writer 应用校验 failed 不能签候选字节合法", (t) => {
         db.prepare("UPDATE authoring_session_messages SET message = ? WHERE run_id = ? AND run_sequence = ?").run(
           JSON.stringify(message),
           REVISION_RUN,
-          row.sequence,
+          row.run_sequence,
         );
       }
     }

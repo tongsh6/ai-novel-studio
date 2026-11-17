@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   RUNTIME_PROFILE_ID,
+  COMPACTION_RUNTIME_PROFILE_ID,
   assertManifestRuntime,
   assertRuntimeFacts,
   expectedRuntimeFacts,
@@ -46,6 +47,21 @@ function facts(overrides = {}) {
     ...overrides,
   };
 }
+
+test("R03模型窗口与现役维护预算分开，实测阈值不能降低", () => {
+  const profile = getRuntimeProfile(COMPACTION_RUNTIME_PROFILE_ID);
+  assert.equal(profile.context_window, 262144);
+  assert.equal(profile.maintenance_window, 32000);
+  assert.equal(runtimeEnv(COMPACTION_RUNTIME_PROFILE_ID).NOVEL_CONTEXT_WINDOW_OVERRIDES, "splash:32000");
+  const declaration = manifest();
+  declaration.runtime = { ...declaration.runtime, profile: COMPACTION_RUNTIME_PROFILE_ID,
+    context_pressure: { window: 32000, maintenance_ratio: 0.7 } };
+  assert.equal(assertManifestRuntime(declaration).id, COMPACTION_RUNTIME_PROFILE_ID);
+  const actual = facts({ context_pressure: { provider: "splash", window: 32000, maintenance_ratio: 0.7, hard_ratio: 0.9 } });
+  assert.equal(assertRuntimeFacts(actual, COMPACTION_RUNTIME_PROFILE_ID), true);
+  actual.context_pressure.maintenance_ratio = 0.1;
+  assert.throws(() => assertRuntimeFacts(actual, COMPACTION_RUNTIME_PROFILE_ID), /maintenance_ratio/u);
+});
 
 test("runtime env 由 recipe 单点生成，值和实验声明一致", () => {
   assert.deepEqual(runtimeEnv(), {

@@ -1,30 +1,35 @@
 // B71 §16.16 第 2 类入口（安全点自动维护）原生验收证据与判据 C1–C10。
 //
-// 场景：真实 strata + 小窗口压力（NOVEL_CONTEXT_WINDOW_OVERRIDES="strata:4096"）+ ≥2 次
+// 场景：真实 Splash + 显式产品维护预算（32000 / 0.70）+ ≥2 次
 // 真实续行 → 安全点自动整理（checkpoint_created 事件 + role=checkpoint 消息同事务）→
 // 行内细条 → 展开（原因/原文保留/来源/完整记录入口）→ 下一请求精简且 canonical 完整 →
 // 刷新幂等 → 失败静默（隔离 DB 持久 trigger）→ 全类别无技术词 → 清理。
 //
 // 边界：不伪造窗口、不注入 usage、不手工压缩；无法形成真实压力时整批如实登记未闭环。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
 import {
   all,
   assertCommonEvidence,
   assertProviderAndWire,
-  frameBody,
-  frameEvent,
   read,
   transport,
   withDb,
   writeNativeFrames,
+  writeNativeSummary,
 } from "./scenario_evidence.mjs";
-import { readConfig } from "./authoring_capture_evidence.mjs";
+import { readAutoMaintenanceInputs, readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
-import { actionAck } from "./authoring_pending_evidence.mjs";
-import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { assertHistoryPreserved, verifyCancelledRunFacts, verifyInterleavedResumeFacts } from "./authoring_interleaved_resume_evidence.mjs";
+import { readBackendRestartReceipt } from "../../native_ui_wait.mjs";
+import { canonicalCoverageForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
+import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
+import { getRuntimeProfile, assertRuntimeFacts } from "./request_cost_runtime_recipe.mjs";
+import { nativeExecutablePath } from "../native_app_ownership.mjs";
+import { ownProcesses, portListening } from "./process_observation.mjs";
 
 export const AUTO_MAINTENANCE_SCHEMA = "b71-auto-maintenance-checks/v1";
 export const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
@@ -37,28 +42,17 @@ export const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
   "after-recovery",
   "final",
 ]);
-export const AUTO_MAINTENANCE_WINDOW = 4096;
 export const AUTO_MAINTENANCE_TRIGGER_RATIO = 0.7;
-export const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
-  "先读一下第01章的正文和章计划，我想知道现在的进度。",
-  "再读一下第02章的正文和章计划，确认两章之间是否连贯。",
-  "继续读一下第03章的计划，然后告诉我下一步该写什么。",
-  "再看一下第01章的正文，确认开头是否抓人。",
-  "把刚才读到的线索汇总一下，哪些还能继续用？",
-  "最后再核对一遍第02章的正文，确保没有遗漏。",
-]);
 export const AUTO_MAINTENANCE_STOP_EVENT = "checkpoint_created";
 
 import {
   NATIVE_CHAT_WIRE,
-  plannedExplorationLeaves,
+  checkpointSelectionsFromFacts as wireCheckpoints,
   requestFactsFromRecord,
-  scopeContentOf,
 } from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
-const CHECKPOINT_COVER_PREFIX = "【应用数据 · checkpoint · 覆盖 ";
 // 正式 auto-maintenance 中 C5 缺证（ok=null）不是「不适用」，而是验收未通过；
 // C7/C8 在 direct A3 与正式 live multi-turn 两个场景都必须判；仅 C11 按场景保持 null=不判。
 const EVIDENCE_REQUIRED_CHECKS = new Set(["C5_next_request_compact"]);
@@ -101,23 +95,13 @@ export function scanAuthorVisibleFiles(dir) {
 // ── DB facts（只读）───────────────────────────────────────────────────────────
 export function readAutoMaintenanceDbFacts(dir) {
   return withDb(dir, (db) => {
-    const rows = (table) => {
-      // 真实表有 inserted_at；合成测试库可能缺该列——缺列时退回无排序读取（不伪造）。
-      try {
-        return all(db, `SELECT * FROM ${table} ORDER BY inserted_at, id`);
-      } catch {
-        try {
-          return all(db, `SELECT * FROM ${table}`);
-        } catch {
-          return [];
-        }
-      }
-    };
+    const rows = (table) => all(db, `SELECT * FROM ${table}`).map((row) => ({ ...row }));
     return {
       agent_events: rows("agent_events"),
       agent_runs: rows("agent_runs"),
       authoring_session_messages: rows("authoring_session_messages"),
       provider_runs: rows("provider_runs"),
+      provider_outputs: rows("provider_outputs"),
       provider_events: rows("provider_events"),
       interactions: rows("interactions"),
       mutations: rows("mutations"),
@@ -125,22 +109,9 @@ export function readAutoMaintenanceDbFacts(dir) {
   });
 }
 
-function transcriptMessages(sessionMessageRows) {
-  const messages = [];
-  for (const row of list(sessionMessageRows)) {
-    const message = parseJson(row?.message);
-    if (isObject(message)) {
-      messages.push({
-        ...message,
-        run_id: row?.run_id ?? null,
-        session_id: row?.session_id ?? null,
-        sequence: row?.sequence ?? null,
-      });
-    }
-  }
-  return messages;
+function transcriptMessages(sessionMessageRows, agentRuns) {
+  return canonicalMessagesFromRows(list(sessionMessageRows), list(agentRuns));
 }
-
 // checkpoint canonical 形状只有 {blocks: [{type: "checkpoint", covers: {call_ids}}]}。
 // 旧形状不再兜底：否则把任意字段里的 ID 当成 cover 证据（C6 假阳性）。
 function checkpointCallIds(message) {
@@ -171,55 +142,6 @@ const timeValue = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-// checkpoint 在 native wire 中是 user 文本；取显式 projection cover 集合。
-function wireCheckpoints(facts) {
-  const covers = [];
-  for (const message of list(facts?.applicationMessages)) {
-    const text = typeof message?.text === "string" ? message.text : "";
-    let cursor = 0;
-    while (true) {
-      const start = text.indexOf(CHECKPOINT_COVER_PREFIX, cursor);
-      if (start < 0) break;
-      const jsonStart = start + CHECKPOINT_COVER_PREFIX.length;
-      const jsonEnd = text.indexOf("】", jsonStart);
-      if (jsonEnd < 0) break;
-      const value = parseJson(text.slice(jsonStart, jsonEnd));
-      if (isObject(value)) {
-        covers.push({ ...value, call_ids: list(value.call_ids).filter(nonBlank).map(String) });
-      }
-      cursor = jsonEnd + 1;
-    }
-  }
-  return covers;
-}
-
-function sameIdSet(left, right) {
-  const a = new Set(left);
-  const b = new Set(right);
-  return a.size === b.size && [...a].every((id) => b.has(id));
-}
-
-function checkpointExchange(checkpoint, transcript) {
-  const calls = new Map();
-  const results = new Map();
-  const before = transcript.filter((message) =>
-    message.session_id === checkpoint.session_id && Number(message.sequence) < Number(checkpoint.sequence));
-  for (const message of before) {
-    for (const block of list(message?.blocks)) {
-      const callId = block?.call_id;
-      if (!nonBlank(callId)) continue;
-      const id = String(callId);
-      if (message.role === "assistant" && block.type === "tool_call") {
-        calls.set(id, [...(calls.get(id) ?? []), Number(message.sequence)]);
-      }
-      if (message.role === "tool" && ["observation", "validation_result"].includes(block.type)) {
-        results.set(id, [...(results.get(id) ?? []), Number(message.sequence)]);
-      }
-    }
-  }
-  return { calls, results };
-}
-
 function inputTokensOf(record) {
   const usage = record?.response?.usage ?? record?.usage ?? null;
   return Number(usage?.input_tokens ?? usage?.prompt_tokens ?? 0);
@@ -238,37 +160,20 @@ function countLlmCalls(dir) {
     );
 }
 
-export function runtimeAfterBatch(dir) {
-  let appPath = null;
-  try {
-    appPath = parseJson(fs.readFileSync(path.join(dir, "native-driver-ready.json"), "utf8"))?.app_path ?? null;
-  } catch {
-    appPath = null;
-  }
-  const countApp = () => {
-    const fallback = "AI Novel Studio.app/Contents/MacOS/app";
-    const target = typeof appPath === "string" && appPath !== "" ? appPath : fallback;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    try {
-      return execFileSync("pgrep", ["-f", escaped], { encoding: "utf8" })
-        .split("\n").filter(Boolean).length;
-    } catch {
-      return 0;
-    }
-  };
-  const port = (value) => {
-    try {
-      return execFileSync("lsof", ["-nP", `-iTCP:${value}`, "-sTCP:LISTEN"], { encoding: "utf8" })
-        .split("\n").filter((line) => line.includes("LISTEN")).length > 0;
-    } catch {
-      return false;
-    }
-  };
-  return {
-    app_processes: countApp(),
-    ports: { backend_4657: port(4657), transport_4661: port(4661) },
-    llm_calls: countLlmCalls(dir),
-  };
+export function runtimeAfterBatch(dir, { exec } = {}) {
+  const ready = JSON.parse(fs.readFileSync(path.join(dir, "native-driver-ready.json"), "utf8"));
+  const executable = nativeExecutablePath(path.resolve(dir), ready);
+  assert.equal(path.resolve(ready.app_path), path.dirname(path.dirname(path.dirname(executable))), "owned app path mismatch");
+  assert(isObject(ready.owned_ports) && Object.hasOwn(ready.owned_ports, "backend") &&
+    Object.hasOwn(ready.owned_ports, "transport"), "owned_ports missing");
+  const ports = Object.fromEntries(["backend", "transport"].map((key) => {
+    const port = ready.owned_ports[key];
+    assert(port === null || Number.isInteger(port) && port > 0 && port <= 65535, "owned port invalid");
+    return [key, port === null ? false : portListening(port, exec)];
+  }));
+  const observation = ownProcesses(executable, { exec });
+  return { executable, app_processes: observation.processes.length, process_observation: observation,
+    owned_ports: ready.owned_ports, ports, llm_calls: countLlmCalls(dir) };
 }
 
 function readLogs(logDir) {
@@ -295,153 +200,234 @@ function readLogs(logDir) {
 // 独立验证交错续行。原 C1–C11 仍用于普通批次，末尾 A 的整理也不冒充有后续请求。
 export function verifyInterleavedResume(dir) {
   const trace = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"))?.interleaved_resume;
-  return verifyInterleavedResumeFacts(trace, readAutoMaintenanceDbFacts(dir), transport(dir), readLogs(path.join(dir, "llm-calls")));
+  const config = readConfig(dir);
+  const inputs = readAutoMaintenanceInputs(dir, config);
+  return verifyInterleavedResumeFacts(trace, readAutoMaintenanceDbFacts(dir), transport(dir), readLogs(path.join(dir, "llm-calls")), {
+    provider: config.provider,
+    waitingSnapshot: readMaintenanceSnapshot(dir, trace?.waiting_snapshot),
+    beforeAnswerSnapshot: readMaintenanceSnapshot(dir, trace?.before_answer_snapshot),
+    warmupAuthors: inputs.discussions.slice(0, 10), controls: inputs.controls,
+  });
 }
 
-function interleavedRuns(trace, agentRuns) {
-  const a = agentRuns.find((run) => run.id === trace?.waiting_run_id);
-  const b = agentRuns.find((run) => run.id === trace?.later_run_id);
-  assert(a?.session_id && b && a.id !== b.id && a.session_id === b.session_id, "A/B 必须是同会话的不同 run");
-  assert.equal(a.status, "completed");
-  assert.equal(b.status, "completed");
-  assert.equal(a.goal_version, trace.waiting_goal_version + 1);
-  return { a, b };
+function readMaintenanceSnapshot(dir, name) {
+  assert(typeof name === "string" && path.basename(name) === name && name.endsWith(".json"), "缺本批精确 snapshot 文件名");
+  const snapshot = readJsonIfExists(path.join(dir, name));
+  assert(snapshot, "snapshot 不存在");
+  return snapshot;
 }
 
-function isWaitingAnswer(record, trace, runId) {
-  const action = frameBody(record)?.action;
-  if (action?.action_type !== "author_choice") return false;
-  const payload = action.payload ?? {};
-  return record.direction === "sent" && frameEvent(record) === "author_action" &&
-    action.target_ref === runId && payload.question_ref === trace.waiting_question_ref &&
-    payload.expected_goal_version === trace.waiting_goal_version;
+export function readAutoMaintenanceRecoveryFacts(dir, config, injection) {
+  if (!injection) return null;
+  try {
+    const inputs = readAutoMaintenanceInputs(dir, config);
+    return { before: readMaintenanceSnapshot(dir, injection.before_snapshot),
+      afterFailure: readMaintenanceSnapshot(dir, injection.after_failure_snapshot),
+      beforeRestart: readMaintenanceSnapshot(dir, injection.before_restart_snapshot),
+      afterRestart: readMaintenanceSnapshot(dir, injection.after_restart_snapshot),
+      afterRecovery: readMaintenanceSnapshot(dir, injection.after_recovery_snapshot),
+      failureInput: inputs.discussions[10], recoveryInputs: inputs.discussions.slice(11, 20),
+      scope: { work_id: config.target.work_id, session_id: config.target.session_id } };
+  } catch (error) { return { error: error.message }; }
 }
 
-function completedBefore(record, runId, sentAt) {
-  const run = frameBody(record)?.agent_run;
-  return record.direction === "received" && frameEvent(record) === "turn_result" &&
-    run?.run_id === runId && run.status === "completed" && timeValue(record.at) < sentAt;
+// 故障与恢复只消费真实快照/调用材料；摘要和 driver 报告均不能重新定义作者目标。
+export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, facts) {
+  const detail = { failure_request_run_id: injection?.failure_request?.run_id ?? null };
+  try {
+    assert(facts?.before && facts?.afterFailure && facts?.beforeRestart && facts?.afterRestart && facts?.afterRecovery,
+      facts?.error ?? "recovery_snapshots_missing");
+    const { before, afterFailure, beforeRestart, afterRestart, afterRecovery, failureInput, recoveryInputs } = facts;
+    const times = [before, afterFailure, beforeRestart, afterRestart, afterRecovery].map((snapshot) => timeValue(snapshot.captured_at));
+    assert(times.every((time, index) => time !== null && (index === 0 || time >= times[index - 1])), "recovery_snapshot_order_invalid");
+    assert(times[3] > times[2], "recovery_restart_window_missing");
+    for (const table of ["authoring_session_messages", "agent_events", "provider_runs", "provider_outputs", "provider_events"]) {
+      assert.deepEqual(beforeRestart[table], afterFailure[table], "before_restart_changed_" + table);
+      assert.deepEqual(afterRestart[table], beforeRestart[table], "restart_changed_" + table);
+    }
+    const canonical = transcriptMessages(db.authoring_session_messages, db.agent_runs);
+    const textOf = (row) => row.blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
+    const exactRequest = (request, expected) => {
+      assert(request?.settled === true && nonBlank(request.run_id) && expected, "recovery_request_unsettled");
+      const runs = db.agent_runs.filter((run) => run.id === request.run_id);
+      assert(runs.length === 1 && runs[0].status === "completed", "recovery_run_not_completed");
+      const rows = canonical.filter((row) => row.run_id === request.run_id && row.role === "user" && row.provenance === "author");
+      assert.deepEqual(rows.map(textOf), [expected.text], "recovery_author_original_mismatch");
+      if (expected.id !== undefined) assert.equal(request.author_id, expected.id);
+      if (expected.sha256 !== undefined) assert.equal(request.author_sha256, expected.sha256);
+      assert.equal(request.text, expected.text);
+      return runs[0];
+    };
+    assert(injection.trigger_created === true && injection.author_error_visible === false, "failure_not_silent");
+    const failedRun = exactRequest(injection.failure_request, failureInput);
+    assert(facts.scope && failedRun.work_id === facts.scope.work_id && failedRun.session_id === facts.scope.session_id,
+      "recovery_scope_mismatch");
+    assert(!before.agent_runs.some((run) => run.id === failedRun.id), "failure_request_reused_old_run");
+    const recoveries = injection.recovery_requests;
+    assert(Array.isArray(recoveries) && Array.isArray(recoveryInputs) &&
+      recoveryInputs.length > 0 && recoveries.length === recoveryInputs.length, "recovery_fixed_input_count_mismatch");
+    const recoveryRuns = recoveries.map((request, index) => exactRequest(request, recoveryInputs[index]));
+    const ids = new Set(recoveryRuns.map((run) => run.id));
+    assert(recoveryRuns.every((run) => !afterFailure.agent_runs.some((prior) => prior.id === run.id)), "recovery_request_not_new");
+    assert(ids.size === recoveryRuns.length && !ids.has(failedRun.id), "recovery_run_reused");
+    for (const run of recoveryRuns)
+      for (const key of ["workspace_id", "work_id", "session_id"]) assert.equal(run[key], failedRun[key]);
+    const log = appLog.find((entry) => entry.event === "agent_run.auto_maintenance.error" && entry.run_id === failedRun.id);
+    detail.failure_log_run_id = log?.run_id ?? null;
+    detail.failure_log_reason = log?.reason ?? null;
+    assert.equal(log?.reason, ":checkpoint_persistence_failed", "failure_reason_mismatch");
+    assert(timeValue(injection.injected_at) !== null && timeValue(injection.removed_at) > timeValue(injection.injected_at),
+      "failure_injection_window_missing");
+    const checkpointRows = (snapshot) => snapshot.authoring_session_messages.filter((row) => row.role === "checkpoint");
+    const beforeEvents = checkpointEvents(before.agent_events), failedEvents = checkpointEvents(afterFailure.agent_events);
+    assert.deepEqual(failedEvents, beforeEvents, "failed_checkpoint_event_committed");
+    assert.deepEqual(checkpointRows(afterFailure), checkpointRows(before), "failed_checkpoint_message_committed");
+    assert.equal(injection.checkpoint_events_before_failure, beforeEvents.length);
+    assert.equal(injection.checkpoint_events_after_failure, failedEvents.length);
+    assert.equal(injection.checkpoint_messages_before_failure, checkpointRows(before).length);
+    assert.equal(injection.checkpoint_messages_after_failure, checkpointRows(afterFailure).length);
+    for (const [earlier, later] of [[before, afterFailure], [afterFailure, afterRecovery], [afterRecovery, db]])
+      assertHistoryPreserved(earlier, later);
+    const originalIds = new Set(before.provider_runs.map((run) => run.id));
+    const attempts = afterFailure.provider_runs.filter((run) => !originalIds.has(run.id) &&
+      run.agent_run_id === failedRun.id && parseJson(run.owner_refs)?.operation === "transcript_compaction");
+    assert(attempts.length > 0, "failed_summary_attempt_not_observed");
+    const attempted = new Set();
+    const failedCanonical = transcriptMessages(afterFailure.authoring_session_messages, afterFailure.agent_runs);
+    const pending = new Map();
+    for (const run of attempts) {
+      const refs = parseJson(run.owner_refs);
+      assert(["workspace_id", "work_id", "session_id"].every((key) => run[key] === failedRun[key]) &&
+        run.parent_turn_ref === failedRun.parent_turn_ref, "failed_summary_owner_mismatch");
+      const outputs = afterFailure.provider_outputs.filter((output) => output.provider_run_id === run.id &&
+        output.provider_call_ref === run.provider_call_ref && output.agent_run_id === failedRun.id);
+      assert(outputs.length === 1 && outputs[0].status === "ok" &&
+        nonBlank(parseJson(outputs[0].content_summary)?.content_sha256), "failed_summary_output_missing");
+      const origin = afterFailure.agent_runs.find((item) => item.id === run.agent_run_id);
+      pending.set(run.id, verifyPendingSummary(run, outputs[0], origin));
+      assert(afterFailure.provider_events.some((event) => event.provider_run_id === run.id &&
+        event.provider_call_ref === run.provider_call_ref && event.event_type === "started" &&
+        timeValue(event.emitted_at) >= timeValue(injection.injected_at) &&
+        timeValue(event.emitted_at) <= timeValue(injection.removed_at)), "failed_summary_dispatch_not_in_window");
+      assert(run.status === "completed" && run.purpose === "other" && nonBlank(refs.coverage_key) &&
+        Array.isArray(refs.discussion_source_keys) && refs.discussion_source_keys.length > 0 &&
+        refs.discussion_source_keys.every(nonBlank), "failed_summary_source_identity_missing");
+      refs.discussion_source_keys.forEach((key) => { assert(!attempted.has(key), "source_attempt_repeated"); attempted.add(key); });
+      const paired = records.filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
+      assert.equal(paired.length, 1, "failed_summary_record_missing");
+      const request = requestFactsFromRecord(paired[0]);
+      assert(request.ok && request.applicationBases.length === 1 && request.authorMessages.length === 0);
+      const base = request.applicationBases[0].text;
+      const material = JSON.parse(base.slice(base.indexOf("\n") + 1));
+      assert(material.material_kind === "quoted_discussion_sources" && material.sources?.length === refs.discussion_source_keys.length);
+      const actualSourceKeys = material.sources.map((source) => "authoring-session-source/v1:" +
+        JSON.stringify([run.workspace_id, run.work_id, run.session_id, source.source?.run_id, source.source?.run_sequence]));
+      assert.deepEqual(refs.discussion_source_keys, actualSourceKeys, "failed_summary_source_keys_not_actual_material");
+      for (const source of material.sources) {
+        const index = failedCanonical.findIndex((row) => row.run_id === source.source?.run_id && row.canonical_ref.run_sequence === source.source?.run_sequence);
+        const message = failedCanonical[index];
+        assert(message?.role === "assistant" && message.provenance === "model" &&
+          message.blocks.length > 0 && message.blocks.every((block) => block.type === "text"), "failed_summary_source_missing");
+        assert.equal(source.text, textOf(message), "failed_summary_source_bytes_changed");
+        const author = failedCanonical.slice(0, index).findLast((row) => row.run_id === message.run_id && row.role === "user" && row.provenance === "author");
+        assert(author && source.author_text === textOf(author), "failed_summary_author_bytes_changed");
+      }
+      const final = db.provider_runs.find((candidate) => candidate.id === run.id);
+      assert(final && final.provider_call_ref === run.provider_call_ref && final.status === run.status &&
+        JSON.stringify(parseJson(final.owner_refs)) === JSON.stringify(refs), "failed_attempt_not_durable");
+    }
+    for (const run of db.provider_runs.filter((row) => !attempts.some((attempt) => attempt.id === row.id) &&
+      parseJson(row.owner_refs)?.operation === "transcript_compaction"))
+      assert(!list(parseJson(run.owner_refs).discussion_source_keys).some((key) => attempted.has(key)), "failed_source_redispatched");
+    const audit = auditCanonicalCoverage(canonical, { verifyExecutions: true, verifyRequests: true,
+      providerRuns: db.provider_runs, providerOutputs: db.provider_outputs, providerRecords: records });
+    assert(audit.ok, audit.reason);
+    const recovered = [];
+    for (const run of attempts) {
+      const capsule = pending.get(run.id);
+      for (const snapshot of [beforeRestart, afterRestart, afterRecovery, db]) {
+        const origin = snapshot.agent_runs.find((candidate) => candidate.id === run.agent_run_id);
+        assert(origin && ["completed", "failed"].includes(origin.status) && origin.goal_version === capsule.goal_version,
+          "recovery_origin_direction_changed");
+      }
+      const matches = audit.checkpoints.filter((item) => canonical[item.checkpoint_index].blocks.some((block) =>
+        block.discussion?.provider_run_ref === run.id));
+      assert.equal(matches.length, 1, "original_response_not_committed_once");
+      const item = matches[0], message = canonical[item.checkpoint_index];
+      assert(ids.has(item.canonical_ref.run_id), "recovery_committer_not_followup_run");
+      const block = message.blocks.find((block) => block.discussion?.provider_run_ref === run.id);
+      assert.equal(block.discussion.provider_call_ref, run.provider_call_ref, "recovered_call_identity_changed");
+      assert.equal(block.discussion.response_text, capsule.response_text, "recovered_response_bytes_changed");
+      for (const key of ["covers", "source_refs", "versions", "omissions", "summary"])
+        assert.deepEqual(block[key], capsule.plan[key], "recovered_plan_changed:" + key);
+      for (const snapshot of [afterRecovery, db]) {
+        const final = snapshot.provider_runs.filter((candidate) => candidate.id === run.id);
+        assert(final.length === 1 && final[0].operation_checkpoint === null, "recovered_private_payload_not_cleared");
+        const row = snapshot.authoring_session_messages.filter((row) => row.run_id === item.canonical_ref.run_id &&
+          row.run_sequence === item.canonical_ref.run_sequence && row.role === "checkpoint");
+        assert(row.length === 1 && JSON.stringify(parseJson(row[0].message)) === JSON.stringify(parseJson(
+          db.authoring_session_messages.find((entry) => entry.run_id === row[0].run_id && entry.run_sequence === row[0].run_sequence).message)),
+        "recovery_snapshot_checkpoint_mismatch");
+        const commits = audit.checkpoints.filter((entry) => entry.canonical_ref.run_id === item.canonical_ref.run_id);
+        const events = checkpointEvents(snapshot.agent_events).filter((event) => event.run_id === item.canonical_ref.run_id)
+          .sort((a, b) => a.sequence - b.sequence);
+        const position = commits.indexOf(item);
+        assert.equal(events.length, commits.length, "recovery_checkpoint_event_cardinality");
+        const event = events[position], payload = parseJson(event?.payload);
+        assert(event?.visibility === "author", "recovery_checkpoint_event_not_author");
+        assert.deepEqual(payload?.covered_counts, item.counts, "recovery_checkpoint_counts_mismatch");
+        assert.deepEqual(payload?.history_target, capsule.plan.history_target, "recovery_checkpoint_target_mismatch");
+        for (const key of ["retained_items", "scope"])
+          assert.deepEqual(payload?.[key] ?? null, capsule.plan[key] ?? null, "recovered_event_plan_changed:" + key);
+      }
+      recovered.push({ provider_run_ref: run.id, provider_call_ref: run.provider_call_ref,
+        response_sha256: block.discussion.response_sha256, committed_run_id: item.canonical_ref.run_id });
+    }
+    return { ok: true, reason: null, detail: { ...detail, failed_attempt_ids: attempts.map((run) => run.id),
+      attempted_source_keys: [...attempted], recovery_run_ids: [...ids], recovered,
+      recovery_checkpoint_count: recovered.length, original_response_recovered: true, pending_payload_cleared: true,
+      canonical_originals_preserved: true, failed_source_redispatched: false } };
+  } catch (error) { return { ok: false, reason: error.message, detail }; }
 }
 
-function interleavedAnswer(trace, a, b, wire) {
-  const actions = wire.filter((record) => isWaitingAnswer(record, trace, a.id));
-  assert.equal(actions.length, 1, "必须有唯一的 A 原问题回答帧");
-  const { response } = actionAck(wire, actions[0], { actionStatus: "accepted" });
-  assert.equal(response.action_id, frameBody(actions[0]).action.action_id);
-  assert.equal(response.run_id, a.id);
-  assert.equal(response.question_ref, trace.waiting_question_ref);
-  assert.equal(response.goal_version, a.goal_version);
-  const sentAt = timeValue(actions[0].at);
-  assert(wire.some((record) => completedBefore(record, b.id, sentAt)), "必须先观察到 B 完成，再回答 A");
-  return { response, sentAt };
+function verifyPendingSummary(run, output, origin) {
+  const capsule = parseJson(run.operation_checkpoint);
+  assert(capsule?.version === "provider-operation-checkpoint/v1" &&
+    Number.isInteger(capsule.goal_version) && capsule.goal_version > 0 &&
+    nonBlank(capsule.response_text) && capsule.plan && typeof capsule.plan === "object", "pending_original_response_missing");
+  assert(origin && ["completed", "failed"].includes(origin.status) && origin.goal_version === capsule.goal_version,
+    "pending_original_direction_changed");
+  assert.deepEqual(Object.keys(capsule).sort(), ["goal_version", "plan", "response_text", "version"]);
+  const planKeys = ["covers", "source_refs", "versions", "omissions", "summary", "retained_items", "scope", "history_target"];
+  assert(Object.keys(capsule.plan).every((key) => planKeys.includes(key)), "pending_original_plan_unknown_field");
+  for (const key of ["covers", "source_refs", "versions", "omissions", "summary"])
+    assert(Object.hasOwn(capsule.plan, key), "pending_original_plan_missing:" + key);
+  const digest = createHash("sha256").update(capsule.response_text, "utf8").digest("hex");
+  assert.equal(digest, parseJson(output.content_summary)?.content_sha256, "pending_original_response_hash_mismatch");
+  return capsule;
 }
 
-function checkpointCoversRun(checkpoint, rows, runId, covered) {
-  const exchanges = checkpointExchange(checkpoint, rows.filter((row) => row.run_id === runId));
-  return covered.some((id) => exchanges.calls.get(id)?.length === 1 &&
-    exchanges.results.get(id)?.length === 1 &&
-    exchanges.calls.get(id)[0] < exchanges.results.get(id)[0]);
-}
-
-function interleavedCheckpoint(a, b, db, sentAt) {
-  const rows = transcriptMessages(db.authoring_session_messages)
-    .filter((row) => row.session_id === a.session_id)
-    .sort((left, right) => left.sequence - right.sequence);
-  const checkpoints = rows.filter((row) => row.run_id === b.id && row.role === "checkpoint");
-  const events = checkpointEvents(db.agent_events).filter((event) => event.run_id === b.id);
-  assert.equal(checkpoints.length, 1, "B 必须持有可唯一绑定的 checkpoint");
-  assert.equal(events.length, 1, "B 必须持有可唯一绑定的整理事件");
-  assert(timeValue(events[0].inserted_at) < sentAt, "B 的整理必须发生在 A 回答前");
-  const checkpoint = checkpoints[0];
-  const covered = checkpointCallIds(checkpoint);
-  assert(checkpointCoversRun(checkpoint, rows, a.id, covered), "B 必须覆盖 A 已落库的闭合交换");
-  return { rows, checkpoint, covered };
-}
-
-function resumedProviderRun(a, db, sentAt) {
-  const providers = new Map(db.provider_runs.filter((run) => run.agent_run_id === a.id &&
-    run.session_id === a.session_id && run.provider_id === "strata").map((run) => [run.id, run]));
-  const starts = db.provider_events.filter((event) => event.event_type === "started" &&
-    providers.has(event.provider_run_id) && timeValue(event.emitted_at) >= sentAt)
-    .sort((left, right) => timeValue(left.emitted_at) - timeValue(right.emitted_at));
-  assert(starts.length > 0, "缺少 A 恢复后的 Provider 请求");
-  assert.notEqual(timeValue(starts[0].emitted_at), timeValue(starts[1]?.emitted_at), "首个请求不能多义");
-  return providers.get(starts[0].provider_run_id);
-}
-
-function resumedRequest(run, llmRecords, checkpoint, covered) {
-  const records = llmRecords
-    .filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
-  assert.equal(records.length, 1, "A 恢复请求须按 Provider run/call 唯一绑定");
-  const facts = requestFactsFromRecord(records[0]);
-  assert(facts.ok && facts.format === NATIVE_CHAT_WIRE && facts.malformedCalls === 0 && facts.malformedToolMessages === 0);
-  const canonicalCover = checkpoint.blocks.find((block) => block.type === "checkpoint")?.covers;
-  assert(wireCheckpoints(facts).some((entry) => entry.turn_range === canonicalCover?.turn_range &&
-    sameIdSet(entry.call_ids, covered)), "A 的请求缺 B 的精确折叠范围");
-  return { record: records[0], facts };
-}
-
-function retainedHistoryBlocks(history, role, types, folded) {
-  return history.filter((row) => row.role === role)
-    .flatMap((row) => list(row.blocks))
-    .filter((block) => types.includes(block.type) && !folded.has(block.call_id));
-}
-
-function canonicalAnswer(rows, a, trace, checkpoint) {
-  const answer = rows.find((row) => row.run_id === a.id && row.role === "user" &&
-    row.sequence > checkpoint.sequence && row.author_turn?.question_ref === trace.waiting_question_ref);
-  assert(answer, "缺少 A 的 canonical 回答");
-  return answer;
-}
-
-function resumedHistory(rows, answer, facts) {
-  const history = rows.filter((row) => row.sequence <= answer.sequence);
-  const folded = new Set(history.filter((row) => row.role === "checkpoint").flatMap(checkpointCallIds));
-  const retainedCalls = retainedHistoryBlocks(history, "assistant", ["tool_call"], folded).map((block) => block.call_id);
-  const retainedResults = retainedHistoryBlocks(history, "tool", ["observation", "validation_result"], folded);
-  assert.deepEqual(facts.toolCalls.map((call) => call.callId), retainedCalls);
-  assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults);
-  assert(facts.toolResults.some((result) => list(result.payload.source_refs).length > 0), "缺少带来源的保留观察");
-  const textOf = (row) => list(row.blocks).filter((block) => block.type === "text").map((block) => block.text).join("");
-  const authorTexts = history.filter((row) => row.role === "user").map(textOf).filter(Boolean);
-  assert.deepEqual(facts.authorMessages.map((message) => message.text), authorTexts);
-  return { retainedCalls, retainedResults, authorTexts };
-}
-
-function resumedScope(rows, answer, a, response, record) {
-  const scope = rows.find((row) => row.sequence > answer.sequence && row.run_id === a.id &&
-    row.role === "scope_update" && row.versions?.goal === response.goal_version);
-  const projectedScope = scopeForProviderCall(record, { messages: rows });
-  const canonicalScope = scopeContentOf(scope);
-  assert(canonicalScope && projectedScope?.scopeContent, "A 恢复后必须生成当前结构化 scope");
-  assert.deepEqual(projectedScope.versions, scope.versions);
-  assert.deepEqual(projectedScope.sourceRefs, scope.source_refs);
-  assert.deepEqual(projectedScope.scopeContent, canonicalScope);
-}
-
-// 与普通批次相同，纯判据只消费读侧事实；IO 入口保持上面的独立 wrapper。
-export function verifyInterleavedResumeFacts(trace, db, wire, llmRecords) {
-  const { a, b } = interleavedRuns(trace, db.agent_runs);
-  const { response, sentAt } = interleavedAnswer(trace, a, b, wire);
-  const { rows, checkpoint, covered } = interleavedCheckpoint(a, b, db, sentAt);
-  const run = resumedProviderRun(a, db, sentAt);
-  const { record, facts } = resumedRequest(run, llmRecords, checkpoint, covered);
-  const answer = canonicalAnswer(rows, a, trace, checkpoint);
-  const { retainedCalls, retainedResults, authorTexts } = resumedHistory(rows, answer, facts);
-  resumedScope(rows, answer, a, response, record);
-  return {
-    ok: true, session_id: a.session_id, waiting_run_id: a.id, later_run_id: b.id,
-    checkpoint_sequence: checkpoint.sequence, covered_call_ids: covered,
-    provider_run_id: run.id, provider_call_ref: run.provider_call_ref,
-    retained_exchanges: retainedCalls.length, exact_author_messages: authorTexts.length,
-    observations_with_refs: retainedResults.filter((block) => list(block.source_refs).length > 0).length,
-    // 仍按保留的原生父结果计数；planned_exploration 只取带真实版本的叶。
-    observations_with_versions: retainedResults.filter((block) =>
-      block.type === "observation" &&
-      (plannedExplorationLeaves(block) ?? [block]).some((entry) =>
-        Object.keys(entry.versions ?? {}).length > 0)).length,
-    goal_version: response.goal_version,
-  };
+export function verifyBackendRestartFacts(trace, before, after, records, attemptIds) {
+  assert(trace?.recovery_scope === "owned_beam_backend_quiescent", "backend_restart_scope_missing");
+  assert(Array.isArray(attemptIds) && attemptIds.length > 0, "restart_missing_failed_source_attempts");
+  const start = timeValue(before.captured_at), end = timeValue(after.captured_at);
+  assert(start !== null && end !== null && end >= start, "restart_snapshot_window_invalid");
+  for (const table of ["authoring_session_messages", "agent_events", "provider_runs", "provider_outputs", "provider_events"])
+    assert.deepEqual(after[table], before[table], "backend_restart_changed_" + table);
+  for (const id of attemptIds) assert(before.provider_runs.some((run) => run.id === id), "restart_source_qualification_missing");
+  const countAt = (at) => records.filter((record) => {
+    const time = timeValue(record.ts);
+    assert(time !== null, "restart_call_timestamp_missing");
+    return time <= at;
+  }).length;
+  const beforeCalls = countAt(start), afterCalls = countAt(end);
+  assert.equal(beforeCalls, afterCalls, "backend_restart_dispatched_provider");
+  assert.equal(trace.provider_calls_before, beforeCalls);
+  assert.equal(trace.provider_calls_after, afterCalls);
+  return { ok: true, recovery_scope: trace.recovery_scope, failed_source_qualification_preserved: true,
+    canonical_originals_preserved: true, provider_calls_before: beforeCalls, provider_calls_after: afterCalls,
+    previous_backend_pid: trace.receipt.previous_backend_pid, backend_pid: trace.receipt.backend_pid,
+    database: trace.receipt.database, active_task_recovery_signed: false };
 }
 
 // ── 判据 C1–C10 ─────────────────────────────────────────────────────────────
@@ -451,59 +437,77 @@ export function evaluateAutoMaintenance({
   checkpoints,
   driverLog = null,
   cleanup = null,
-  strataSlot = null,
+  runtime = null,
   llmRecords = [],
   appLog = [],
   dir = null,
   multiTurn = null,
+  failureFacts = null,
 }) {
   const db = dbFacts ?? {};
-  const env = driverLog?.env ?? {};
-  const transcript = transcriptMessages(db.authoring_session_messages);
+  let transcript = [], canonicalReadError = null;
+  try { transcript = transcriptMessages(db.authoring_session_messages, db.agent_runs); }
+  catch (error) { canonicalReadError = error.message; }
   const checkpointsMsgs = transcript.filter((message) => String(message?.role ?? "") === "checkpoint");
   const events = checkpointEvents(db.agent_events);
-  // 尾段恢复 run 的 checkpoint 是 C8 证据，之后不再有「下一请求」；C5 只核查
-  // 触发/下一请求链上的 checkpoint，不把恢复 checkpoint 误判为缺证。
-  const recoveryProbeRunId = driverLog?.failure_injection?.recovery_request?.run_id ?? null;
   const eventTimes = eventAts(events);
   const triggerRatio = AUTO_MAINTENANCE_TRIGGER_RATIO;
-  const threshold = Math.floor(AUTO_MAINTENANCE_WINDOW * triggerRatio);
-  const usages = list(llmRecords).map(inputTokensOf).filter((value) => Number.isFinite(value) && value > 0);
+  const profile = config.runtime?.profile ? getRuntimeProfile(config.runtime.profile) : null;
+  const maintenanceWindow = profile?.maintenance_window ?? null;
+  const expectedProvider = profile?.provider ?? null;
+  const threshold = profile ? Math.ceil(maintenanceWindow * triggerRatio) : null;
+  const summaryCallRefs = new Set(list(db.provider_runs).filter((run) => parseJson(run.owner_refs)?.operation === "transcript_compaction")
+    .map((run) => run.provider_call_ref));
+  const usages = list(llmRecords).filter((record) => !summaryCallRefs.has(record.provider_call_ref))
+    .map(inputTokensOf).filter((value) => Number.isFinite(value) && value > 0);
   const maxInputTokens = usages.length > 0 ? Math.max(...usages) : 0;
   const providerIds = [...new Set(list(db.provider_runs).map((run) => String(run?.provider_id ?? "")).filter(Boolean))];
-  const autoMaintenanceEnabled = String(env.auto_maintenance_enabled ?? "") === "1";
-  const windowOverride = String(env.window_overrides ?? "");
+  const autoMaintenanceEnabled = config.runtime?.observed?.auto_maintenance?.enabled === true;
   // 无目录时（纯评估/无文件证据）文件类检查为 unknown，不冒充 pass 或 fail；
   // 真实批次 verify 始终传入目录，不进入本分支。
   const autoVisible = dir
     ? scanAuthorVisibleFiles(dir)
     : { ok: null, hits: [], files: [], reason: null };
-  const runtime = dir ? runtimeAfterBatch(dir) : null;
 
-  // C1：真实压力成立（真实 usage 越线 + 窗口 override 生效 + strata provider）。
+  // C1：真实主调用 usage 越线，启动观察与显式维护预算/provider一致。
   const c1 = {
     ok:
-      autoMaintenanceEnabled &&
-      windowOverride.includes("strata:4096") &&
-      providerIds.includes("strata") &&
+      profile !== null && autoMaintenanceEnabled &&
+      config.runtime.observed?.context_pressure?.window === maintenanceWindow &&
+      config.runtime.observed?.context_pressure?.maintenance_ratio === triggerRatio &&
+      providerIds.includes(expectedProvider) &&
       maxInputTokens >= threshold,
     reason: null,
     detail: {
-      auto_maintenance_enabled: env.auto_maintenance_enabled ?? null,
-      window_overrides: windowOverride,
+      auto_maintenance_enabled: autoMaintenanceEnabled,
       provider_ids: providerIds,
       max_input_tokens: maxInputTokens,
       threshold,
-      window: AUTO_MAINTENANCE_WINDOW,
+      window: maintenanceWindow,
+      maintenance_ratio: triggerRatio,
+      provider: expectedProvider,
     },
   };
   if (!c1.ok) c1.reason = "real_pressure_not_established";
 
   // C2：自动整理发生（checkpoint_created 事件 + role=checkpoint 消息，同边界）。
-  const eventPayloadOk = events.every((event) => {
-    const payload = parseJson(event?.payload) ?? {};
-    return Number(payload?.covered_exchanges ?? 0) >= 0 && isObject(payload);
-  });
+  const eventPayloadOk = events.length === checkpointsMsgs.length &&
+    new Set(events.map((event) => JSON.stringify([event.run_id, event.sequence]))).size === events.length &&
+    events.every((event) => {
+      const siblings = events.filter((row) => row.run_id === event.run_id).sort((a, b) => a.sequence - b.sequence);
+      const messages = checkpointsMsgs.filter((row) => row.run_id === event.run_id).sort((a, b) => a.sequence - b.sequence);
+      const checkpoint = messages[siblings.indexOf(event)];
+      const counts = parseJson(event.payload)?.covered_counts;
+      if (!checkpoint || !isObject(counts) || !Array.isArray(checkpoint.blocks) || !checkpoint.blocks.length ||
+        checkpoint.blocks.some((block) => block.type !== "checkpoint" ||
+          !Array.isArray(block.covers?.call_ids) || !Array.isArray(block.covers?.message_refs))) return false;
+      const expected = checkpoint.blocks.reduce((sum, block) => ({
+        tool_exchanges: sum.tool_exchanges + block.covers.call_ids.length,
+        scope_updates: sum.scope_updates + block.covers.message_refs.filter((ref) => ref.role === "scope_update").length,
+        discussion_messages: sum.discussion_messages + block.covers.message_refs.filter((ref) => ref.role === "assistant").length,
+      }), { tool_exchanges: 0, scope_updates: 0, discussion_messages: 0 });
+      try { assert.deepEqual(counts, expected); return true; } catch { return false; }
+    });
   const c2 = {
     ok: events.length >= 1 && checkpointsMsgs.length >= 1 && eventPayloadOk,
     reason: null,
@@ -553,20 +557,24 @@ export function evaluateAutoMaintenance({
   const coveredCallIds = [...new Set(checkpointsMsgs.flatMap((checkpoint) => checkpointCallIds(checkpoint)))];
   const providerRunsById = new Map(list(db.provider_runs).map((run) => [String(run.id), run]));
   const c5Checks = list(events)
-    .filter(
-      (event) =>
-        !(recoveryProbeRunId && String(event.run_id ?? "") === String(recoveryProbeRunId)),
-    )
     .map((event) => {
-    const eventRows = list(events).filter((row) => row.run_id === event.run_id);
-    const checkpointRows = checkpointsMsgs.filter((row) => row.run_id === event.run_id);
-    if (eventRows.length !== 1 || checkpointRows.length !== 1) return { ok: null, reason: "checkpoint_binding_unknown" };
-    const checkpoint = checkpointRows[0];
+    const eventRows = list(events).filter((row) => row.run_id === event.run_id).sort((a, b) => a.sequence - b.sequence);
+    const checkpointRows = checkpointsMsgs.filter((row) => row.run_id === event.run_id).sort((a, b) => a.sequence - b.sequence);
+    if (eventRows.length !== checkpointRows.length || new Set(eventRows.map((row) => row.sequence)).size !== eventRows.length)
+      return { ok: null, reason: "checkpoint_binding_unknown" };
+    const checkpoint = checkpointRows[eventRows.indexOf(event)];
+    if (!checkpoint) return { ok: null, reason: "checkpoint_binding_unknown" };
+    const canonicalAudit = auditCanonicalCoverage(transcript.filter((row) => row.session_id === checkpoint.session_id && row.sequence <= checkpoint.sequence), {
+      verifyExecutions: true, verifyRequests: true, providerRuns: list(db.provider_runs),
+      providerOutputs: list(db.provider_outputs), providerRecords: llmRecords,
+    });
+    if (!canonicalAudit.ok) return { ok: false, reason: canonicalAudit.reason };
     const eventAt = timeValue(event.inserted_at);
     if (eventAt === null) return { ok: null, reason: "next_request_evidence_missing" };
     const started = list(db.provider_events)
       .filter((row) => row.event_type === "started" && timeValue(row.emitted_at) > eventAt &&
-        providerRunsById.get(String(row.provider_run_id))?.session_id === checkpoint.session_id)
+        providerRunsById.get(String(row.provider_run_id))?.session_id === checkpoint.session_id &&
+        parseJson(providerRunsById.get(String(row.provider_run_id))?.owner_refs)?.operation !== "transcript_compaction")
       .sort((left, right) => timeValue(left.emitted_at) - timeValue(right.emitted_at));
     const firstAt = started.length ? timeValue(started[0].emitted_at) : null;
     const first = started.filter((row) => timeValue(row.emitted_at) === firstAt);
@@ -576,8 +584,10 @@ export function evaluateAutoMaintenance({
       : [];
     const facts = records.length === 1 ? requestFactsFromRecord(records[0]) : null;
     const covered = checkpointCallIds(checkpoint);
-    const wireCovers = facts?.ok && facts.format === NATIVE_CHAT_WIRE
-      ? wireCheckpoints(facts).map((entry) => entry.call_ids) : [];
+    const canonicalCovers = checkpoint.blocks.filter((block) => block.type === "checkpoint").map((block) => block.covers);
+    const messageRefs = canonicalCovers.flatMap((covers) => covers.message_refs);
+    const wireSelections = facts?.ok && facts.format === NATIVE_CHAT_WIRE ? wireCheckpoints(facts) : [];
+    const wireCovers = wireSelections.map((entry) => entry.call_ids);
     const replayed = covered.filter((id) =>
       list(facts?.toolCalls).some((call) => String(call.callId) === id) ||
       list(facts?.toolResults).some((result) => [result.callId, result.toolCallId].some((ref) => String(ref) === id)));
@@ -589,15 +599,43 @@ export function evaluateAutoMaintenance({
       provider_call_ref: run?.provider_call_ref ?? null,
       started_event_at: first[0]?.emitted_at ?? null,
       covered_call_ids: covered,
+      covered_message_refs: messageRefs,
       wire_checkpoint_covers: wireCovers,
       replayed_call_ids: replayed,
       malformed_calls: malformedCalls,
       malformed_tool_messages: malformedToolMessages,
     };
-    const evidence = first.length === 1 && records.length === 1 && facts?.ok && facts.format === NATIVE_CHAT_WIRE && covered.length > 0;
+    const evidence = first.length === 1 && records.length === 1 && facts?.ok && facts.format === NATIVE_CHAT_WIRE && covered.length + messageRefs.length > 0;
     if (!evidence) return { ok: null, reason: "next_request_evidence_missing", detail };
     if (malformedCalls > 0 || malformedToolMessages > 0) return { ok: false, reason: "next_request_wire_malformed", detail };
-    if (!wireCovers.some((ids) => sameIdSet(ids, covered))) return { ok: false, reason: "checkpoint_cover_mismatch", detail };
+    const sameSelection = (left, right) => { try { assert.deepEqual(left, right); return true; } catch { return false; } };
+    if (!canonicalCovers.every((covers) => wireSelections.some((selection) => sameSelection(selection, covers))))
+      return { ok: false, reason: "checkpoint_cover_mismatch", detail };
+    if (messageRefs.length > 0) {
+      const history = { messages: transcript.filter((row) => row.session_id === checkpoint.session_id) };
+      const next = canonicalCoverageForProviderCall(records[0], history);
+      if (!next?.ok) return { ok: null, reason: "next_request_canonical_prefix_missing", detail };
+      const expectedAuthors = next.retainedMessages.filter((row) => row.role === "user" && row.provenance === "author")
+        .map((row) => row.blocks.map((block) => block.text ?? "").join(""));
+      if (!sameSelection(facts.authorMessages.map((message) => message.text), expectedAuthors))
+        return { ok: false, reason: "author_original_bytes_not_retained", detail };
+      if (next.retainedMessages.some((row) => row.role === "scope_update") && !scopeForProviderCall(records[0], history))
+        return { ok: false, reason: "scope_projection_does_not_match_valid_coverage", detail };
+      const retainedDiscussions = next.retainedMessages.filter((row) => row.role === "assistant" && row.provenance === "model" &&
+        row.blocks.length > 0 && row.blocks.every((block) => block.type === "text")).map((row) => row.blocks.map((block) => block.text).join(""));
+      const nativeDiscussions = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length)
+        .map((message) => message.content);
+      for (const ref of messageRefs.filter((ref) => ref.role === "assistant")) {
+        const source = history.messages.find((row) => row.canonical_ref.run_id === ref.run_id && row.canonical_ref.run_sequence === ref.run_sequence);
+        const text = source.blocks.map((block) => block.text).join("");
+        const expected = next.retainedMessages.filter((row) => row.role === "assistant" && row.blocks.every((block) => block.type === "text") &&
+          row.blocks.map((block) => block.text).join("") === text).length;
+        const actual = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length && message.content === text).length;
+        if (actual !== expected) return { ok: false, reason: "covered_discussion_still_in_next_request", detail };
+      }
+      if (!sameSelection(nativeDiscussions, retainedDiscussions))
+        return { ok: false, reason: "retained_discussion_bytes_not_preserved", detail };
+    }
     if (replayed.length > 0) return { ok: false, reason: "covered_call_ids_still_in_next_request", detail };
     return { ok: true, reason: null, detail };
   });
@@ -610,31 +648,20 @@ export function evaluateAutoMaintenance({
         ? { ok: true, reason: null, detail: { covered_call_ids: coveredCallIds, checks: c5Detail } }
         : { ok: null, reason: c5Checks.find((check) => check.ok === null)?.reason ?? "next_request_evidence_missing", detail: { covered_call_ids: coveredCallIds, checks: c5Detail } };
 
-  // C6：每条 canonical checkpoint 必须显式 covers，再按同 session、checkpoint 之前
-  // 真实交换恰好一对且顺序正确的规则逐条核查；任一无 covers 即失败，不因另一条合法而通过。
-  const c6Failures = [];
-  const checkpointsWithoutCovers = [];
-  for (const checkpoint of checkpointsMsgs) {
-    const covered = checkpointCallIds(checkpoint);
-    if (covered.length === 0) checkpointsWithoutCovers.push(Number(checkpoint.sequence));
-    const exchange = checkpointExchange(checkpoint, transcript);
-    for (const callId of covered) {
-      const callSequences = exchange.calls.get(callId) ?? [];
-      const resultSequences = exchange.results.get(callId) ?? [];
-      if (callSequences.length !== 1 || resultSequences.length !== 1 || callSequences[0] >= resultSequences[0]) {
-        c6Failures.push({ call_id: callId, checkpoint_sequence: checkpoint.sequence, call_count: callSequences.length, result_count: resultSequences.length });
-      }
-    }
-  }
-  const c6Covered = [...new Set(checkpointsMsgs.flatMap((checkpoint) => checkpointCallIds(checkpoint)))];
+
+  // C6：三个覆盖类别使用同一独立 canonical oracle；任一非法选择器不得用其它合法项掩盖。
+  const coverageAudits = [...new Set(transcript.map((message) => message.session_id))].map((sessionId) => ({
+    session_id: sessionId,
+    ...auditCanonicalCoverage(transcript.filter((message) => message.session_id === sessionId), {
+      verifyExecutions: true, verifyRequests: true, providerRuns: list(db.provider_runs),
+      providerOutputs: list(db.provider_outputs), providerRecords: llmRecords,
+    }),
+  }));
+  const coverageFailures = coverageAudits.filter((audit) => !audit.ok);
   const c6 = {
-    ok: c6Failures.length === 0 && checkpointsWithoutCovers.length === 0 && checkpointsMsgs.length > 0,
-    reason: c6Failures.length
-      ? "covered_exchange_not_closed_exactly_once_before_checkpoint"
-      : checkpointsWithoutCovers.length || !checkpointsMsgs.length
-        ? "checkpoint_call_ids_missing"
-        : null,
-    detail: { covered_call_ids: c6Covered, checkpoints_without_covers: checkpointsWithoutCovers, failures: c6Failures },
+    ok: canonicalReadError === null && coverageFailures.length === 0 && checkpointsMsgs.length > 0,
+    reason: canonicalReadError ?? coverageFailures[0]?.reason ?? (checkpointsMsgs.length ? null : "checkpoint_selection_missing"),
+    detail: { covered_call_ids: coveredCallIds, audits: coverageAudits.map(({ retainedMessages, ...audit }) => audit) },
   };
 
   // C7：刷新幂等（刷新后细条仍在、checkpoint 事件与 canonical 消息计数均不变）。
@@ -663,96 +690,7 @@ export function evaluateAutoMaintenance({
   };
   if (c7.ok === false) c7.reason = "refresh_not_idempotent";
 
-  // C8：失败静默。必须同时满足：持久 trigger 已注入、真实 AX 无错误提示（读取失败记
-  // null 即失败）、注入前后 checkpoint 事件与 canonical 消息两类计数严格不变、与
-  // failure_request.run_id 相同的真实 agent_run.auto_maintenance.error 且 reason 为
-  // :checkpoint_persistence_failed、故障/恢复均为已结算的新作者 turn，且恢复 run
-  // 在最终 dbFacts 中确实同时有 checkpoint 事件与 canonical checkpoint 行。
-  // 他 run 的日志、仅改报告或仅全局计数增长都不放行。
-  const injection = driverLog?.failure_injection ?? null;
-  const failureAx = readCaptureText(dir, "after-failure");
-  const appLogText = list(appLog).map((entry) => JSON.stringify(entry)).join("\n");
-  const failureRunId = injection?.failure_request?.run_id ?? null;
-  const recoveryRunId = injection?.recovery_request?.run_id ?? null;
-  const failureLog = failureRunId
-    ? list(appLog).find(
-        (entry) =>
-          String(entry?.event ?? "") === "agent_run.auto_maintenance.error" &&
-          String(entry?.run_id ?? "") === String(failureRunId),
-      ) ?? null
-    : null;
-  const failureLogReason = failureLog ? String(failureLog.reason ?? "").trim() : null;
-  const runStatusOf = (runId) =>
-    runId
-      ? list(db.agent_runs).find((row) => String(row?.id ?? "") === String(runId))?.status ?? null
-      : null;
-  const failureRunStatus = runStatusOf(failureRunId);
-  const recoveryRunStatus = runStatusOf(recoveryRunId);
-  const recoveryCheckpointEvents = recoveryRunId
-    ? list(db.agent_events).filter(
-        (event) =>
-          String(event?.event_type ?? "") === "checkpoint_created" &&
-          String(event?.run_id ?? "") === String(recoveryRunId),
-      )
-    : [];
-  const recoveryCheckpointMessages = recoveryRunId
-    ? transcript.filter(
-        (message) =>
-          String(message?.role ?? "") === "checkpoint" &&
-          String(message?.run_id ?? "") === String(recoveryRunId),
-      )
-    : [];
-  const c8 = {
-    ok:
-      isObject(injection) &&
-      injection.trigger_created === true &&
-      injection.author_error_visible === false &&
-      sameNonNegativeCount(
-        injection.checkpoint_events_before_failure,
-        injection.checkpoint_events_after_failure,
-      ) &&
-      sameNonNegativeCount(
-        injection.checkpoint_messages_before_failure,
-        injection.checkpoint_messages_after_failure,
-      ) &&
-      injection.failure_request?.settled === true &&
-      injection.recovery_request?.settled === true &&
-      Boolean(failureRunId) &&
-      Boolean(recoveryRunId) &&
-      String(failureRunId) !== String(recoveryRunId) &&
-      failureRunStatus === "completed" &&
-      recoveryRunStatus === "completed" &&
-      failureLogReason === ":checkpoint_persistence_failed" &&
-      recoveryCheckpointEvents.length > 0 &&
-      recoveryCheckpointMessages.length > 0,
-    reason: null,
-    detail: {
-      trigger_created: injection?.trigger_created ?? null,
-      author_error_visible: injection?.author_error_visible ?? null,
-      failure_request_run_id: failureRunId,
-      recovery_request_run_id: recoveryRunId,
-      checkpoint_events_before_failure: injection?.checkpoint_events_before_failure ?? null,
-      checkpoint_events_after_failure: injection?.checkpoint_events_after_failure ?? null,
-      checkpoint_messages_before_failure: injection?.checkpoint_messages_before_failure ?? null,
-      checkpoint_messages_after_failure: injection?.checkpoint_messages_after_failure ?? null,
-      failure_request_settled: injection?.failure_request?.settled ?? null,
-      recovery_request_settled: injection?.recovery_request?.settled ?? null,
-      failure_request_reported_status: injection?.failure_request?.run_status ?? null,
-      recovery_request_reported_status: injection?.recovery_request?.run_status ?? null,
-      failure_run_status: failureRunStatus,
-      recovery_run_status: recoveryRunStatus,
-      recovery_checkpoint_event_count: recoveryCheckpointEvents.length,
-      recovery_checkpoint_message_count: recoveryCheckpointMessages.length,
-      failure_log_run_id: failureLog ? (failureLog.run_id ?? null) : null,
-      failure_log_reason: failureLogReason,
-      auto_maintenance_app_log_events: list(appLog).filter((entry) =>
-        String(entry?.event ?? "").includes("auto_maintenance"),
-      ).length,
-      failure_capture_error_text: /失败|错误|异常/u.test(failureAx),
-      app_log_has_auto_maintenance: appLogText.includes("auto_maintenance"),
-    },
-  };
-  if (c8.ok === false) c8.reason = "failure_silence_not_observed";
+  const c8 = verifyMaintenanceRecoveryFacts(driverLog?.failure_injection, db, llmRecords, appLog, failureFacts);
 
   // C9：全类别无技术词（扫描目录全部 ax/text 证据）。
   const c9 = {
@@ -761,30 +699,21 @@ export function evaluateAutoMaintenance({
     detail: autoVisible,
   };
 
-  // C10：清理（app 关闭、端口停止、llm-calls 停止、strata 卸载、cleanup 无残留）。
-  const remaining = list(cleanup?.remaining);
-  const terminationLlm = Number(driverLog?.termination?.llm_calls);
-  const llmStopped = Boolean(runtime) && Number.isFinite(terminationLlm) && Number(runtime.llm_calls) === terminationLlm;
+  // C10 只核本批 owned app/端口/日志；外部 Splash 服务不进入本批清理所有权。
+  const remaining = cleanup?.remaining;
+  const terminationLlm = driverLog?.termination?.llm_calls;
+  const llmStopped = Number.isInteger(terminationLlm) && terminationLlm >= 0 &&
+    runtime?.llm_calls === terminationLlm;
   const c10 = {
-    ok: dir
-      ? remaining.length === 0 &&
-      Boolean(runtime) &&
-      runtime.app_processes === 0 &&
-      runtime.ports.backend_4657 === false &&
-      runtime.ports.transport_4661 === false &&
-      llmStopped &&
-      Boolean(strataSlot) &&
-      strataSlot.unloaded === true
-      : null,
+    ok: runtime === null ? null : Array.isArray(remaining) && remaining.length === 0 &&
+      cleanup.executable === runtime.executable && runtime.app_processes === 0 &&
+      runtime.ports?.backend === false && runtime.ports?.transport === false && llmStopped,
     reason: null,
-    detail: {
-      remaining: remaining.length,
-      runtime_after_batch: runtime,
-      llm_calls_stopped: llmStopped,
-      strata_unloaded: strataSlot?.unloaded ?? null,
-    },
+    detail: { remaining: Array.isArray(remaining) ? remaining.length : null,
+      runtime_after_batch: runtime, llm_calls_stopped: llmStopped, external_model_service_in_scope: false },
   };
   if (c10.ok === false) c10.reason = "cleanup_unverified_or_runtime_not_stopped";
+
 
   const multiTurnSteers = list(multiTurn?.steers);
   const multiTurnResumes = list(multiTurn?.resumes);
@@ -926,10 +855,13 @@ export function waitForEvidenceFile(dir, name, timeoutMs = 20_000) {
   return fs.existsSync(file);
 }
 
-export function verifyAutoMaintenanceBatch(dir) {
+export function verifyAutoMaintenanceBatch(dir, { observeRuntime = runtimeAfterBatch } = {}) {
   const config = readConfig(dir);
   assert.equal(config.journey, "auto-maintenance", "auto-maintenance verifier 只接受 journey=auto-maintenance");
-  assert.equal(config.provider, "strata", "auto-maintenance verifier 只接受 provider=strata");
+  assert(config.runtime?.profile, "auto-maintenance缺显式runtime profile");
+  const profile = getRuntimeProfile(config.runtime.profile);
+  assert.equal(config.provider, profile.provider, "auto-maintenance provider与显式runtime profile不符");
+  assertRuntimeFacts(config.runtime.observed, profile.id);
   const driverLogForMode = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
   const multiTurn = driverLogForMode?.multi_turn ?? null;
   const common = assertCommonEvidence(dir, {
@@ -945,13 +877,12 @@ export function verifyAutoMaintenanceBatch(dir) {
     minUserMessages: multiTurn ? 1 : 2,
     minTurnResults: multiTurn ? 1 : 2,
     minProviderStarts: 1,
-    expectProviders: ["strata"],
+    expectProviders: [profile.provider],
   });
   assert(
-    waitForEvidenceFile(dir, "strata-slot.json"),
-    "缺少 strata-slot.json（批次前后槽位/卸载核验；已等待落盘仍有界超时）",
+    waitForEvidenceFile(dir, "native-app-cleanup.json"),
+    "缺少本批 native-app-cleanup.json（已等待 finally 落盘）",
   );
-  const strataSlot = readJsonIfExists(path.join(dir, "strata-slot.json"));
   const checkpoints = Object.fromEntries(
     AUTO_MAINTENANCE_CHECKPOINTS.map((name) => [name, readJsonIfExists(path.join(dir, `b71-${name}.json`))]),
   );
@@ -969,52 +900,87 @@ export function verifyAutoMaintenanceBatch(dir) {
     checkpoints,
     driverLog,
     cleanup,
-    strataSlot,
+    runtime: observeRuntime(dir),
+    failureFacts: readAutoMaintenanceRecoveryFacts(dir, config, driverLog?.failure_injection),
     llmRecords,
     appLog,
     dir,
     multiTurn,
   });
-  if (driverLog?.interleaved_resume) {
-    try {
-      result.interleaved_resume = verifyInterleavedResumeFacts(
-        driverLog.interleaved_resume, dbFacts, evidence.wire, llmRecords,
-      );
-    } catch (error) {
-      result.interleaved_resume = { ok: false, reason: error.message };
-    }
+  const inputs = readAutoMaintenanceInputs(dir, config);
+  const scope = { work_id: config.target.work_id, session_id: config.target.session_id };
+  const controlChecks = [
+    ["G6_interleaved_resume", "interleaved_resume", () => {
+      const trace = driverLog?.interleaved_resume;
+      return verifyInterleavedResumeFacts(trace, dbFacts, evidence.wire, llmRecords, {
+        provider: config.provider, waitingSnapshot: readMaintenanceSnapshot(dir, trace?.waiting_snapshot),
+        beforeAnswerSnapshot: readMaintenanceSnapshot(dir, trace?.before_answer_snapshot),
+        warmupAuthors: inputs.discussions.slice(0, 10), controls: inputs.controls });
+    }],
+    ["R03_cancelled_run", "cancel_probe", () => {
+      const trace = driverLog?.cancel_probe;
+      return verifyCancelledRunFacts(trace, dbFacts, evidence.wire, {
+        before: readMaintenanceSnapshot(dir, trace?.before_snapshot),
+        confirmation: readMaintenanceSnapshot(dir, trace?.confirmation_snapshot),
+        afterCancel: readMaintenanceSnapshot(dir, trace?.after_cancel_snapshot),
+        afterClientRelaunch: readMaintenanceSnapshot(dir, trace?.after_client_relaunch_snapshot),
+        author: inputs.controls[4], scope });
+    }],
+    ["R03_backend_restart", "backend_restart", () => {
+      const trace = driverLog?.backend_restart;
+      assert.equal(driverLog?.failure_injection?.before_restart_snapshot, trace?.before_snapshot, "recovery_before_restart_not_bound");
+      assert.equal(driverLog?.failure_injection?.after_restart_snapshot, trace?.after_snapshot, "recovery_after_restart_not_bound");
+      const receipt = readBackendRestartReceipt(dir);
+      assert.deepEqual(trace?.receipt, receipt, "backend restart report/receipt mismatch");
+      return verifyBackendRestartFacts(trace, readMaintenanceSnapshot(dir, trace.before_snapshot),
+        readMaintenanceSnapshot(dir, trace.after_snapshot), llmRecords,
+        result.checks.C8_failure_silent.detail.failed_attempt_ids);
+    }],
+  ];
+  for (const [key, name, evaluate] of controlChecks) {
+    try { result[name] = evaluate(); }
+    catch (error) { result[name] = { ok: false, reason: error.message }; }
+    result.checks[key] = result[name];
+    result.required.push(key);
+    if (result[name].ok !== true) result.failed.push(key);
   }
   writeNativeFrames(dir);
-  const summary = {
-    schema: "b71-auto-maintenance-summary/v1",
-    slice_id: config.slice_id,
+  const summary = writeNativeSummary(dir, {
+    sliceId: common.ui.scope,
+    driver: common.ui.driver,
     provider: config.provider,
-    journey: "auto-maintenance",
-    scenario: multiTurn ? "g6-multi-turn" : "auto-maintenance-a3",
-    multi_turn: multiTurn,
-    ...(result.interleaved_resume ? { interleaved_resume: result.interleaved_resume } : {}),
-    verified_at: new Date().toISOString(),
-    env: driverLog?.env ?? null,
-    requests: driverLog?.requests ?? [],
+    status: result.failed.length === 0 ? "pass" : "fail",
     checks: Object.fromEntries(Object.entries(result.checks).map(([key, value]) => [key, value.ok])),
-    checks_detail: result.checks,
-    required: result.required,
-    failed: result.failed,
     measured: result.measured,
-    model_behavior: result.model_behavior,
-    not_signed: result.not_signed,
-    wait_ledger: common.ledger,
-    screenshots: common.ui.screenshots,
-    strata_slot: strataSlot,
-    verdict: {
-      mechanism: result.failed.length === 0 ? "pass" : "fail",
-      auto_maintenance_loop_closed: result.checks.C2_auto_maintenance_committed.ok === true,
-      full_g1_g6_signed: false,
-      i10_signed: false,
+    extra: {
+      schema: "b71-auto-maintenance-summary/v1",
+      surface: "tauri-native",
+      journey: "auto-maintenance",
+      scenario: multiTurn ? "g6-multi-turn" : "auto-maintenance-a3",
+      multi_turn: multiTurn,
+      ...(result.interleaved_resume ? { interleaved_resume: result.interleaved_resume } : {}),
+      cancel_probe: result.cancel_probe,
+      backend_restart: result.backend_restart,
+      env: driverLog?.env ?? null,
+      requests: driverLog?.requests ?? [],
+      checks_detail: result.checks,
+      required: result.required,
+      failed: result.failed,
+      model_behavior: result.model_behavior,
+      not_signed: result.not_signed,
+      wait_ledger: common.ledger,
+      screenshots: common.ui.screenshots,
+      external_model_service_in_scope: false,
+      verdict: {
+        mechanism: result.failed.length === 0 ? "pass" : "fail",
+        auto_maintenance_loop_closed: result.checks.C2_auto_maintenance_committed.ok === true,
+        r03_control_flow_closed: controlChecks.every(([key]) => result.checks[key].ok === true),
+        full_g1_g6_signed: false,
+        i10_signed: false,
+      },
     },
-  };
+  });
   fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(result, null, 2));
-  fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
   assert.equal(result.failed.length, 0, `B71 auto-maintenance 判据失败: ${result.failed.join(", ")}`);
   console.log(
     `B71 auto-maintenance 判据通过: checkpoint_events=${result.measured.checkpoint_events} covered=${result.measured.covered_call_ids}`,

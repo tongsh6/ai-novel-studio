@@ -1,31 +1,26 @@
 // B71 auto-maintenance 证据族唯一的真实文件/SQLite fixture owner。
 //
 // 只服务 `../authoring_auto_maintenance_evidence_io.test.mjs`：真实 AX/capture 文本、
-// 驱动 JSONL、7 表 SQLite 与端到端 verify 输入。7 表是当前 SUT 读取的实际投影，
+// 驱动 JSONL、8 表 SQLite 与端到端 verify 输入。8 表是当前 SUT 读取的实际投影，
 // 不声称可启动完整生产应用；种子对应既有合成批次，不读取作者源数据。
 //
 // 模板以 DELETE journal 封存（无 -wal/-shm），正常只读共享；需要写 AX/报告或
 // 注入 DB 反例的 case 经 `withWorkingCopy` 取隔离副本。时间字段固定为历史批次
 // 值，使同一规格在 run 内只物化一次。
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { maintenanceRecoveryFacts } from "./authoring_discussion_facts.mjs";
 import {
-  AFTER_STARTED_AT,
-  EVENT_AT,
-  FAILURE_REASON,
-  FAIL_RUN,
+  AUTO_EXECUTABLE,
+  autoMaintenanceConfig,
   READY_AT,
-  RECOVERY_RUN,
-  RUN,
   SESSION,
   WORK,
-  checkpointMessage,
   driverLogFor,
+  dbFactsFor,
   llmRecords,
   png,
-  providerEventsFor,
-  providerRunsFor,
-  transcriptRecord,
 } from "./authoring_auto_maintenance_facts.mjs";
 
 export const AUTO_MAINTENANCE_DB_REL = "database/ai_novel_studio_test.sqlite3";
@@ -34,10 +29,11 @@ const SCREENS = ["01-workbench.jpg", "after-input.jpg", "final.jpg"];
 
 const SCHEMA_SQL = `
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, visibility TEXT, sequence INTEGER, payload TEXT, inserted_at TEXT);
-    CREATE TABLE agent_runs (id TEXT, status TEXT, session_id TEXT);
-    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT);
-    CREATE TABLE provider_runs (id TEXT, provider_call_ref TEXT, provider_id TEXT, agent_run_id TEXT, session_id TEXT, purpose TEXT, started_at TEXT, inserted_at TEXT);
+    CREATE TABLE agent_runs (id TEXT, status TEXT, session_id TEXT, workspace_id TEXT, work_id TEXT, parent_turn_ref TEXT, goal_version INTEGER);
+    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT, workspace_id TEXT, work_id TEXT);
+    CREATE TABLE provider_runs (id TEXT, provider_call_ref TEXT, provider_id TEXT, agent_run_id TEXT, session_id TEXT, workspace_id TEXT, work_id TEXT, parent_turn_ref TEXT, status TEXT, purpose TEXT, owner_refs TEXT, operation_checkpoint TEXT, started_at TEXT, inserted_at TEXT);
     CREATE TABLE provider_events (id TEXT, provider_run_id TEXT, provider_call_ref TEXT, event_type TEXT, emitted_at TEXT);
+    CREATE TABLE provider_outputs (provider_run_id TEXT, provider_call_ref TEXT, agent_run_id TEXT, status TEXT, content_summary TEXT);
     CREATE TABLE interactions (id TEXT, turn_id TEXT, content TEXT);
     CREATE TABLE mutations (id TEXT);
 `;
@@ -52,70 +48,17 @@ function writeJsonl(file, rows) {
   fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
 }
 
-function seedDatabase(file) {
+function seedDatabase(file, facts) {
   const db = new DatabaseSync(file);
   try {
     db.exec("PRAGMA journal_mode = DELETE");
     db.exec(SCHEMA_SQL);
-    db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run(
-      "evt-1",
-      RUN,
-      "checkpoint_created",
-      "author",
-      2,
-      JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }),
-      EVENT_AT,
-    );
-    db.prepare("INSERT INTO agent_events VALUES (?,?,?,?,?,?,?)").run(
-      "evt-recovery",
-      RECOVERY_RUN,
-      "checkpoint_created",
-      "author",
-      1,
-      JSON.stringify({ covered_exchanges: 1, scope: "earlier_work_turns", sources: ["资料查阅"] }),
-      "2026-11-04T10:05:00.000Z",
-    );
-    for (const id of [RUN, FAIL_RUN, RECOVERY_RUN]) {
-      db.prepare("INSERT INTO agent_runs VALUES (?,?,?)").run(id, "completed", SESSION);
-    }
-    transcriptRecord().transcript.messages.forEach((message, index) => {
-      db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?,?)").run(
-        `msg-${index + 1}`,
-        RUN,
-        SESSION,
-        index + 1,
-        index + 1,
-        message.role,
-        JSON.stringify(message),
-        "authoring-session-message/v1",
-      );
-    });
-    db.prepare("INSERT INTO authoring_session_messages VALUES (?,?,?,?,?,?,?,?)").run(
-      "msg-recovery",
-      RECOVERY_RUN,
-      SESSION,
-      7,
-      1,
-      "checkpoint",
-      JSON.stringify(checkpointMessage({ summary: "恢复后的整理记录" })),
-      "authoring-session-message/v1",
-    );
-    for (const run of providerRunsFor()) {
-      db.prepare("INSERT INTO provider_runs VALUES (?,?,?,?,?,?,?,?)").run(
-        run.id,
-        run.provider_call_ref,
-        run.provider_id,
-        run.agent_run_id,
-        run.session_id,
-        run.purpose,
-        run.started_at,
-        run.inserted_at,
-      );
-    }
-    for (const event of providerEventsFor()) {
-      db.prepare(
-        "INSERT INTO provider_events (id, provider_run_id, provider_call_ref, event_type, emitted_at) VALUES (?,?,?,?,?)",
-      ).run(event.id, event.provider_run_id, event.provider_call_ref, event.event_type, event.emitted_at);
+    for (const table of ["agent_events", "agent_runs", "authoring_session_messages", "provider_runs", "provider_outputs", "provider_events"]) {
+      for (const row of facts[table]) {
+        const columns = Object.keys(row);
+        db.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`)
+          .run(...columns.map((column) => typeof row[column] === "object" && row[column] !== null ? JSON.stringify(row[column]) : row[column]));
+      }
     }
   } finally {
     db.close();
@@ -123,23 +66,10 @@ function seedDatabase(file) {
 }
 
 function seedFacts() {
-  return {
-    agent_events: [
-      { id: "evt-1", run_id: RUN, sequence: 2, inserted_at: EVENT_AT },
-      { id: "evt-recovery", run_id: RECOVERY_RUN, sequence: 1, inserted_at: "2026-11-04T10:05:00.000Z" },
-    ],
-    agent_runs: [
-      { id: RUN, status: "completed", session_id: SESSION },
-      { id: FAIL_RUN, status: "completed", session_id: SESSION },
-      { id: RECOVERY_RUN, status: "completed", session_id: SESSION },
-    ],
-    provider_runs: providerRunsFor(),
-    provider_events: providerEventsFor(),
-  };
+  return dbFactsFor();
 }
-
 /**
- * 同一规格（strip/expanded）在 run 内只物化一次：AX 文本、驱动日志、7 表 DB 与
+ * 同一规格（strip/expanded）在 run 内只物化一次：AX 文本、驱动日志、8 表 DB 与
  * 端到端 verify 输入。返回的列表即发布 payload 的完整文件集合。
  */
 export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {}) {
@@ -152,6 +82,9 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
       seed: JSON.stringify(seedFacts()),
       journal: "DELETE",
       builder_source: fs.readFileSync(new URL(import.meta.url), "utf8"),
+      discussion_builder: fs.readFileSync(new URL("authoring_discussion_facts.mjs", import.meta.url), "utf8"),
+      frozen_discussions: fs.readFileSync(new URL("r03-discussion-author-inputs.json", import.meta.url), "utf8"),
+      frozen_controls: fs.readFileSync(new URL("r03-interleaved-author-inputs.json", import.meta.url), "utf8"),
       runtime: `node=${process.version}; sqlite=${process.versions.sqlite ?? "unknown"}`,
     },
     build(staging) {
@@ -163,18 +96,40 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
         driver: "external-system-ui",
         browser_driver_started: false,
         run_ref: "run-ref-auto",
-        provider: "strata",
+        provider: "splash",
         slice_id: "b71-first-consumer",
         ready_at: READY_AT,
         app_path: "/tmp/B71 Auto Maintenance.app",
       });
+      const config = autoMaintenanceConfig();
+      const runtimeRaw = JSON.stringify(config.runtime.observed, null, 2);
+      fs.writeFileSync(`${staging}/runtime-facts.json`, runtimeRaw);
+      config.runtime.facts_sha256 = createHash("sha256").update(runtimeRaw).digest("hex");
+      const inputSources = {}, frozenInputs = {};
+      for (const [kind, file] of [["discussions", "r03-discussion-author-inputs.json"], ["controls", "r03-interleaved-author-inputs.json"]]) {
+        const raw = fs.readFileSync(new URL(file, import.meta.url), "utf8");
+        frozenInputs[kind] = JSON.parse(raw).turns;
+        fs.writeFileSync(`${staging}/${file}`, raw);
+        inputSources[kind] = { file, source_path: "scripts/lib/native_ui/fixtures/" + file,
+          sha256: createHash("sha256").update(raw).digest("hex") };
+      }
+      const scenario = maintenanceRecoveryFacts({ workId: WORK, sessionId: SESSION,
+        base: dbFactsFor(), baseRecords: llmRecords(), failureInput: frozenInputs.discussions[10],
+        recoveryInputs: frozenInputs.discussions.slice(11, 20) });
+      const driver = { ...driverLogFor(), failure_injection: { ...scenario.injection,
+        before_snapshot: "before-failure.json", after_failure_snapshot: "after-failure.json",
+        before_restart_snapshot: "before-restart.json", after_restart_snapshot: "after-restart.json",
+        after_recovery_snapshot: "after-recovery.json" }, termination: { llm_calls: scenario.records.length } };
+      writeJson(`${staging}/before-failure.json`, scenario.facts.before);
+      writeJson(`${staging}/after-failure.json`, scenario.facts.afterFailure);
+      writeJson(`${staging}/before-restart.json`, scenario.facts.beforeRestart);
+      writeJson(`${staging}/after-restart.json`, scenario.facts.afterRestart);
+      writeJson(`${staging}/after-recovery.json`, scenario.facts.afterRecovery);
       writeJson(`${staging}/native-b71-config.json`, {
-        slice_id: "b71-first-consumer",
-        journey: "auto-maintenance",
-        provider: "strata",
+        ...config,
         target: { work_id: WORK, work_title: "自动维护验证作品", session_id: SESSION },
-        message: "先读一下第01章的正文和章计划，我想知道现在的进度。",
-        auto_maintenance: { requests: [] },
+        message: JSON.parse(fs.readFileSync(new URL("r03-discussion-author-inputs.json", import.meta.url), "utf8")).turns[0].text,
+        auto_maintenance: { input_sources: inputSources },
       });
       for (const name of SCREENS) fs.writeFileSync(`${staging}/${name}`, png());
       writeJson(`${staging}/native-ui-complete.json`, {
@@ -209,21 +164,15 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
         { at: "2026-11-04T10:00:10.000Z", direction: "received", frame: [null, null, "workspace:test", "turn_result", { turn_id: "turn-b", status: "conversational" }] },
       ]);
       writeJsonl(`${staging}/app-log/2026-11-04.jsonl`, [
-        { at: "2026-11-04T09:59:10.000Z", event: "provider_gateway.complete.start", provider: "strata" },
-        { at: "2026-11-04T10:00:02.000Z", event: "agent_run.auto_maintenance.error", run_id: FAIL_RUN, reason: FAILURE_REASON },
+        { at: "2026-11-04T09:59:10.000Z", event: "provider_gateway.complete.start", provider: "splash" },
+        ...scenario.appLog,
       ]);
-      writeJsonl(`${staging}/llm-calls/2026-11-04.jsonl`, llmRecords());
-      writeJson(`${staging}/native-b71-driver-log.json`, driverLogFor());
+      writeJsonl(`${staging}/llm-calls/2026-11-04.jsonl`, scenario.records);
+      writeJson(`${staging}/native-b71-driver-log.json`, driver);
       writeJson(`${staging}/native-app-cleanup.json`, {
+        executable: AUTO_EXECUTABLE,
         remaining: [],
         process_observation: { method: "pgrep+lsof", actions: [] },
-      });
-      writeJson(`${staging}/strata-slot.json`, {
-        schema: "b71-strata-slot/v1",
-        model: "iq3_s",
-        loaded_before: false,
-        loaded_after: false,
-        unloaded: true,
       });
       for (const name of ["start", "final"]) {
         writeJson(`${staging}/b71-${name}.json`, {
@@ -244,11 +193,14 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
       fs.writeFileSync(`${staging}/after-refresh.ax.txt`, `\t\t0/0/0/0/0/10 AXButton, ${stripText}\n`);
       fs.writeFileSync(`${staging}/after-failure.ax.txt`, "\t\t0/0/0/0/0/11 AXStaticText, Value: 已停止\n");
 
-      seedDatabase(`${staging}/${AUTO_MAINTENANCE_DB_REL}`);
+      seedDatabase(`${staging}/${AUTO_MAINTENANCE_DB_REL}`, scenario.db);
 
       return [
         "native-driver-ready.json",
         "native-b71-config.json",
+        "runtime-facts.json",
+        "r03-discussion-author-inputs.json",
+        "r03-interleaved-author-inputs.json",
         ...SCREENS,
         "native-ui-complete.json",
         "native-driver-commands.jsonl",
@@ -259,8 +211,12 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
         "app-log/2026-11-04.jsonl",
         "llm-calls/2026-11-04.jsonl",
         "native-b71-driver-log.json",
+        "before-failure.json",
+        "after-failure.json",
+        "before-restart.json",
+        "after-restart.json",
+        "after-recovery.json",
         "native-app-cleanup.json",
-        "strata-slot.json",
         "b71-start.json",
         "b71-final.json",
         "after-maintenance.ax.txt",

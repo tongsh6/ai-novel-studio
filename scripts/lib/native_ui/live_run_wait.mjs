@@ -7,7 +7,7 @@ import { frameBody, frameEvent, frameOf } from "./scenario_evidence.mjs";
 export const LIVE_RUN_SCHEMA = "b71-live-run/v1";
 
 const TERMINAL_RUN_STATES = new Set(["completed", "failed", "cancelled", "awaiting_author", "needs_confirmation"]);
-const FAILURE_RUN_STATES = new Set(["failed", "cancelled", "run_failed", "run_cancelled"]);
+const FAILURE_RUN_STATES = new Set(["failed", "cancelled"]);
 
 function nonBlank(value) {
   return typeof value === "string" && value.trim() !== "";
@@ -17,79 +17,86 @@ function runIdOf(body) {
   return body?.agent_run?.run_id ?? body?.run_id ?? body?.run_ref ?? null;
 }
 
-// 从 wire 帧判定本 turn 的 run 终局；只接受 received 方向与 owning turn/run 绑定。
-export function wireTerminal(wire, { turnId, runId = null, since = null } = {}) {
-  if (!Array.isArray(wire) || !nonBlank(turnId)) return null;
-  const records = wire.filter((record) => {
-    if (record?.direction !== "received") return false;
-    if (!frameOf(record)) return false;
-    if (typeof since === "string" && typeof record.at === "string" && record.at < since) return false;
-    return true;
-  });
-  for (const record of records) {
-    const event = frameEvent(record);
-    const body = frameBody(record) ?? {};
-    if (event === "turn_result") {
-      const bodyTurnId = body.turn_id;
-      const parentTurn = body.agent_run?.parent_turn_ref ?? body.parent_turn_id ?? null;
-      const bodyRunId = runIdOf(body);
-      const turnMatches = bodyTurnId === turnId || parentTurn === turnId;
-      if (!turnMatches) continue;
-      if (runId && bodyRunId !== runId) continue;
-      const status = String(body.agent_run?.status ?? body.status ?? "");
-      if (FAILURE_RUN_STATES.has(status) || body.status === "failed") {
-        return { kind: "failed", status: status || "failed", record, body };
-      }
-      if (body.status === "needs_confirmation") {
-        return { kind: "needs_confirmation", status: "needs_confirmation", record, body };
-      }
-      if (body.agent_run?.status === "completed") {
-        return { kind: "completed", status: "completed", record, body };
-      }
-      continue;
-    }
-    if (event === "agent_run_state") {
-      const bodyRunId = body.run_id ?? body.run_ref ?? null;
-      if (runId ? bodyRunId !== runId : false) continue;
-      const parent = body.parent_turn_ref ?? body.agent_run?.parent_turn_ref ?? null;
-      // agent_run_state 必须能绑定到 owning turn（parent_turn_ref）或由 ACK 提供的 run_id
-      // 精确绑定；两者都无的终态帧不属于本 turn，不能当作本 turn 的终局。
-      const parentBound = parent === turnId;
-      const runIdBound = Boolean(runId) && bodyRunId === runId;
-      if (!parentBound && !runIdBound) continue;
-      const status = String(body.status ?? "");
-      if (!TERMINAL_RUN_STATES.has(status)) continue;
-      if (FAILURE_RUN_STATES.has(status)) return { kind: "failed", status, record, body };
-      if (status === "awaiting_author" || status === "needs_confirmation") {
-        return { kind: status === "awaiting_author" ? "awaiting_author" : "needs_confirmation", status, record, body };
-      }
-      if (status === "completed") return { kind: "completed", status, record, body };
-    }
-    if (event === "agent_event") {
-      const ref = body.run_ref ?? body.run_id ?? null;
-      if (runId && ref !== runId) continue;
-      const eventType = String(body.event_type ?? "");
-      if (eventType === "run_failed") return { kind: "failed", status: "run_failed", record, body };
-      if (eventType === "run_completed" && (!runId || ref === runId)) {
-        return { kind: "completed", status: "run_completed", record, body };
-      }
-    }
-  }
-  return null;
+function sameScope(body, { workId, sessionId }) {
+  return body?.work_id === workId && body?.session_id === sessionId;
 }
 
-// DB agent_runs 行兜底判定（WS 帧缺失/延迟时使用；仍以终态为准）。
+function sameParent(body, turnId) {
+  const parent = body?.agent_run?.parent_turn_ref ?? body?.parent_turn_ref ?? body?.parent_turn_id;
+  return parent === turnId || (parent === undefined && body?.turn_id === turnId);
+}
+
+function versionReached(version, minimum) {
+  return minimum === 0 || (Number.isInteger(version) && version >= minimum);
+}
+
+function wireRunFact(records, identity) {
+  let latest = null;
+  for (const record of records) {
+    const body = frameBody(record) ?? {};
+    if (frameEvent(record) === "agent_run_state" && body.run_id === identity.runId &&
+        body.workspace_id === identity.workspaceId && sameScope(body, identity) && sameParent(body, identity.turnId) &&
+        versionReached(body.goal?.version, identity.minimumGoalVersion)) {
+      latest = { status: body.status, record, body, source: "wire" };
+    } else if (frameEvent(record) === "agent_event" && runIdOf(body) === identity.runId &&
+        (body.work_id === undefined || body.work_id === identity.workId) &&
+        (body.session_id === undefined || body.session_id === identity.sessionId)) {
+      // AgentEvent 的实际归属是 owning topic + run_ref；它没有父回合或 goal 字段。
+      const status = { run_completed: "completed", run_failed: "failed", run_cancelled: "cancelled" }[body.event_type];
+      if (status && identity.minimumGoalVersion === 0)
+        latest = { status, record, body, source: "wire" };
+    }
+  }
+  return latest;
+}
+
+// 唯一完成组合：业务结果已送达 + 同 run 真实终态。TurnResult 中的状态只作原始业务材料。
+// 离线校验可用绑定的 runRow；驱动 requireWireTerminal 时还须观察到运行事实回包。
+export function wireTerminal(wire, options = {}) {
+  const identity = { minimumGoalVersion: 0, resultPosition: "first", requireWireTerminal: false, ...options };
+  const { turnId, runId, topic, workId, sessionId, since, runRow } = identity;
+  if (!Array.isArray(wire) || ![turnId, runId, topic, workId, sessionId].every(nonBlank) ||
+      !Number.isInteger(identity.minimumGoalVersion) || identity.minimumGoalVersion < 0 ||
+      !["first", "last"].includes(identity.resultPosition)) return null;
+  if (!topic.startsWith("workspace:") || !nonBlank(topic.slice("workspace:".length))) return null;
+  const workspaceId = topic.slice("workspace:".length);
+  if (identity.workspaceId !== undefined && identity.workspaceId !== workspaceId) return null;
+  identity.workspaceId = workspaceId;
+  const records = wire.filter((record) => record?.direction === "received" && frameOf(record)?.[2] === topic &&
+    (since === undefined || (nonBlank(record.at) && record.at >= since)));
+  const results = records.filter((record) => frameEvent(record) === "turn_result" &&
+    runIdOf(frameBody(record)) === runId && nonBlank(frameBody(record)?.turn_id) &&
+    sameScope(frameBody(record), identity) && sameParent(frameBody(record), turnId));
+  const wireFact = wireRunFact(records, identity);
+  let fact = wireFact;
+  if (runRow !== undefined) {
+    if (!runRow || runRow.id !== runId || runRow.parent_turn_ref !== turnId || !sameScope(runRow, identity) ||
+        runRow.workspace_id !== workspaceId ||
+        !versionReached(runRow.goal_version, identity.minimumGoalVersion)) return null;
+    fact = { status: runRow.status, record: null, body: runRow, source: "db" };
+    // 新鲜 DB running 不可被旧 wire 终态越过；在线也不可只凭 DB 抢在页面回包之前推进。
+    if (identity.requireWireTerminal && wireFact?.status !== runRow.status) return null;
+  }
+  const terminal = dbTerminal(fact?.body && { status: fact.status });
+  if (!terminal || (terminal.kind === "completed" && results.length === 0)) return null;
+  const result = identity.resultPosition === "last" ? results.at(-1) : results[0];
+  return { ...terminal, record: terminal.kind === "completed" ? result : fact.record,
+    body: terminal.kind === "completed" ? frameBody(result) : fact.body,
+    results, run_record: fact.record, run_body: fact.body, source: fact.source };
+}
+
+// 只分类已经存在的运行状态；成功推进统一交给 wireTerminal 配对业务结果。
 export function dbTerminal(row) {
   if (row === null || row === undefined) return null;
   const status = String(row.status ?? "");
+  if (!TERMINAL_RUN_STATES.has(status)) return null;
   if (FAILURE_RUN_STATES.has(status)) return { kind: "failed", status };
   if (status === "awaiting_author") return { kind: "awaiting_author", status };
   if (status === "needs_confirmation") return { kind: "needs_confirmation", status };
-  if (status === "completed") return { kind: "completed", status };
-  return null;
+  return { kind: "completed", status };
 }
 
-// 终局 TurnResult 的模型行为分类：只记录事实，不据此要求固定行为。
+// 业务 TurnResult 的模型行为分类：只记录事实，不据此判定运行终态或要求固定行为。
 export function classifyTurnBody(body) {
   const pending = Array.isArray(body?.adoption_state?.pending) ? body.adoption_state.pending : [];
   const availableActions = Array.isArray(body?.available_actions) ? body.available_actions : [];

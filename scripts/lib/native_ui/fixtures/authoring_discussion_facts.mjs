@@ -103,7 +103,7 @@ export function discussionMaintenanceFacts({ workId = "work-discussion", session
   return { ...spec, db, llmRecords: [summaryRecord, after], after, summaryRecord,
     options: { ...spec.options, verifyRequests: true, providerRecords: [summaryRecord] } };
 }
-// 固定 D 持久失败 → 新作者 E 来源恢复的合成事实；不从 oracle 输出生成预期。
+// 固定 D 原响应持久失败 → 同响应跨进程保留 → 后续回合原子接管；不消费被测 oracle。
 export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId = "session-discussion", base = null, baseRecords = [], failureInput = null, recoveryInputs = null } = {}) {
   const original = discussionMaintenanceFacts({ workId, sessionId });
   const clone = (value) => structuredClone(value);
@@ -139,7 +139,14 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
   afterFailure.agent_runs.push(source.agent_runs.find((run) => run.id === "failed-d"));
   afterFailure.authoring_session_messages.push(...failedRows);
   const failedProvider = source.provider_runs.find((run) => run.id === "prun-failed-d");
-  failedProvider.owner_refs = { operation: "transcript_compaction", coverage_key: "d".repeat(64), discussion_source_keys: ["a".repeat(64)] };
+  failedProvider.owner_refs.coverage_key = "d".repeat(64);
+  const originalBlock = JSON.parse(source.authoring_session_messages.find((row) => row.role === "checkpoint").message).blocks[0];
+  const plan = { covers: clone(originalBlock.covers), source_refs: clone(originalBlock.source_refs),
+    versions: {}, omissions: clone(originalBlock.omissions), summary: "整理较早讨论；原文与未完成事项保留。",
+    history_target: { session_id: sessionId, turn_id: "turn-source-d" } };
+  failedProvider.operation_checkpoint = { version: "provider-operation-checkpoint/v1", goal_version: 1,
+    plan, response_text: originalBlock.discussion.response_text };
+  afterFailure.agent_runs.forEach((run) => { run.goal_version = 1; });
   afterFailure.provider_runs.push(failedProvider);
   afterFailure.provider_outputs.push(source.provider_outputs[0]);
   afterFailure.provider_events.push({ id: "failed-d-start", provider_run_id: failedProvider.id,
@@ -182,14 +189,24 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
   recoveryIds.push("recovered-e");
   recovered.db.authoring_session_messages = resequence(recovered.db.authoring_session_messages,
     offset + earlyRows.length + failedRows.length + 1);
-  recovered.db.provider_runs.find((run) => run.id === "prun-recovered-e").owner_refs = {
-    operation: "transcript_compaction", coverage_key: "e".repeat(64), discussion_source_keys: ["b".repeat(64)] };
+  // 接收方只提交 D 原响应，不产生第二次摘要执行；正常后续业务调用独立存在。
+  recovered.db.provider_runs = recovered.db.provider_runs.filter((run) => run.id !== "prun-recovered-e");
+  recovered.db.provider_outputs = [];
+  recovered.db.agent_runs.forEach((run) => { run.goal_version = 1; });
+  const transferred = recovered.db.authoring_session_messages.find((row) => row.role === "checkpoint");
+  const transferredMessage = JSON.parse(transferred.message);
+  const { history_target: _eventTarget, ...canonicalPlan } = clone(plan);
+  transferredMessage.blocks = [{ type: "checkpoint", ...canonicalPlan, discussion: clone(originalBlock.discussion) }];
+  transferred.message = JSON.stringify(transferredMessage);
   recovered.db.agent_events[0].id = "checkpoint-recovered-e";
   recovered.db.agent_events[0].inserted_at = "2026-11-04T10:10:00.000Z";
+  recovered.db.agent_events[0].visibility = "author";
+  recovered.db.agent_events[0].payload.history_target = clone(plan.history_target);
   recovered.db.provider_events[0].id = "final-e-start";
   recovered.db.provider_events[0].emitted_at = "2026-11-04T10:10:01.000Z";
   const db = clone(afterFailure);
   append(db, recovered.db);
+  db.provider_runs.find((run) => run.id === failedProvider.id).operation_checkpoint = null;
   db.captured_at = "2026-11-04T10:11:00.000Z";
   const canonicalBody = (row) => JSON.parse(row.message);
   const text = (row) => canonicalBody(row).blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
@@ -198,17 +215,17 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
     text: text(authorRows.find((row) => row.run_id === runId)) });
   const checkpointWire = (row) => ({ role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " +
     JSON.stringify(canonicalBody(row).blocks[0].covers) + "】\n原始记录保留。" });
-  // 独立预置期望：仅 source-e 的旧 Scope/讨论被覆盖，D 失败来源仍完整；全部作者原话保留。
+  // 原D来源被折叠，E的讨论没有被冒充为恢复；全部作者原话保留。
   recovered.after.request.body.messages = [
     ...authorRows.map((row) => ({ role: "user", content: text(row) })),
-    ...db.authoring_session_messages.filter((row) => row.role === "scope_update" && row.run_id !== "source-e").map((row) => {
+    ...db.authoring_session_messages.filter((row) => row.role === "scope_update" && row.run_id !== "source-d").map((row) => {
       const message = canonicalBody(row);
       return scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs });
     }),
-    { role: "assistant", content: text(earlyRows.find((row) => row.role === "assistant")) },
+    { role: "assistant", content: text(recovered.db.authoring_session_messages.find((row) => row.run_id === "source-e" && row.role === "assistant")) },
     ...db.authoring_session_messages.filter((row) => row.role === "checkpoint").map(checkpointWire),
   ];
-  const records = [...clone(baseRecords), failedRecord, recovered.summaryRecord, recovered.after];
+  const records = [...clone(baseRecords), failedRecord, recovered.after];
   const counts = (snapshot, key) => key === "events" ? snapshot.agent_events.filter((row) => row.event_type === "checkpoint_created").length :
     snapshot.authoring_session_messages.filter((row) => row.role === "checkpoint").length;
   const injection = { trigger_created: true, author_error_visible: false,
@@ -224,6 +241,10 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
   };
   bindInput(injection.failure_request, inputs.failureInput);
   injection.recovery_requests.forEach((request, index) => bindInput(request, inputs.recoveryInputs[index]));
+  const beforeRestart = clone(afterFailure), afterRestart = clone(afterFailure);
+  beforeRestart.captured_at = "2026-11-04T10:07:10.000Z";
+  afterRestart.captured_at = "2026-11-04T10:08:00.000Z";
   return { db, records, injection, appLog: [{ event: "agent_run.auto_maintenance.error", run_id: "failed-d", reason: ":checkpoint_persistence_failed" }],
-    facts: { before, afterFailure, afterRecovery: clone(db), scope: { work_id: workId, session_id: sessionId }, ...inputs } };
+    facts: { before, afterFailure, beforeRestart, afterRestart, afterRecovery: clone(db),
+      scope: { work_id: workId, session_id: sessionId }, ...inputs } };
 }

@@ -131,8 +131,8 @@
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
 | `native_question_evidence_check.test.mjs` | B26 checker 真实 CLI 子进程与 loopback API 的合成证据回归：截图必需、作者回复来源与字节、同 run 当前目标完成和失败不产出 summary；仅验证核验器，不代表原生验收通过。 |
-| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算（Splash 与既有实模同 360 秒 turn）、10秒心跳、进程/后端异常快速失败；`observeNativeLifecycle`（命令消费/进程来源/首次窗口缺席）与 `maybeHeartbeat` 是可测的公开边界，owned 进程观测走 `lib/native_ui/process_observation.mjs`，实际方式与 fallback 原因写入 `wait-stats.json.process_observation`；产品不读取。 |
-| `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成、命令起点消费/wait-events、完成时有活动等待、跨轮询心跳/原生首次无窗口、存活探测不投递信号及进程丢失的边界测试。 |
+| `native_ui_wait.mjs` | 原生外部驱动的 begin/finish/status/wait 账本，分型预算（Splash 与既有实模同 360 秒 turn）、10秒心跳、owned 进程/后端异常快速失败；进程观测复用 `process_observation.mjs`。R03 的 `requestBackendRestart` 只能请求原 runner 单次换代；`claimBackendRestart`/`observeBackendLifecycle` 的同批 run/旧 PID/活动 restore 监督握手先于回收，`completeBackendRestart` 核真实新 PID/同 DB/相同运行参数/health 200 后落一次完成记录。`readBackendRestartReceipt(dir)` 是驱动和事后验收共同的只读身份、等待窗、文件哈希核验边界，cleanup 后不把旧健康事实当当前探活；产品不读取。 |
+| `native_ui_wait.test.mjs` | 等待账本超时、重复身份、迟到完成、命令消费、心跳与进程丢失；R03 以真实 owned 子进程和 HTTP 验证一次换代、监督握手、错 run/PID/等待窗/数据库 inode、配置漂移、哈希/health 篡改与重复完成拒绝。测试的文件 inode 仅证明协议边界，不能代签真实 BEAM/SQLite 恢复。 |
 | `native_b31_evidence.mjs` | B31 原生五 trial 前提与证据对账；prepare 仅创建隔离作品及 T3–T5 允许的协议 seed，verify 读取真实 UI/WS/持久结果。 |
 | `native_b28_evidence.mjs` | B28 原生前提、只读快照及矩阵对账；支持受限测试库副本scoped复验并逐项注明父批证据；T2按B36目标段与完整采纳结果校验。 |
 | `native_b28_evidence.test.mjs` | B28 全章覆盖、源版本、同章身份、排版保真与越界拒绝的证据检查回归。 |
@@ -157,6 +157,7 @@
 | `native_b71_evidence.test.mjs` | B71 原生历史核验的正反例：按实际请求逐项比较调用 ID 与顺序，拒绝丢失、错序和伪造，不固定续行次数；计划场景覆盖错序/改写前缀/漏或重复结果/错误工具与预算，以及Why观察窗新增Provider调用的反例。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
+| `native_b71_auto_maintenance_drive.mjs` / `.test.mjs` | 现役 R03 冻结交错、取消与恢复流程：`B71_SLICE=b71-first-consumer B71_PROVIDER=splash B71_AUTO_MAINTENANCE=1 bash scripts/native_b71_batch.sh <tag>`，复用 R03 runtime recipe 与封存20+5作者输入；早期讨论→A waiting→B completed→同问题回答 A→真实取消→owned客户端重连→checkpoint提交失败→原runner BEAM换代→固定新来源恢复。精确 ACK/来源匹配由相邻测试验证；压力/未触发摘要取消等缺证如实保留，不接管或卸载外部 Splash。仍使用的 `answer-mode` 路径复用同一回答面板操作。现役设计见 `docs/design/acceptance/model-interaction-coverage.md` §5。 |
 
 - `task_done_check.mjs`：校验本轮改动哈希与真实 Tauri 证据；可用 `--manifest` 或 `TASK_DONE_MANIFEST` 显式指向 `artifacts/slice-verify/<slice>/manifest.json`，不新增历史 `artifacts/task-done/` 目录。
 

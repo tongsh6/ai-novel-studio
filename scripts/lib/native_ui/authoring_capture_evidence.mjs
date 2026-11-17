@@ -15,10 +15,13 @@ import {
   read,
   seedFields,
   sha256,
+  shaFile,
   withDb,
   write,
 } from "./scenario_evidence.mjs";
 import { DEFAULT_STRATA_MODEL } from "./strata_lifecycle.mjs";
+import { validateAuthorInputs } from "./request_cost_manifest.mjs";
+import { COMPACTION_RUNTIME_PROFILE_ID, assertManifestRuntime, assertRuntimeFacts, getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { referenceLogRows } from "./reference_log_evidence.mjs";
 import {
@@ -69,20 +72,9 @@ const REVISION_CHAPTER_TITLE = "第02章：矿区追击战";
 const WHY_CHECKPOINTS = Object.freeze(["before-why", "after-why"]);
 const RUN_CHECKPOINTS = Object.freeze(["start", "before-revision", "final"]);
 // 回答模式 gate（等待即回答）：确定性 slice_verify 场景的 checkpoint。
-// answer-mode 驱动复用 A3 多轮驱动（同 run 多回合 + 安全点维护），因此 capture
-// 集合与 auto-maintenance 同源；start/final 仍是 answer-mode 验收的必需边界。
-const ANSWER_MODE_CHECKPOINTS = Object.freeze([
-  "start",
-  "after-maintenance",
-  "after-expanded",
-  "after-next-request",
-  "after-refresh",
-  "after-failure",
-  "after-recovery",
-  "final",
-]);
+// 现役确定性回答模式只采集单 run 的起止边界。
+const ANSWER_MODE_CHECKPOINTS = Object.freeze(["start", "final"]);
 const ANSWER_MODE_REQUEST = "第01章结尾有两个方向，先让我选择。";
-const ANSWER_MODE_MESSAGE = ANSWER_MODE_REQUEST;
 
 // 记忆详情/列表 P0 泄漏回归（与 authoring_memory_detail_evidence 的 checkpoint 名保持同源）。
 const MEMORY_DETAIL_CHECKPOINTS = Object.freeze(["start", "memory-list", "memory-detail", "final"]);
@@ -99,14 +91,44 @@ const AUTO_MAINTENANCE_CHECKPOINTS = Object.freeze([
   "after-recovery",
   "final",
 ]);
-const AUTO_MAINTENANCE_REQUESTS = Object.freeze([
-  "先读一下第01章的正文和章计划，我想知道现在的进度。",
-  "再读一下第02章的正文和章计划，确认两章之间是否连贯。",
-  "继续读一下第03章的计划，然后告诉我下一步该写什么。",
-  "再看一下第01章的正文，确认开头是否抓人。",
-  "把刚才读到的线索汇总一下，哪些还能继续用？",
-  "最后再核对一遍第02章的正文，确保没有遗漏。",
-]);
+const AUTO_INPUT_FILES = Object.freeze({
+  discussions: { file: "r03-discussion-author-inputs.json", count: 20 },
+  controls: { file: "r03-interleaved-author-inputs.json", count: 5 },
+});
+
+function autoMaintenanceInputs(dir, { seal = false, config } = {}) {
+  const result = { input_sources: {} };
+  for (const [kind, { file, count }] of Object.entries(AUTO_INPUT_FILES)) {
+    const sourcePath = `scripts/lib/native_ui/fixtures/${file}`;
+    const source = path.join(ROOT, sourcePath), sealed = path.join(dir, file);
+    const raw = fs.readFileSync(seal ? source : sealed, "utf8");
+    const input = validateAuthorInputs(JSON.parse(raw), { expectedCount: count });
+    for (const turn of input.turns) {
+      assert.equal(sha256(turn.text), turn.sha256, `${file} 作者原文 hash 不符: ${turn.id}`);
+    }
+    const reference = { source_path: sourcePath, file, sha256: sha256(raw) };
+    if (seal) fs.writeFileSync(sealed, raw, { flag: "wx" });
+    else {
+      assert.deepEqual(config.auto_maintenance?.input_sources?.[kind], reference, `${file} 冻结输入引用不符`);
+      assert.equal(shaFile(source), reference.sha256, `${file} 已偏离现役冻结来源`);
+    }
+    result.input_sources[kind] = reference;
+    result[kind] = input.turns;
+  }
+  return result;
+}
+
+export function readAutoMaintenanceInputs(dir, config = read(dir, "native-b71-config.json")) {
+  assert.equal(config.journey, "auto-maintenance", "冻结讨论只属于 auto-maintenance journey");
+  return autoMaintenanceInputs(dir, { config });
+}
+
+export function splashRuntime(dir) {
+  const observed = read(dir, "runtime-facts.json");
+  assertRuntimeFacts(observed, COMPACTION_RUNTIME_PROFILE_ID);
+  return { profile: COMPACTION_RUNTIME_PROFILE_ID, observed, facts_sha256: shaFile(path.join(dir, "runtime-facts.json")) };
+}
+
 
 // B82：实模批次冻结输入沿用 B71 已有预注册 JSON 形状（id/model/scenarios），
 // 只校验本批实际发送所需的字段，不解释预算或判据。
@@ -157,9 +179,12 @@ function readAuthorVisibleTarget(scenario, { require = false } = {}) {
 
 export function validatePreregistrationFile(
   file,
-  { dir, model = DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget = false } = {},
+  { dir, provider = "strata",
+    model = provider === "splash" ? getRuntimeProfile(COMPACTION_RUNTIME_PROFILE_ID).model : DEFAULT_STRATA_MODEL,
+    requireAuthorVisibleTarget = false, scenarioId = null } = {},
 ) {
   assert(typeof dir === "string" && dir !== "", "预注册校验缺少批次目录");
+  assert(["strata", "splash"].includes(provider), `预注册未知 provider: ${provider}`);
   assert(typeof model === "string" && model !== "", "预注册校验缺少冻结模型");
   let value;
   let text;
@@ -184,14 +209,19 @@ export function validatePreregistrationFile(
   );
   assert.equal(
     value.model.provider,
-    "strata",
-    `预注册 provider 必须与当前 route 一致（strata），实测: ${value.model.provider}`,
+    provider,
+    `预注册 provider 必须与当前 route 一致（${provider}），实测: ${value.model.provider}`,
   );
   assert.equal(
     value.model.model,
     model,
     `预注册模型必须与冻结模型一致（${model}），实测: ${value.model.model}`,
   );
+  if (provider === "splash") {
+    const profile = assertManifestRuntime(value);
+    assert.equal(profile.id, COMPACTION_RUNTIME_PROFILE_ID, "Splash 必须使用现役 R03 runtime profile");
+    assert(typeof scenarioId === "string" && scenarioId !== "", "Splash 调用者必须显式绑定 scenarioId");
+  }
   assert(
     Array.isArray(value.scenarios) && value.scenarios.length === 1,
     "预注册 scenarios 必须恰好一项",
@@ -219,10 +249,11 @@ export function validatePreregistrationFile(
     `预注册 evidence.dir 必须等于实际批次目录: ${scenario.evidence.dir} != ${dir}`,
   );
   // G2 专项标识只从已验证哈希的冻结输入派生；缺省保持普通 live 行为。
-  const scenarioId =
+  const actualScenarioId =
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
+  if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
   // 作者可见目标只属于已冻结的 b82-g2/b82-g3；其它场景即使带同名字段也不改变入口行为。
-  const authorVisibleTarget = authorVisibleScenario(scenarioId)
+  const authorVisibleTarget = authorVisibleScenario(actualScenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
   return {
@@ -230,7 +261,7 @@ export function validatePreregistrationFile(
     sha256: sha256(text),
     message: scenario.message,
     model: value.model.model,
-    scenario_id: scenarioId,
+    scenario_id: actualScenarioId,
     author_visible_target: authorVisibleTarget,
   };
 }
@@ -251,7 +282,8 @@ function checkPreregistration(dir, config) {
     typeof marker.model === "string" && marker.model !== "",
     "native-b71-config.preregistration 缺少冻结模型",
   );
-  const record = validatePreregistrationFile(file, { dir, model: marker.model });
+  const record = validatePreregistrationFile(file, { dir, provider: config.provider, model: marker.model,
+    scenarioId: config.provider === "splash" ? "b82-g2" : null });
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
@@ -279,6 +311,16 @@ export function readConfig(dir) {
   const record = checkPreregistration(dir, config);
   // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
+  if (sealed.provider === "splash") {
+    assert(["live", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
+    assert.deepEqual(sealed.runtime, splashRuntime(dir), "实际 runtime facts 与配置不符");
+    if (sealed.journey === "live") assert.equal(record?.scenario_id, "b82-g2", "Splash live 缺少冻结预注册 b82-g2");
+  }
+  if (sealed.journey === "auto-maintenance") {
+    assert.equal(sealed.provider, "splash", "R03 auto-maintenance provider 不符");
+    const inputs = readAutoMaintenanceInputs(dir, sealed);
+    assert.equal(sealed.message, inputs.discussions[0].text, "作者输入与冻结原文不符");
+  }
   delete sealed.scenario_id;
   if (authorVisibleScenario(record?.scenario_id)) {
     delete sealed.author_visible_target;
@@ -291,8 +333,8 @@ function readyFor(dir) {
   const ready = read(dir, "native-driver-ready.json");
   assert(SLICE_JOURNEYS[ready.slice_id], `未知原生 slice: ${ready.slice_id}`);
   assert(
-    ["slice_verify", "streaming_slice_verify", "strata"].includes(ready.provider),
-    `原生批次 provider 必须是 slice_verify/streaming_slice_verify/strata，实测: ${ready.provider}`,
+    ["slice_verify", "streaming_slice_verify", "strata", "splash"].includes(ready.provider),
+    `原生批次 provider 必须是 slice_verify/streaming_slice_verify/strata/splash，实测: ${ready.provider}`,
   );
   // provider=strata 即实模：默认 live（CP3b 协议层）；带 B71_BEHAVIOR_CASE 时切换
   // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。
@@ -315,7 +357,7 @@ function readyFor(dir) {
     }
     journey = "memory-detail";
   } else if (autoMaintenance) {
-    assert.equal(ready.provider, "strata", "auto-maintenance journey 只接受 provider=strata");
+    assert.equal(ready.provider, "splash", "auto-maintenance journey 只接受现役 Splash runtime profile");
     journey = "auto-maintenance";
   } else if (confirmationMode) {
     assert(
@@ -323,7 +365,8 @@ function readyFor(dir) {
       `未知 B71_CONFIRMATION_ACTION: ${confirmationMode}（confirm|reject）`,
     );
     journey = "confirmation";
-  } else if (ready.provider === "strata") {
+  } else if (ready.provider === "strata" || ready.provider === "splash") {
+    if (behaviorCaseId) assert.equal(ready.provider, "strata", "behavior provider 必须是 strata");
     journey = behaviorCaseId ? "behavior" : "live";
   } else {
     journey = SLICE_JOURNEYS[ready.slice_id];
@@ -357,7 +400,6 @@ function targetFor(dir, { includeSession = false } = {}) {
   });
 }
 
-const messageFor = (journey) => JOURNEY_MESSAGES[journey];
 
 export function prepare(dir) {
   const ready = readyFor(dir);
@@ -371,17 +413,23 @@ export function prepare(dir) {
   // B82 冻结输入：只能由普通 live 批次消费批次目录内的同一副本。
   const preregistrationFile = path.join(dir, PREREGISTRATION_FILE);
   const hasPreregistration = fs.existsSync(preregistrationFile);
+  const runtime = ready.provider === "splash" ? splashRuntime(dir) : null;
+  if (ready.provider === "splash" && ready.journey === "live") {
+    assert(hasPreregistration, "Splash live 缺少冻结预注册");
+  }
   if (hasPreregistration) {
     assert(ready.journey === "live", "预注册文件只属于普通 live 批次");
   }
   const preregistration = hasPreregistration
-    ? validatePreregistrationFile(preregistrationFile, { dir, requireAuthorVisibleTarget: true })
+    ? validatePreregistrationFile(preregistrationFile, { dir, provider: ready.provider,
+      model: runtime ? runtime.observed.provider.model : DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget: true,
+      scenarioId: ready.provider === "splash" ? "b82-g2" : null })
     : null;
   const visibleTarget = preregistration?.author_visible_target ?? null;
   // B82 的场景目标只取封存的作者可见目标，不依赖种子日志或数据库。
   const target = visibleTarget
     ? null
-    : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance });
+    : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance || answerMode });
   const nonce = pending ? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
   let behaviorCase = null;
@@ -394,6 +442,7 @@ export function prepare(dir) {
     behaviorCase = selectLiveCase(loadLiveCaseCorpus(), caseId);
     write(dir, "behavior-case.json", behaviorCase);
   }
+  const inputs = autoMaintenance ? autoMaintenanceInputs(dir, { seal: true }) : null;
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-b71-config.json", {
     slice_id: ready.slice_id,
@@ -426,8 +475,9 @@ export function prepare(dir) {
     ...(confirmation
       ? { confirmation: { mode: ready.confirmation_mode } }
       : {}),
+    ...(runtime ? { runtime } : {}),
     ...(autoMaintenance
-      ? { auto_maintenance: { requests: AUTO_MAINTENANCE_REQUESTS } }
+      ? { auto_maintenance: { input_sources: inputs.input_sources } }
       : {}),
     message: preregistration
       ? preregistration.message
@@ -438,16 +488,16 @@ export function prepare(dir) {
         : behavior
           ? behaviorCase.expression
           : answerMode
-            ? ANSWER_MODE_MESSAGE
+            ? ANSWER_MODE_REQUEST
             : memoryDetail
               ? MEMORY_DETAIL_MESSAGE
               : autoMaintenance
-              ? AUTO_MAINTENANCE_REQUESTS[0]
+              ? inputs.discussions[0].text
               : confirmation
               ? CONFIRMATION_REQUEST
               : live
               ? LIVE_MESSAGE
-              : messageFor(ready.journey),
+              : JOURNEY_MESSAGES[ready.journey],
     ...(pending
       ? {
           nonce,
@@ -532,13 +582,13 @@ export function capture(dir, checkpoint) {
 // 批次 runner 在启动 App 前用同一函数校验冻结副本；直接运行本文件只暴露该校验，
 // 不新增脚本或协议版本。
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, file, dir] = process.argv.slice(2);
+  const [command, file, dir, provider = "strata", scenarioId = null] = process.argv.slice(2);
   if (command !== "validate-preregistration" || !file || !dir) {
-    console.error("usage: node authoring_capture_evidence.mjs validate-preregistration <file> <batch-dir>");
+    console.error("usage: node authoring_capture_evidence.mjs validate-preregistration <file> <batch-dir> [provider] [scenario-id]");
     process.exit(64);
   }
   try {
-    const record = validatePreregistrationFile(file, { dir });
+    const record = validatePreregistrationFile(file, { dir, provider, scenarioId });
     console.log(`preregistration=${record.id} sha256=${record.sha256}`);
   } catch (error) {
     console.error(`[b71-preregistration] ${error.message}`);

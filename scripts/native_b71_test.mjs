@@ -166,7 +166,7 @@ test("完整修订批次通过 runner 入口", async (t) => {
 test("child scope 错绑在会话快照身份核验时拒绝", async (t) => {
   const dir = writableBatch(t);
   mutateDb(dir, "UPDATE agent_runs SET workspace_id = ? WHERE id = ?", ["workspace-other", CHILD_RUN]);
-  await assert.rejects(() => main(["verify", dir]), /canonical 行 workspace_id 错绑/);
+  await assert.rejects(() => main(["verify", dir]), /会话 canonical workspace 身份错绑/);
   assert.equal(fs.existsSync(path.join(dir, "summary.json")), false);
 });
 

@@ -12,6 +12,7 @@ import {
   capture,
   prepare,
   readConfig,
+  readAutoMaintenanceInputs,
   validatePreregistrationFile,
 } from "./authoring_capture_evidence.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
@@ -94,6 +95,9 @@ function preregistration(
   {
     message = G2_MESSAGE,
     model = LIVE_MODEL,
+    provider = "strata",
+    modelFields = {},
+    runtime = null,
     evidenceDir = dir,
     extraScenario = false,
     authorVisibleTarget = G2_VISIBLE_TARGET,
@@ -108,7 +112,8 @@ function preregistration(
   };
   writeJson(dir, "preregistration.json", {
     id: `${scenarioId}-live-test`,
-    model: { provider: "strata", model },
+    model: { provider, model, ...modelFields },
+    ...(runtime ? { runtime } : {}),
     scenarios: extraScenario ? [scenario, { ...scenario, id: `${scenarioId}-extra` }] : [scenario],
   });
 }
@@ -478,4 +483,191 @@ test("readConfig 在预注册被删改或标记缺失时失败", () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+function splashRuntimeFacts() {
+  return {
+    schema: "b87-r01-runtime-facts/v1", mix_env: "test",
+    provider: { selected: "splash", model: "local/Q4-PLE4", endpoint: "http://127.0.0.1:8000" },
+    context_pressure: { provider: "splash", window: 32000, maintenance_ratio: 0.70 },
+    auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false,
+  };
+}
+
+function splashPreregistration(dir, options = {}) {
+  preregistration(dir, {
+    provider: "splash", model: "local/Q4-PLE4",
+    modelFields: { thinking: "enabled", reasoning_effort: "high", max_tokens: 32000,
+      timeout_ms: 300000, context_window: 262144 },
+    runtime: { profile: "b87-r03-splash-product-maintenance-budget",
+      context_pressure: { window: 32000, maintenance_ratio: 0.70 },
+      auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false },
+    ...options,
+  });
+}
+
+function splashReady(dir) {
+  writeJson(dir, "native-driver-ready.json", { slice_id: "b71-first-consumer", provider: "splash" });
+  writeJson(dir, "runtime-facts.json", splashRuntimeFacts());
+}
+
+test("G2 Splash 只凭冻结输入和同进程实际 runtime 建批，不取 seed/DB 或 Strata 槽位", () => {
+  const dir = tempDir();
+  try {
+    splashReady(dir);
+    splashPreregistration(dir);
+    prepare(dir);
+    const config = readConfig(dir);
+    assert.equal(config.journey, "live");
+    assert.equal(config.provider, "splash");
+    assert.equal(config.scenario_id, "b82-g2");
+    assert.equal(config.message, G2_MESSAGE);
+    assert.deepEqual(config.author_visible_target, G2_VISIBLE_TARGET);
+    assert.equal(config.runtime.profile, "b87-r03-splash-product-maintenance-budget");
+    assert.deepEqual(config.runtime.observed, splashRuntimeFacts());
+    assert.equal(config.runtime.facts_sha256, shaFile(path.join(dir, "runtime-facts.json")));
+    assert.equal(config.target, undefined);
+    assert.equal(config.auto_maintenance, undefined);
+    assert.equal(fs.existsSync(path.join(dir, "strata-slot.json")), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("G2 Splash 缺实际 runtime 或缺冻结输入时在产出配置前拒绝", () => {
+  for (const missing of ["runtime-facts.json", "preregistration.json"]) {
+    const dir = tempDir();
+    try {
+      splashReady(dir);
+      splashPreregistration(dir);
+      fs.rmSync(path.join(dir, missing));
+      assert.throws(() => prepare(dir), missing === "runtime-facts.json" ? /ENOENT/ : /冻结预注册/);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test("G2 Splash 冻结 provider/model/runtime 必须与实际 route 和唯一 recipe 相符", () => {
+  for (const [options, pattern] of [
+    [{ provider: "strata" }, /provider/],
+    [{ model: "wrong-model" }, /模型|model/],
+    [{ scenarioId: "b82-g3" }, /b82-g2/],
+    [{ modelFields: { thinking: "enabled", reasoning_effort: "high", max_tokens: 32000,
+      timeout_ms: 300000, context_window: 32000 } }, /context_window/],
+    [{ runtime: { profile: "b87-r03-splash-product-maintenance-budget",
+      context_pressure: { window: 4096, maintenance_ratio: 0.70 },
+      auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false } }, /维护预算/],
+  ]) {
+    const dir = tempDir();
+    try {
+      splashReady(dir);
+      splashPreregistration(dir, options);
+      assert.throws(() => prepare(dir), pattern);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test("G2 Splash readConfig 拒绝实际 runtime 被替换、篡改或与配置哈希不符", () => {
+  const dir = tempDir();
+  try {
+    splashReady(dir);
+    splashPreregistration(dir);
+    prepare(dir);
+    const config = readConfig(dir);
+    writeJson(dir, "native-b71-config.json", { ...config, runtime: { ...config.runtime, facts_sha256: "0".repeat(64) } });
+    assert.throws(() => readConfig(dir), /runtime facts/);
+    writeJson(dir, "native-b71-config.json", config);
+    writeJson(dir, "runtime-facts.json", { ...splashRuntimeFacts(), provider: { ...splashRuntimeFacts().provider, model: "other" } });
+    assert.throws(() => readConfig(dir), /provider.model/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("同一预注册读取 owner 由 G2/B29 caller 显式绑定场景，不能互相借资格", () => {
+  const dir = tempDir();
+  try {
+    splashPreregistration(dir, { scenarioId: "b29-r03-candidate", message: "指定老沈为主角" });
+    const file = path.join(dir, "preregistration.json");
+    const frozen = validatePreregistrationFile(file, { dir, provider: "splash", scenarioId: "b29-r03-candidate" });
+    assert.equal(frozen.message, "指定老沈为主角");
+    assert.equal(frozen.scenario_id, "b29-r03-candidate");
+    assert.throws(() => validatePreregistrationFile(file, { dir, provider: "splash" }), /显式绑定/);
+    assert.throws(() => validatePreregistrationFile(file, { dir, provider: "splash", scenarioId: "b82-g2" }), /b82-g2/);
+    splashReady(dir);
+    assert.throws(() => prepare(dir), /b82-g2/);
+    assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("G2 Splash 预检 CLI 按显式 provider 校验同一冻结副本", () => {
+  const dir = tempDir();
+  try {
+    splashPreregistration(dir);
+    const file = path.join(dir, "preregistration.json");
+    const cli = path.resolve("scripts/lib/native_ui/authoring_capture_evidence.mjs");
+    const ok = spawnSync(process.execPath, [cli, "validate-preregistration", file, dir, "splash", "b82-g2"], { encoding: "utf8" });
+    assert.equal(ok.status, 0, ok.stderr);
+    const wrong = spawnSync(process.execPath, [cli, "validate-preregistration", file, dir, "strata"], { encoding: "utf8" });
+    assert.notEqual(wrong.status, 0);
+    assert.match(wrong.stderr, /provider/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+function withAutoMaintenance(copy, fn) {
+  const previous = process.env.B71_AUTO_MAINTENANCE;
+  process.env.B71_AUTO_MAINTENANCE = "1";
+  try {
+    writeJson(copy.dir, "native-driver-ready.json", { slice_id: "b71-first-consumer", provider: "splash" });
+    seedLive(copy.dir);
+    writeJson(copy.dir, "runtime-facts.json", splashRuntimeFacts());
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env.B71_AUTO_MAINTENANCE;
+    else process.env.B71_AUTO_MAINTENANCE = previous;
+  }
+}
+
+test("R03 prepare 封存同源20+5原文与实际 runtime，修改内容或同hash引用均拒绝", () => {
+  withWorkingCopy(template(), (copy) => withAutoMaintenance(copy, () => {
+    prepare(copy.dir);
+    const config = readConfig(copy.dir);
+    const inputs = readAutoMaintenanceInputs(copy.dir, config);
+    assert.equal(inputs.discussions.length, 20);
+    assert.equal(inputs.controls.length, 5);
+    assert.equal(inputs.controls[0].id, "r03-waiting-a");
+    assert.equal(config.message, inputs.discussions[0].text);
+    assert.equal(config.runtime.observed.context_pressure.window, 32000);
+    assert.equal(config.auto_maintenance.requests, undefined);
+    const file = path.join(copy.dir, inputs.input_sources.controls.file);
+    const original = fs.readFileSync(file);
+    const altered = JSON.parse(original);
+    altered.turns[0].text += "修改";
+    fs.writeFileSync(file, JSON.stringify(altered));
+    assert.throws(() => readConfig(copy.dir), /作者原文 hash 不符/);
+    fs.writeFileSync(file, original);
+    const changedConfig = structuredClone(config);
+    changedConfig.auto_maintenance.input_sources.controls.source_path = "another.json";
+    writeJson(copy.dir, "native-b71-config.json", changedConfig);
+    assert.throws(() => readConfig(copy.dir), /冻结输入引用不符/);
+    writeJson(copy.dir, "native-b71-config.json", config);
+    const runtime = JSON.parse(fs.readFileSync(path.join(copy.dir, "runtime-facts.json")));
+    runtime.context_pressure.window = 4096;
+    writeJson(copy.dir, "runtime-facts.json", runtime);
+    assert.throws(() => readConfig(copy.dir), /runtime facts context_pressure.window/);
+  }));
+});
+
+test("R03 错provider/缺实际runtime在封存和配置前失败；冻结副本不能覆盖", () => {
+  withWorkingCopy(template(), (copy) => withAutoMaintenance(copy, () => {
+    writeJson(copy.dir, "native-driver-ready.json", { slice_id: "b71-first-consumer", provider: "strata" });
+    assert.throws(() => prepare(copy.dir), /Splash runtime profile/);
+    assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
+    writeJson(copy.dir, "native-driver-ready.json", { slice_id: "b71-first-consumer", provider: "splash" });
+    fs.rmSync(path.join(copy.dir, "runtime-facts.json"));
+    assert.throws(() => prepare(copy.dir), /ENOENT/);
+    assert.equal(fs.existsSync(path.join(copy.dir, "r03-discussion-author-inputs.json")), false);
+  }));
+  withWorkingCopy(template(), (copy) => withAutoMaintenance(copy, () => {
+    prepare(copy.dir);
+    assert.throws(() => prepare(copy.dir), /EEXIST/);
+  }));
 });

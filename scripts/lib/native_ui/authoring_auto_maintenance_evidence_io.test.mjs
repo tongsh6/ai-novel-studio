@@ -1,4 +1,4 @@
-// B71 auto-maintenance 邻接 IO：真实 AX/capture 文本、驱动 JSONL、7 表 SQLite 与
+// B71 auto-maintenance 邻接 IO：真实 AX/capture 文本、驱动 JSONL、8 表 SQLite 与
 // 端到端 verify。模板由 `fixtures/authoring_auto_maintenance_io_fixture.mjs` 在 run 内
 // 物化一次（只读共享）；需要改 AX/DB 或写 summary 的 case 取 `withWorkingCopy` 隔离
 // 副本。纯评估在邻接 `authoring_auto_maintenance_evidence.test.mjs`，不建目录/DB。
@@ -9,22 +9,22 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 import {
   evaluateAutoMaintenance,
+  readAutoMaintenanceDbFacts,
+  readAutoMaintenanceRecoveryFacts,
   scanAuthorVisibleFiles,
   verifyAutoMaintenanceBatch,
   waitForEvidenceFile,
 } from "./authoring_auto_maintenance_evidence.mjs";
 import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
+import { logs, read } from "./scenario_evidence.mjs";
+import { readConfig } from "./authoring_capture_evidence.mjs";
 import {
   CALL_ID,
-  FAILURE_REASON,
-  FAIL_RUN,
+  autoMaintenanceRuntime,
   MAINTENANCE_STRIP_AX,
   afterRecord,
   afterWireMessages,
-  beforeRecord,
-  dbFactsFor,
   driverLogFor,
-  llmRecords,
 } from "./fixtures/authoring_auto_maintenance_facts.mjs";
 import { autoMaintenanceFixtureSpec } from "./fixtures/authoring_auto_maintenance_io_fixture.mjs";
 
@@ -42,18 +42,23 @@ function fixture() {
   return materializeFixture(autoMaintenanceFixtureSpec(), { scope: runScope });
 }
 
+function fixtureRuntime(dir) {
+  return { ...autoMaintenanceRuntime(), llm_calls: logs(path.join(dir, "llm-calls")).length };
+}
+
 function evaluateIn(dir, overrides = {}) {
+  const config = readConfig(dir);
+  const driverLog = overrides.driverLog ?? read(dir, "native-b71-driver-log.json");
   return evaluateAutoMaintenance({
-    config: { slice_id: "b71-first-consumer", journey: "auto-maintenance", provider: "strata" },
-    dbFacts: overrides.dbFacts ?? dbFactsFor(),
+    config,
+    dbFacts: overrides.dbFacts ?? readAutoMaintenanceDbFacts(dir),
     checkpoints: { start: { authoring_canon: { tables: {} } }, final: { authoring_canon: { tables: {} } } },
-    driverLog: overrides.driverLog ?? driverLogFor(),
-    cleanup: overrides.cleanup ?? { remaining: [], process_observation: { method: "pgrep+lsof" } },
-    strataSlot: overrides.strataSlot ?? { unloaded: true },
-    llmRecords: overrides.llmRecords ?? llmRecords(),
-    appLog: overrides.appLog ?? [
-      { event: "agent_run.auto_maintenance.error", run_id: FAIL_RUN, reason: FAILURE_REASON },
-    ],
+    driverLog,
+    cleanup: overrides.cleanup ?? read(dir, "native-app-cleanup.json"),
+    runtime: Object.hasOwn(overrides, "runtime") ? overrides.runtime : fixtureRuntime(dir),
+    llmRecords: overrides.llmRecords ?? logs(path.join(dir, "llm-calls")),
+    appLog: overrides.appLog ?? logs(path.join(dir, "app-log")),
+    failureFacts: readAutoMaintenanceRecoveryFacts(dir, config, driverLog.failure_injection),
     dir,
     multiTurn: overrides.multiTurn ?? null,
   });
@@ -62,7 +67,7 @@ function evaluateIn(dir, overrides = {}) {
 test("A3 正例：C1–C10 全过（真实压力/事件+checkpoint/细条/四要素/精简/canonical/幂等/失败静默/扫描/清理）", () => {
   const template = fixture();
   const result = evaluateIn(template.dir);
-  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.failed, [], JSON.stringify(result.checks.C8_failure_silent));
   assert.equal(result.checks.C1_real_pressure.ok, true);
   assert.equal(result.checks.C2_auto_maintenance_committed.ok, true);
   assert.equal(result.checks.C3_strip_visible.ok, true);
@@ -98,8 +103,9 @@ test("A3 反例：刷新不幂等/清理失败 分别 fail", () => {
   assert.equal(refresh.checks.C7_refresh_idempotent.ok, false);
   const cleanup = evaluateIn(template.dir, { cleanup: { remaining: [{ pid: 1 }], process_observation: {} } });
   assert.equal(cleanup.checks.C10_cleanup.ok, false);
-  const strata = evaluateIn(template.dir, { strataSlot: { unloaded: false } });
-  assert.equal(strata.checks.C10_cleanup.ok, false);
+  const busy = evaluateIn(template.dir, { runtime: { ...autoMaintenanceRuntime(), ports: { backend: true, transport: false } } });
+  assert.equal(busy.checks.C10_cleanup.ok, false);
+  assert.equal(evaluateIn(template.dir, { runtime: null }).checks.C10_cleanup.ok, null);
 });
 
 test("C3/C7 正例：现行 AXButton accessible name（enabled=true）识别为可见细条", () => {
@@ -150,33 +156,41 @@ test("A3 反例：AX 全类别泄漏命中（prose_writing / 工作过程）→ 
   });
 });
 
-test("A3 合成目录端到端：verify 通过并写 summary；细条缺失时失败关闭", () => {
+test("完整 R03 verify：C1–C10 合成证据仍不能代签缺失的交错/取消/BEAM；写下明确失败", () => {
   const template = fixture();
   withWorkingCopy(template, (copy) => {
-    const { result, summary } = verifyAutoMaintenanceBatch(copy.dir);
-    assert.deepEqual(result.failed, []);
-    assert.equal(summary.verdict.mechanism, "pass");
+    assert.throws(() => verifyAutoMaintenanceBatch(copy.dir, { observeRuntime: fixtureRuntime }), /G6_interleaved_resume/u);
+    const summary = read(copy.dir, "summary.json");
+    assert.equal(summary.slice_id, read(copy.dir, "native-ui-complete.json").scope);
+    assert.equal(summary.driver, read(copy.dir, "native-ui-complete.json").driver);
+    assert.equal(summary.surface, "tauri-native");
+    assert.equal(summary.all_checks_passed, false);
+    assert.equal(summary.schema, "b71-auto-maintenance-summary/v1");
+    assert.equal(summary.checks.C11_multi_turn_same_run, null);
+    assert.equal(summary.verdict.mechanism, "fail");
     assert.equal(summary.verdict.auto_maintenance_loop_closed, true);
+    assert.equal(summary.verdict.r03_control_flow_closed, false);
+    assert.deepEqual(summary.failed, ["G6_interleaved_resume", "R03_cancelled_run", "R03_backend_restart"]);
   });
   withWorkingCopy(template, (copy) => {
     fs.writeFileSync(path.join(copy.dir, "after-maintenance.ax.txt"), "\t\t0/0/0/0/0/10 AXButton, 普通消息\n");
-    assert.throws(() => verifyAutoMaintenanceBatch(copy.dir), /auto-maintenance 判据失败/u);
+    assert.throws(() => verifyAutoMaintenanceBatch(copy.dir, { observeRuntime: fixtureRuntime }), /auto-maintenance 判据失败/u);
   });
 });
 
-test("verify 前有界等待 finally 证据：延迟落盘的 strata-slot.json 会被等待到", () => {
+test("verify 前有界等待 finally 证据：延迟落盘的 native-app-cleanup.json 会被等待到", () => {
   const dir = fs.mkdtempSync(path.join(runScope.workDir, "b71-wait-"));
-  const file = path.join(dir, "strata-slot.json");
+  const file = path.join(dir, "native-app-cleanup.json");
   // 子进程 300ms 后落盘（verify 主线程用 Atomics.wait 阻塞，同进程 setTimeout 无法执行）。
   spawn(
     process.execPath,
     ["-e", `setTimeout(() => require("fs").writeFileSync(${JSON.stringify(file)}, "{}"), 300)`],
     { stdio: "ignore" },
   );
-  assert.equal(waitForEvidenceFile(dir, "strata-slot.json", 5_000), true);
+  assert.equal(waitForEvidenceFile(dir, "native-app-cleanup.json", 5_000), true);
 
   const missing = fs.mkdtempSync(path.join(runScope.workDir, "b71-wait-"));
-  assert.equal(waitForEvidenceFile(missing, "strata-slot.json", 600), false);
+  assert.equal(waitForEvidenceFile(missing, "native-app-cleanup.json", 600), false);
 });
 
 test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7/C8 一并判", () => {
@@ -213,7 +227,7 @@ test("G6 multi-turn 正例：同 run pause/steer/resume 成立 → C11 pass，C7
   assert(!result.failed.includes("C11_multi_turn_same_run"));
   assert(!result.failed.includes("C7_refresh_idempotent"));
   assert(!result.failed.includes("C8_failure_silent"));
-  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.failed, [], JSON.stringify(result.checks.C8_failure_silent));
   assert(!result.not_signed.some((item) => item.includes("not_in_scope_multi_turn")));
 });
 
@@ -272,7 +286,7 @@ test("C5 正例（真实目录下 C5 与 wire 覆盖）", () => {
   const template = fixture();
   const messages = afterWireMessages({ summary: `已整理的较早记录（原文含 ${CALL_ID}）` });
   const result = evaluateIn(template.dir, {
-    llmRecords: [beforeRecord(), afterRecord({ messages })],
+    llmRecords: logs(path.join(template.dir, "llm-calls")).map((record) => record.provider_call_ref === "pcall-after" ? afterRecord({ messages }) : record),
   });
   assert.equal(result.checks.C5_next_request_compact.ok, true);
   assert(result.checks.C5_next_request_compact.detail.checks[0].wire_checkpoint_covers.some((ids) => ids.includes(CALL_ID)));

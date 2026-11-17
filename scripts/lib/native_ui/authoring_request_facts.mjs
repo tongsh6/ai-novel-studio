@@ -493,6 +493,28 @@ export function requestFactsFromRecord(record) {
   return unsupportedRequest(null, "request_source_missing", { record });
 }
 
+// 显式 checkpoint covers 保留原值；不补 call_ids/message_refs，不把坏形状归一成空选择。
+export function checkpointSelectionsFromFacts(facts) {
+  const prefix = "【应用数据 · checkpoint · 覆盖 ";
+  const covers = [];
+  for (const message of list(facts?.applicationMessages)) {
+    const text = typeof message?.text === "string" ? message.text : "";
+    let cursor = 0;
+    while (true) {
+      const start = text.indexOf(prefix, cursor);
+      if (start < 0) break;
+      const end = text.indexOf("】", start + prefix.length);
+      if (end < 0) break;
+      try {
+        const value = JSON.parse(text.slice(start + prefix.length, end));
+        if (isRecord(value)) covers.push(value);
+      } catch { /* 非合法 JSON 不供应覆盖事实。 */ }
+      cursor = end + 1;
+    }
+  }
+  return covers;
+}
+
 export function requestFactsOf(records) {
   return list(records).map((record) => requestFactsFromRecord(record));
 }

@@ -63,9 +63,13 @@ if [[ -z "$TAG" || ! "$TAG" =~ ^[a-z0-9-]+$ || ${#TAG} -gt 32 ]]; then
   exit 64
 fi
 
-B71_PROVIDER="${B71_PROVIDER:-slice_verify}"
-if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "streaming_slice_verify" && "$B71_PROVIDER" != "strata" ]]; then
-  echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|streaming_slice_verify|strata)" >&2
+if [[ "${B71_AUTO_MAINTENANCE:-0}" == "1" ]]; then
+  B71_PROVIDER="${B71_PROVIDER:-splash}"
+else
+  B71_PROVIDER="${B71_PROVIDER:-slice_verify}"
+fi
+if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "streaming_slice_verify" && "$B71_PROVIDER" != "strata" && "$B71_PROVIDER" != "splash" ]]; then
+  echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|streaming_slice_verify|strata|splash)" >&2
   exit 64
 fi
 # B71 §16.14 工具确认/拒绝原生场景（确定性 slice_verify provider，真实高风险来源）。
@@ -117,7 +121,7 @@ if [[ "$B71_PROVIDER" == "streaming_slice_verify" ]]; then
 fi
 
 LIVE=0
-if [[ "$B71_PROVIDER" == "strata" ]]; then
+if [[ "$B71_PROVIDER" == "strata" || ( "$B71_PROVIDER" == "splash" && "${B71_AUTO_MAINTENANCE:-0}" != "1" ) ]]; then
   LIVE=1
   if [[ "$SLICE" != "b71-first-consumer" ]]; then
     echo "live model batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
@@ -125,15 +129,15 @@ if [[ "$B71_PROVIDER" == "strata" ]]; then
   fi
 fi
 
-# §16.16 第 2 类入口（安全点自动维护）：A3 批次（真实 strata + 小窗口压力）。
+# 现役 R03 原生交错/取消/恢复：Splash 产品维护预算，参数只来自既有 runtime recipe。
 AUTO_MAINTENANCE="${B71_AUTO_MAINTENANCE:-}"
 if [[ -n "$AUTO_MAINTENANCE" ]]; then
   if [[ "$AUTO_MAINTENANCE" != "1" ]]; then
     echo "B71_AUTO_MAINTENANCE 只能是 1，实测: $AUTO_MAINTENANCE" >&2
     exit 64
   fi
-  if [[ "$B71_PROVIDER" != "strata" ]]; then
-    echo "auto-maintenance batch 只接受 B71_PROVIDER=strata，实测: $B71_PROVIDER" >&2
+  if [[ "$B71_PROVIDER" != "splash" ]]; then
+    echo "auto-maintenance batch 只接受 B71_PROVIDER=splash，实测: $B71_PROVIDER" >&2
     exit 64
   fi
   if [[ "$SLICE" != "b71-first-consumer" ]]; then
@@ -144,14 +148,18 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
     echo "B71_AUTO_MAINTENANCE 与 confirmation/behavior 不能同时设置" >&2
     exit 64
   fi
-  LIVE=1
 fi
-
-# A3b 非验收 smoke（真实能力探查：不产验收证据；仅 A3 驱动观测）。
-A3B_SMOKE="${B71_AUTO_MAINT_SMOKE:-0}"
-if [[ "$A3B_SMOKE" == "1" && "$AUTO_MAINTENANCE" != "1" ]]; then
-  echo "B71_AUTO_MAINT_SMOKE=1 需要同时设置 B71_AUTO_MAINTENANCE=1（A3 驱动 smoke）" >&2
+if [[ "$B71_PROVIDER" == "splash" && "$LIVE" == "1" && -z "${B71_LIVE_PREREGISTRATION:-}" ]]; then
+  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2/runtime profile）" >&2
   exit 64
+fi
+if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
+  for retired in B71_AUTO_MAINT_SMOKE B71_AUTO_MAINT_MULTI_TURN B71_AUTO_MAINT_INTERLEAVED_RESUME B71_AUTO_MAINT_MAX_STEERS; do
+    if [[ -n "${!retired:-}" ]]; then
+      echo "$retired 已退役；R03 使用冻结交错/取消/恢复顺序" >&2
+      exit 64
+    fi
+  done
 fi
 
 # 回答模式 gate（等待即回答，确定性 slice_verify + ask_author fixture）。
@@ -218,13 +226,6 @@ elif [[ "$MEMORY_DETAIL" == "1" ]]; then
     echo "B71_MEMORY_DETAIL_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
     exit 64
   fi
-elif [[ "$AUTO_MAINTENANCE" == "1" && "$A3B_SMOKE" == "1" ]]; then
-  # A3b smoke：非验收观测目录（artifacts/ 下独立命名，不进入 slice-verify 验收证据）。
-  DIR="${B71_AUTO_MAINT_SMOKE_ARTIFACT_DIR:-$ROOT/artifacts/b71-native/a3b-smoke-$TAG}"
-  if [[ "$DIR" != "$ROOT/artifacts/"* ]]; then
-    echo "B71_AUTO_MAINT_SMOKE_ARTIFACT_DIR 必须位于 $ROOT/artifacts/ 下: $DIR" >&2
-    exit 64
-  fi
 elif [[ "$AUTO_MAINTENANCE" == "1" ]]; then
   # A3 自动维护批次目录与预注册一致；仍必须位于 artifacts/ 且不存在。
   DIR="${B71_AUTO_MAINTENANCE_ARTIFACT_DIR:-$ROOT/artifacts/slice-verify/b71-first-consumer-auto-maint-$TAG}"
@@ -264,8 +265,10 @@ fi
 # B82 冻结输入：仅普通 live 批次可用；启动前只读一次源到 STATE_DIR 快照，
 # 此后封存只链接同一快照，绝不再读源。判据只在 validatePreregistrationFile 中定义。
 preregistration_check() {
+  local scenario_args=()
+  if [[ "$B71_PROVIDER" == "splash" ]]; then scenario_args=(b82-g2); fi
   node "$ROOT/scripts/lib/native_ui/authoring_capture_evidence.mjs" \
-    validate-preregistration "$1" "$DIR"
+    validate-preregistration "$1" "$DIR" "$B71_PROVIDER" "${scenario_args[@]}"
 }
 
 PREREG_SNAPSHOT=""
@@ -296,8 +299,8 @@ strata_precheck_ok() {
 
 LIVE_PREREGISTRATION="${B71_LIVE_PREREGISTRATION:-}"
 if [[ -n "$LIVE_PREREGISTRATION" ]]; then
-  if [[ "$LIVE" != "1" || "$B71_PROVIDER" != "strata" || "$SLICE" != "b71-first-consumer" ]]; then
-    echo "B71_LIVE_PREREGISTRATION 只用于 B71_PROVIDER=strata B71_SLICE=b71-first-consumer 的普通 live 批次" >&2
+  if [[ "$LIVE" != "1" || "$SLICE" != "b71-first-consumer" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 只用于 B71_SLICE=b71-first-consumer 的真实 live 批次" >&2
     exit 64
   fi
   if [[ "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" || "$CONFIRMATION" == "1" || "$ANSWER_MODE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
@@ -318,10 +321,11 @@ export TAURI_NATIVE_SYSTEM_DRIVER=1
 export TAURI_NATIVE_TRANSPORT_PROXY=1
 export TAURI_NATIVE_ARTIFACT_TAG="$TAG"
 if [[ "$LIVE" == "1" ]]; then
-  # 实模批次：真实 provider=strata（单槽预注册模型，经 B71_STRATA_MODEL 指定；
-  # 历史批次 iq3_s，2026-11-07 作者裁决 A 后为 q2_0），证据目录用预注册 live 前缀。
-  export SLICE_VERIFY_PROVIDER=strata
+  # 真实 provider 与冻结输入一致。Splash 仅消费外部服务，预检归现役 tauri runner。
+  export SLICE_VERIFY_PROVIDER="$B71_PROVIDER"
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
+fi
+if [[ "$LIVE" == "1" && "$B71_PROVIDER" == "strata" ]]; then
   node "$ROOT/scripts/native_b71_strata_state.mjs" >"$STRATA_BEFORE" 2>/dev/null || true
   if ! strata_precheck_ok "$STRATA_BEFORE"; then
     if [[ -n "$LIVE_PREREGISTRATION" ]]; then
@@ -343,7 +347,6 @@ fi
 if [[ "$ANSWER_MODE" == "1" ]]; then
   # 回答模式 gate：确定性 ask_author fixture（请求触发问题卡 → 回答「保留悬念」→ 同 run 继续）。
   export B71_ANSWER_MODE=1
-  export B71_AUTO_MAINT_MULTI_TURN=1
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
 fi
@@ -356,35 +359,15 @@ if [[ "$MEMORY_DETAIL" == "1" ]]; then
   export B70_AUTHOR_BEHAVIOR_STATE="S1-partial-multichapter"
 fi
 
-if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
-  # A3：显式开启安全点自动维护 + 小窗口压力（产品化运维配置，默认关闭）。
-  export B71_AUTO_MAINTENANCE=1
-  export NOVEL_AUTO_MAINTENANCE_ENABLED="${NOVEL_AUTO_MAINTENANCE_ENABLED:-1}"
-  export NOVEL_CONTEXT_WINDOW_OVERRIDES="${NOVEL_CONTEXT_WINDOW_OVERRIDES:-strata:4096}"
+if [[ "$AUTO_MAINTENANCE" == "1" || ( "$LIVE" == "1" && "$B71_PROVIDER" == "splash" ) ]]; then
+  if [[ "$AUTO_MAINTENANCE" == "1" ]]; then export B71_AUTO_MAINTENANCE=1; fi
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
-  if [[ "$A3B_SMOKE" == "1" ]]; then
-    # A3b smoke：同 run 多回合（真实控制坞 steer）+ 只观测不产验收证据。
-    export B71_AUTO_MAINT_SMOKE=1
-    export B71_AUTO_MAINT_MULTI_TURN=1
-  fi
-fi
-
-# G6 multi-turn 正式场景（作者 2026-11-08 授权）：同 run 连续 steer 直到自动维护
-# 触发或 steer 预算耗尽；产正式验收证据并由 runner verify（与 A3 跨 run 场景并列）。
-A3_MULTI_TURN="${B71_AUTO_MAINT_MULTI_TURN:-0}"
-if [[ "$A3_MULTI_TURN" == "1" ]]; then
-  # 回答模式（确定性 ask_author fixture）也走同 run 多回合驱动，但不设置
-  # B71_AUTO_MAINTENANCE（该变量与 ANSWER_MODE 互斥）；此处放行 ANSWER_MODE。
-  if [[ "$AUTO_MAINTENANCE" != "1" && "$ANSWER_MODE" != "1" ]]; then
-    echo "B71_AUTO_MAINT_MULTI_TURN=1 需要同时设置 B71_AUTO_MAINTENANCE=1（或 B71_ANSWER_MODE=1）" >&2
-    exit 64
-  fi
-  if [[ "$A3B_SMOKE" == "1" ]]; then
-    echo "B71_AUTO_MAINT_MULTI_TURN=1 不能与 B71_AUTO_MAINT_SMOKE=1 同时设置（正式/观测互斥）" >&2
-    exit 64
-  fi
-  export B71_AUTO_MAINT_MULTI_TURN=1
-  export B71_AUTO_MAINT_MAX_STEERS="${B71_AUTO_MAINT_MAX_STEERS:-6}"
+  RUNTIME_ENV="$(node --input-type=module - <<'RECIPE'
+import { COMPACTION_RUNTIME_PROFILE_ID, runtimeEnvLines } from "./scripts/lib/native_ui/request_cost_runtime_recipe.mjs";
+console.log(runtimeEnvLines(COMPACTION_RUNTIME_PROFILE_ID).join("\n"));
+RECIPE
+)" || exit 1
+  while IFS= read -r assignment; do export "$assignment"; done <<<"$RUNTIME_ENV"
 fi
 
 if [[ "$BEHAVIOR" == "1" ]]; then
@@ -444,8 +427,8 @@ wait "$RUNNER"
 RUNNER_RC=$?
 set -e
 
-if [[ "$LIVE" == "1" ]]; then
-  # 批次结束/失败/中断都必须卸载并核验 loaded=null；driver 已卸载，batch 再独立核验。
+if [[ "$LIVE" == "1" && "$B71_PROVIDER" == "strata" ]]; then
+  # 仅本 Strata 路线核验单槽卸载；外部 Splash 不属于本批拥有的进程。
   node "$ROOT/scripts/native_b71_strata_state.mjs" --unload >"$STRATA_AFTER" 2>/dev/null || true
   if ! node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(j.slot?.ok===true&&j.slot?.loaded===false?0:1)' "$STRATA_AFTER"; then
     echo "[b71-native] FAIL strata not unloaded: $STRATA_AFTER" >&2
@@ -454,17 +437,6 @@ if [[ "$LIVE" == "1" ]]; then
   fi
 fi
 
-if [[ "$A3B_SMOKE" == "1" ]]; then
-  # 非验收 smoke：只要求驱动完成（runner verify 对观测目录无意义，忽略其退出码）。
-  node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const mt=j.multi_turn??{}; console.log("[a3b-smoke] " + JSON.stringify({driver_ok:true,pause:mt.pause??null,steer_ok:mt.steer?.ok??null,exchange_facts:mt.exchange_facts??null,usage_facts:mt.usage_facts??null,checkpoint_events:j.termination?.checkpoint_events??null,strip:mt.strip??null,run_events:mt.run_events??null}, null, 1));' "$DIR/native-b71-driver-log.json" 2>/dev/null || true
-  if [[ "$DRIVER_RC" -eq 0 ]]; then
-    echo "[b71-native] SMOKE 完成 dir=$DIR"
-    exit 0
-  fi
-  echo "[b71-native] SMOKE FAIL driver_rc=$DRIVER_RC dir=$DIR" >&2
-  echo "runner log: $RUNNER_LOG; driver log: $DRIVER_LOG" >&2
-  exit 1
-fi
 
 if [[ "$DRIVER_RC" -eq 0 && "$RUNNER_RC" -eq 0 ]]; then
   echo "[b71-native] PASS dir=$DIR"

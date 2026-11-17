@@ -458,6 +458,22 @@ if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != 
   exit 64
 fi
 
+# R03 B29 候选正例沿既有 runtime recipe；mode 只属于外部 driver，产品不读取。
+if [[ -n "${B29_NATIVE_MODE:-}" ]]; then
+  if [[ "$B29_NATIVE_MODE" != "r03-candidate" || "$SLICE_ID" != "b29-existing-character-role-revision" ||
+        "$NATIVE_SYSTEM_DRIVER" != "1" || "$SLICE_VERIFY_PROVIDER" != "splash" ]]; then
+    echo "B29_NATIVE_MODE=r03-candidate requires the native B29 Splash route" >&2
+    exit 64
+  fi
+  B29_RUNTIME_ENV="$(node --input-type=module - "$PROJECT_ROOT/scripts/lib/native_ui/request_cost_runtime_recipe.mjs" <<'RECIPE'
+import { pathToFileURL } from "node:url";
+const { COMPACTION_RUNTIME_PROFILE_ID, runtimeEnvLines } = await import(pathToFileURL(process.argv[2]).href);
+console.log(runtimeEnvLines(COMPACTION_RUNTIME_PROFILE_ID).join("\n"));
+RECIPE
+)" || exit 1
+  while IFS= read -r assignment; do export "$assignment"; done <<<"$B29_RUNTIME_ENV"
+fi
+
 if [[ "$SLICE_VERIFY_PROVIDER" == "deepseek" && -z "${NOVEL_DEEPSEEK_API_KEY:-}${DEEPSEEK_API_KEY:-}" ]]; then
   echo "DeepSeek live verification requires NOVEL_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY" >&2
   exit 65
@@ -565,6 +581,17 @@ if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then
   export NOVEL_TEST_DB_DIR="$ARTIFACT_DIR/database"
 fi
 mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME" "$NOVEL_TEST_DB_DIR"
+
+if [[ "${B29_NATIVE_MODE:-}" == "r03-candidate" ]]; then
+  if [[ -z "${B29_NATIVE_PREREGISTRATION:-}" || ! -f "$B29_NATIVE_PREREGISTRATION" ]]; then
+    echo "R03 B29 requires its frozen B29_NATIVE_PREREGISTRATION" >&2
+    exit 64
+  fi
+  # 只读一次来源封存到既有文件；所有后续核验都读同一冻结副本。
+  cp "$B29_NATIVE_PREREGISTRATION" "$ARTIFACT_DIR/preregistration.json"
+  node "$PROJECT_ROOT/scripts/lib/native_ui/authoring_capture_evidence.mjs" \
+    validate-preregistration "$ARTIFACT_DIR/preregistration.json" "$ARTIFACT_DIR" splash b29-r03-candidate
+fi
 
 run_capability_command() {
   local label="$1"
@@ -1558,11 +1585,13 @@ native_action_description() {
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" "$SLICE_ID" <<'READY'
+    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" "$SLICE_ID" "$PHOENIX_PORT" "${NATIVE_PROXY_PID:+$NATIVE_PROXY_PORT}" "$$" "$PHX_PID" "$NOVEL_TEST_DB_DIR" <<'READY'
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-const [dir, api, home, provider, sliceId] = process.argv.slice(2);
+const [dir, api, home, provider, sliceId, backendPort, transportPort, runnerPid, backendPid, databaseDir] = process.argv.slice(2);
+const ownedPorts = { backend: Number(backendPort), transport: transportPort ? Number(transportPort) : null };
+if (![ownedPorts.backend, ...(ownedPorts.transport === null ? [] : [ownedPorts.transport])].every((port) => Number.isInteger(port) && port > 0 && port <= 65535)) throw new Error("invalid owned port");
 // 开发 CLI 运行无 app 包元数据的二进制，macOS 应用发现无法按路径定位。
 // 仅为同一二进制补包装，供外部系统 UI 驱动；不改变产品代码。
 const runRef = randomUUID();
@@ -1585,7 +1614,9 @@ if (nativeExecutable !== "app") throw new Error("unexpected native executable");
 fs.writeFileSync(path.join(dir, "native-driver-ready.json"), JSON.stringify({ run_ref: runRef, bundle_identifier: bundleIdentifier,
   app_path: bundle, native_executable: nativeExecutable, app_mode: "embedded-native", desktop_profile: profile, provider,
   slice_id: sliceId, ready_at: new Date().toISOString(), api_url: api, tauri_home: home, driver: "external-system-ui",
-  browser_driver_started: false }, null, 2));
+  browser_driver_started: false, owned_ports: ownedPorts,
+  backend_owner: { runner_pid: Number(runnerPid), backend_pid: Number(backendPid),
+    database_path: fs.realpathSync(path.join(databaseDir, "ai_novel_studio_test.sqlite3")) } }, null, 2));
 READY
     echo "[tauri-slice-verify] Native driver bundle/resources ready for external system UI driver (app window not observed yet)."
     # 与浏览器 driver 同样由 builtin wait 接住信号，避免 Bash 等前台 node 结束后才执行 TERM trap。
@@ -1593,6 +1624,12 @@ READY
     if [[ -n "$NATIVE_PROXY_PID" ]]; then native_watch_pids+=("$NATIVE_PROXY_PID"); fi
     node "$PROJECT_ROOT/scripts/native_ui_wait.mjs" wait "$ARTIFACT_DIR" "$API_URL" "${native_watch_pids[@]}" &
     UI_DRIVER_PID=$!
+    while kill -0 "$UI_DRIVER_PID" 2>/dev/null; do
+      if [[ -f "$ARTIFACT_DIR/native-backend-restart-request.json" && ! -e "$ARTIFACT_DIR/native-backend-restart-accepted.json" ]]; then
+        restart_owned_backend
+      fi
+      sleep 0.25
+    done
     wait "$UI_DRIVER_PID"
     UI_DRIVER_PID=""
     return
@@ -2612,25 +2649,48 @@ if [[ "$SLICE_ID" == "agent-provider-slow-stream-liveness" ]]; then
   LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-3000}"
 fi
 
-MIX_ENV=test \
-  PHOENIX_TEST_PORT="$PHOENIX_PORT" \
-  PHOENIX_PORT="$PHOENIX_PORT" \
-  LLM_LOG_DIR="$LLM_LOG_DIR" \
-  SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
-  SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
-  SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
-  SLICE_VERIFY_RUNTIME_FACTS_PATH="$([[ "$SLICE_ID" == "b87-r01-request-cost" ]] && printf '%s' "$ARTIFACT_DIR/runtime-facts.json" || true)" \
-  SLICE_VERIFY_QUALITY_REVISION_RETRY="$B71_QUALITY_REVISION_RETRY" \
-  SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED="$([[ "$SLICE_ID" == "su02-empty-start-unnamed-work" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" || "$SLICE_ID" == "b71-authoring-transcript" ]] && [[ "$SLICE_VERIFY_PROVIDER" != "streaming_slice_verify" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" || "$SLICE_ID" == "b31-author-reply-run-binding" || "$SLICE_ID" == "q3d-message-delivery-recovery" ]] && echo 1 || echo 0)" \
-  NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
-  AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
-  mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
-PHX_PID=$!
-wait_for_url "$API_URL/health" "Phoenix"
+start_owned_backend() {
+  local backend_log="$1"
+  local runtime_facts="$2"
+  (
+    cd "$PROJECT_ROOT"
+    MIX_ENV=test \
+      PHOENIX_TEST_PORT="$PHOENIX_PORT" \
+      PHOENIX_PORT="$PHOENIX_PORT" \
+      LLM_LOG_DIR="$LLM_LOG_DIR" \
+      SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
+      SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
+      SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
+      SLICE_VERIFY_RUNTIME_FACTS_PATH="$runtime_facts" \
+      SLICE_VERIFY_QUALITY_REVISION_RETRY="$B71_QUALITY_REVISION_RETRY" \
+      SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED="$([[ "$SLICE_ID" == "su02-empty-start-unnamed-work" ]] && echo 1 || echo 0)" \
+      SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]] && echo 1 || echo 0)" \
+      SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
+      SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" || "$SLICE_ID" == "b71-authoring-transcript" ]] && [[ "$SLICE_VERIFY_PROVIDER" != "streaming_slice_verify" ]] && echo 1 || echo 0)" \
+      SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" || "$SLICE_ID" == "b31-author-reply-run-binding" || "$SLICE_ID" == "q3d-message-delivery-recovery" ]] && echo 1 || echo 0)" \
+      NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
+      AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
+      exec mix run --no-start --no-halt scripts/slice_verify_server.exs
+  ) >"$backend_log" 2>&1 &
+  PHX_PID=$!
+  wait_for_url "$API_URL/health" "Phoenix"
+}
+
+restart_owned_backend() {
+  node "$PROJECT_ROOT/scripts/native_ui_wait.mjs" backend-restart-claim "$ARTIFACT_DIR" "$$" "$PHX_PID" "$UI_DRIVER_PID"
+  local previous_pid="$PHX_PID"
+  reap_process_tree "$previous_pid" 3 3
+  wait "$previous_pid" 2>/dev/null || true
+  PHX_PID=""
+  start_owned_backend "$ARTIFACT_DIR/backend-restart.log" "$ARTIFACT_DIR/runtime-facts-backend-restart.json"
+  node "$PROJECT_ROOT/scripts/native_ui_wait.mjs" backend-restart-complete "$ARTIFACT_DIR" "$$" "$PHX_PID"
+}
+
+RUNTIME_FACTS_PATH=""
+if [[ "$SLICE_ID" == "b87-r01-request-cost" || ( "$SLICE_ID" == "b71-first-consumer" && "$SLICE_VERIFY_PROVIDER" == "splash" ) || "${B29_NATIVE_MODE:-}" == "r03-candidate" ]]; then
+  RUNTIME_FACTS_PATH="$ARTIFACT_DIR/runtime-facts.json"
+fi
+start_owned_backend "$ARTIFACT_DIR/backend.log" "$RUNTIME_FACTS_PATH"
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" && "${TAURI_NATIVE_TRANSPORT_PROXY:-0}" == "1" ]]; then
   NATIVE_PROXY_PORT="${TAURI_NATIVE_PROXY_PORT:-4661}"

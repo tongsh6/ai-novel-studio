@@ -1,4 +1,4 @@
-// native-ui-wait 族：纯 WaitLedger 判定不碰文件系统；需要驱动文件协议的 13 个 case
+// native-ui-wait 族：纯 WaitLedger 判定不碰文件系统；需要驱动文件协议的 case
 // 使用外层 run scope 的 work 区目录，不再落系统 TMPDIR 裸目录。case 目录由 finally
 // 立即回收，owned 作用域退出时再统一收口；本族不使用 materializeFixture —— 监督器
 // 在运行中持续追加/改写日志，共享只读模板不适用。
@@ -11,6 +11,12 @@ import path from "node:path";
 import {
   budgets,
   budgetsFor,
+  BACKEND_RESTART_LABEL,
+  requestBackendRestart,
+  claimBackendRestart,
+  completeBackendRestart,
+  readBackendRestartReceipt,
+  observeBackendLifecycle,
   main,
   maybeHeartbeat,
   nativeLifecycleSeen,
@@ -452,6 +458,139 @@ test("maybeHeartbeat：已心跳后 5 秒不重复；elapsed 用减去启动时�
     const line = JSON.parse(fs.readFileSync(path.join(dir, "heartbeat.jsonl"), "utf8").trim());
     assert.equal(line.elapsed_ms, 30_000);
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 生命周期协议使用真实临时子进程和 HTTP；普通文件只见证 inode，不冒充 SQLite/BEAM 恢复验收。
+async function backendProcess(file, settings, port = 0) {
+  const child = spawn(process.execPath, ["-e", [
+    "const fs=require('node:fs'),http=require('node:http');",
+    "const [file,raw,port]=process.argv.slice(1);",
+    "const facts={...JSON.parse(raw),pid:String(process.pid),captured_at:new Date().toISOString()};",
+    "fs.writeFileSync(file,JSON.stringify(facts));",
+    "const server=http.createServer((req,res)=>{res.writeHead(req.url==='/health'?200:404);res.end('ok');});",
+    "server.listen(Number(port),'127.0.0.1',()=>process.send({pid:process.pid,port:server.address().port}));",
+  ].join(""), file, JSON.stringify(settings), String(port)], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const ready = await new Promise((resolve, reject) => {
+    child.once("message", resolve);
+    child.once("error", reject);
+    child.once("exit", () => reject(new Error("backend protocol test process exited before ready")));
+  });
+  return { child, ...ready };
+}
+async function stopBackendProcess(processRecord) {
+  const child = processRecord?.child;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise((resolve) => { child.once("exit", resolve); child.kill("SIGTERM"); });
+}
+
+test("owned backend 一次准入、监督握手、真实PID/HTTP换代与不可覆盖完成事实", async () => {
+  const dir = fs.mkdtempSync(path.join(runScope.workDir, "backend-lifecycle-"));
+  let old, replacement, requested, claimed;
+  const file = (kind) => path.join(dir, "native-backend-restart-" + kind + ".json");
+  const json = (name, value) => fs.writeFileSync(name, JSON.stringify(value));
+  try {
+    fs.mkdirSync(path.join(dir, "database"));
+    const database = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
+    fs.writeFileSync(database, "protocol file identity only");
+    const settings = { schema: "b87-r01-runtime-facts/v1", mix_env: "test",
+      provider: { selected: "splash", model: "local/Q4-PLE4", endpoint: "http://127.0.0.1:8000" },
+      context_pressure: { provider: "splash", window: 32000, maintenance_ratio: 0.70 },
+      auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false };
+    old = await backendProcess(path.join(dir, "runtime-facts.json"), settings);
+    const initialBytes = fs.readFileSync(path.join(dir, "runtime-facts.json"));
+    const ready = { slice_id: "b71-first-consumer", provider: "splash", run_ref: "owned-run",
+      ready_at: new Date().toISOString(), api_url: "http://127.0.0.1:" + old.port,
+      backend_owner: { runner_pid: process.pid, backend_pid: old.pid, database_path: database } };
+    json(path.join(dir, "native-driver-ready.json"), ready);
+    const start = { op: "begin", id: "backend-restore", kind: "restore",
+      label: BACKEND_RESTART_LABEL, at: Date.now() };
+    fs.writeFileSync(path.join(dir, "native-driver-commands.jsonl"), JSON.stringify(start) + "\n");
+    const ledger = new WaitLedger(Date.parse(ready.ready_at), budgetsFor(ready.provider));
+    ledger.accept(start);
+    requested = requestBackendRestart(dir);
+    requested.catch(() => {});
+    const request = JSON.parse(fs.readFileSync(file("request")));
+    assert.deepEqual(observeBackendLifecycle(dir, ready, ledger, [old.pid, process.pid]),
+      { pids: [old.pid, process.pid], restarting: false }, "仅请求不能允许旧backend退场");
+
+    await assert.rejects(claimBackendRestart(dir, process.pid, old.pid + 1, process.pid), /old_pid_mismatch/);
+    json(file("request"), { ...request, run_ref: "foreign" });
+    await assert.rejects(claimBackendRestart(dir, process.pid, old.pid, process.pid), /identity_mismatch/);
+    json(file("request"), request);
+    fs.renameSync(database, database + ".original");
+    fs.writeFileSync(database, "replaced");
+    await assert.rejects(claimBackendRestart(dir, process.pid, old.pid, process.pid), /deep-equal/);
+    fs.unlinkSync(database);
+    fs.renameSync(database + ".original", database);
+    assert.equal(fs.existsSync(file("accepted")), false);
+
+    claimed = claimBackendRestart(dir, process.pid, old.pid, process.pid);
+    claimed.catch(() => {});
+    const claim = JSON.parse(fs.readFileSync(file("accepted")));
+    for (const patch of [{ wait_id: "other-wait" }, { previous_backend_pid: old.pid + 1 },
+      { supervisor_pid: process.pid + 1 }]) {
+      json(file("accepted"), { ...claim, ...patch });
+      assert.throws(() => observeBackendLifecycle(dir, ready, ledger, [old.pid, process.pid]));
+    }
+    json(file("accepted"), claim);
+    const ordinary = new WaitLedger(Date.parse(ready.ready_at), budgetsFor("splash"));
+    ordinary.accept({ ...start, label: "close_app_and_relaunch" });
+    assert.throws(() => observeBackendLifecycle(dir, ready, ordinary, [old.pid]), /outside_owned_restore/);
+    const pending = observeBackendLifecycle(dir, ready, ledger, [old.pid, process.pid]);
+    assert.deepEqual(pending, { pids: [process.pid], restarting: true });
+    await claimed;
+    assert.equal(JSON.parse(fs.readFileSync(file("supervised"))).request_id, request.request_id);
+    await assert.rejects(claimBackendRestart(dir, process.pid, old.pid, process.pid), /EEXIST/);
+
+    await stopBackendProcess(old);
+    replacement = await backendProcess(path.join(dir, "runtime-facts-backend-restart.json"), settings, old.port);
+    const facts = JSON.parse(fs.readFileSync(path.join(dir, "runtime-facts-backend-restart.json")));
+    json(path.join(dir, "runtime-facts-backend-restart.json"), { ...facts,
+      context_pressure: { ...facts.context_pressure, window: 4096 } });
+    await assert.rejects(completeBackendRestart(dir, process.pid, replacement.pid), /runtime_changed/);
+    assert.equal(fs.existsSync(file("completed")), false);
+    json(path.join(dir, "runtime-facts-backend-restart.json"), facts);
+    const completed = await completeBackendRestart(dir, process.pid, replacement.pid);
+    assert.equal(completed.health.status, 200);
+    assert.notEqual(completed.previous_backend_pid, completed.backend_pid);
+    assert.deepEqual(await requested, completed);
+    assert.deepEqual(fs.readFileSync(path.join(dir, "runtime-facts.json")), initialBytes);
+    const finish = { op: "finish", id: start.id, at: Date.now() };
+    fs.appendFileSync(path.join(dir, "native-driver-commands.jsonl"), JSON.stringify(finish) + "\n");
+    ledger.accept(finish);
+    const active = observeBackendLifecycle(dir, ready, ledger, [old.pid, process.pid]);
+    assert.deepEqual(active.pids, [replacement.pid, process.pid]);
+    assert.equal(active.restarting, false);
+    assert.deepEqual(readBackendRestartReceipt(dir), completed);
+    for (const patch of [
+      { health: { ...completed.health, status: 503 } },
+      { health: { ...completed.health, url: "http://foreign/health" } },
+      { initial_runtime_sha256: "0".repeat(64) },
+      { runtime_facts: { ...completed.runtime_facts, sha256: "0".repeat(64) } },
+      { backend_pid: old.pid },
+      { completed_at: new Date(start.at + budgets.restore).toISOString() },
+      { supervisor_pid: process.pid + 1 },
+    ]) {
+      json(file("completed"), { ...completed, ...patch });
+      assert.throws(() => readBackendRestartReceipt(dir));
+      assert.throws(() => observeBackendLifecycle(dir, ready, ledger, [old.pid]));
+    }
+    json(file("completed"), completed);
+    const supervised = JSON.parse(fs.readFileSync(file("supervised")));
+    json(file("supervised"), { ...supervised, wait_id: "another-restore" });
+    assert.throws(() => readBackendRestartReceipt(dir), /changed:wait_id/);
+    json(file("supervised"), supervised);
+    assert.deepEqual(readBackendRestartReceipt(dir), completed);
+    await assert.rejects(requestBackendRestart(dir), /outside_owned_restore/);
+    await stopBackendProcess(replacement);
+    assert.deepEqual(readBackendRestartReceipt(dir), completed, "事后读完成事实不要求cleanup后的进程仍活");
+  } finally {
+    fs.writeFileSync(path.join(dir, "failure.json"), "{}");
+    await Promise.allSettled([requested, claimed].filter(Boolean));
+    await stopBackendProcess(old);
+    await stopBackendProcess(replacement);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -131,8 +131,8 @@ test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcal
   const checkpoint = {
     role: "checkpoint", provenance: "application", source_refs: [], versions: {},
     blocks: [{
-      type: "checkpoint", covers: { call_ids: ["old-call"], turn_range: "old-author" },
-      summary: "已核对历史", omissions: [], source_refs: [], versions: {},
+      type: "checkpoint", covers: { call_ids: ["old-call"], message_refs: [], turn_range: "old-author" },
+      summary: "已核对历史", omissions: ["原始工具结果保留在历史中"], source_refs: [], versions: {},
     }],
   };
   const transcript = { messages: [
@@ -142,6 +142,10 @@ test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcal
     author(" 续行原文\n", "reply-author"), canonicalScopes[2], assistant(83, []),
     canonicalScopes[3], assistant(84, []),
   ] };
+  transcript.messages.forEach((message, index) => {
+    message.canonical_ref = { run_id: index < 4 ? "prior" : RUN, run_sequence: index + 1,
+      workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: PARENT, run_status: "completed" };
+  });
   const projected = contents.map((content, index) =>
     scopeWireMessage(content, { versions: versions[index], sourceRefs: sourceRefs[index] }));
   const first = sseExchange(82);

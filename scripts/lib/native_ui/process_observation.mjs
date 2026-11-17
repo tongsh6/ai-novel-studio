@@ -108,6 +108,17 @@ function ownedViaPgrepLsof(executable, exec) {
   return owned;
 }
 
+export function portListening(port, exec = defaultExec) {
+  try {
+    const out = exec("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
+    return out.split("\n").some((line) => line.includes("LISTEN"));
+  } catch (error) {
+    // lsof 对无匹配 listener 退出码为 1；其它执行错误必须暴露，不能当作“未监听”。
+    if (error?.status === 1) return false;
+    throw error;
+  }
+}
+
 // 本批 owned 进程集合。返回实际观测方式，调用方必须把 method/fallback_reason
 // 写入批次证据，不允许把 fallback 当作与 ps 完全无差别。
 export function ownProcesses(executable, { exec = defaultExec } = {}) {

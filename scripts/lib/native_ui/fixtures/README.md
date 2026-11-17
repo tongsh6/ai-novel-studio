@@ -35,6 +35,7 @@
 | `request_cost_capture_io_fixture.mjs` | B87 R01 capture 族唯一 IO 资产/factory owner：`sourceLogsFixtureSpec()` 固定 llm/app JSONL（只按最终字节指纹，无多余代码 key）；`nativeSourceFixtureSpec()` 单点 20 表 DDL/seed 并用 `build(staging, publicationDir)` 一次形成 source/full/work + snapshot metadata，只把将来真实发布位置序列进 staging 内 manifest（hash/canon/run_inventory 不改）；`nativeManifestFixtureSpec()` 把共享 source/log 路径与快照 metadata 组合成只读 `manifest.json` 字面规格；`initialBatchFixtureSpec(source)` 沿既有 restore + 固定 setup 构成 batch DB/恢复记录/seed.log/runtime-facts。`inputs` 显式列入当前调用链实际依赖源码（snapshot/canon/reference/request_cost evidence、scenario_evidence 的 ROOT/查询、batch runtime recipe），不是通用依赖扫描器。`writeDriverLog`/`writeCalls`/`writeCheckpoints`/`writeCheckpointAt` 等真实 IO factory 同在其中，checkpoint 计数从实际 DB/日志取得。只被 `../../../model_contracts/request_cost_capture_io.test.mjs` 消费；不 import 被测 capture 业务逻辑，也不与 14 表快照投影合并。 |
 | `request_cost_cli_reference_io_fixture.mjs` | B87 R01 CLI/reference 族现役 IO fixture owner：合成 native manifest 与 `memory_reference_logs` 单表的 TEXT16/非法 BLOB 两种独立规格，经 `materializeFixture` 在运行内物化；DELETE journal 封存，连接 finally 关闭。供 `../../../model_contracts/request_cost_baseline_cli_io.test.mjs` 与 `../reference_log_evidence.test.mjs` 消费，不导入被测 reader/CLI、不读真实作者数据。 |
 
-- `authoring_discussion_facts.mjs`：会话讨论覆盖、维护请求和恢复场景的共享纯事实；预先给定作者原话、未解义务、canonical 坐标及 Provider 请求，供 `../authoring_checkpoint_coverage.test.mjs` 和现役维护验收用例消费，不从被测实现派生预期。
+- `authoring_discussion_facts.mjs`
+  恢复事实预置故障后/重启前后相同原文、冻结计划和 ProviderOutput hash，后续 run 仅转交同响应并清除私有载荷；正常业务调用独立计量，不再以新 E 摘要成功代签。：会话讨论覆盖、维护请求和原 D 响应恢复场景的共享纯事实；预先给定作者原话、未解义务、canonical 坐标及 Provider 请求，供 `../authoring_checkpoint_coverage.test.mjs` 和现役维护验收用例消费，不从被测实现派生预期。
 
 索引回到 [`../README.md`](../README.md)。

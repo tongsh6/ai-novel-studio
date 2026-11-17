@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 
 export const RUNTIME_PROFILE_ID = "b87-r01-controlled-splash-high";
+export const COMPACTION_RUNTIME_PROFILE_ID = "b87-r03-splash-product-maintenance-budget";
 
 export const RUNTIME_PROFILES = Object.freeze({
   [RUNTIME_PROFILE_ID]: Object.freeze({
@@ -15,7 +16,18 @@ export const RUNTIME_PROFILES = Object.freeze({
     max_tokens: 32_000,
     timeout_ms: 300_000,
     context_window: 262_144,
+    maintenance_window: 262_144,
     context_window_key: "splash",
+    auto_maintenance: Object.freeze({ enabled: true, keep_recent_items: 4 }),
+    sync_summary_maintenance: false,
+  }),
+  [COMPACTION_RUNTIME_PROFILE_ID]: Object.freeze({
+    id: COMPACTION_RUNTIME_PROFILE_ID,
+    provider: "splash", model: "local/Q4-PLE4", thinking: "enabled", reasoning_effort: "high",
+    max_tokens: 32_000, timeout_ms: 300_000,
+    context_window: 262_144,
+    // 现役产品 ContextPressure 的保守维护预算；不声称模型实际能力变小。
+    maintenance_window: 32_000, context_window_key: "splash",
     auto_maintenance: Object.freeze({ enabled: true, keep_recent_items: 4 }),
     sync_summary_maintenance: false,
   }),
@@ -38,7 +50,7 @@ export function runtimeEnv(profileId = RUNTIME_PROFILE_ID) {
     NOVEL_SPLASH_THINKING: profile.thinking,
     NOVEL_SPLASH_REASONING_EFFORT: profile.reasoning_effort,
     NOVEL_SPLASH_MAX_TOKENS: String(profile.max_tokens),
-    NOVEL_CONTEXT_WINDOW_OVERRIDES: `${profile.context_window_key}:${profile.context_window}`,
+    NOVEL_CONTEXT_WINDOW_OVERRIDES: `${profile.context_window_key}:${profile.maintenance_window}`,
     NOVEL_AUTO_MAINTENANCE_ENABLED: String(profile.auto_maintenance.enabled),
     NOVEL_SYNC_SUMMARY_MAINTENANCE: String(profile.sync_summary_maintenance),
   };
@@ -98,6 +110,10 @@ export function assertManifestRuntime(manifest) {
   const profile = getRuntimeProfile(manifest.runtime.profile);
   assertManifestProvider(manifest.model, profile);
   assertManifestMaintenance(manifest, profile);
+  if (profile.id === COMPACTION_RUNTIME_PROFILE_ID) {
+    assert.deepEqual(manifest.runtime.context_pressure, { window: 32_000, maintenance_ratio: 0.70 },
+      "R03 manifest 必须明确维护预算 32000 / 0.70，与模型能力分开");
+  }
   return profile;
 }
 
@@ -114,7 +130,8 @@ export function expectedRuntimeFacts(profileId = RUNTIME_PROFILE_ID) {
     },
     context_pressure: {
       provider: profile.provider,
-      window: profile.context_window,
+      window: profile.maintenance_window,
+      maintenance_ratio: 0.70,
     },
     auto_maintenance: {
       enabled: profile.auto_maintenance.enabled,

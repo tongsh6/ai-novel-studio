@@ -23,37 +23,88 @@ const received = (event, body, at = "2026-11-03T10:00:02.000Z") => ({
 const completedTurn = (overrides = {}) => ({
   turn_id: TURN,
   status: "conversational",
-  agent_run: { run_id: RUN, status: "completed" },
+  work_id: "work-test",
+  session_id: "session-test",
+  agent_run: { run_id: RUN, status: "running", parent_turn_ref: TURN },
   assistant_message: { text: "已生成候选，请审阅。" },
   adoption_state: { pending: [] },
   available_actions: [],
   ...overrides,
 });
 
-test("wireTerminal 只接受 owning turn/run 的 completed/failed/awaiting_author", () => {
-  const wire = [
-    received("agent_run_state", { run_id: "other_run", status: "completed" }),
-    received("turn_result", { turn_id: "other_turn", agent_run: { run_id: RUN, status: "completed" } }),
-    received("turn_result", completedTurn()),
-  ];
-  const terminal = wireTerminal(wire, { turnId: TURN });
+const identity = { turnId: TURN, runId: RUN, topic: TOPIC, workId: "work-test", sessionId: "session-test" };
+const runRow = (status = "completed", extra = {}) => ({ id: RUN, workspace_id: "test", work_id: "work-test",
+  session_id: "session-test", parent_turn_ref: TURN, goal_version: 2, status, ...extra });
+const state = (status = "completed", extra = {}) => received("agent_run_state", {
+  run_id: RUN, workspace_id: "test", work_id: "work-test", session_id: "session-test", parent_turn_ref: TURN,
+  goal: { version: 2 }, status, ...extra });
+const result = (extra = {}) => received("turn_result", completedTurn(extra));
+
+test("成功必须独立具有同run业务结果与实际终态，running业务回复不能预测或阻挡完成", () => {
+  const predicted = result({ agent_run: { run_id: RUN, parent_turn_ref: TURN, status: "completed" } });
+  assert.equal(wireTerminal([predicted], identity), null);
+  assert.equal(wireTerminal([state()], identity), null);
+  assert.equal(wireTerminal([predicted, state("running")], identity), null);
+  const delivered = result({ agent_run: { run_id: RUN, parent_turn_ref: TURN, status: "running" } });
+  const terminal = wireTerminal([delivered, state()], identity);
   assert.equal(terminal.kind, "completed");
-  assert.equal(terminal.body.agent_run.run_id, RUN);
-  assert.equal(wireTerminal(wire, { turnId: TURN, since: "2026-11-03T10:00:03.000Z" }), null);
-  const failed = wireTerminal(
-    [received("agent_event", { run_ref: RUN, event_type: "run_failed" })],
-    { turnId: TURN, runId: RUN },
-  );
-  assert.equal(failed.kind, "failed");
-  const awaiting = wireTerminal(
-    [received("agent_run_state", { run_id: RUN, parent_turn_ref: TURN, status: "awaiting_author" })],
-    { turnId: TURN },
-  );
-  assert.equal(awaiting.kind, "awaiting_author");
-  assert.equal(wireTerminal([], { turnId: TURN }), null);
+  assert.equal(terminal.status, "completed");
+  assert.equal(terminal.body.agent_run.status, "running");
+  assert.equal(terminal.record, delivered);
+  assert.equal(terminal.run_body.status, "completed");
+  assert.equal(terminal.results.length, 1);
+  assert.equal(wireTerminal([state(), delivered], identity).kind, "completed");
+  assert.equal(wireTerminal([delivered, received("agent_event", { run_ref: RUN, event_type: "run_completed" })], identity).kind, "completed");
+
+  const latest = result({ turn_id: TURN + ":step:2" });
+  assert.equal(wireTerminal([delivered, latest, state()], { ...identity, resultPosition: "last" }).record, latest);
 });
 
-test("dbTerminal 把 DB agent_runs 终态映射成同一分类", () => {
+test("缺作用域、错run/parent/topic/作品/会话和旧时间的结果不能借他处终态完成", () => {
+  const wire = [result(), state()];
+  for (const key of ["turnId", "runId", "topic", "workId", "sessionId"])
+    assert.equal(wireTerminal(wire, { ...identity, [key]: "" }), null, key);
+  for (const body of [
+    { agent_run: { run_id: "foreign", parent_turn_ref: TURN, status: "completed" } },
+    { agent_run: { run_id: RUN, parent_turn_ref: "foreign", status: "completed" } },
+    { work_id: "foreign" }, { session_id: "foreign" },
+  ]) assert.equal(wireTerminal([result(body), state()], identity), null);
+  const foreignTopic = result();
+  foreignTopic.frame[2] = "workspace:foreign";
+  assert.equal(wireTerminal([foreignTopic, state()], identity), null);
+  assert.equal(wireTerminal([result(), state("completed", { run_id: "foreign" })], identity), null);
+  assert.equal(wireTerminal(wire, { ...identity, since: "2026-11-03T10:00:03.000Z" }), null);
+});
+
+test("离线DB终态仍要业务交付，在线必须等实际运行回包且新鲜running压住旧完成", () => {
+  const delivered = result({ agent_run: { run_id: RUN, parent_turn_ref: TURN, status: "running" } });
+  const offline = { ...identity, runRow: runRow() };
+  assert.equal(wireTerminal([delivered], offline).kind, "completed");
+  assert.equal(wireTerminal([], offline), null);
+  assert.equal(wireTerminal([delivered], { ...offline, requireWireTerminal: true }), null);
+  assert.equal(wireTerminal([delivered, state()], { ...offline, requireWireTerminal: true }).kind, "completed");
+  assert.equal(wireTerminal([delivered, state()], { ...offline, runRow: runRow("running") }), null);
+  for (const extra of [{ id: "foreign" }, { parent_turn_ref: "foreign" },
+    { workspace_id: "foreign" }, { work_id: "foreign" }, { session_id: "foreign" }])
+    assert.equal(wireTerminal([delivered], { ...offline, runRow: runRow("completed", extra) }), null);
+});
+
+test("回答后的版本门核实际DB与state.goal.version，不借旧版本或无版本event完成", () => {
+  const resumed = { ...identity, runRow: runRow(), minimumGoalVersion: 2, requireWireTerminal: true };
+  assert.equal(wireTerminal([result(), state("completed", { goal: { version: 1 } })], resumed), null);
+  assert.equal(wireTerminal([result(), state("completed", { goal: null })], resumed), null);
+  assert.equal(wireTerminal([result(), received("agent_event", { run_ref: RUN, event_type: "run_completed" })], resumed), null);
+  assert.equal(wireTerminal([result(), state()], { ...resumed, runRow: runRow("completed", { goal_version: 1 }) }), null);
+  assert.equal(wireTerminal([result(), state()], resumed).kind, "completed");
+});
+
+test("失败/停等只由实际运行事实分类，后续running不借旧停等推进", () => {
+  const failed = wireTerminal([received("agent_event", { run_ref: RUN, event_type: "run_failed" })], identity);
+  assert.equal(failed.kind, "failed");
+  assert.deepEqual(failed.results, []);
+  assert.equal(wireTerminal([state("awaiting_author")], identity).kind, "awaiting_author");
+  assert.equal(wireTerminal([state("awaiting_author"), state("running")], identity), null);
+  assert.equal(wireTerminal([], identity), null);
   assert.equal(dbTerminal({ status: "completed" }).kind, "completed");
   assert.equal(dbTerminal({ status: "failed" }).kind, "failed");
   assert.equal(dbTerminal({ status: "awaiting_author" }).kind, "awaiting_author");

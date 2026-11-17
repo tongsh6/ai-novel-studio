@@ -3,9 +3,11 @@
 // `authoring_auto_maintenance_evidence_io.test.mjs`；两者共享同一组 facts。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateAutoMaintenance, verifyInterleavedResumeFacts } from "./authoring_auto_maintenance_evidence.mjs";
+import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts } from "./authoring_auto_maintenance_evidence.mjs";
+import { discussionMaintenanceFacts, maintenanceRecoveryFacts } from "./fixtures/authoring_discussion_facts.mjs";
 import {
   AFTER_STARTED_AT,
+  autoMaintenanceConfig,
   CALL_ID,
   EVENT_AT,
   FAILURE_REASON,
@@ -20,18 +22,16 @@ import {
   checkpointMessage,
   dbFactsFor,
   driverLogFor,
-  interleavedResumeFacts,
   llmRecords,
 } from "./fixtures/authoring_auto_maintenance_facts.mjs";
 
 function evaluate(overrides = {}) {
   return evaluateAutoMaintenance({
-    config: { slice_id: "b71-first-consumer", journey: "auto-maintenance", provider: "strata" },
+    config: overrides.config ?? autoMaintenanceConfig(),
     dbFacts: overrides.dbFacts ?? dbFactsFor(),
     checkpoints: { start: { authoring_canon: { tables: {} } }, final: { authoring_canon: { tables: {} } } },
     driverLog: overrides.driverLog ?? driverLogFor(),
     cleanup: overrides.cleanup ?? { remaining: [], process_observation: { method: "pgrep+lsof" } },
-    strataSlot: overrides.strataSlot ?? { unloaded: true },
     llmRecords: overrides.llmRecords ?? llmRecords(),
     appLog: overrides.appLog ?? [
       { event: "agent_run.auto_maintenance.error", run_id: FAIL_RUN, reason: FAILURE_REASON },
@@ -43,73 +43,30 @@ function evaluate(overrides = {}) {
 
 
 
-test("交错恢复：同次 Scope、原答复、折叠范围及保留观察由各自来源闭合", () => {
-  const scenario = interleavedResumeFacts();
-  const result = verifyInterleavedResumeFacts(
-    scenario.trace, scenario.db, scenario.wire, scenario.llmRecords,
-  );
-  assert.equal(result.ok, true);
-  assert.equal(result.waiting_run_id, RUN);
-  assert.equal(result.later_run_id, RECOVERY_RUN);
-  assert.equal(result.goal_version, 2);
-  assert.equal(result.provider_call_ref, "pcall-after");
-  assert.deepEqual(result.covered_call_ids, [CALL_ID]);
-  assert.equal(result.retained_exchanges, 1);
-  assert.equal(result.exact_author_messages, 3);
-  assert.equal(result.observations_with_refs, 1);
-  assert.equal(result.observations_with_versions, 1);
+
+test("R03 C5/C6：零工具纯讨论与旧 Scope 有真实摘要执行/材料及下一请求，保留作者原字节", () => {
+  const scenario = discussionMaintenanceFacts();
+  const result = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords });
+  assert.equal(result.checks.C5_next_request_compact.ok, true, JSON.stringify(result.checks.C5_next_request_compact));
+  assert.equal(result.checks.C6_canonical_complete.ok, true, JSON.stringify(result.checks.C6_canonical_complete));
+  assert.deepEqual(result.checks.C5_next_request_compact.detail.checks[0].covered_call_ids, []);
+  assert.equal(result.checks.C5_next_request_compact.detail.checks[0].covered_message_refs.length, 2);
 });
 
-test("交错恢复：来源、原字节或请求证据被替换时失败关闭", () => {
-  const cases = [
-    ["无 canonical Scope", (s) => {
-      s.db.authoring_session_messages = s.db.authoring_session_messages
-        .filter((row) => row.role !== "scope_update");
-    }],
-    ["Scope 伪作者", (s) => {
-      const row = s.db.authoring_session_messages.find((entry) => entry.role === "scope_update");
-      const message = JSON.parse(row.message);
-      message.provenance = "author";
-      row.message = JSON.stringify(message);
-    }],
-    ["历史 text 不升级为当前 Scope", (s) => {
-      const row = s.db.authoring_session_messages.find((entry) => entry.role === "scope_update");
-      const message = JSON.parse(row.message);
-      message.blocks = [{ type: "text", text: "探索预算关闭" }];
-      row.message = JSON.stringify(message);
-    }],
-    ["请求篡改版本", (s) => {
-      const scope = s.llmRecords[0].request.body.messages.at(-1);
-      const lines = scope.content.split("\n");
-      lines[1] = '版本：{"goal":3,"scope_revision":1}';
-      scope.content = lines.join("\n");
-    }],
-    ["请求丢失 Scope", (s) => s.llmRecords[0].request.body.messages.pop()],
-    ["错误 provider pair", (s) => { s.llmRecords[0].provider_run_ref = "foreign"; }],
-    ["作者原文被 trim", (s) => {
-      const messages = s.llmRecords[0].request.body.messages;
-      messages.at(-2).content = messages.at(-2).content.trim();
-    }],
-    ["保留观察缺失", (s) => {
-      const request = s.llmRecords[0].request.body;
-      request.messages = request.messages.filter((message) => message.role !== "tool");
-    }],
-    ["后续 run 不是同一会话", (s) => { s.db.agent_runs[1].session_id = OTHER_SESSION; }],
-    ["回答前未观察到 B 完成", (s) => { s.wire[0].at = "2026-11-04T10:00:03.000Z"; }],
-    ["回复归属错误目标版本", (s) => { s.wire[1].frame[4].action.payload.expected_goal_version = 2; }],
-    ["首次恢复请求多义", (s) => {
-      s.db.provider_events.push({ ...s.db.provider_events.at(-1), id: "duplicate-start" });
-    }],
-  ];
-  for (const [name, mutate] of cases) {
-    const scenario = interleavedResumeFacts();
+test("R03 C5：材料错源、原话改字节、旧 Scope/长答重放、末 checkpoint 缺下一请求均不能过", () => {
+  for (const [name, mutate, expected] of [
+    ["summary material changed", (s) => { s.summaryRecord.request.body.messages[0].content = s.summaryRecord.request.body.messages[0].content.replace("仍欠风险表", "风险表已完成"); }, false],
+    ["author trimmed", (s) => { s.after.request.body.messages[0].content = s.after.request.body.messages[0].content.trim(); }, false],
+    ["covered discussion replay", (s) => { s.after.request.body.messages.push({ role: "assistant", content: s.messages[2].blocks[0].text }); }, false],
+    ["scope version changed", (s) => { s.after.request.body.messages[2].content = s.after.request.body.messages[2].content.replace("版本：{}", '版本：{"goal":99}'); }, false],
+    ["missing next request", (s) => { s.db.provider_events = []; }, null],
+  ]) {
+    const scenario = discussionMaintenanceFacts();
     mutate(scenario);
-    assert.throws(() => verifyInterleavedResumeFacts(
-      scenario.trace, scenario.db, scenario.wire, scenario.llmRecords,
-    ), name);
+    const check = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords }).checks.C5_next_request_compact;
+    assert.equal(check.ok, expected, name + ":" + JSON.stringify(check));
   }
 });
-
 test("A3 反例：压力不足/无事件 分别 fail", () => {
   const noPressure = evaluate({
     llmRecords: llmRecords().map((record) => ({ ...record, response: { usage: { input_tokens: 500 } } })),
@@ -119,7 +76,19 @@ test("A3 反例：压力不足/无事件 分别 fail", () => {
   assert.equal(noEvents.checks.C2_auto_maintenance_committed.ok, false);
 });
 
-test("A3 反例：精简泄漏/ canonical 缺失/ 失败可见 分别 fail", () => {
+test("C2 分类计数须逐 checkpoint 对账，缺键/伪零/字符串/重复事件均拒绝", () => {
+  for (const counts of [null, {}, { tool_exchanges: 0, scope_updates: 0, discussion_messages: 0 },
+    { tool_exchanges: "1", scope_updates: 0, discussion_messages: 0 }]) {
+    const db = dbFactsFor();
+    db.agent_events[0].payload = { covered_counts: counts };
+    assert.equal(evaluate({dbFacts: db}).checks.C2_auto_maintenance_committed.ok, false);
+  }
+  const db = dbFactsFor();
+  db.agent_events.push(structuredClone(db.agent_events[0]));
+  assert.equal(evaluate({dbFacts: db}).checks.C2_auto_maintenance_committed.ok, false);
+});
+
+test("A3 反例：精简泄漏与 canonical 缺失分别 fail", () => {
   const leak = evaluate({
     llmRecords: [beforeRecord(), afterRecord({ messages: afterWireMessages({ replayCall: true, replayResult: true }) })],
   });
@@ -132,16 +101,13 @@ test("A3 反例：精简泄漏/ canonical 缺失/ 失败可见 分别 fail", () 
     },
   });
   assert.equal(canonical.checks.C6_canonical_complete.ok, false);
-  const visibleFailure = evaluate({
-    driverLog: { ...driverLogFor(), failure_injection: { ...driverLogFor().failure_injection, author_error_visible: true } },
-  });
-  assert.equal(visibleFailure.checks.C8_failure_silent.ok, false);
 });
 
 test("C5 正例：有效 checkpoint 文本显式携带 call_id 不算泄漏，只排除结构化 tool_call/tool_result 重放", () => {
   const messages = afterWireMessages({ summary: `已整理的较早记录（原文含 ${CALL_ID}）` });
   assert(messages.some((message) => typeof message.content === "string" && message.content.includes(CALL_ID)));
-  const result = evaluate({ llmRecords: [beforeRecord(), afterRecord({ messages })] });
+  const result = evaluate({ llmRecords: llmRecords().map((record) =>
+    record.provider_call_ref === "pcall-after" ? afterRecord({ messages }) : record) });
   const c5 = result.checks.C5_next_request_compact;
   assert.equal(c5.ok, true);
   assert(c5.detail.checks[0].wire_checkpoint_covers.some((ids) => ids.includes(CALL_ID)));
@@ -203,12 +169,7 @@ test("C6 反例：covers 保留但真实 tool 结果被移除 / 顺序错误 / �
   );
   const missingResult = evaluate({ dbFacts: missingResultFacts });
   assert.equal(missingResult.checks.C6_canonical_complete.ok, false);
-  assert(
-    missingResult.checks.C6_canonical_complete.detail.failures.some(
-      (failure) => failure.call_id === CALL_ID && failure.result_count === 0,
-    ),
-  );
-
+  assert.match(missingResult.checks.C6_canonical_complete.reason, /covered_exchange_not_closed_exactly_once_before_checkpoint/u);
   const swappedRows = dbFactsFor().authoring_session_messages.map((row) => ({ ...row }));
   const callIndex = swappedRows.findIndex((row) => JSON.parse(row.message).role === "assistant");
   const resultIndex = swappedRows.findIndex((row) => JSON.parse(row.message).role === "tool");
@@ -218,9 +179,7 @@ test("C6 反例：covers 保留但真实 tool 结果被移除 / 顺序错误 / �
   ];
   const outOfOrder = evaluate({ dbFacts: { ...dbFactsFor(), authoring_session_messages: swappedRows } });
   assert.equal(outOfOrder.checks.C6_canonical_complete.ok, false);
-  assert.equal(outOfOrder.checks.C6_canonical_complete.detail.failures[0].call_count, 1);
-  assert.equal(outOfOrder.checks.C6_canonical_complete.detail.failures[0].result_count, 1);
-
+  assert.match(outOfOrder.checks.C6_canonical_complete.reason, /covered_exchange_not_closed_exactly_once_before_checkpoint/u);
   const legacyFacts = dbFactsFor();
   legacyFacts.authoring_session_messages = legacyFacts.authoring_session_messages.map((row) => {
     const message = JSON.parse(row.message);
@@ -230,22 +189,21 @@ test("C6 反例：covers 保留但真实 tool 结果被移除 / 顺序错误 / �
   });
   const legacy = evaluate({ dbFacts: legacyFacts });
   assert.equal(legacy.checks.C6_canonical_complete.ok, false);
-  assert.equal(legacy.checks.C6_canonical_complete.reason, "checkpoint_call_ids_missing");
+  assert.match(legacy.checks.C6_canonical_complete.reason, /checkpoint_selection_missing/u);
 });
 
 test("C6：多条 canonical checkpoint 每条都必须有 covers，任一无 covers 不因另一条合法而假通过", () => {
   const rows = dbFactsFor().authoring_session_messages;
   const appendCheckpoint = (message) => ({
-    run_id: RUN,
-    session_id: SESSION,
-    sequence: rows.length + 1,
-    run_sequence: rows.length + 1,
+    ...rows.find((row) => row.run_id === RUN && row.role === "checkpoint"),
+    id: "extra-checkpoint", sequence: rows.length + 1, run_sequence: 7,
     message: JSON.stringify(message),
-  });
-  const allCovered = evaluate({
+  });  const allCovered = evaluate({
     dbFacts: { ...dbFactsFor(), authoring_session_messages: [...rows, appendCheckpoint(checkpointMessage())] },
   });
-  assert.equal(allCovered.checks.C6_canonical_complete.ok, true);
+  assert.equal(evaluate().checks.C6_canonical_complete.ok, true, "两次独立真实交换分别覆盖");
+  assert.equal(allCovered.checks.C6_canonical_complete.ok, false, "同一来源重复覆盖必须拒绝");
+  assert.match(allCovered.checks.C6_canonical_complete.reason, /checkpoint_call_repeated/u);
 
   const oneUncovered = evaluate({
     dbFacts: {
@@ -254,9 +212,7 @@ test("C6：多条 canonical checkpoint 每条都必须有 covers，任一无 cov
     },
   });
   assert.equal(oneUncovered.checks.C6_canonical_complete.ok, false);
-  assert.equal(oneUncovered.checks.C6_canonical_complete.reason, "checkpoint_call_ids_missing");
-  assert.deepEqual(oneUncovered.checks.C6_canonical_complete.detail.checkpoints_without_covers, [rows.length + 1]);
-});
+  assert.match(oneUncovered.checks.C6_canonical_complete.reason, /checkpoint_selection_invalid/u);});
 
 test("C5 反例：wire 存在 malformed call/tool message 时不得通过（缺证语义只留给真缺失）", () => {
   const malformedCallMessages = afterWireMessages();
@@ -394,76 +350,100 @@ test("G6 跨 turn 反例：无推进 turn 或回答未观察 → C11 fail（不�
   assert(noObservation.failed.includes("C11_multi_turn_same_run"));
 });
 
-test("C8 反例：恢复他 run / 仅改报告无 DB 行 / 日志、计数、结算不符均 fail", () => {
-  const base = driverLogFor();
-  const withInjection = (patch) => ({
-    driverLog: { ...base, failure_injection: { ...base.failure_injection, ...patch } },
-  });
-  const appLog = (runId, reason = FAILURE_REASON) => [
-    { event: "agent_run.auto_maintenance.error", run_id: runId, reason },
+
+test("BEAM静止重启：同次来源资格/全部原文和事件不变、真实调用时间窗无新增", () => {
+  const scenario = maintenanceRecoveryFacts();
+  const before = scenario.facts.afterFailure, after = structuredClone(before);
+  after.captured_at = "2026-11-04T10:08:00.000Z";
+  const records = [{ ts: "2026-11-04T10:06:10.000Z" }, { ts: "2026-11-04T10:10:00.000Z" }];
+  const trace = { recovery_scope: "owned_beam_backend_quiescent", provider_calls_before: 1, provider_calls_after: 1,
+    receipt: { previous_backend_pid: 100, backend_pid: 200, database: {path:"/owned/db",dev:1,ino:7} } };
+  const args = () => verifyBackendRestartFacts(trace, before, after, records, ["prun-failed-d"]);
+  assert.equal(args().ok, true);
+  assert.equal(args().active_task_recovery_signed, false);
+  for (const [name, mutate] of [
+    ["原话改变", (s) => { s.after.authoring_session_messages[1].message += " "; }],
+    ["来源资格丢失", (s) => { s.after.provider_runs[0].owner_refs = {}; }],
+    ["重启期间实调", (s) => { s.records.push({ts:"2026-11-04T10:07:30.000Z"}); }],
+    ["调用时间缺失", (s) => { delete s.records[0].ts; }],
+    ["报告伪零", (s) => { s.trace.provider_calls_after = 0; }],
+    ["来源快照均遗漏", (s) => { s.before.provider_runs = []; s.after.provider_runs = []; }],
+  ]) {
+    const s = structuredClone({before,after,records,trace});
+    mutate(s);
+    assert.throws(() => verifyBackendRestartFacts(s.trace, s.before, s.after, s.records, ["prun-failed-d"]), name);
+  }
+});
+
+test("R03 C8 目标反例：没有原响应持久载荷，新来源成功也不能代签恢复", () => {
+  const s = maintenanceRecoveryFacts();
+  for (const snapshot of [s.facts.afterFailure, s.facts.afterRecovery, s.db])
+    for (const run of snapshot.provider_runs) delete run.operation_checkpoint;
+  const check = verifyMaintenanceRecoveryFacts(s.injection, s.db, s.records, s.appLog, s.facts);
+  assert.equal(check.ok, false, "仅新来源成功却被误判为原D摘要恢复");
+});
+
+test("R03 C8：D 原摘要跨进程保留，由新run原样提交且无第二次摘要调用", () => {
+  const scenario = maintenanceRecoveryFacts();
+  const result = verifyMaintenanceRecoveryFacts(scenario.injection, scenario.db, scenario.records, scenario.appLog, scenario.facts);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.detail.failed_attempt_ids, ["prun-failed-d"]);
+  assert.equal(result.detail.recovery_checkpoint_count, 1);
+  assert.equal(result.detail.canonical_originals_preserved, true);
+  assert.equal(result.detail.failed_source_redispatched, false);
+});
+
+test("R03 C8：缺快照、错作者、原响应或计划改变、重复调用及假恢复均拒绝", () => {
+  const cases = [
+    ["缺快照", (s) => { s.facts.afterFailure = null; }],
+    ["故障用户提示未知", (s) => { s.injection.author_error_visible = null; }],
+    ["故障暴露给作者", (s) => { s.injection.author_error_visible = true; }],
+    ["失败的主run", (s) => { s.db.agent_runs.find((run) => run.id === "failed-d").status = "failed"; }],
+    ["故障日志错run", (s) => { s.appLog[0].run_id = "elsewhere"; }],
+    ["故障日志错原因", (s) => { s.appLog[0].reason = ":other"; }],
+    ["计数null", (s) => { s.injection.checkpoint_events_after_failure = null; }],
+    ["故障有逃逸checkpoint", (s) => { s.facts.afterFailure.agent_events.push({event_type: "checkpoint_created"}); }],
+    ["固定输入少一条", (s) => { s.injection.recovery_requests.pop(); }],
+    ["原作者改字节", (s) => { s.facts.recoveryInputs[0].text += "改"; }],
+    ["跨作品", (s) => { s.facts.scope.work_id = "foreign"; }],
+    ["snapshot原文改变", (s) => { s.facts.afterFailure.authoring_session_messages[1].message += " "; }],
+    ["摘要材料改字节", (s) => { s.records[0].request.body.messages[0].content = s.records[0].request.body.messages[0].content.replace("仍欠风险表", "风险表已完成"); }],
+    ["失败执行元数据丢失", (s) => { s.db.provider_runs.find((run) => run.id === "prun-failed-d").owner_refs = {}; }],
+    ["故障无实际dispatch", (s) => { s.facts.afterFailure.provider_events = []; }],
+    ["故障输出缺失", (s) => { s.facts.afterFailure.provider_outputs = []; }],
+    ["同源重发", (s) => { const run = structuredClone(s.db.provider_runs.find((run) => run.id === "prun-failed-d")); run.id = "retry"; run.provider_call_ref = "retry-call"; s.db.provider_runs.push(run); }],
+    ["资格坐标与实际请求来源不一致", (s) => {
+      for (const snapshot of [s.facts.afterFailure, s.facts.beforeRestart, s.facts.afterRestart, s.facts.afterRecovery, s.db])
+        snapshot.provider_runs.find((run) => run.id === "prun-failed-d").owner_refs.discussion_source_keys = ["unrelated-source"];
+    }],
+    ["载荷没有原文", (s) => { delete s.facts.afterFailure.provider_runs[0].operation_checkpoint.response_text; }],
+    ["仅hash无原文", (s) => { s.facts.afterFailure.provider_runs[0].operation_checkpoint = null; }],
+    ["重启前丢原文", (s) => { s.facts.beforeRestart.provider_runs[0].operation_checkpoint = null; }],
+    ["重启后丢原文", (s) => { s.facts.afterRestart.provider_runs[0].operation_checkpoint = null; }],
+    ["缺重启快照", (s) => { delete s.facts.afterRestart; }],
+    ["响应字节改变", (s) => { s.facts.afterFailure.provider_runs[0].operation_checkpoint.response_text += " "; }],
+    ["冻结覆盖改变", (s) => { s.facts.afterFailure.provider_runs[0].operation_checkpoint.plan.covers.message_refs.pop(); }],
+    ["载荷未清除", (s) => { s.db.provider_runs[0].operation_checkpoint = structuredClone(s.facts.afterFailure.provider_runs[0].operation_checkpoint); }],
+    ["快照与最终库不一致", (s) => { s.facts.afterRecovery.provider_runs[0].operation_checkpoint = structuredClone(s.facts.afterFailure.provider_runs[0].operation_checkpoint); }],
+    ["原目标改变", (s) => { s.facts.afterFailure.agent_runs.find((run) => run.id === "failed-d").goal_version = 2; }],
+    ["事件错提交方", (s) => { s.facts.afterRecovery.agent_events[0].run_id = "failed-d"; }],
+    ["事件数量伪造", (s) => { s.facts.afterRecovery.agent_events[0].payload.covered_counts.discussion_messages = 7; }],
+    ["只新来源成功", (s) => {
+      for (const snapshot of [s.db, s.facts.afterRecovery]) {
+        const row = snapshot.authoring_session_messages.find((row) => row.role === "checkpoint");
+        const message = JSON.parse(row.message); message.blocks[0].discussion.provider_run_ref = "new-provider";
+        row.message = JSON.stringify(message);
+      }
+    }],
+    ["恢复无checkpoint", (s) => { s.db.authoring_session_messages = s.db.authoring_session_messages.filter((row) => row.role !== "checkpoint"); }],
+    ["恢复无事件", (s) => { s.facts.afterRecovery.agent_events = []; }],
   ];
-
-  const otherRun = evaluate({ ...withInjection({}), appLog: appLog("run-other") });
-  assert.equal(otherRun.checks.C8_failure_silent.ok, false);
-  assert.equal(otherRun.checks.C8_failure_silent.detail.failure_log_run_id, null);
-
-  const wrongReason = evaluate({ ...withInjection({}), appLog: appLog(FAIL_RUN, "maintenance unavailable") });
-  assert.equal(wrongReason.checks.C8_failure_silent.ok, false);
-  assert.equal(wrongReason.checks.C8_failure_silent.detail.failure_log_reason, "maintenance unavailable");
-
-  const recoveryOtherRun = evaluate(
-    withInjection({ recovery_request: { index: 4, run_id: "run-other", settled: true } }),
-  );
-  assert.equal(recoveryOtherRun.checks.C8_failure_silent.ok, false);
-  assert.equal(recoveryOtherRun.checks.C8_failure_silent.detail.recovery_checkpoint_event_count, 0);
-  assert.equal(recoveryOtherRun.checks.C8_failure_silent.detail.recovery_checkpoint_message_count, 0);
-
-  const noDbRow = dbFactsFor();
-  noDbRow.agent_events = noDbRow.agent_events.filter((event) => event.run_id !== RECOVERY_RUN);
-  noDbRow.authoring_session_messages = noDbRow.authoring_session_messages.filter(
-    (row) => row.run_id !== RECOVERY_RUN,
-  );
-  const reportOnly = evaluate({ ...withInjection({}), dbFacts: noDbRow });
-  assert.equal(reportOnly.checks.C8_failure_silent.ok, false);
-  assert.equal(reportOnly.checks.C8_failure_silent.detail.recovery_checkpoint_event_count, 0);
-  assert.equal(reportOnly.checks.C8_failure_silent.detail.recovery_checkpoint_message_count, 0);
-
-  const axUnread = evaluate(withInjection({ author_error_visible: null }));
-  assert.equal(axUnread.checks.C8_failure_silent.ok, false);
-  assert.equal(axUnread.checks.C8_failure_silent.detail.author_error_visible, null);
-
-  const nullCount = evaluate(withInjection({ checkpoint_events_after_failure: null }));
-  assert.equal(nullCount.checks.C8_failure_silent.ok, false);
-
-  const messageGrew = evaluate(withInjection({ checkpoint_messages_after_failure: 2 }));
-  assert.equal(messageGrew.checks.C8_failure_silent.ok, false);
-
-  const failureUnsettled = evaluate(
-    withInjection({ failure_request: { index: 3, run_id: FAIL_RUN, settled: false } }),
-  );
-  assert.equal(failureUnsettled.checks.C8_failure_silent.ok, false);
-
-  const failedFailureRun = dbFactsFor();
-  failedFailureRun.agent_runs = failedFailureRun.agent_runs.map((row) =>
-    row.id === FAIL_RUN ? { ...row, status: "failed" } : row,
-  );
-  const failedRun = evaluate({ ...withInjection({}), dbFacts: failedFailureRun });
-  assert.equal(failedRun.checks.C8_failure_silent.ok, false);
-  assert.equal(failedRun.checks.C8_failure_silent.detail.failure_run_status, "failed");
-
-  const cancelledRecoveryRun = dbFactsFor();
-  cancelledRecoveryRun.agent_runs = cancelledRecoveryRun.agent_runs.map((row) =>
-    row.id === RECOVERY_RUN ? { ...row, status: "cancelled" } : row,
-  );
-  const cancelledRun = evaluate({ ...withInjection({}), dbFacts: cancelledRecoveryRun });
-  assert.equal(cancelledRun.checks.C8_failure_silent.ok, false);
-  assert.equal(cancelledRun.checks.C8_failure_silent.detail.recovery_run_status, "cancelled");
-
-  const missingRun = dbFactsFor();
-  missingRun.agent_runs = missingRun.agent_runs.filter((row) => row.id !== RECOVERY_RUN);
-  const noRunStatus = evaluate({ ...withInjection({}), dbFacts: missingRun });
-  assert.equal(noRunStatus.checks.C8_failure_silent.ok, false);
-  assert.equal(noRunStatus.checks.C8_failure_silent.detail.recovery_run_status, null);
+  for (const [name, mutate] of cases) {
+    const scenario = maintenanceRecoveryFacts();
+    mutate(scenario);
+    const check = verifyMaintenanceRecoveryFacts(scenario.injection, scenario.db, scenario.records, scenario.appLog, scenario.facts);
+    assert.equal(check.ok, false, name + ": " + JSON.stringify(check));
+  }
 });
 
 test("跨 run A3 场景：C11 不判（ok=null，不进 required）", () => {
