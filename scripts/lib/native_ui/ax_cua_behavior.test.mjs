@@ -146,6 +146,15 @@ test("ax_cua 激活等待与投递 seam 纯行为", { skip: process.platform !==
     assert.equal(contract.startup.activation_policy, "regular");
     assert.equal(contract.startup.is_hidden, false);
     assert.equal(contract.startup.is_active, false);
+    assert.deepEqual(contract.window_server, { available: true, windows: [
+      { id: 17, layer: 0, bounds: { X: 10, Y: 20, Width: 1280, Height: 801 }, on_screen: false },
+      { id: 18, layer: 0, bounds: { X: 10, Y: 20, Width: 1280, Height: 801 }, on_screen: true },
+    ] });
+    assert.deepEqual(contract.window_server_missing, { available: false, windows: null });
+    assert.deepEqual(contract.window_server_visibility_missing, { available: false, windows: null });
+    assert.deepEqual(contract.window_server_inconsistent, { available: false, windows: null });
+    assert.equal(JSON.stringify(contract.window_server).includes("private-title"), false);
+
   } finally {
     fs.rmSync(bin, { force: true });
   }

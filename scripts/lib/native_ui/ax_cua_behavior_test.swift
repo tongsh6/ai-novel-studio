@@ -76,7 +76,22 @@ struct AxCuaBehaviorTest {
                 isHidden: false,
                 isActive: false
             )
-            json(["probe": probe, "activation_result": result, "startup": startup])
+            let bounds = ["X": 10, "Y": 20, "Width": 1280, "Height": 801]
+            let windows: [[String: Any]] = [
+                [kCGWindowOwnerPID as String: 7399, kCGWindowNumber as String: 17,
+                 kCGWindowLayer as String: 0, kCGWindowBounds as String: bounds,
+                 kCGWindowIsOnscreen as String: false, kCGWindowName as String: "private-title"],
+                [kCGWindowOwnerPID as String: 7399, kCGWindowNumber as String: 18,
+                 kCGWindowLayer as String: 0, kCGWindowBounds as String: bounds],
+                [kCGWindowOwnerPID as String: 999, kCGWindowNumber as String: 19,
+                 kCGWindowLayer as String: 0, kCGWindowName as String: "foreign-private-title"]
+            ]
+            let onscreen = [windows[1], windows[2]]
+            json(["probe": probe, "activation_result": result, "startup": startup,
+                  "window_server": windowServerFacts(pid: 7399, records: windows, onscreenRecords: onscreen),
+                  "window_server_missing": windowServerFacts(pid: 7399, records: nil, onscreenRecords: onscreen),
+                  "window_server_visibility_missing": windowServerFacts(pid: 7399, records: windows, onscreenRecords: nil),
+                  "window_server_inconsistent": windowServerFacts(pid: 7399, records: [], onscreenRecords: onscreen)])
             exit(0)
         }
 

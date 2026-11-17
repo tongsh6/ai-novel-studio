@@ -127,7 +127,9 @@ func startupRunningFacts(_ app: NSRunningApplication) -> [String: Any] {
 // AXWindow/AXWebArea 出现事实只读遍历，不等待、不激活；遍历有界，避免异常树拖住驱动。
 func axSurfaceFacts(pid: pid_t) -> [String: Any] {
     let appEl = AXUIElementCreateApplication(pid)
-    let wins = windows(appEl)
+    var rawWindows: CFTypeRef?
+    let windowError = AXUIElementCopyAttributeValue(appEl, kAXWindowsAttribute as CFString, &rawWindows)
+    let wins = windowError == .success ? (rawWindows as? [AXUIElement] ?? []) : []
     var hasWebArea = false
     var visited = 0
     func walk(_ el: AXUIElement, _ depth: Int) {
@@ -138,11 +140,32 @@ func axSurfaceFacts(pid: pid_t) -> [String: Any] {
     }
     for win in wins { walk(win, 0) }
     return [
-        "ax_window_count": wins.count,
-        "has_ax_window": !wins.isEmpty,
-        "has_ax_web_area": hasWebArea,
+        "ax_window_error": windowError.rawValue,
+        "ax_window_count": windowError == .success ? wins.count as Any : NSNull(),
+        "has_ax_window": windowError == .success ? !wins.isEmpty as Any : NSNull(),
+        "has_ax_web_area": windowError == .success ? hasWebArea as Any : NSNull(),
         "ax_nodes_visited": visited,
     ]
+}
+
+// 只投影本批 PID 元数据；可见性来自屏幕窗口集合，不把可选 flag 缺失当 false。
+func windowServerFacts(pid: pid_t, records: [[String: Any]]?, onscreenRecords: [[String: Any]]?) -> [String: Any] {
+    let unavailable: [String: Any] = ["available": false, "windows": NSNull()]
+    guard let records = records, let onscreenRecords = onscreenRecords else { return unavailable }
+    let owned = records.filter { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid }
+    let onscreen = onscreenRecords.filter { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid }
+    let ids = Set(owned.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value })
+    let visibleIds = Set(onscreen.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value })
+    // 两次读取间出现新窗口时保留未知，不能用旧注册集合误判全部离屏。
+    guard ids.count == owned.count, visibleIds.count == onscreen.count,
+          visibleIds.isSubset(of: ids) else { return unavailable }
+    let facts: [[String: Any]] = owned.map { record in
+        let id = (record[kCGWindowNumber as String] as! NSNumber).uint32Value
+        return ["id": id, "layer": record[kCGWindowLayer as String] ?? NSNull(),
+                "bounds": record[kCGWindowBounds as String] ?? NSNull(),
+                "on_screen": visibleIds.contains(id)]
+    }
+    return ["available": true, "windows": facts]
 }
 
 func elementAt(pid: pid_t, path: String) -> AXUIElement? {
@@ -875,6 +898,9 @@ func runMain() {
         case .ok(let app):
             var facts = startupRunningFacts(app)
             for (key, value) in axSurfaceFacts(pid: app.processIdentifier) { facts[key] = value }
+            facts["window_server"] = windowServerFacts(pid: app.processIdentifier,
+                records: CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+                onscreenRecords: CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]])
             facts["ok"] = true
             facts["pid"] = Int(app.processIdentifier)
             facts["target"] = targetIdentity(target)

@@ -285,6 +285,74 @@ test("failure observation is persisted even when supervisor already wrote failur
 });
 
 for (const method of ["pollAx", "tryPollAx"]) {
+  test(`${method}: 已见窗口离开屏幕即报告表面中断，不借等待抢前台`, async (t) => {
+    for (const keepAx of [false, true]) {
+      const { dir, harness } = makeHarness({});
+      t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+      harness.target = { ...harness.target, pid: 321, generation: 1 };
+      harness.APP = harness.target;
+      harness.input = countingInput();
+      const nodes = [{ role: "AXWindow" }, { role: "AXWebArea" }];
+      const facts = { ok: true, pid: 321, target: { ...harness.target },
+        is_finished_launching: true, ax_window_error: 0, ax_window_count: 1,
+        window_server: { available: true, windows: [{ id: 17, layer: 0,
+          bounds: { X: 0, Y: 0, Width: 1280, Height: 801 }, on_screen: true }] } };
+      harness.io.dump = () => nodes;
+      harness.io.startup = () => facts;
+      await harness[method](() => true, 1000, "visible_before");
+      facts.window_server.windows[0].on_screen = false;
+      facts.ax_window_count = keepAx ? 1 : 0;
+      harness.io.dump = () => keepAx ? nodes : [];
+      await assert.rejects(harness[method](() => true, 1000, "visible_history"),
+        /owned_native_surface_not_onscreen/);
+      assert.deepEqual(harness.input.calls, []);
+      const recorded = JSON.parse(fs.readFileSync(path.join(dir, "startup-observations.json"), "utf8")).at(-1);
+      assert.equal(recorded.target.pid, 321);
+      assert.equal(recorded.window_server.windows[0].on_screen, false);
+    }
+  });
+}
+
+test("窗口中断只认本代确定事实：启动、AX异常、未知或错身份不被冒充不可见", async (t) => {
+  const cases = [
+    ["首次启动", () => {}, false],
+    ["换代", (_facts, harness) => { harness.target = { ...harness.target, generation: 2 }; }],
+    ["AX失败", (facts) => { facts.ax_window_error = -25204; }],
+    ["仍在启动", (facts) => { facts.is_finished_launching = false; }],
+    ["无有效尺寸", (facts) => { facts.window_server.windows[0].bounds.Width = null; }],
+    ["错PID", (facts) => { facts.target.pid = 999; }],
+    ["错路径", (facts) => { facts.target.executable_path = "/other/app"; }],
+    ["错运行", (facts) => { facts.target.run_ref = "other"; }],
+    ["缺WS事实", (facts) => { facts.window_server = { available: false, windows: null }; }],
+    ["空WS集合", (facts) => { facts.window_server.windows = []; }],
+    ["可见性未知", (facts) => { delete facts.window_server.windows[0].on_screen; }],
+    ["仍在屏幕", (facts) => { facts.window_server.windows[0].on_screen = true; }],
+    ["非普通层", (facts) => { facts.window_server.windows[0].layer = 3; }],
+  ];
+  for (const [name, mutate, seen = true] of cases) {
+    const { dir, harness } = makeHarness({});
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    harness.target = { ...harness.target, pid: 321, generation: 1 };
+    harness.APP = harness.target;
+    harness.input = countingInput();
+    harness.io.dump = () => [{ role: "AXWindow" }, { role: "AXWebArea" }];
+    const facts = { ok: true, pid: 321, target: { ...harness.target },
+      is_finished_launching: true, ax_window_error: 0, ax_window_count: 1,
+      window_server: { available: true, windows: [{ id: 17, layer: 0,
+        bounds: { X: 0, Y: 0, Width: 1280, Height: 801 }, on_screen: true }] } };
+    harness.io.startup = () => facts;
+    if (seen) await harness.tryPollAx(() => true, 1000, "visible_before");
+    facts.window_server.windows[0].on_screen = false;
+    facts.ax_window_count = 0;
+    mutate(facts, harness);
+    harness.io.dump = () => [];
+    const result = await harness.tryPollAx(() => true, 1000, name);
+    assert.deepEqual(result.nodes, [], name);
+    assert.deepEqual(harness.input.calls, [], name);
+  }
+});
+
+for (const method of ["pollAx", "tryPollAx"]) {
   test(`${method}: 启动中先缺窗口再就绪，不投递猜测的 Escape 或激活动作`, async (t) => {
     const ready = [{ role: "AXWindow" }, { role: "AXWebArea" },
       { role: "AXStaticText", title: "真实历史已恢复" },

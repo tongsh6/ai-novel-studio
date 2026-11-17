@@ -97,6 +97,7 @@ export class NativeScenarioHarness {
     this.captures = [];
     this.screenshots = [];
     this.startupObservations = [];
+    this.windowSeenTarget = null;
     this.phase = "init";
     this.failing = false;
   }
@@ -123,6 +124,7 @@ export class NativeScenarioHarness {
     this.target = relaunch ? relaunchTarget(this.target, resolution) : bindTarget(this.target, resolution);
     this.APP = this.target;
     this.input = inputBoundary(this.target);
+    this.windowSeenTarget = null;
     this.log.push({
       op: "target_bound",
       at: this.nowIso(),
@@ -209,8 +211,37 @@ export class NativeScenarioHarness {
   }
 
   dumpNodes() {
-    // 纯观测：AX 读取绝不 activate/key/click；窗口不可得时如实返回原始事实。
+    // 纯观测：AX 读取绝不 activate/key/click，存在 AX 也不代表窗口仍在屏幕上。
     return this.io.dump(this.APP, AX_MAX_NODES);
+  }
+
+  readWaitNodes(label) {
+    let nodes;
+    try { nodes = this.dumpNodes(); } catch { return null; }
+    if (!this.target.pid) return nodes;
+    let facts;
+    try { facts = this.io.startup(this.APP); } catch { return nodes; }
+    const identity = ["run_ref", "executable_path", "pid", "generation"];
+    if (facts?.ok !== true || !identity.every((key) => facts.target?.[key] === this.target[key]) ||
+      facts.pid !== this.target.pid || facts.is_finished_launching !== true ||
+      facts.ax_window_error !== 0 || facts.window_server?.available !== true) return nodes;
+    const windows = facts.window_server.windows;
+    if (!Array.isArray(windows)) return nodes;
+    const ordinary = windows.filter((window) => window.layer === 0);
+    if (ordinary.some((window) => window.on_screen === true) &&
+      nodes.some((node) => node.role === "AXWindow") && nodes.some((node) => node.role === "AXWebArea")) {
+      this.windowSeenTarget = this.target;
+    }
+    const offscreen = ordinary.length > 0 && ordinary.every((window) =>
+      Number.isSafeInteger(window.id) && window.id > 0 && window.on_screen === false &&
+      Number.isFinite(window.bounds?.Width) && window.bounds.Width > 0 &&
+      Number.isFinite(window.bounds?.Height) && window.bounds.Height > 0);
+    if (offscreen && this.windowSeenTarget &&
+      identity.every((key) => this.windowSeenTarget[key] === this.target[key])) {
+      this.observeStartup(`wait_surface:${label}`, facts);
+      throw new Error("owned_native_surface_not_onscreen");
+    }
+    return nodes;
   }
 
   activateForInteraction(reason) {
@@ -227,11 +258,11 @@ export class NativeScenarioHarness {
   }
 
   // 启动/失败观测只读；任何观测错误都折成事实字段，不抛给调用方。
-  observeStartup(reason) {
+  observeStartup(reason, observedFacts = undefined) {
     const at = this.nowIso();
     let facts;
     try {
-      facts = { at, reason, ...this.io.startup(this.APP) };
+      facts = { at, reason, ...(observedFacts ?? this.io.startup(this.APP)) };
     } catch (error) {
       facts = { at, reason, ok: false, error: error.message };
     }
@@ -255,10 +286,8 @@ export class NativeScenarioHarness {
     let lastText = "";
     while (Date.now() < deadline) {
       this.checkSupervisor();
-      let nodes = null;
-      try {
-        nodes = this.dumpNodes();
-      } catch {
+      const nodes = this.readWaitNodes(label);
+      if (nodes === null) {
         await sleep(600);
         continue;
       }
@@ -273,10 +302,8 @@ export class NativeScenarioHarness {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       this.checkSupervisor();
-      let nodes = null;
-      try {
-        nodes = this.dumpNodes();
-      } catch {
+      const nodes = this.readWaitNodes(label);
+      if (nodes === null) {
         await sleep(600);
         continue;
       }
