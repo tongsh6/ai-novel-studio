@@ -2,6 +2,7 @@
 // 目录、SQLite 或子进程。需要真实 AX/capture/DB/端到端 verify 的用例在邻接
 // `authoring_auto_maintenance_evidence_io.test.mjs`；两者共享同一组 facts。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts } from "./authoring_auto_maintenance_evidence.mjs";
 import { discussionMaintenanceFacts, maintenanceRecoveryFacts } from "./fixtures/authoring_discussion_facts.mjs";
@@ -383,6 +384,96 @@ test("R03 C8 目标反例：没有原响应持久载荷，新来源成功也不�
   assert.equal(check.ok, false, "仅新来源成功却被误判为原D摘要恢复");
 });
 
+// Independent literal v2 lines; no product fragmenter or response generator is used.
+function v2RecoveryFacts() {
+  const s = maintenanceRecoveryFacts();
+  const text = "暂定方案\r\n仍欠风险表\r请作者确认\n末行";
+  const raw = '{"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"原建议仍待确认","retained_fragment_indices":[1,2]}]}';
+  const hash = createHash("sha256").update(raw).digest("hex");
+  for (const snapshot of [s.facts.before, s.facts.afterFailure, s.facts.beforeRestart,
+    s.facts.afterRestart, s.facts.afterRecovery, s.db]) {
+    for (const row of snapshot.authoring_session_messages) {
+      const message = JSON.parse(row.message);
+      if (row.run_id === "source-d" && row.role === "assistant") message.blocks = [{type:"text", text}];
+      for (const block of message.blocks) if (block.discussion?.provider_run_ref === "prun-failed-d")
+        Object.assign(block.discussion, {response_text:raw, response_sha256:hash});
+      row.message = JSON.stringify(message);
+    }
+    for (const run of snapshot.provider_runs) if (run.id === "prun-failed-d" && run.operation_checkpoint)
+      Object.assign(run.operation_checkpoint, {version:"provider-operation-checkpoint/v2",
+        discussion_protocol_version:"authoring-discussion-summary/v2", response_text:raw});
+    for (const output of snapshot.provider_outputs) if (output.provider_run_id === "prun-failed-d")
+      output.content_summary.content_sha256 = hash;
+  }
+  s.records[0].request.body.messages[0].content = "output_protocol_version: authoring-discussion-summary/v2";
+  const base = s.records[0].request.body.messages[1];
+  const material = JSON.parse(base.content.slice(base.content.indexOf("\n")+1));
+  delete material.sources[0].text;
+  material.sources[0].fragments = [
+    {fragment_index:0,text:"暂定方案\r\n"}, {fragment_index:1,text:"仍欠风险表\r"},
+    {fragment_index:2,text:"请作者确认\n"}, {fragment_index:3,text:"末行"}
+  ];
+  base.content = base.content.slice(0,base.content.indexOf("\n")+1)+JSON.stringify(material);
+  return s;
+}
+
+test("R03 C8 v2：完整行材料与数据库JSON文本null清载荷均可核验", () => {
+  const s = v2RecoveryFacts();
+  for (const snapshot of [s.facts.afterRecovery, s.db])
+    snapshot.provider_runs.find(run => run.id === "prun-failed-d").operation_checkpoint = "null";
+  const result = verifyMaintenanceRecoveryFacts(s.injection,s.db,s.records,s.appLog,s.facts);
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test("R03 C8 v2：声明、精确片段与严格清载荷反例", () => {
+  const material = (s, mutate) => {
+    const base=s.records[0].request.body.messages[1], prefix=base.content.indexOf("\n")+1;
+    const value=JSON.parse(base.content.slice(prefix)); mutate(value.sources[0]);
+    base.content=base.content.slice(0,prefix)+JSON.stringify(value);
+  };
+  const capsule = (s, mutate) => {
+    for (const snapshot of [s.facts.afterFailure,s.facts.beforeRestart,s.facts.afterRestart])
+      mutate(snapshot.provider_runs.find(run=>run.id==="prun-failed-d").operation_checkpoint);
+  };
+  for (const [name, mutate] of [
+    ["missing declaration", s=>{s.records[0].request.body.messages.shift();}],
+    ["duplicate declaration", s=>{s.records[0].request.body.messages[0].content += "\noutput_protocol_version: authoring-discussion-summary/v2";}],
+    ["conflicting declaration", s=>{s.records[0].request.body.messages[0].content += "\noutput_protocol_version: authoring-discussion-summary/v1";}],
+    ["capsule missing version", s=>capsule(s,c=>delete c.discussion_protocol_version)],
+    ["capsule mismatch", s=>capsule(s,c=>c.discussion_protocol_version="authoring-discussion-summary/v1")],
+    ["response mismatch", s=>capsule(s,c=>c.response_text=c.response_text.replace("summary/v2","summary/v1"))],
+    ["unknown plan key", s=>capsule(s,c=>c.plan.extra=true)],
+    ...["covers","source_refs","versions","omissions","summary"].map(key=>
+      ["missing plan "+key,s=>capsule(s,c=>delete c.plan[key])]),
+    ["duplicate output", s=>{
+      for(const snap of [s.facts.afterFailure,s.facts.beforeRestart,s.facts.afterRestart])
+        snap.provider_outputs.push(structuredClone(snap.provider_outputs[0]));
+    }],
+    ["output hash mismatch", s=>{
+      for(const snap of [s.facts.afterFailure,s.facts.beforeRestart,s.facts.afterRestart])
+        snap.provider_outputs[0].content_summary.content_sha256="0".repeat(64);
+    }],
+    ["source coordinate changed", s=>material(s,m=>m.source.run_sequence=5)],
+    ["author bytes changed", s=>material(s,m=>m.author_text+="改")],
+    ["duplicate request", s=>s.records.push(structuredClone(s.records[0]))],
+    ["missing fragments", s=>material(s,m=>delete m.fragments)],
+    ["reordered fragments", s=>material(s,m=>m.fragments.reverse())],
+    ["bad fragment index", s=>material(s,m=>m.fragments[1].fragment_index=0)],
+    ["newline changed", s=>material(s,m=>m.fragments[0].text="暂定方案\n")],
+    ["extra text", s=>material(s,m=>m.text="另一份原文")],
+    ["wrong call", s=>{s.records[0].provider_call_ref="foreign";}],
+    ["unfinished source", s=>{for(const snap of [s.facts.before,s.facts.afterFailure,s.facts.beforeRestart,s.facts.afterRestart,s.facts.afterRecovery,s.db]) snap.agent_runs.find(r=>r.id==="source-d").status="running";}],
+    ["dispatch outside window", s=>{for(const snap of [s.facts.afterFailure,s.facts.beforeRestart,s.facts.afterRestart]) snap.provider_events[0].emitted_at="2026-11-04T10:08:00.000Z";}],
+    ...[false,{},[],undefined,"false","{}","bad json"].map(value=>["not cleared "+String(value),s=>{
+      for(const snap of [s.facts.afterRecovery,s.db]) snap.provider_runs[0].operation_checkpoint=value;
+    }])
+  ]) {
+    const s=v2RecoveryFacts(); mutate(s);
+    const result=verifyMaintenanceRecoveryFacts(s.injection,s.db,s.records,s.appLog,s.facts);
+    assert.equal(result.ok,false,name+":"+JSON.stringify(result));
+  }
+});
+
 test("R03 C8：D 原摘要跨进程保留，由新run原样提交且无第二次摘要调用", () => {
   const scenario = maintenanceRecoveryFacts();
   const result = verifyMaintenanceRecoveryFacts(scenario.injection, scenario.db, scenario.records, scenario.appLog, scenario.facts);
@@ -438,8 +529,8 @@ test("R03 C8：缺快照、错作者、原响应或计划改变、重复调用�
     ["恢复无checkpoint", (s) => { s.db.authoring_session_messages = s.db.authoring_session_messages.filter((row) => row.role !== "checkpoint"); }],
     ["恢复无事件", (s) => { s.facts.afterRecovery.agent_events = []; }],
   ];
-  for (const [name, mutate] of cases) {
-    const scenario = maintenanceRecoveryFacts();
+  for (const [name, mutate] of cases) for (const fixture of [maintenanceRecoveryFacts, v2RecoveryFacts]) {
+    const scenario = fixture();
     mutate(scenario);
     const check = verifyMaintenanceRecoveryFacts(scenario.injection, scenario.db, scenario.records, scenario.appLog, scenario.facts);
     assert.equal(check.ok, false, name + ": " + JSON.stringify(check));

@@ -26,7 +26,7 @@ import { assertHistoryPreserved, verifyCancelledRunFacts, verifyInterleavedResum
 import { readBackendRestartReceipt } from "../../native_ui_wait.mjs";
 import { canonicalCoverageForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
-import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
+import { auditCanonicalCoverage, auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { getRuntimeProfile, assertRuntimeFacts } from "./request_cost_runtime_recipe.mjs";
 import { nativeExecutablePath } from "../native_app_ownership.mjs";
 import { ownProcesses, portListening } from "./process_observation.mjs";
@@ -315,23 +315,9 @@ export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, f
       refs.discussion_source_keys.forEach((key) => { assert(!attempted.has(key), "source_attempt_repeated"); attempted.add(key); });
       const paired = records.filter((record) => record.provider_run_ref === run.id && record.provider_call_ref === run.provider_call_ref);
       assert.equal(paired.length, 1, "failed_summary_record_missing");
-      const request = requestFactsFromRecord(paired[0]);
-      assert(request.ok && request.applicationBases.length === 1 && request.authorMessages.length === 0);
-      const base = request.applicationBases[0].text;
-      const material = JSON.parse(base.slice(base.indexOf("\n") + 1));
-      assert(material.material_kind === "quoted_discussion_sources" && material.sources?.length === refs.discussion_source_keys.length);
-      const actualSourceKeys = material.sources.map((source) => "authoring-session-source/v1:" +
-        JSON.stringify([run.workspace_id, run.work_id, run.session_id, source.source?.run_id, source.source?.run_sequence]));
-      assert.deepEqual(refs.discussion_source_keys, actualSourceKeys, "failed_summary_source_keys_not_actual_material");
-      for (const source of material.sources) {
-        const index = failedCanonical.findIndex((row) => row.run_id === source.source?.run_id && row.canonical_ref.run_sequence === source.source?.run_sequence);
-        const message = failedCanonical[index];
-        assert(message?.role === "assistant" && message.provenance === "model" &&
-          message.blocks.length > 0 && message.blocks.every((block) => block.type === "text"), "failed_summary_source_missing");
-        assert.equal(source.text, textOf(message), "failed_summary_source_bytes_changed");
-        const author = failedCanonical.slice(0, index).findLast((row) => row.run_id === message.run_id && row.role === "user" && row.provenance === "author");
-        assert(author && source.author_text === textOf(author), "failed_summary_author_bytes_changed");
-      }
+      const request = auditDiscussionRequest(paired[0], run, failedCanonical);
+      assert(request.ok, request.reason);
+      assert.equal(request.sourceCount, refs.discussion_source_keys.length, "failed_summary_source_count_mismatch");
       const final = db.provider_runs.find((candidate) => candidate.id === run.id);
       assert(final && final.provider_call_ref === run.provider_call_ref && final.status === run.status &&
         JSON.stringify(parseJson(final.owner_refs)) === JSON.stringify(refs), "failed_attempt_not_durable");
@@ -362,7 +348,8 @@ export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, f
         assert.deepEqual(block[key], capsule.plan[key], "recovered_plan_changed:" + key);
       for (const snapshot of [afterRecovery, db]) {
         const final = snapshot.provider_runs.filter((candidate) => candidate.id === run.id);
-        assert(final.length === 1 && final[0].operation_checkpoint === null, "recovered_private_payload_not_cleared");
+        assert(final.length === 1 && (typeof final[0].operation_checkpoint === "string"
+          ? JSON.parse(final[0].operation_checkpoint) : final[0].operation_checkpoint) === null, "recovered_private_payload_not_cleared");
         const row = snapshot.authoring_session_messages.filter((row) => row.run_id === item.canonical_ref.run_id &&
           row.run_sequence === item.canonical_ref.run_sequence && row.role === "checkpoint");
         assert(row.length === 1 && JSON.stringify(parseJson(row[0].message)) === JSON.stringify(parseJson(
@@ -392,12 +379,18 @@ export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, f
 
 function verifyPendingSummary(run, output, origin) {
   const capsule = parseJson(run.operation_checkpoint);
-  assert(capsule?.version === "provider-operation-checkpoint/v1" &&
+  assert(["provider-operation-checkpoint/v1", "provider-operation-checkpoint/v2"].includes(capsule?.version) &&
     Number.isInteger(capsule.goal_version) && capsule.goal_version > 0 &&
-    nonBlank(capsule.response_text) && capsule.plan && typeof capsule.plan === "object", "pending_original_response_missing");
+    nonBlank(capsule.response_text) && isObject(capsule.plan), "pending_original_response_missing");
   assert(origin && ["completed", "failed"].includes(origin.status) && origin.goal_version === capsule.goal_version,
     "pending_original_direction_changed");
-  assert.deepEqual(Object.keys(capsule).sort(), ["goal_version", "plan", "response_text", "version"]);
+  const v2 = capsule.version === "provider-operation-checkpoint/v2";
+  assert.deepEqual(Object.keys(capsule).sort(), v2
+    ? ["discussion_protocol_version", "goal_version", "plan", "response_text", "version"]
+    : ["goal_version", "plan", "response_text", "version"]);
+  const protocol = v2 ? "authoring-discussion-summary/v2" : "authoring-discussion-summary/v1";
+  if (v2) assert.equal(capsule.discussion_protocol_version, protocol, "pending_protocol_mismatch");
+  assert.equal(JSON.parse(capsule.response_text).version, protocol, "pending_response_protocol_mismatch");
   const planKeys = ["covers", "source_refs", "versions", "omissions", "summary", "retained_items", "scope", "history_target"];
   assert(Object.keys(capsule.plan).every((key) => planKeys.includes(key)), "pending_original_plan_unknown_field");
   for (const key of ["covers", "source_refs", "versions", "omissions", "summary"])
