@@ -232,46 +232,35 @@ export function readAutoMaintenanceRecoveryFacts(dir, config, injection) {
 }
 
 // 故障与恢复只消费真实快照/调用材料；摘要和 driver 报告均不能重新定义作者目标。
-export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, facts) {
+function exactMaintenanceRequest(db, canonical, request, expected) {
+  const textOf = (row) => row.blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
+  assert(request?.settled === true && nonBlank(request.run_id) && expected, "recovery_request_unsettled");
+  const runs = db.agent_runs.filter((run) => run.id === request.run_id);
+  assert(runs.length === 1 && runs[0].status === "completed", "recovery_run_not_completed");
+  const rows = canonical.filter((row) => row.run_id === request.run_id && row.role === "user" && row.provenance === "author");
+  assert.deepEqual(rows.map(textOf), [expected.text], "recovery_author_original_mismatch");
+  if (expected.id !== undefined) assert.equal(request.author_id, expected.id);
+  if (expected.sha256 !== undefined) assert.equal(request.author_sha256, expected.sha256);
+  assert.equal(request.text, expected.text);
+  return runs[0];
+}
+
+// 重启前和完整恢复 oracle 共用同一故障接收/回滚责任；不依赖未来恢复成功。
+export function verifyMaintenanceFailureFacts(injection, records, appLog, facts) {
   const detail = { failure_request_run_id: injection?.failure_request?.run_id ?? null };
   try {
-    assert(facts?.before && facts?.afterFailure && facts?.beforeRestart && facts?.afterRestart && facts?.afterRecovery,
-      facts?.error ?? "recovery_snapshots_missing");
-    const { before, afterFailure, beforeRestart, afterRestart, afterRecovery, failureInput, recoveryInputs } = facts;
-    const times = [before, afterFailure, beforeRestart, afterRestart, afterRecovery].map((snapshot) => timeValue(snapshot.captured_at));
-    assert(times.every((time, index) => time !== null && (index === 0 || time >= times[index - 1])), "recovery_snapshot_order_invalid");
-    assert(times[3] > times[2], "recovery_restart_window_missing");
-    for (const table of ["authoring_session_messages", "agent_events", "provider_runs", "provider_outputs", "provider_events"]) {
-      assert.deepEqual(beforeRestart[table], afterFailure[table], "before_restart_changed_" + table);
-      assert.deepEqual(afterRestart[table], beforeRestart[table], "restart_changed_" + table);
-    }
+    assert(facts?.before && facts?.afterFailure, "failure_snapshots_missing");
+    const {before, afterFailure, failureInput} = facts;
+    const db = afterFailure;
     const canonical = transcriptMessages(db.authoring_session_messages, db.agent_runs);
-    const textOf = (row) => row.blocks.filter((block) => block.type === "text").map((block) => block.text).join("");
-    const exactRequest = (request, expected) => {
-      assert(request?.settled === true && nonBlank(request.run_id) && expected, "recovery_request_unsettled");
-      const runs = db.agent_runs.filter((run) => run.id === request.run_id);
-      assert(runs.length === 1 && runs[0].status === "completed", "recovery_run_not_completed");
-      const rows = canonical.filter((row) => row.run_id === request.run_id && row.role === "user" && row.provenance === "author");
-      assert.deepEqual(rows.map(textOf), [expected.text], "recovery_author_original_mismatch");
-      if (expected.id !== undefined) assert.equal(request.author_id, expected.id);
-      if (expected.sha256 !== undefined) assert.equal(request.author_sha256, expected.sha256);
-      assert.equal(request.text, expected.text);
-      return runs[0];
-    };
+    assert(timeValue(before.captured_at) !== null &&
+      timeValue(afterFailure.captured_at) >= timeValue(before.captured_at), "failure_snapshot_order_invalid");
     assert(injection.trigger_created === true && injection.author_error_visible === false, "failure_not_silent");
-    const failedRun = exactRequest(injection.failure_request, failureInput);
+    const failedRun = exactMaintenanceRequest(db, canonical, injection.failure_request, failureInput);
     assert(facts.scope && failedRun.work_id === facts.scope.work_id && failedRun.session_id === facts.scope.session_id,
       "recovery_scope_mismatch");
     assert(!before.agent_runs.some((run) => run.id === failedRun.id), "failure_request_reused_old_run");
-    const recoveries = injection.recovery_requests;
-    assert(Array.isArray(recoveries) && Array.isArray(recoveryInputs) &&
-      recoveryInputs.length > 0 && recoveries.length === recoveryInputs.length, "recovery_fixed_input_count_mismatch");
-    const recoveryRuns = recoveries.map((request, index) => exactRequest(request, recoveryInputs[index]));
-    const ids = new Set(recoveryRuns.map((run) => run.id));
-    assert(recoveryRuns.every((run) => !afterFailure.agent_runs.some((prior) => prior.id === run.id)), "recovery_request_not_new");
-    assert(ids.size === recoveryRuns.length && !ids.has(failedRun.id), "recovery_run_reused");
-    for (const run of recoveryRuns)
-      for (const key of ["workspace_id", "work_id", "session_id"]) assert.equal(run[key], failedRun[key]);
+
     const log = appLog.find((entry) => entry.event === "agent_run.auto_maintenance.error" && entry.run_id === failedRun.id);
     detail.failure_log_run_id = log?.run_id ?? null;
     detail.failure_log_reason = log?.reason ?? null;
@@ -286,8 +275,7 @@ export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, f
     assert.equal(injection.checkpoint_events_after_failure, failedEvents.length);
     assert.equal(injection.checkpoint_messages_before_failure, checkpointRows(before).length);
     assert.equal(injection.checkpoint_messages_after_failure, checkpointRows(afterFailure).length);
-    for (const [earlier, later] of [[before, afterFailure], [afterFailure, afterRecovery], [afterRecovery, db]])
-      assertHistoryPreserved(earlier, later);
+    assertHistoryPreserved(before, afterFailure);
     const originalIds = new Set(before.provider_runs.map((run) => run.id));
     const attempts = afterFailure.provider_runs.filter((run) => !originalIds.has(run.id) &&
       run.agent_run_id === failedRun.id && parseJson(run.owner_refs)?.operation === "transcript_compaction");
@@ -318,6 +306,61 @@ export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, f
       const request = auditDiscussionRequest(paired[0], run, failedCanonical);
       assert(request.ok, request.reason);
       assert.equal(request.sourceCount, refs.discussion_source_keys.length, "failed_summary_source_count_mismatch");
+
+      const capsule = pending.get(run.id);
+      // 仅验证未提交候选，不写 canonical，不把此内存视图当作提交证据。
+      const { history_target: _target, ...plan } = capsule.plan;
+      const candidate = {role:"checkpoint", provenance:"application", blocks:[{type:"checkpoint", ...plan,
+        discussion:{provider_run_ref:run.id, provider_call_ref:run.provider_call_ref,
+          response_text:capsule.response_text,
+          response_sha256:parseJson(outputs[0].content_summary).content_sha256}}],
+        canonical_ref:{run_id:failedRun.id, run_sequence:1 + Math.max(0,...failedCanonical
+          .filter(row=>row.run_id===failedRun.id).map(row=>row.canonical_ref.run_sequence)),
+          workspace_id:failedRun.workspace_id, work_id:failedRun.work_id, session_id:failedRun.session_id,
+          parent_turn_ref:failedRun.parent_turn_ref, run_status:failedRun.status}};
+      const planAudit = auditCanonicalCoverage([...failedCanonical,candidate], {
+        verifyExecutions:true, verifyRequests:true, providerRuns:afterFailure.provider_runs,
+        providerOutputs:afterFailure.provider_outputs, providerRecords:records});
+      assert(planAudit.ok, planAudit.reason);
+
+    }
+
+    return {ok:true, reason:null, detail, failedRun, attempts, attempted, pending};
+  } catch(error) {return {ok:false, reason:error.message, detail};}
+}
+
+export function verifyMaintenanceRecoveryFacts(injection, db, records, appLog, facts) {
+  const detail = { failure_request_run_id: injection?.failure_request?.run_id ?? null };
+  try {
+    assert(facts?.before && facts?.afterFailure && facts?.beforeRestart && facts?.afterRestart && facts?.afterRecovery,
+      facts?.error ?? "recovery_snapshots_missing");
+    const { before, afterFailure, beforeRestart, afterRestart, afterRecovery, failureInput, recoveryInputs } = facts;
+    const times = [before, afterFailure, beforeRestart, afterRestart, afterRecovery].map((snapshot) => timeValue(snapshot.captured_at));
+    assert(times.every((time, index) => time !== null && (index === 0 || time >= times[index - 1])), "recovery_snapshot_order_invalid");
+    assert(times[3] > times[2], "recovery_restart_window_missing");
+    for (const table of ["authoring_session_messages", "agent_events", "provider_runs", "provider_outputs", "provider_events"]) {
+      assert.deepEqual(beforeRestart[table], afterFailure[table], "before_restart_changed_" + table);
+      assert.deepEqual(afterRestart[table], beforeRestart[table], "restart_changed_" + table);
+    }
+    const canonical = transcriptMessages(db.authoring_session_messages, db.agent_runs);
+    const failure = verifyMaintenanceFailureFacts(injection, records, appLog, facts);
+    assert(failure.ok, failure.reason);
+    Object.assign(detail, failure.detail);
+    const {failedRun, attempts, attempted, pending} = failure;
+    exactMaintenanceRequest(db, canonical, injection.failure_request, failureInput);
+    const recoveries = injection.recovery_requests;
+    assert(Array.isArray(recoveries) && Array.isArray(recoveryInputs) &&
+      recoveryInputs.length > 0 && recoveries.length === recoveryInputs.length, "recovery_fixed_input_count_mismatch");
+    const recoveryRuns = recoveries.map((request, index) => exactMaintenanceRequest(db, canonical, request, recoveryInputs[index]));
+    const ids = new Set(recoveryRuns.map((run) => run.id));
+    assert(recoveryRuns.every((run) => !afterFailure.agent_runs.some((prior) => prior.id === run.id)), "recovery_request_not_new");
+    assert(ids.size === recoveryRuns.length && !ids.has(failedRun.id), "recovery_run_reused");
+    for (const run of recoveryRuns)
+      for (const key of ["workspace_id", "work_id", "session_id"]) assert.equal(run[key], failedRun[key]);
+    for (const [earlier, later] of [[afterFailure, afterRecovery], [afterRecovery, db]])
+      assertHistoryPreserved(earlier, later);
+    for (const run of attempts) {
+      const refs = parseJson(run.owner_refs);
       const final = db.provider_runs.find((candidate) => candidate.id === run.id);
       assert(final && final.provider_call_ref === run.provider_call_ref && final.status === run.status &&
         JSON.stringify(parseJson(final.owner_refs)) === JSON.stringify(refs), "failed_attempt_not_durable");

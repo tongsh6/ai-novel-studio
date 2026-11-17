@@ -14,7 +14,7 @@ import { actionAck } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { typeText } from "./lib/native_ui/driver.mjs";
 import { BACKEND_RESTART_LABEL, requestBackendRestart } from "./native_ui_wait.mjs";
 import { readConfig, readAutoMaintenanceInputs } from "./lib/native_ui/authoring_capture_evidence.mjs";
-import { readAutoMaintenanceDbFacts, scanAuthorVisibleFiles } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
+import { readAutoMaintenanceDbFacts, scanAuthorVisibleFiles, verifyMaintenanceFailureFacts } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
 import { inFlightSummaryForRun } from "./lib/native_ui/authoring_interleaved_resume_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import { canonicalMessagesFromRows } from "./lib/native_ui/authoring_history_evidence.mjs";
@@ -481,6 +481,15 @@ async function runRecoveryProbes(report, inputs) {
   requireCompleted(failure.failure_request);
   requireActualProbeSource(readAutoMaintenanceDbFacts(dir), logs(path.join(dir, "llm-calls")),
     failure.failure_request.run_id, candidate.source_key);
+  const failureFacts = verifyMaintenanceFailureFacts(failure, logs(path.join(dir, "llm-calls")),
+    logs(path.join(dir, "app-log")), {
+      before:JSON.parse(fs.readFileSync(path.join(dir, failure.before_snapshot), "utf8")),
+      afterFailure:JSON.parse(fs.readFileSync(path.join(dir, failure.after_failure_snapshot), "utf8")),
+      failureInput:inputs.discussions[11],
+      scope:{work_id:config.target.work_id, session_id:config.target.session_id},
+    });
+  failure.pre_restart_check = {ok:failureFacts.ok, reason:failureFacts.reason, detail:failureFacts.detail};
+  assert(failureFacts.ok, failureFacts.reason);
   await restartBackendAfterFailure(report);
   failure.before_restart_snapshot = report.backend_restart.before_snapshot;
   failure.after_restart_snapshot = report.backend_restart.after_snapshot;

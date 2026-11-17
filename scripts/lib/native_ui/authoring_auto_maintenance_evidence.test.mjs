@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts } from "./authoring_auto_maintenance_evidence.mjs";
+import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts, verifyMaintenanceFailureFacts } from "./authoring_auto_maintenance_evidence.mjs";
 import { discussionMaintenanceFacts, maintenanceRecoveryFacts } from "./fixtures/authoring_discussion_facts.mjs";
 import {
   AFTER_STARTED_AT,
@@ -416,6 +416,28 @@ function v2RecoveryFacts() {
   base.content = base.content.slice(0,base.content.indexOf("\n")+1)+JSON.stringify(material);
   return s;
 }
+
+
+test("D重启前：只接受原响应持久且事务确实回滚，不借未来恢复证明前置", () => {
+  const verify = (s) => verifyMaintenanceFailureFacts(s.injection,s.records,s.appLog,s.facts);
+  assert.equal(verify(v2RecoveryFacts()).ok,true);
+  for (const [name, mutate] of [
+    ["无响应",s=>{s.facts.afterFailure.provider_runs[0].operation_checkpoint.response_text="";}],
+    ["无输出",s=>{s.facts.afterFailure.provider_outputs=[];}],
+    ["错hash",s=>{s.facts.afterFailure.provider_outputs[0].content_summary.content_sha256="0".repeat(64);}],
+    ["已提交event",s=>{s.facts.afterFailure.agent_events.push({event_type:"checkpoint_created"});}],
+    ["已提交canonical",s=>{s.facts.afterFailure.authoring_session_messages.push(
+      structuredClone(s.db.authoring_session_messages.find(r=>r.role==="checkpoint")));}],
+    ["非法response但hash一致",s=>{
+      const raw='{"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"伪结论","retained_fragment_indices":[999]}]}';
+      s.facts.afterFailure.provider_runs[0].operation_checkpoint.response_text=raw;
+      s.facts.afterFailure.provider_outputs[0].content_summary.content_sha256=createHash("sha256").update(raw).digest("hex");
+    }],
+    ["plan错源",s=>{s.facts.afterFailure.provider_runs[0].operation_checkpoint.plan.covers.message_refs[0].run_id="foreign";}],
+  ]) {const s=v2RecoveryFacts();mutate(s);let restart=0;
+    const result=verify(s);if(result.ok)restart++;
+    assert.equal(result.ok,false,name);assert.equal(restart,0,name);}
+});
 
 test("R03 C8 v2：完整行材料与数据库JSON文本null清载荷均可核验", () => {
   const s = v2RecoveryFacts();
