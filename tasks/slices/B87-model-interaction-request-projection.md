@@ -1441,3 +1441,11 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 独立语义核A及紧接复述正确承接保留秘密，11及C后来降为未确认；但冻结11确有晚到作者措辞“仍未确认”，属于层级/指令冲突未澄清，不能直接归为遗忘或假定只指读者。另一确定缺陷独立成立：11未回查原表，错误将10已提供的若干风险/收益/文件示例标成未交付，C部分继承；实际交付保护尚未可靠。R03仍doing，普通20/后继窗口、C取消、D原响应跨BEAM恢复均不能代签。
 
 观察器责任修复已按21219b48设计、76cede63实现：只以持久inserted_at及同执行唯一sequence核dispatch后真实非空chunk，正常nil emitted_at不再被误拒，缺时间/微秒逆序/重复sequence/已有output或终态仍不取得在途资格，确认前同target复核不变。不修改产品或原输入，独立literal红绿及只读复审通过，完整node1109/1109、module-size通过，完整scan19pass/2fail/7仅既有manifest/gitleaks，证据c8-observer-23。没有再开实模；676ms窗口下原生双确认仍未证，不能用observer修复或已有单元取消测试替代真实C/D。后续需先明确符合真实取消目标的可控外部观察/传输场景，不靠再跑模型赌时序；普通20的provider空响应/整轮超时及实际交付语义缺口保持独立待解。
+
+### 14.32 可控外部传输窗口而非碰时序（2026-11-18）
+
+按418f891f/a660b01d先修验收§5.2，再e9a0ab88/bc9e6d1e落独立Provider HTTP/SSE代理及runner：复用既有NOVEL_SPLASH_ENDPOINT仅对子进程临时路由，原上游预检/模型/参数/HTTP正文不改，不向生产加入验收识别。只读registry先开，首prun由持久事实独立冻结，完整材料审计及原请求字节唯一绑定external request_id，首content前精准arm；迟arm/多义/首份不合法即失败，不停业务请求等待或换第二份。
+
+代理仅旁路解析证据副本，恰把原字节前缀转发至首个完整非空正文SSE record边界，暂停其后传输最多30秒。仍需同prun真实持久chunk及在途证明后AX双确认；代理只记中性disconnect，由真实命令/ACK、产品cancelled、同执行关闭与无迟到checkpoint独立判取消。暂停超时/清理不代签，任何情况下都不宣称停止vendor算力。D之前一次gate必须关闭且连接清空，后续纯透传；原D响应/plan/hash、事务回滚及跨BEAM一次提交不变。
+
+独立复审发现并修了absolute URL旁路、清理误归因、首record边界不足与新增端口终局漏查；真实本地HTTP反例及完整Node1141/1141通过，最终完整scan19pass/2fail/7仍既有manifest/gitleaks。新脚本索引按index-only提交，去新增行后与原README快照逐字相等，其他原WIP未入提交。证据c8-stream-gate-24。实现/单测不代签C8，下一步仅按新机制冻结一次原生验证，原失败、普通20及语义缺口保留。
