@@ -162,7 +162,7 @@
 
 C 发送前开启只读 registry 窗口，所有业务请求正常透传。driver 通过现役首份准入与完整材料 oracle，将唯一真实外部 request_id/hash 绑定冻结的 pcall/prun/全部来源；HTTP 本身没有该内部身份，不伪称已由 header 证明。相同 hash 多请求、重复匹配、非同窗口、首份非法或无法唯一绑定均失败，不挑后份。只有精确绑定后才针对该 request_id 原子 arm，若首非空正文已经到达或请求已结束则拒绝，不能追认。首个完整 Chat SSE record 含真实非空 delta.content 后，代理先将至该 record 终止分隔符的原字节前缀交付下游，再暂停剩余字节；reasoning/role/空块不能触发。单个 HTTP data 含 content 与 DONE 时必须按原字节 record offset 切分；UTF-8/CRLF/跨包/multiline data 在解析副本处理，输出字节不改。driver 必须另见同一 prun 持久非空 chunk，再作真实 AX 双步取消，仍执行确认前在途及来源复核。
 
-暂停从前缀写出起最多 30 秒（小于原 300 秒静默超时），只允许一次，不能续期。下游提前断开因果触发对应上游 destroy，记录两端 close/abort/自然 end；不得自动重试。上限、异常或 cleanup 终结连接只记录失败，绝不代签作者取消。若上游已自然结束，仅证明产品接收传输取消，不声称停止 vendor 计算；无上游 close 证据不声明已传播。C 完成后必须取得 consumed + 无活动暂停/未完成连接的 disarm 事实，D 及后继仅透明转发，维持原响应/plan/hash、提交回滚与跨进程恢复判据。所有固定原文、预算、keep4 不变，迟 arm/短窗口仍可失败，旧失败批次不改签。
+暂停从前缀写出起最多 30 秒（小于原 300 秒静默超时），只允许一次，不能续期。下游提前断开因果触发对应上游 destroy，记录两端 close/abort/自然 end；不得自动重试。上限、异常或 cleanup 终结连接只记录失败，绝不代签作者取消。incoming.pause 可能延后 end 观察，因此无论是否观察到上游自然结束，都仅证明产品接收传输取消和实际观察到的 abort/close，不声称 vendor 仍在生成或计算已停止；无上游 close 证据不声明已传播。同一 SSE record 若同时含正文与 finish_reason 等终止事实，不剥离字段制造窗口，按窗口已失失败。C 完成后必须取得 consumed + 无活动暂停/未完成连接的 disarm 事实，D 及后继仅透明转发，维持原响应/plan/hash、提交回滚与跨进程恢复判据。所有固定原文、预算、keep4 不变，迟 arm/短窗口仍可失败，旧失败批次不改签。
 
 本 checkpoint 七问：Contract 为本节 C8 真实在途与原载荷恢复；Invariant 是不造正文、不换首份、不将代理关连接代签用户取消；Boundary 仅外部 runner/HTTP代理/driver/证据，产品与模型服务不改；Consumer 为现役 C8 driver 与取消事后 oracle；Proof 为本地真实 HTTP server 的原字节守恒、任意分包、早/迟 arm、同 hash 多义、空块、终态、abort 因果、超时/cleanup 失败、一次性与 D 无干预独立反例，再全 node/静态检查及独立 review；Acceptance Driver 仍为真实 Tauri C8，未新跑前不宣称闭环；Exploration 不适用，因为不新增作品知识或模型输入。存在性审核：现有 proxy 只管 Phoenix，不混入不相干 SSE 责任；新脚本及同名测试登记 scripts 索引，不另建控制框架、DB reader 或产品 hook。
 

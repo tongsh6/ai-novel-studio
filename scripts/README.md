@@ -1,5 +1,8 @@
 # Scripts Index
 
+- `native_provider_stream_proxy.mjs` / `native_provider_stream_proxy.test.mjs`：C8 外部 Provider HTTP/SSE 原字节透传、一次精确绑定暂停及确定性网络反例；不承担 Phoenix 或产品业务。
+- `tauri_slice_verify_provider_stream.test.mjs`：现役 runner 的 Provider 代理启动、ready 身份、临时 endpoint、owned 监督与清理独立反例。
+
 > 离线模型交互设计候选校验：[model_contracts/model_interaction](model_contracts/model_interaction/README.md)。它不调用模型或生产数据库，报告进入 `artifacts/model-contracts/vs00m-design/`；生产协议与正式场景入口不变。
 
 本目录是项目内可复跑工程脚本入口。脚本应只服务构建、验收、扫描、开发启动、seed 或调试，不作为设计真源；设计和任务仍登记到 `docs/design/` 与 `tasks/`。
