@@ -155,9 +155,10 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
              TranscriptCompaction.plan_maintenance(view, keep_recent_items: 4)
   end
 
-  for rounds <- [3, 10, 20] do
-    test "#{rounds} 轮纯讨论：独立覆盖表、当前与最近 K 保护、原文不变及 JSON codec" do
+  for rounds <- [3, 10, 20], version <- ~w(v1 v2) do
+    test "#{rounds} 轮纯讨论 #{version}：独立覆盖表、当前与最近 K 保护、原文不变及 JSON codec" do
       rounds = unquote(rounds)
+      version = unquote(version)
 
       for n <- 1..(rounds - 1) do
         NovelApplication.TestAgenticLoopFixtures.append_segment!(
@@ -204,14 +205,20 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
         # 实际 Provider 准入/持久化/恢复由 TranscriptCompactionSummaryTest 验证。
         raw =
           Jason.encode!(%{
-            version: "authoring-discussion-summary/v1",
+            version: "authoring-discussion-summary/#{version}",
             entries:
               Enum.map(0..3, fn index ->
-                %{
+                retained =
+                  case version do
+                    "v1" -> %{retained_obligations: [discussion_promise()]}
+                    # 独立夹具：正文为第 0 行，承诺为第 1 行；不从产品分片器生成预期。
+                    "v2" -> %{retained_fragment_indices: [1]}
+                  end
+
+                Map.merge(retained, %{
                   source_index: index,
-                  summary: "早期方案讨论，比较仍待履行。",
-                  retained_obligations: [discussion_promise()]
-                }
+                  summary: "早期方案讨论，比较仍待履行。"
+                })
               end)
           }) <> "\r\n"
 
@@ -254,6 +261,8 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
               do: assert(json =~ Jason.encode!(discussion_reply(n)))
 
           assert json =~ discussion_promise()
+          assert json =~ "retained_source_fragments"
+          refute json =~ "retained_obligations"
           assert json =~ "model_derived_history"
         end
       end
@@ -351,7 +360,9 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
   defp discussion_promise, do: "等你确定视角后，我还会把第二方案与第三方案的代价逐项比较。"
 
   defp discussion_reply(n),
-    do: "第 #{n} 轮完整的早期方案论证。" <> String.duplicate("论证细节。", 100) <> discussion_promise()
+    do:
+      "第 #{n} 轮完整的早期方案论证。" <>
+        String.duplicate("论证细节。", 100) <> "\n" <> discussion_promise()
 
   defp raw_session_rows do
     Repo.query!(
