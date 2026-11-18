@@ -1479,3 +1479,13 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 统一完整scan为19pass/2fail/7findings：六条既有gitleaks处置（五false_positive、一历史线accepted_risk），无新产品凭证命中；task_done_manifest仍pending，旧manifest与本次变更/未完成原生证据不匹配，不补造完成或绕过门禁。已读report/top10/disposition并随日志归档；本checkpoint不是全扫描通过，也不是R03完成。原WIP按原82哈希核对；新增VS-00L设计仅index-only抽取6行，既有WIP保留。
 
 26语义独立复核进一步确认：原10 canonical44已有修钟铺与灯塔双视角收益风险，11 canonical74却称无对应条目，C79延续为未交付；实际request56的摘要漏掉相关段，原canonical足以反证，不因摘要语义声明而免责。A选择后11改未确认来自作者冻结原文的明确后指令，不计作模型遗忘。下一步仍需修复后一次完整C/D原生证据及普通20/后继与实际交付保留闭环，不通过放宽判断、额外创作轮或重复跑分达标。
+
+### 14.36 已提供材料与未闭合责任的对称保留（2026-11-18）
+
+无桌面独立审查26原文/请求确认组合责任：摘要请求49含完整原文而非输入截断，后继请求56节选遗漏部分已给比较；同时session_message_read在实际目录可达、来源locator与normal_open均在，11/C却无回查便断言缺项。不是工具不可达，也不能靠把全部历史重新注入或固定样本关键词补丁解决。
+
+按fa2022a2先修VS-00L§16.2.1与验收§5.9，再e827a27e落实三个现役owner：摘要忠实概括实际提供的材料种类/对象/范围与限制，不把防虚报完成误作抹去已给内容；Projection固定标记摘要/节选非穷尽，缺省不证明不存在；AuthoringSemantics v3约束历史否定结论按source/locator及coverage/omissions求证。已有充分原文不重复读取，预算/分页不足可明确具体未知或缩小结论，不机械扫描全会话。材料曾给不等于全部目标满足/作者采纳/责任解除；后续作者重开选择按顺序保留。无新实体、完成台账、存储字段、全量包、自动工具循环或DiscussionSummary协议升版。新任务默认v3，历史v1/v2身份保持、不能伪装当前执行。
+
+独立反例覆盖部分已给/仅承诺/共享材料/尾页证据/作者重开及跨域措辞；确定性红例只证明现役规则与三wire投影原先缺契约接线，不宣称复现模型质量。focused68/0，完整mix check3396/0、编译/codegen/xref/架构/ADR/I-CACHE和I1/I2/I3通过，独立实现复审无阻塞。focused五条persistence error经trace绑定旧测试的主动terminal fact persistence failure；初始化SQLite锁日志保留，完整独立库check仍0失败，单应用trace无锁，不以日志删除制造绿灯。原82项WIP哈希全同，既有SessionMessageRead未改。
+
+最终统一scan仍19pass/2fail/7：既有六gitleaks中五false_positive、一accepted_risk，task_done_manifest仍pending；report/top10/disposition归档delivery-retention-27，不新建虚假完成manifest。未占桌面、未运行新模型批次，原10partial/20失败/26FAIL不改签。该步只闭合责任契约与接线，模型是否实际保留范围、主动求证并正确回答，仍须按原作者预期与真实原文独立验证；C/D原生及完整R03尚未闭环。
