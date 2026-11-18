@@ -1467,3 +1467,15 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 源码责任复核：现役取消token仅变更Agent状态，同步HTTP/SSE只在chunk回调及HTTP结束读取token；首块消费后连接静默时没有主动唤醒/中断路径。下一步先按VS-00L生命周期目标补设计及真实本地HTTP静默连接红例，再修责任层实现；不得发假chunk、放开suffix、延长暂停或靠新一批实模赌时序。cancel-delay-diagnostic.json保留12原证据哈希及精确时间线；四端口4657/4661/56704/56705均无监听，owned进程全清理。
 
 已亲看interleaved-a-waiting、cancel-confirmation及failure实际像素：等待问题正文一份，功能回答/选项/Why保留；取消确认对话框说明保护既有作品内容；最终页面可见“已停止”、无任务、普通输入恢复，正文标题/粗体正常渲染。但截图不证明及时取消或跨进程恢复，等待题无Markdown语法，不代签问题Markdown样式。R03仍doing，普通20/后继与实际交付语义缺口保留。
+
+### 14.35 静默取消责任修复与上游闭合事实分责（2026-11-18）
+
+先79f50c62修VS-00L §19.3再c729da1a实施现役HTTP/CancellationToken/SSEStream：原子订阅唤醒等待，以单请求owned Task和逐块握手保留caller同步sink、背压与唯一终态；取消不再等下一wire字节，退出确认本Task收束并清理本ref消息，已取消不flush未消费buffer。独立审查要求并补启动放行/worker复核、精确DOWN收敛。普通可捕获worker异常结构化返回；不可捕获强杀沿既有AgentRunServer Task DOWN失败/维护计费恢复消费者，不伪报HTTP层已捕获。现役Req0.7.3/Finch0.23真实仅H1/TLS-H1，测试约束依赖默认，无硬降协议；HTTP2未来必须另证池内流取消。显式deadline在静默中的既有缺口未因本次取消修复获通过。
+
+独立真实TCP红例在原e3d464e4首正文后不再给字节，取消500ms仍不返回（4/1）；修复后focused33/0，实际对端closed、headers前取消、并发隔离、owner退出、5.1秒原caller慢sink及消息隔离均验证。预取消与订阅竞争有动态测试，subscribe→start精确窗口仅源码审查，不冒称确定性动态复现。完整mix check3395/0、warnings-as-errors/xref/arch/ADR/I-CACHE、Credo773文件零问题、I3 3/3、I1 4/4、I2三对不交通过；I3启动曾有SQLite locked日志但最终case error0/exit0，原日志保留于silent-http-cancel-27。
+
+外部判据另由e0c5b7f6先修设计、00487ba7实现：上游完整HTTP已接收闭合且无错误/非人为destroy时，不虚构随后abort；真实下游仍必须在原AX命令后、30秒内断开。上游未闭合分支仍需downstream→destroy→close；任意晚到error、未知close、timeout/cleanup及无下游均拒绝。真实本地HTTP与独立literal红例保留，最终完整Node1144/1144；两分支明确报告transport_abort_observed而vendor_compute_stopped仍未知。原26 FAIL及D未进入不改签。
+
+统一完整scan为19pass/2fail/7findings：六条既有gitleaks处置（五false_positive、一历史线accepted_risk），无新产品凭证命中；task_done_manifest仍pending，旧manifest与本次变更/未完成原生证据不匹配，不补造完成或绕过门禁。已读report/top10/disposition并随日志归档；本checkpoint不是全扫描通过，也不是R03完成。原WIP按原82哈希核对；新增VS-00L设计仅index-only抽取6行，既有WIP保留。
+
+26语义独立复核进一步确认：原10 canonical44已有修钟铺与灯塔双视角收益风险，11 canonical74却称无对应条目，C79延续为未交付；实际request56的摘要漏掉相关段，原canonical足以反证，不因摘要语义声明而免责。A选择后11改未确认来自作者冻结原文的明确后指令，不计作模型遗忘。下一步仍需修复后一次完整C/D原生证据及普通20/后继与实际交付保留闭环，不通过放宽判断、额外创作轮或重复跑分达标。
