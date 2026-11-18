@@ -1542,3 +1542,13 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **七问/存在性审核。** Contract=VS-00L§16.2.1及愿景§2.1/§2.4；Invariant=保留来源性质、当前范围、真实承诺与未知，不凭派生材料增加作者责任；Boundary=本次仅VS-00L与本原任务，后续若实现只能在现役摘要/共享语义/投影owner做有界一致性修改，不能新增存储或任务状态；Consumer=整理后的真实业务判断与既有session_message_read观察回流；Proof=上述独立原话/交付反例及真实请求观察，确定性测试只证接线；Acceptance Driver=现役冻结3/10/20、后继及交错原生入口，未运行不声称语义闭环；Exploration=复用现有source/locator、coverage/omissions，足够即止，范围不明可诚实限定，不强制全会话扫描。存在性审查确认不需新实体、字段、模块、协议或第二权威。
 
 **证据与未闭环。** 本设计基于c8-audit-fixed-30/native-01既有independent-turn11-c-retention-review.json、independent-tail-semantic-review.json及停机canonical原文，不改原报告。格式替代语义、读后建议升级、已替换决定重开等虽有既有规则仍发生，明确属模型执行/推理局限；本次澄清不声称修好它们，也不将规则文本或检索命中当机制保证。C/D机械PASS保留，11/C/20/控制3语义partial、普通20/旧10后继缺口与scan/manifest开放项保留，R03仍doing。下一步先独立审设计与是否确需现役规则的一致性替换，再决定实施；没有追加模型试跑或桌面操作。
+
+### 14.41 责任语义接线与失败已观察用量闭合（2026-11-18）
+
+独立审dc064439设计后，在唯一AuthoringSemantics替换保留/欠交付混写句，当前规则v4，同步AuthoringTask默认；历史v1/v2/v3及缺省v1按真实身份恢复、不能冒用当前版本执行。不新增实体、台账或模型评审循环。common红22/3→绿22/0、真实planner42/0；独立审发现writer仍断言当前v3，保留5/1红后补现役断言v4到5/0。测试只证规则/版本与当前消费者接线，不证模型遵守。证据obligation-boundary-31，四文件原干净。
+
+普通20独立核验并未被C8代签：第14两次HTTP200/invalid_response均0正文chunk，原日志有output1551/1898，但无原始SSE，不能判定reasoning-only、服务端空内容或decoder漏字；正常终结修复不证明旧14原因已修。第16两次回查与两次维护耗264776ms，第五调用清理时仍1761chunks/2717字；360秒是整轮harness上限，不是HTTP静默。17–20/后继未运行，不提高上限追绿。
+
+其中找到独立产品缺陷：第14日志保已知usage而失败持久Output为{}。先3557a85e修VS-00L责任归属，再复用SSEStream.Result与AdapterExecution：从同decoder保存已观察量missing=nil到错误日志、usage事件及empty失败Output，事件序号在唯一error之前；错误仍失败、不伪造正文/成功/计费完成，成功Result路径保持。timeout诊断留error.details及响应diagnostics，不混入token用量。HTTP真实200空内容和直接SSE execution→真实ProviderRunLog重复持久的两个红例保留，修后含17/null/0和全unknown{}；provider430/0、跨层7/0，独立最终review通过。证据failed-usage-31，仅两生产与两原干净测试文件。
+
+两路最终源码统一mix check3407/0，force编译、codegen、xref、arch、ADR及I-CACHE通过；I1四例、I2三对、I3三例、N-NARR通过。首轮Credo报新增HTTP测试字符串引号readability一项，保留原红log，等价sigil修复后HTTP21/0、Credo773文件零问题。实际task_done因全工作树UI证据未选定而exit1，未制造完成manifest或拿旧页面代签新语义。随后完整scan实际21项19pass/2fail、7finding：五既有gitleaks误报、一历史凭证accepted_risk、task_done_manifest pending，逐项disposition连原report/top10归档；没有新凭证问题，原82WIP哈希全同。证据post-cd-31。没有新模型调用或桌面操作，旧真实语义partial与普通20/旧10后继缺口保持；R03仍doing。
