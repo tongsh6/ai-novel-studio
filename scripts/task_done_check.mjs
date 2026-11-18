@@ -1,250 +1,170 @@
 #!/usr/bin/env node
-
-import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+// Existing completion owner; design: docs/engineering/quality-gates.md §2.3.1.
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  artifactPath, beginScope, readScope, snapshot, currentForScope, changedPaths,
+  assertSameSource, beginExecution, finishExecution, verifyExecution,
+  readJson, writeNewJson, digest, git,
+} from "./lib/quality/task_done_identity.mjs";
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(scriptDir, "..");
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = parseArgs(process.argv.slice(2));
-const staleToleranceMs = 2_000;
-// 只承认当前原生验收生产者显式写出的 surface + driver 组合；surface 字符串本身不代签。
 const nativeSurfaces = new Set(["tauri", "tauri-native"]);
-const nativeDrivers = new Set([
-  "ax-native-system-ui",
-  "cua-native-system-ui",
-  "macos-cgevent",
-  "macos-cgevent-plan-matrix",
-]);
-
+const nativeDrivers = new Set(["ax-native-system-ui", "cua-native-system-ui",
+  "macos-cgevent", "macos-cgevent-plan-matrix"]);
+const existsSync = fs.existsSync;
+function must(ok, reason) { if (!ok) throw new Error("task-done: " + reason); }
 try {
-  if (args["ui-required"]) {
-    console.log(detectUiRequired(getTouchedFiles()) ? "true" : "false");
-    process.exit(0);
+  if (args.begin) {
+    beginScope(rootDir, required("begin"), required("task"));
+    console.log("task-done: baseline captured; not authorization or completion");
+  } else if (args["start-execution"]) {
+    beginExecution(rootDir, required("scope"), required("start-execution"), required("kind"), text(args["slice-id"]), text(args["ui-summary"]), text(args["scan-mode"]));
+  } else if (args["finish-execution"]) {
+    const result = finishExecution(rootDir, required("start"), required("finish-execution"),
+      required("log"), Number(required("exit-code")), required("command"), text(args["ui-summary"]));
+    console.log(result.status);
+    if (result.status !== "passed") process.exitCode = 1;
+  } else if (args["ui-required"]) {
+    const files = args.scope ? scopeState().files : dirtyFiles();
+    console.log(detectUiRequired(files) ? "true" : "false");
+  } else if (args["prepare-manifest"]) {
+    prepareManifest();
+  } else if (args["finalize-manifest"]) {
+    finalizeManifest();
+  } else {
+    checkManifest();
   }
-
-  if (args["latest-ui-summary"]) {
-    const latest = findLatestUiSummary();
-    if (latest) {
-      console.log(latest);
-    }
-    process.exit(latest ? 0 : 1);
-  }
-
-  if (args["write-manifest"]) {
-    writeManifest();
-    process.exit(0);
-  }
-
-  checkManifest();
-  process.exit(0);
 } catch (error) {
   console.error(error.message);
-  process.exit(1);
+  process.exitCode = 1;
 }
-
 function parseArgs(argv) {
-  const parsed = {};
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (!arg.startsWith("--")) {
-      continue;
-    }
-
-    const key = arg.slice(2);
-    const next = argv[index + 1];
-    if (next && !next.startsWith("--")) {
-      parsed[key] = next;
-      index += 1;
-    } else {
-      parsed[key] = true;
-    }
+  const accepted = new Set(["begin", "task", "scope", "start-execution", "kind", "slice-id",
+    "finish-execution", "start", "log", "exit-code", "command", "ui-summary", "ui-binding",
+    "ui-required", "prepare-manifest", "artifact-dir", "checks-start", "finalize-manifest",
+    "manifest", "checks-binding", "scan-mode"]);
+  const result = {};
+  for (let i = 0; i < argv.length; i++) {
+    const key = argv[i].slice(2);
+    must(argv[i].startsWith("--") && accepted.has(key) && !(key in result), "unknown/duplicate argument");
+    const next = argv[i + 1];
+    result[key] = next && !next.startsWith("--") ? argv[++i] : true;
   }
-
-  return parsed;
+  return result;
 }
-
-function writeManifest() {
-  const artifactDir = path.resolve(args["artifact-dir"] ?? "artifacts/task-done/latest");
-  const touchedFiles = getTouchedFiles();
-  const uiFiles = touchedFiles.filter(isUiRelevantFile);
-  const uiRequired = uiFiles.length > 0;
-  const uiSummary = normalizeOptionalPath(args["ui-summary"]);
-  const uiStatus = args["ui-status"] ?? (uiRequired ? "missing" : "not_required");
-  const manifestPath = path.join(artifactDir, "manifest.json");
-
-  mkdirSync(artifactDir, { recursive: true });
-
+function text(value) { return typeof value === "string" && value.length > 0 ? value : null; }
+function required(key) { const value = text(args[key]); must(value, "missing --" + key); return value; }
+function scopeState(scopePath = required("scope")) {
+  const scope = readScope(rootDir, scopePath);
+  const current = currentForScope(rootDir, scope);
+  return { scope, current, files: changedPaths(scope.value.baseline, current) };
+}
+function dirtyFiles() {
+  return [...new Set([
+    ...git(rootDir, ["diff", "--name-only", "-z", "HEAD", "--"]).split("\0"),
+    ...git(rootDir, ["ls-files", "-z", "--others", "--exclude-standard"]).split("\0"),
+  ].filter(Boolean))].sort();
+}
+function nativeEvidence(scope, current, files, ui) {
+  if (!detectUiRequired(files)) return;
+  must(ui?.summary_path && ui.binding_path && ui.slice_id, "UI delta requires explicit slice, summary and existing execution binding");
+  verifyExecution(rootDir, scope, ui.binding_path, current, "native", ui.slice_id, ui.summary_path);
+  const summaryPath = artifactPath(rootDir, ui.summary_path);
+  const problem = nativeUiProblem(readJson(summaryPath), path.dirname(summaryPath), ui.slice_id);
+  must(!problem, "native evidence rejected: " + problem);
+}
+function prepareManifest() {
+  const { scope, current, files } = scopeState();
+  const startPath = artifactPath(rootDir, required("checks-start"));
+  const start = readJson(startPath);
+  must(start.schema === "task-execution-start/v1" && start.kind === "checks" &&
+    start.scope_sha256 === scope.sha256 && start.scope_id === scope.value.scope_id, "checks start mismatch");
+  assertSameSource(start.source, current);
+  const ui = { slice_id: text(args["slice-id"]), summary_path: text(args["ui-summary"]),
+    binding_path: text(args["ui-binding"]) };
+  nativeEvidence(scope, current, files, ui);
   const manifest = {
-    schema_version: "1.0.0",
-    generated_at: new Date().toISOString(),
-    git_head: readCommand("git rev-parse HEAD").trim() || null,
-    touched_files: touchedFiles,
-    touched_file_hashes: hashTouchedFiles(touchedFiles),
-    ui_required: uiRequired,
-    ui_touched_files: uiFiles,
-    ui: {
-      status: uiStatus,
-      slice_id: optionalString(args["slice-id"]),
-      summary_path: uiSummary,
-      artifact_dir: uiSummary ? normalizePath(path.dirname(path.resolve(rootDir, uiSummary))) : null,
-    },
-    checks: [
-      {
-        id: "task-done-manifest",
-        status: "passed",
-        log_path: normalizeOptionalPath(args["checks-log"]),
-      },
-    ],
+    schema_version: "task-completion/v2", status: "running", generated_at: new Date().toISOString(),
+    scope_path: scope.path, scope_id: scope.value.scope_id, scope_sha256: scope.sha256,
+    task_path: scope.value.task_path, source: current, changed_paths: files,
+    baseline_wip: scope.value.baseline.wip_porcelain_z, ui_required: detectUiRequired(files), ui,
+    checks_start_path: startPath, checks_start_sha256: digest(fs.readFileSync(startPath)),
+    evidence_boundary: "Engineering execution identity only, not task PASS or full-matrix acceptance. Git-visible files exclude ignored runtime/build/dependency facts; actual owner evidence and task DoD remain required.",
+    native_scope: ui.summary_path ? readJson(artifactPath(rootDir, ui.summary_path)).scope ?? "unknown" : null,
+    task_acceptance: "not_asserted",
   };
-
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(manifestPath);
+  const file = artifactPath(rootDir, path.join(required("artifact-dir"), "manifest.json"));
+  writeNewJson(file, manifest); console.log(file);
 }
-
+function inspectManifest(file) {
+  const absolute = artifactPath(rootDir, file);
+  const manifest = readJson(absolute);
+  must(manifest.schema_version === "task-completion/v2", "unscoped or historical manifest cannot complete current task");
+  const { scope, current, files } = scopeState(manifest.scope_path);
+  must(scope.sha256 === manifest.scope_sha256 && scope.value.scope_id === manifest.scope_id &&
+    scope.value.task_path === manifest.task_path, "manifest scope mismatch");
+  if (args.scope) must(readScope(rootDir, required("scope")).sha256 === scope.sha256, "different requested scope");
+  assertSameSource(manifest.source, current);
+  must(JSON.stringify(files) === JSON.stringify(manifest.changed_paths), "task delta changed");
+  const startPath = artifactPath(rootDir, manifest.checks_start_path);
+  must(digest(fs.readFileSync(startPath)) === manifest.checks_start_sha256, "checks start changed");
+  nativeEvidence(scope, current, files, manifest.ui);
+  return { absolute, manifest, scope, current };
+}
+function finalizeManifest() {
+  const file = artifactPath(rootDir, required("manifest"));
+  const manifest = readJson(file);
+  must(manifest.status === "running", "only running manifest can be finalized");
+  let status = "failed", reason = null;
+  const bindingPath = artifactPath(rootDir, required("checks-binding"));
+  const binding = readJson(bindingPath);
+  try {
+    const state = inspectManifest(file);
+    const start = readJson(state.manifest.checks_start_path);
+    must(binding.execution_id === start.execution_id, "checks execution identity mismatch");
+    verifyExecution(rootDir, state.scope, bindingPath, state.current, "checks");
+    must(start.scan_mode === binding.scan_mode && binding.scan_mode === "full",
+      "only execution-frozen full scan can complete engineering verification");
+    status = "completed";
+  } catch (error) { reason = error.message; }
+  const final = { ...manifest, status, finished_at: new Date().toISOString(),
+    checks_binding_path: bindingPath, checks_binding_sha256: digest(fs.readFileSync(bindingPath)),
+    static_scan: binding.scan_mode === "skipped" ? "not_run" : binding.status,
+    static_scan_mode: binding.scan_mode,
+    completion_error: reason };
+  fs.writeFileSync(file + ".tmp", JSON.stringify(final, null, 2) + "\n", { flag: "wx" });
+  fs.renameSync(file + ".tmp", file);
+  console.log("task-done: " + status);
+  if (status !== "completed") process.exitCode = 1;
+}
 function checkManifest() {
-  const touchedFiles = getTouchedFiles();
-
-  if (touchedFiles.length === 0) {
-    console.log("task-done: no touched files; manifest not required");
+  const requested = text(args.manifest) ?? text(process.env.TASK_DONE_MANIFEST);
+  if (!requested) {
+    // This is the existing whole-tree scan consumer, not a task-completion assertion.
+    snapshot(rootDir);
+    must(process.env.TASK_DONE_CHECK_PURPOSE === "whole-tree-inventory", "scope/manifest missing; clean tree is not task completion");
+    console.log("task-done: explicit whole-tree identity inventory only; no task completion asserted");
     return;
   }
-
-  const requestedManifest = args.manifest ?? process.env.TASK_DONE_MANIFEST;
-  const manifestPath = requestedManifest
-    ? path.resolve(rootDir, requestedManifest)
-    : findLatestManifest();
-
-  if (!manifestPath) {
-    throw new Error("task-done: missing manifest. Run `bash scripts/task_done.sh` before final scan.");
+  const state = inspectManifest(requested);
+  const { manifest, scope, current, absolute } = state;
+  if (manifest.status === "running") {
+    must(process.env.TASK_DONE_CHECK_PURPOSE === "execution-preflight" &&
+      path.resolve(process.env.TASK_DONE_RUNNING_MANIFEST ?? "") === absolute,
+    "completion pending; running manifest is not completed");
+    console.log("task-done: execution identity preflight only; completion pending");
+    return;
   }
-
-  const manifest = readJson(manifestPath);
-  const generatedAt = Date.parse(manifest.generated_at ?? "");
-
-  if (!Number.isFinite(generatedAt)) {
-    throw new Error(`task-done: invalid generated_at in ${normalizePath(manifestPath)}`);
-  }
-
-  const latestTouched = latestMtime(touchedFiles);
-  if (
-    latestTouched > 0 &&
-    generatedAt + staleToleranceMs < latestTouched &&
-    !manifestContentMatches(manifest, touchedFiles)
-  ) {
-    throw new Error(
-      [
-        "task-done: manifest is stale.",
-        `manifest=${normalizePath(manifestPath)}`,
-        `latest_touched=${new Date(latestTouched).toISOString()}`,
-        "Run `bash scripts/task_done.sh` again after the latest edits.",
-      ].join("\n"),
-    );
-  }
-
-  const uiFiles = touchedFiles.filter(isUiRelevantFile);
-  const currentUiRequired = uiFiles.length > 0;
-
-  if (currentUiRequired) {
-    if (manifest.ui_required !== true || manifest.ui?.status !== "verified") {
-      throw new Error(
-        [
-          "task-done: UI evidence is required but not verified.",
-          `manifest=${normalizePath(manifestPath)}`,
-          "Run `bash scripts/task_done.sh --slice <slice-id>` so the real UI path is exercised.",
-        ].join("\n"),
-      );
-    }
-
-    const summaryPath = resolveOptionalPath(manifest.ui?.summary_path);
-    if (!summaryPath || !existsSync(summaryPath)) {
-      throw new Error(`task-done: UI summary is missing: ${manifest.ui?.summary_path ?? "<empty>"}`);
-    }
-
-    const summaryMtime = statSync(summaryPath).mtimeMs;
-    const latestUiTouched = latestMtime(uiFiles);
-    if (latestUiTouched > 0 && summaryMtime + staleToleranceMs < latestUiTouched) {
-      throw new Error(
-        [
-          "task-done: UI evidence is older than the latest UI edit.",
-          `summary=${normalizePath(summaryPath)}`,
-          `latest_ui_touched=${new Date(latestUiTouched).toISOString()}`,
-          "Rerun the slice UI verification.",
-        ].join("\n"),
-      );
-    }
-
-    const summary = readJson(summaryPath);
-    const problem = nativeUiProblem(
-      summary,
-      path.dirname(summaryPath),
-      optionalString(manifest.ui?.slice_id),
-    );
-    if (problem) {
-      throw new Error(
-        [
-          "task-done: UI summary is not accepted native evidence.",
-          `summary=${normalizePath(summaryPath)}`,
-          `reason=${problem}`,
-          "Use a current native summary (surface=tauri/tauri-native, explicit AX/CUA/macos-cgevent driver, no failure) for this slice.",
-        ].join("\n"),
-      );
-    }
-  }
-
-  console.log(`task-done: manifest ok (${normalizePath(manifestPath)})`);
-}
-
-function manifestContentMatches(manifest, touchedFiles) {
-  const recorded = manifest.touched_file_hashes;
-  if (!recorded || typeof recorded !== "object") {
-    return false;
-  }
-
-  const current = hashTouchedFiles(touchedFiles);
-  return JSON.stringify(recorded) === JSON.stringify(current);
-}
-
-function getTouchedFiles() {
-  const files = new Set();
-
-  for (const command of [
-    "git diff --name-only HEAD --",
-    "git ls-files --others --exclude-standard",
-  ]) {
-    for (const file of readCommand(command).split("\n").filter(Boolean)) {
-      const normalized = normalizePath(file);
-      if (!isIgnorableTouchedFile(normalized)) {
-        files.add(normalized);
-      }
-    }
-  }
-
-  return [...files].sort();
-}
-
-function hashTouchedFiles(files) {
-  return Object.fromEntries(
-    files.map((file) => {
-      const absolute = path.resolve(rootDir, file);
-      if (!existsSync(absolute)) {
-        return [file, null];
-      }
-
-      const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
-      return [file, hash];
-    }),
-  );
+  must(manifest.status === "completed", "task is not completed");
+  must(digest(fs.readFileSync(artifactPath(rootDir, manifest.checks_binding_path))) === manifest.checks_binding_sha256,
+    "checks binding changed");
+  const binding = verifyExecution(rootDir, scope, manifest.checks_binding_path, current, "checks");
+  const start = readJson(manifest.checks_start_path);
+  must(binding.execution_id === start.execution_id && binding.scan_mode === "full" && start.scan_mode === "full", "checks identity/mode mismatch");
+  console.log("task-done: engineering execution binding verified; task DoD/full matrix and baseline WIP completion NOT asserted");
 }
 
 function detectUiRequired(files) {
@@ -284,57 +204,6 @@ function isUiRelevantFile(file) {
   );
 }
 
-function isIgnorableTouchedFile(file) {
-  return file.endsWith(".bak") || file.endsWith(".tmp") || file === ".DS_Store";
-}
-
-function latestMtime(files) {
-  return files.reduce((latest, file) => {
-    const absolute = path.resolve(rootDir, file);
-    if (!existsSync(absolute)) {
-      return latest;
-    }
-
-    return Math.max(latest, statSync(absolute).mtimeMs);
-  }, 0);
-}
-
-function findLatestManifest() {
-  const taskDoneDir = path.join(rootDir, "artifacts/task-done");
-  if (!existsSync(taskDoneDir)) {
-    return null;
-  }
-
-  return readdirSync(taskDoneDir)
-    .map((entry) => path.join(taskDoneDir, entry, "manifest.json"))
-    .filter(existsSync)
-    .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0] ?? null;
-}
-
-function findLatestUiSummary() {
-  const sliceVerifyDir = path.join(rootDir, "artifacts/slice-verify");
-  if (!existsSync(sliceVerifyDir)) {
-    return null;
-  }
-
-  const expectedSliceId = optionalString(args["slice-id"]);
-  return readdirSync(sliceVerifyDir, { recursive: true })
-    .filter((entry) => path.basename(entry) === "summary.json")
-    .map((entry) => path.join(sliceVerifyDir, entry))
-    .filter(existsSync)
-    .filter((file) => acceptedNativeUiSummary(file, expectedSliceId))
-    .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)
-    .map(normalizePath)[0] ?? null;
-}
-
-function acceptedNativeUiSummary(file, expectedSliceId) {
-  try {
-    return nativeUiProblem(readJson(file), path.dirname(file), expectedSliceId) === null;
-  } catch {
-    return false;
-  }
-}
-
 // 显式摘要与 latest 选择共用同一判据，避免两条路径对“原生通过”给出不同答案。
 function nativeUiProblem(summary, dir, expectedSliceId = null) {
   if (!nativeSurfaces.has(summary.surface)) {
@@ -345,6 +214,7 @@ function nativeUiProblem(summary, dir, expectedSliceId = null) {
     return `driver=${JSON.stringify(summary.driver)} is not an explicit native driver`;
   }
 
+  if (summary.all_checks_passed !== true) return "positive all_checks_passed=true completion evidence missing";
   const failure = explicitFailure(summary, dir);
   if (failure) {
     return failure;
@@ -401,48 +271,4 @@ function explicitFailure(summary, dir) {
   }
 
   return null;
-}
-
-function readJson(file) {
-  try {
-    return JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(`task-done: cannot read JSON ${normalizePath(file)}: ${error.message}`);
-  }
-}
-
-function readCommand(command) {
-  try {
-    return execSync(command, {
-      cwd: rootDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return "";
-  }
-}
-
-function normalizeOptionalPath(file) {
-  if (typeof file !== "string" || file.length === 0) {
-    return null;
-  }
-
-  return normalizePath(path.resolve(rootDir, file));
-}
-
-function optionalString(value) {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function resolveOptionalPath(file) {
-  if (!file) {
-    return null;
-  }
-
-  return path.resolve(rootDir, file);
-}
-
-function normalizePath(file) {
-  return path.relative(rootDir, path.resolve(rootDir, file)).replaceAll(path.sep, "/");
 }

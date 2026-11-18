@@ -4,6 +4,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `task_done_identity.mjs` | 现 task_done owner 的 Git 可见文件类型/模式/内容身份、基线增量与执行证据绑定；不管理任务状态，不把 Git 指纹冒充全部运行环境。消费者为 `scripts/task_done_check.mjs`；设计见 quality-gates §2.3.1。相邻 `task_done_identity.test.mjs` 含真实 CLI/Shell 接线，用独立临时 Git 反例核查跨提交、混合 WIP、源码漂移和证据篡改。 |
 | `yaml_bridge.py` | 标准 YAML 解析桥：stdin 收 `{root, paths}`，用 PyYAML SafeLoader + 重复键检测解析，输出 JSON `{path, ok, data, error, line}`。唯一 YAML 语法入口。 |
 | `manifest.mjs` | manifest 语义校验与查询的唯一实现（规则见 `tasks/slices/B41-quality-evidence-foundation.md` §6）；`loadProject` 是唯一 reader，并把实际目录 manifest 列表与 driver 存在性作为事实挂在 Project 上；`validateProject` 只消费这些事实做纯判定，外部 driver/`tauri --list`/`ci.md` 检查由 `validate()` 编排。被 `quality_manifest_check.sh`（经统一 Node 运行作用域）、`quality_accept.sh`、e2e 聚合器消费。 |
 | `manifest_cli.mjs` | `validate` / `list` / `ids-by-tier` / `field` / `registry-status` CLI；执行入口与聚合器通过它读 registry。 |

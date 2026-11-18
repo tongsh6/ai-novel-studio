@@ -119,7 +119,7 @@
 | `smoke_test.sh` | smoke test 入口。 |
 | `stage.sh` | stage 桌面启动入口。 |
 | `task_done.sh` | 任务完成统一门禁入口。B84：资源初始化前接入同一 run scope；`task_done → ai_static_scan` 嵌套共用父 run，不重复创建/不结束父 scope。 |
-| `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
+| `task_done_check.mjs` | 任务范围与执行证据身份检查；前置 `--begin <scope.json> --task <tasks路径>`、完成时显式 `--scope`，包含期间提交及并行变化。完整源码/产物绑定和实际检查结果不替代任务 DoD；设计见 quality-gates §2.3.1。 |
 | `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
 | `native_question_transport_proxy.mjs` | B26/AU08/B71 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线、改绑负例，或对 `get_toc`/`get_chapter_content` 注入一次性 error/有界 delay；HTTP 只对真实 session resume / turn replay 额外记录 method/完整 path/status/request_id/scope 与有界 response JSON 完成状态（非候选路径保持旧日志字段），对外原样透传压缩字节、仅对证据副本解压（gzip/x-gzip/deflate/br）后判定完整 JSON，未知编码标 unsupported、超限/截断/非法 JSON 不冒充完整；不改请求头、不记录密钥，生产代码无感知。 |
 | `native_question_transport_proxy.test.mjs` | AU08 channel 故障契约与真实 WS/HTTP 代理自检：error 零上游、ref/topic 绑定、耗次恢复、delay 上限与真实转发；HTTP chunked resume/replay 完整 capture、scope/request id、gzip/br 解压后完整、非法 JSON/坏压缩/未知编码/超限拒绝。 |
@@ -162,7 +162,7 @@
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 | `native_b71_auto_maintenance_drive.mjs` / `.test.mjs` | 现役 R03 冻结交错、取消与恢复流程：`B71_SLICE=b71-first-consumer B71_PROVIDER=splash B71_AUTO_MAINTENANCE=1 bash scripts/native_b71_batch.sh <tag>`，复用 R03 runtime recipe 与封存20+5作者输入；早期讨论→A waiting→B completed→同问题回答 A→真实取消→owned客户端重连→checkpoint提交失败→原runner BEAM换代→固定新来源恢复。精确 ACK/来源匹配由相邻测试验证；压力/未触发摘要取消等缺证如实保留，不接管或卸载外部 Splash。仍使用的 `answer-mode` 路径复用同一回答面板操作。现役设计见 `docs/design/acceptance/model-interaction-coverage.md` §5。 |
 
-- `task_done_check.mjs`：校验本轮改动哈希与真实 Tauri 证据；可用 `--manifest` 或 `TASK_DONE_MANIFEST` 显式指向 `artifacts/slice-verify/<slice>/manifest.json`，不新增历史 `artifacts/task-done/` 目录。
+- `task_done_check.mjs`：以实施前机器封存的基线计算任务增量，校验完整 Git 可见源码及同源真实 Tauri 证据。`task_done.sh --begin artifacts/slice-verify/<scope>/scope.json --task tasks/<task>.md` 只记录开始身份，不表示授权或完成；后续 `--scope` 沿用该身份。复用 UI 需显式 `--ui-summary` 与已在执行时形成的 `--ui-binding`，不能完成时补签旧报告。`--manifest` 或 `TASK_DONE_MANIFEST` 指向同 scope 清单；running 仅用于同源嵌套预检，普通完成消费者拒绝。历史证据不改写，不新增 `artifacts/task-done/` 目录。
 
 
 ### B26 原生系统 UI 验收

@@ -14,6 +14,7 @@
 3. **针对本批明确回答七问**：Contract、Invariant、Boundary、Consumer、Proof、Acceptance Driver、Exploration（不涉及作品事实的必须写明不适用原因）。
 4. **存在性审计红线**：每个可能新建的类/模块/表/列/Schema/Tool/API/事件/配置，查实仓库中现存等价实体和真实调用者，给出 `reuse / refactor-and-retire / truly-new / reject`，并写出“现存不能胜任”的证据。无新对象也要写 `none`。
 5. 记录可触及文件/禁止触及文件、原始失败基线、成功与否判据和恢复点；跨 Frozen 契约冲突时**先修订/裁决设计，不能先写代码再补批准**。
+6. 实施前通过 `bash scripts/task_done.sh --begin artifacts/slice-verify/<本批唯一目录>/scope.json --task tasks/slices/B87-model-interaction-request-projection/Rxx.md` 机器封存开始范围；实际替换本批目录与任务卡。该记录不授权、不验收，只固定任务增量与既有 WIP。历史任务缺记录不得事后追造，按 quality-gates §2.3.1 保留缺证与版本核账。
 
 ## 2. 实施原则
 
@@ -56,10 +57,10 @@ MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs
 MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs
 node scripts/next_task_check.mjs
 git diff --check
-bash scripts/task_done.sh
+bash scripts/task_done.sh --scope "$TASK_SCOPE"
 ```
 
-`test_env` 在未指定 `NOVEL_TEST_DB_DIR` 时创建并迁移一次性测试库，不重置作者数据库；直接裸跑 `mix run` 可能落入缺表的新测试库，R00 已保留该失败反例。所有本批文档/代码修改完成后运行 `task_done.sh`：它先生成真实完成清单，再完整执行 `bash scripts/ai_static_scan.sh --top 10`；有 UI 改动时仍须按该入口提供真实页面证据，不能手造 manifest。工具因沙箱日志路径或网络失败时，保留失败并只纠正运行前置，不安装/升级、不改扫描规则、不把未扫描记为通过。
+`test_env` 在未指定 `NOVEL_TEST_DB_DIR` 时创建并迁移一次性测试库，不重置作者数据库；直接裸跑 `mix run` 可能落入缺表的新测试库，R00 已保留该失败反例。`TASK_SCOPE` 必须指向实施前已封存的本批 scope.json。所有本批文档/代码修改完成后运行 `task_done.sh --scope "$TASK_SCOPE"`：它绑定实际执行前后源码与真实检查结果，完整扫描成功后才封存工程结果；有 UI 改动时另传实际 `--slice`，复用已有证据还须提供执行时形成的 `--ui-binding`。不能手造 manifest、以 quick/skip 代替完整检查，或把无 scope 的全树扫描称为任务完成。工程证据身份成立不自动代签本卡场景覆盖或 PASS。工具因沙箱日志路径或网络失败时，保留失败并只纠正运行前置，不安装/升级、不改扫描规则、不把未扫描记为通过。
 
 有前端/UI 改动追加 `cd frontend && pnpm typecheck && pnpm lint && pnpm test` 及适用 Tauri/AX 场景。涉及 Provider/会话/权限/采纳的后端行为变化，必须从真实工作台路径补证明；产品代码不得植入验收专用逻辑。测试失败/外部环境缺失要记录完整命令、退出码与现象，不能不跑却写“通过”。
 

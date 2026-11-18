@@ -1650,3 +1650,13 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **签收出口仍分开。** 应用机制/信息保真、真实集成、版本桥接与模型质量观察不混签。当前全工作树task_done还包含B85等UI变更，要求fresh原生证据；旧R03截图不能代签整树，也不能touch原件、提交未验收代码或修改规则绕过。故此处不虚报全门禁绿、不直接改R03为PASS；普通20原失败/未执行保留为成本实验缺证，后续按R04职责处理。B85现场仍保留，未启动其原生验收。
 
 **本轮最终验证。** 全量`MIX_ENV=test mix check`实际3413 tests/0 failures，force compile、codegen、xref、架构/ADR与I-CACHE通过；Credo773文件无问题。完整`bash scripts/ai_static_scan.sh --top 10`为19pass/2fail/7findings，本次窗口客户端模块规模问题已按职责拆分消除，未抬阈值。剩余为五项既有gitleaks误报（Pencil元数据、确认fixture、RFC nonce、B63/E10 spec标识）、一项ProjectGod历史config accepted_risk及全工作树task_done_manifest pending；不改历史/规则/处置台账，也不补造UI完成文件。日志与原report/top10/disposition归档application-boundary-35/static-scan。仅本轮测试和本节按review粒度提交，其他WIP及暂停B85不夹带；无push、无新原生或模型试跑。
+
+### 14.50 工程出口归责机制修正，不以无关验收替代 R03（2026-11-18）
+
+**根因与设计。** 对照愿景的可信来源/责任边界、项目画像的适度工程及本协议“本批唯一目标”，现 task_done 把 diff HEAD+untracked 等同任务是单任务独占工作树假设：混合 WIP 会误归责，提交后 clean 又可能直接免证。历史 ec0958cba 防漏页面验证，1dc8a419 修测试路径误判，f02b5f95 强化同 slice 身份，目的均是准确证明，不是无限扩大任务。只读比较后不为 R03 造隔离重放框架，也不把 B85 七次 release 启动场景当 R03 出口；B85 的双 profile 仅局部范围且原 summary 不满足通用证据契约。
+
+**前向机制。** quality-gates §2.3.1 先冻结任务基线、增量、完整 Git 可见受测身份及反例，再在现 task_done.sh/check owner 修正；仅抽 task_done_identity helper，真实消费者仍为现完成入口/静扫，不新增任务状态台账或产品 hook。机器前置基线→候选覆盖跨提交/并行变更；原 WIP 保留为环境不冒充本批。执行前后指纹、同 scope/slice、summary/log/native-ui-complete/failure 身份无条件核对，full/quick/skipped 在开始冻结；running 仅同源嵌套预检，失败/quick/skip 不签完整工程执行。Git 可见源码不冒充 ignored 配置、bundle 或外部依赖验证；工程结果不自动签任务 DoD/full matrix。B87 共享协议及既有脚本索引同步迁移，不接受自由路径排除或 R03 特例。
+
+**验证与真实失败。** 独立临时 Git、CLI 与 Shell 接线23/23，包括提交后 clean、混合/并行 WIP、删除/重命名/模式/mtime、ignore集合变化、symlink父与文件类型拒绝、缺基线/Git失败、运行漂移、旧输出/错slice/篡改证据、running、quick/skip、失败文件删除不能变绿。初次CLI初始化TDZ及fixture临时路径别名失败均保留，修复后复跑；独立复审要求并完成扫描模式前置绑定与失败sidecar封存。主线程独立重跑23/23；语法、diffcheck、module-size通过。完整静扫仍19pass/2fail/7findings：六项既有gitleaks处置原样保留；task-done明确scope/manifest缺失，不再把整树WIP或clean状态偷换为任务证据。没有补造本轮/历史开始身份以取得绿灯。证据task-scope-gate-36及artifacts/slice-verify/task-completion-owner-20261118。
+
+**重新核账。** §14.49的R03应用证据、版本桥和当前v2矩阵继续有效，批30/33及普通20原失败/未执行不改。已纠正“无关B85 UI必须为R03重新全验”的归责机制，但这不产生一次新的R03运行，也不补齐历史执行身份。R03仍doing；现阶段剩余是有来源的工程执行绑定与任务覆盖核账，不是继续考模型故事答案。B85及所有原WIP保留，R04仅做过只读设计调查，未开实现；无新App、模型调用或push。
