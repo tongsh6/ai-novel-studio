@@ -1511,3 +1511,15 @@ C首次prun_mwllth8r_hcx/pcall_mwllth8r_hcw与原request-66唯一绑定；请求
 证据cancel-audit-29：真实TCP→SSE→LLMLog原请求红13/1（0日志）到绿；取消尾消息通过held-token+真实accepted连接控制顺序，验证一次attempt及对端close，不靠睡眠猜时序；三wire部分17/null/0、无量/显式零、预gate取消、重复通知、事件顺序均覆盖。真实DB同execution提交两次，output/events/usage汇总保17/null/0，16/1→16/0。provider目录428/0，全mix check3404/0、force编译/xref/arch/ADR/I-CACHE、I1 4/4、I2三对、I3 3/3、Credo773文件零问题及独立final review通过。原WIP82哈希全同。
 
 最终完整scan仍19pass/2fail/7，既有五gitleaks false_positive、一accepted_risk及task_done_manifest pending，report/top10/disposition归档，不造完成manifest。局部机制与确定性绿不代签真实C/D；28原FAIL及语义partial保留。源码门禁后按作者持续桌面授权与现场冲突检查冻结下一单批，不更改输入/阈值/keep4/取消上限或D原载荷恢复标准。
+
+### 14.39 单批原生 C/D 通过，语义仍 partial（2026-11-18）
+
+独立成功preflight冻结eb427953与原WIP82、原输入哈希和空index，唯一运行c8-audit-fixed-30/native-01（wc_job_fyNzOUz3Z7s8mGas）。原20+5输入完整结束，终态exit0/native PASS；未追加输入、修改阈值、重跑普通20或将旧失败覆盖。C真实取消及产品原请求审计、D真实持久失败及跨BEAM进程原载荷恢复均实际进入。
+
+C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并暂停，54.689Z下游断开、55.453Z disarm；取消产品日志恰一次local_attempt、usage未知{}、status0不伪作HTTP成功；不宣称vendor计算停止。D prun_mwlnhdo0_kzd/pcall_mwlnhdo0_kzc：注入回执、04:58:08.987017Z产品checkpoint_persistence_failed日志与checkpoint数11→11共同证明失败不提交；BEAM 59704→87739，同库重启后以原响应SHA1c304061db276a71f23e58e1cda48fb862662b6047befe492d35b78f8c4e2217及原plan恢复，04:59:10.126666Z唯一canonical771683cc-124b-4a97-babd-02d2a2fba451，capsule清空、完整原日志中同源模型执行仅一次。
+
+独立independent-cd-final.json先核17项。为避免拿after-recovery快照冒充整批末证据，停机后另以mode=ro&immutable=1/query_only读取最终DB，保存independent-terminal-db-proof.json（SHA5c5b4471d4218386478f1ea07d073d4535e7dd98811062607d2f65bced347de3），明确修正旧报告时间范围、不覆盖快照：149条canonical/51 ProviderRun/21 checkpoint，9项末态检查全真，D仍恰一次且原响应/hash/plan不变，C无迟到canonical或checkpoint；DB前后SHA68f591864ebf010487e4290e623faa97f9b167cd052f007a8edd6a1b954843ff不变。原始证据哈希不变，05:15:07.213Z cleanup remaining=[]，owned进程及四端口清理。亲看interleaved-a-waiting/cancelled-run/after-recovery实际截图并存visual-review.json：单问题正文、功能回答区、取消后普通输入和恢复后整理提示可见；截图不代签DB/时效，问题无Markdown语法的图不证明其样式。
+
+语义独立按原文仍partial：10确实交付四场单双视角收益/风险/证据；11实际完整回查10，C请求保留同一原文，不再复现28“未登记=未交付”。但仍把未单列格式当欠项、将模型提出切换点误作作者要求。停机最终canonical独立提取及independent-tail-semantic-review.json（SHA3a1d1dfbef729b82c03755d949bee0317b79bbf843ac13d219db68e03c69f611）确认20确实回查1/10、控制3准确保留作者14“只公开账页被改、不公开父亲是否活着”、未扩展写作/场景采纳授权；仍把具体“早段更正规程”建议升级必需项，将已替换决定兼容性与范围外全书核对重新挂账。工具PASS不倒签11/C语义，不把正确检索当正确判断。
+
+因此C8取消/恢复机械链已闭合；R03仍doing，R04未开始，普通20失败与旧10 successor证据缺口原样保留。下一步针对承诺归属、格式与语义覆盖、建议和授权边界修责任设计与独立反例，先做非模型审查，不为追绿重复试跑；既有scan19pass/2fail/7及完成manifest pending不被本原生结果抹去。
