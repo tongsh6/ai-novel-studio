@@ -414,6 +414,10 @@ v2完整材料形状固定为`{material_kind:"quoted_discussion_sources",sources
 
 **摘要消费的证据边界**：RequestIR.Projection 是 checkpoint 展示的唯一 owner，须明确摘要与保留片段不是穷尽清单，未提及不证明原文不存在，沿已有 source/locator 按需回查。后继对“已提供/未提供”的判断都受实际观察范围约束；针对被整理历史作缺项、从未交付等否定结论前，应通过既有 `session_message_read` 核对相关来源的足够原文及 coverage/omissions，不能从节选缺省推导欠项。未读、分页未覆盖或权限/预算不足时只能说明当前不能核实的具体范围，不能改记为未交付；已经有充分原文证据不机械重复读取。不强制扫描全会话来证明“从未”，应缩小结论到已核回合/材料范围，无法覆盖则保持未知。共同材料确实适用时认可其覆盖，不强制重复排版或固定表格格数；作者后续撤回/重开选择按真实顺序承接，不把先前选择抹成从未发生。共有语义规则由既有 AuthoringSemantics 消费，读取/分页/观察回流复用现役 owner，不加后台求证循环或关键词完成判定器。
 
+
+
+**保留片段的中性展示契约（2026-11-18，批33后表示层审查）**：DiscussionSummary.projection 当前将 v2 `retained_fragment_indices` 重建的所有源片段放入 `retained_obligations`，而确定性验证仅证明来源与字节，不证明其全部是当前义务；外层 `model_derived_history/authority:none` 不能消除该类别标签的误导。现役临时投影统一使用 `retained_source_fragments`，只表示被保留的原文，不判定未履行、已履行、建议或作者选择。当前 v1/v2 都走该中性展示；合法历史 v1 原响应中的 `retained_obligations`、原响应哈希、严格读取和来源执行资格不变，v2 原始响应/索引协议亦不变。仅替换派生展示字段及私有辅助命名/真实消费者，不新增 prompt 文句、状态、台账或语义裁决器，不将派生字段持久化进 canonical/capsule。此变更不需要升级原响应协议或 AuthoringSemantics 版本；真实当前三 wire 与历史 replay 必须核验中性字段、原文和来源保持。它只消除应用附加的不成立分类，不证明模型将正确更新责任，不能签批33排序漂移已修复；独立反例及决策边界见 B87 §14.46。
+
 **真实历史读取而非旧请求兼容**：已核实历史验收副本存在合法v1 canonical checkpoint及真实ProviderOutput同hash原响应，实际消费者要求保持可读。现役纯契约保留v1原格式的严格读取/逐字引文校验/投影，不再生成v1新请求，不改写原响应，也不释放已占用来源。现役Compaction在每个checkpoint之前完整canonical历史上复用MessageCoverage解析源，然后为三个wire生成仅本次展示材料；Projection只渲染该派生结果，不能从摘要反推原文。派生片段或展示字段不进入canonical/codec/私有capsule，不保存第二份摘要。v1/v2都绑定相同真实消息身份；历史缺源/冲突仍失败关闭。
 
 checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_ref/provider_run_ref`：原始响应字节及真实执行归因；entries 从原文解析，不双存第二份摘要真源。SHA-256 对真实 UTF-8 响应计算，并由既有 ProviderOutput 的安全内容摘要持有同一 hash；实际 Provider 事实提交成功且身份/状态/hash匹配后，才允许 checkpoint 生效。恢复同样核验来源，不补造调用或猜相同长度。普通系统整理说明与模型讨论摘要分开，后者不能升格为 canon、观察、已执行结果或授权。
