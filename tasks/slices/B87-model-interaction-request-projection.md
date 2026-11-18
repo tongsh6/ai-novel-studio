@@ -1449,3 +1449,11 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 代理仅旁路解析证据副本，恰把原字节前缀转发至首个完整非空正文SSE record边界，暂停其后传输最多30秒。仍需同prun真实持久chunk及在途证明后AX双确认；代理只记中性disconnect，由真实命令/ACK、产品cancelled、同执行关闭与无迟到checkpoint独立判取消。暂停超时/清理不代签，任何情况下都不宣称停止vendor算力。D之前一次gate必须关闭且连接清空，后续纯透传；原D响应/plan/hash、事务回滚及跨BEAM一次提交不变。
 
 独立复审发现并修了absolute URL旁路、清理误归因、首record边界不足与新增端口终局漏查；真实本地HTTP反例及完整Node1141/1141通过，最终完整scan19pass/2fail/7仍既有manifest/gitleaks。新脚本索引按index-only提交，去新增行后与原README快照逐字相等，其他原WIP未入提交。证据c8-stream-gate-24。实现/单测不代签C8，下一步仅按新机制冻结一次原生验证，原失败、普通20及语义缺口保留。
+
+### 14.33 受控传输首批的启动偏差与桌面缺证（2026-11-18）
+
+唯一批c8-stream-native-25/native-01（wc_job_krJ7r70vGLZiND7M）启动前编排预检误把README“两条索引加一空行”断言为总两行，shell没有fail-fast仍启动。此为执行错误，原stderr保留，launch-audit.json明确启动后补写、不是preflight；没有补造通过记录。独立核f436b452提交01:51:44Z早于runner ready01:53:11.114Z，runner生产源HEAD一致，20+5原输入source/current/batch拷贝哈希一致；81原WIP哈希未变，README仅上述插入且原字节全保留。这些允许单独审真实能力证据，但不能宣称启动门禁合规；后续启动必须set -e及前置成功后才分发，不据此补跑本批。
+
+实批在A提问后、点击开始新讨论前因owned_native_surface_not_onscreen停止，未进入B、C门控或D恢复。最后本批输入为02:05:03.453Z发送A，其后无本批桌面操作；02:08:44.074Z WindowServer记录该App WebKit NotVisible，44.285Z得到问题，45.068Z截图失败，45.259Z可见性保护停止。主窗口13644仍存在但on_screen=false，is_hidden=false/is_active=false/AXwindow0；无本批hide/Space热键/关闭动作。近时段读电源日志未发现睡眠/唤醒或屏保启动证据，现有防休眠仍开；10:10当地时只读前台是ChatGPT，不能由此归责用户或推定失败时的切换原因。没有failure.jpg，不声称看过；没有抢占桌面或重新激活。
+
+代理51请求（31GET/20POST），50完整响应received/delivered长度和hash逐字一致，19个结束POST与产品LLM原请求唯一匹配；最后在途请求由cleanup断连，不是用户取消。registry window/arm/pause/disarm均0，因此只能证实际透明转发，不能签门控取消或D。四端口4657/4661/51474/51475无监听，owned runner/backend/proxy/app PID均无残留；independent-outcome-review.json与窄范围OS日志保存上述证据。下一真实验证需明确可持续原生窗口可见的桌面操作时段，不再盲跑/抢前台；R03仍doing，启动程序偏差、桌面环境缺证与既有20轮/语义缺口分别保留。
