@@ -1429,3 +1429,13 @@ C8前置已另由2f14a861/b449a776实现：固定次序、取消前真实claim/d
 先按9cd80f47/7ee32151修验收§5.2，再由140f0f09实现：固定C/D输入窗口，锁全部持久准入中时间最早者，不先按状态、chunk、响应合法性筛赢家；冻结pcall/prun、全来源集合和原计划。当前保护集由首份准入前的不可变canonical重建，精确微秒、缺时间/等刻多义/时序倒置即失败；后续新item不能追溯解除当时保护。保留真实混合item、永久claim、scope/原文、确认前同目标、取消后真实request及D原响应/回滚/跨BEAM一次恢复全链。
 
 独立审查先发现终态快照可能误放原受保护来源，写红反例后修复并复审；IO fixture独立literal迁移，先9/13再13/13，不用实现派生预期。完整native与两驱动1108/1108、module-size通过；完整扫描19pass/2fail/7，仍为既有task_done及gitleaks处置，日志c8-admission-21。before快照毫秒与DB微秒同刻边界会保守拒绝，不冒充已证明顺序。尚未执行新实模，不以这些检查关闭C8；固定窗口无summary或首份无法取消仍须失败，旧c8-fixed-20、普通10/20partial不重写。
+
+### 14.31 原生首摘要观测的真实字段反例（2026-11-18）
+
+冻结e8f53580、原20+5输入哈希及预算执行一次c8-first-admission-22/native-01（wc_job_sYQJsmDMBDJcj4qu），保护资格已通过，首摘要prun_mwlfjuxe_jki于01:15:55.358562准入，55.938保存running首快照。01:16:18.525667起123条非空chunk至19.199897，output于19.201707持久化，HTTP200/completed；观察器却始终未判可取消，最终first_summary_ended_before_cancel停止。精确wire中取消命令0次，D未开始，不能把自然完成当取消/恢复成功。
+
+独立DB、源码及日志一致：现役ProviderEvent.emitted_at允许nil，AdapterExecution仅started填值，真实dispatch/全部chunk均nil；外部inFlightSummaryForRun错误将可选emitted_at作为必需条件。应修外部事件证据owner，使用真实持久时间与同执行sequence，不为验收修改产品事件，也不把started替代非空chunk。另本次首chunk至output仅约676ms，现轮询含300ms间隔及AX双确认；字段修复不保证真实取消窗口足够，未记录逐次predicate耗时，不能进一步编造漏采耗时因果。
+
+first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际failure.jpg已查看并保存visual-review.json；UI最后为完成回复、普通输入而非取消成功界面。owned本批PID32314已清理、remaining=[]；旧失败原样保留。
+
+独立语义核A及紧接复述正确承接保留秘密，11及C后来降为未确认；但冻结11确有晚到作者措辞“仍未确认”，属于层级/指令冲突未澄清，不能直接归为遗忘或假定只指读者。另一确定缺陷独立成立：11未回查原表，错误将10已提供的若干风险/收益/文件示例标成未交付，C部分继承；实际交付保护尚未可靠。R03仍doing，普通20/后继窗口、C取消、D原响应跨BEAM恢复均不能代签。
