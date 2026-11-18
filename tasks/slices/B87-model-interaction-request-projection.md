@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-18：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与普通20成本缺证不倒签，R04–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-18：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -1738,3 +1738,32 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **工程实际证据。** 同scope完成入口退出1的原记录保留。另完整执行无scope task_done的全静态inventory（明确不宣称任务完成）：19pass/2fail/0skip，I1/I2/I3/N-NARR/I-CACHE、前端与调度/规模等检查通过；gitleaks仍是既有5条false_positive和1条accepted_risk，未改处置。Semgrep首次因官方auto规则下载TLS EOF退出2；唯一有界重试在连接恢复后由原Job对账为completed/exit0，511规则/2269文件/0 findings，无禁TLS、跳规则或重复执行。原始静扫和重试结果并列保留，不改写19/2报告。全量mix check仍为3415/0，验收消费者focused67/0与100/0另列。证据均在本批scope目录，原生/失败/成本原始文件保留。
 
 **checkpoint边界。** 按授权仅提交本批可review修复与证据记录，混合WIP文件只取本批hunk；不把局部checkpoint当作本卡要求的整批PASS。精确分类Token仍not_collected、最终checkpoint后继请求未采集、原生成功执行绑定/同scope完整task_done仍缺，R04保持doing，不推进R05。B85、原WIP、旧批33质量partial及旧20中断不改签，不push。
+
+### 15.5 R04 应用职责核账与当前验证阶段
+
+按作者“研发应用，不是测试模型能力”的既有方向复核§15.4限制，不从工具输出倒推新目标。R04仍负责同事实3/10/20无旧完整Scope无界重复、稳定前缀、三wire顺序与真实来源保真；原FAIL不改。
+
+**成本口径。** R04步骤4引用R01；R01卡要求“分类精确字节和可得Token”，允许分组tokens为not_collected，§11.21依此签测量PASS供后续沿用。现39调用分类UTF-8字节、3/10/20前缀和供应商实际input/cached/output可复算；原usage没有分类明细，现役没有经验证Q4分组tokenizer。缺分类Token是测量限制，不额外升级为应用硬门；不安装下载或用比例假造。历史独立3/10/20与本次20前缀分列，不冒称严格同输入/配置A/B。
+
+**末项不是新增模型轮次。** offline02的18个next_request中17项真实通过，末1未观察。末项为第20轮run_mwly312p_rmc的seq9 CP（canonical index106），仅覆盖第17轮run_mwlxwtn4_n0n的seq2 Scope及seq4 assistant、call_ids为空。同型Scope+讨论已有前14个真实后继；2个工具覆盖及更复杂第16轮三Scope+讨论也已有19/20轮实际消费，复杂项由pcall_mwly52tu_rt2证明。23/23业务请求原文/合法Scope/保留讨论全真。没有新增未证应用分支，依§14.48–49不因窗口外unknown自动加第21轮；该末项未来消费仍不写成已观察。
+
+| R04应用效果 | 同责证据与边界 |
+|---|---|
+| 当前Scope、交错run、revision | 真实Judgment请求compose后核owner；两组真实DB同/异Scope反例、旧9→新1及三wire前缀，不宣称曾有执行越权。 |
+| 合法覆盖与材料保护 | CP3当前v1/v2×3/10/20独立DB、选择器、JSON恢复矩阵；真实20 canonical审计、23请求无损、17后继。39/39作者绑定不替代Scope/工具/讨论核验。 |
+| 三wire、恢复、Replay、缓存 | CP2/CP3/CP4持久段、owner恢复幂等、common投影/压缩及I-CACHE。合法覆盖改变动态历史前缀；原报告3个rewritten保留，不用cached量代证正确性。 |
+| 增长与工作台 | 唯一原生20、冻结输入/隔离DB、39调用、当前Scope第11后窗口稳定；精确分类字节和实际总Token；原FAIL、另名复核、源桥及原文UI/刷新事实共同可追溯。 |
+
+**Provider可知差异。** VS-00L§6规定：Chat为system/messages/tool_calls/tool_call_id；Responses直接用input items/function_call/function_call_output，工具身份是call_id不是item.id；Anthropic用独立system及text/tool_use/tool_result块，客户端不合并相邻user，服务端合并/缓存不由机械测试代签。本次实跑仅Splash Chat，其他两wire以同IR、原文/工具闭合和I-CACHE证明，真实厂商行为仍属B82/B71。finite_mode只能显式覆盖实际route缺失能力，否则Gateway拒绝；本批无新增有限模式或静默降级。reader双精确header只读不可变历史证据，不新增产品双协议。
+
+**前向验证身份。** checkpoint50e02d8d后实施源未改。依§14.51既有做法，在本阶段修改前封存 `artifacts/slice-verify/b87-r04-current-application-20261118/scope.json`，只覆盖现在验证和签收记录，不替代原实施scope或失败native绑定。当前实测8个Elixir文件99项、4个验收消费者151项，合计250/250；覆盖三wire、规模、真实DB、owner、恢复/Replay及合法/非法来源。测试前后Git可见delta为空，owned run退出0且清理完成；1046产品文件hash与原生执行前相同。下一步在此同scope完整执行工程入口，不改门禁、不借clean免证、不重跑模型。
+
+### 15.6 R04 应用范围 PASS 与 R05 独立交接（分层证据核账）
+
+**Outcome：PASS（当前R04应用范围）。** 独立最终审查按原卡唯一目标与§15.5逐项核对，未发现剩余实质应用阻塞。当前有效Scope/真实历史无无界重复、合法覆盖、三wire保真、跨run/恢复/Replay和I-CACHE，由原生工作台20轮、原39调用的独立复核、版本桥及当前250项测试共同证明；不是单凭工程manifest或作者绑定39/39签收。原native记录自身的native_ui_evidence、可见结果、20轮完成及刷新事实成立；其验收reader错误已按真实消费者修复，不把旧FAIL改成PASS。
+
+**工程出口。** 当前验证阶段真实完整task_done退出0，首manifest为 `artifacts/slice-verify/task-completion-20261118T132302Z-86514/manifest.json`，状态completed；原始静扫20pass/1fail/0skip，6条gitleaks按既有5误报+1accepted_risk处置，blocking=0，未改规则或处置。这是本阶段工程执行身份，不代签原实施scope/native绑定；签收/排期文档变更后继续在同scope完整复核，最终日志另存。不补造旧开始时间、篡改侧车或凭clean免证。
+
+**保留边界。** 原native20 FAIL、offline02报告FAIL及compaction partial、最后CP not_observed、精确分类Token not_collected、3处合法覆盖后的dynamic-prefix rewritten、旧33质量partial和旧20中断均原样保留。分类Token按R01测量口径不是附加硬门，末CP同型分支已有17个实际后继且不递归加21轮；两者不改成已测。实模只跑Splash Chat，Responses/Anthropic仅同IR机械投影，真实厂商行为仍归B82/B71。本次没有新模型能力考试或新有限模式，没有签B85、B87整体或Issue #4完成。
+
+**交接。** 实施checkpoint为50e02d8d，原109项WIP逐字保留。下一批R05必须新独立上下文，先读AGENTS、project-operating-profile、NEXT、共享README、R05卡、VS-00M与本节，再按愿景→七问/存在性审核→独立反例推进现役Judgment/Explore/专业Task Base；不因为已有代码或R04 PASS就免审R05真实消费者。R06–R09既有开放反例保留，B85继续暂停。此会话不滚动实现R05，不push。
