@@ -263,3 +263,7 @@ v2 `successor_observation` 严格冻结 `source:{path,sha256,expected_turns:1}`�
 失败时 driver 在 cleanup 前保存现役 DB/events/LLMLog 快照及代理只读状态；快照失败明确缺证但仍清场。snapshot 只复制当前计数/hash，不 arm、暂停或断连接；最终 cleanup 事实另外保留，不用清场产生的 EOF 证明自然终结。代理日志自身的自然完成不签产品协议完成。收到/交付字节相等、产品双 ID/原请求精确配对及独立 SSE 完整帧/残帧/终止事实共同区分无内容、协议终结缺失、产品解析缺失、持续产字直到整轮上限；同 body 多请求或身份时序歧义保留 unknown，不择匹配赢家。旧第14没有原始SSE的原因仍 unknown。
 
 **七问/存在性审核**：Contract=本章5.7/5.8与VS-00L现役流式终结/日志事实；Invariant=原字节、终结性质、未知与原输入预算不变；Boundary=现役外部proxy、runner、driver及同名测试，不动产品协议/模型；Consumer=普通10/20失败诊断与独立原生复审；Proof=本地HTTP自然空流/有正文、EOF无DONE、半帧/编码、同块正文终止、上游错误/下游清场、背压及凭证哨兵；Acceptance Driver=原普通native入口及独立预注册先10后条件20，不借C8签过；Exploration=复用原bin/JSONL、现有owned cleanup和只读快照，不新增代理、产品日志权威或持久业务实体。证据包含私人作品仅留本批本地，不上传；观测磁盘/代理可能影响延迟须披露，不能宣称零时间扰动。
+
+**采集与核验的报告分责（普通33后修订）。** 现役capture IO按本批ready、request注册清单和三份raw bin列库存，不读取人工独审artifact或凭任意bin宣称整批采集。无材料为not_collected；必需集合可读且闭合记录齐全为collected_unverified；缺件/坏记录/读取失败/仍活动未封存为collection_incomplete。合法取消、上游错误或cleanup的封存partial可有完整采集库存，原执行截断与采集缺件分别列事实。文件可读、长度/hash只是局部观察，不等于调用身份、SSE终结或产品消费核验；这四类自动核验保持not_evaluated，不引入第二SSE解析器或完成台账。
+
+报告原字段语义改变明确发布b87-request-cost-native-report/v2：批次summary.raw_http_bytes/raw_sse为上述采集态并附source_scope及raw_transport库存；HTTP仅指实体字节而非TLS包/transfer framing，SSE仅据已声明content-type列原件，不签协议合法性。单调用/历史LLM日志分析仍明确其log-local无原件，不代表整批没有外部材料；成本子窗口未做传输身份绑定也不得借批次库存冒称自身raw已核。旧v1报告保持不变，重算只写独立derived目录；库存不改变原机制status、语义判据或20轮准入。现役消费者检索只见batch报告/Markdown/summary与相邻测试，沿现schema常量升级，不改变产品协议。复用request_cost_capture、batch_evidence与log-local evidence及原测试，不新增实体；独立反例覆盖旧无件、完整未核、已封存partial、缺件/活动、伪人工PASS、跨目录原件和原报告不可覆盖。
