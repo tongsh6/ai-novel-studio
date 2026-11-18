@@ -275,13 +275,23 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
         {:error, error} ->
           normalized = normalize_error_map(error)
+          usage = Keyword.get(opts, :usage, %{})
+          usage_events = usage_recorded_events!(ctx, length(initial_events) + 1, usage)
 
           {:error,
            %{
              provider_run: provider_run!(ctx, :failed),
              events:
-               initial_events ++ [error_event!(ctx, length(initial_events) + 1, normalized)],
-             output: provider_error_output!(ctx, normalized),
+               initial_events ++
+                 usage_events ++
+                 [
+                   error_event!(
+                     ctx,
+                     length(initial_events) + length(usage_events) + 1,
+                     normalized
+                   )
+                 ],
+             output: provider_error_output!(ctx, normalized, usage),
              error: normalized
            }}
       end
@@ -652,13 +662,14 @@ defmodule NovelAgent.Provider.AdapterExecution do
     |> maybe_put(:tool_calls, tool_calls)
   end
 
-  defp provider_error_output!(ctx, error) do
+  defp provider_error_output!(ctx, error, usage) do
     {:ok, output} =
       ProviderOutput.new(%{
         provider_run_ref: ctx.provider_run_id,
         provider_call_ref: ctx.provider_call_ref,
         status: :error,
         output_type: :empty,
+        usage: usage,
         error: error,
         refs: [ctx.provider_call_ref]
       })

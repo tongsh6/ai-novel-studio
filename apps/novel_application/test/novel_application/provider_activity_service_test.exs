@@ -3,6 +3,10 @@ defmodule NovelApplication.ProviderActivityServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.SSEStream
+  alias NovelAgent.Provider.SSEStream.AnthropicDecoder
+  alias NovelAgent.Provider.SSEStream.ChatDecoder
+  alias NovelAgent.Provider.SSEStream.ResponsesDecoder
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.ProviderActivityService
   alias NovelApplication.WorkService
@@ -21,6 +25,103 @@ defmodule NovelApplication.ProviderActivityServiceTest do
     {:ok, work} = WorkService.create(%{title: "ProviderRun 查询作品"})
     {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
     %{work: work, session: session}
+  end
+
+  test "failed SSE executions persist only observed usage across all three wires", %{
+    work: work,
+    session: session
+  } do
+    for {decoder, partial, unknown} <- [
+          {ChatDecoder,
+           "data: {\"usage\":{\"prompt_tokens\":17,\"prompt_tokens_details\":{\"cached_tokens\":0}},\"choices\":[]}\n\ndata: [DONE]\n\n",
+           "data: [DONE]\n\n"},
+          {AnthropicDecoder,
+           "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":17,\"cache_read_input_tokens\":0}}}\n\ndata: {\"type\":\"message_stop\"}\n\n",
+           "data: {\"type\":\"message_stop\"}\n\n"},
+          {ResponsesDecoder,
+           "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":17,\"input_tokens_details\":{\"cached_tokens\":0}},\"output\":[]}}\n\n",
+           "data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\n"}
+        ],
+        {frame, observed?} <- [{partial, true}, {unknown, false}] do
+      id = Integer.to_string(System.unique_integer([:positive]))
+
+      ctx = %{
+        provider_name: :openai,
+        model_name: "fixture",
+        provider_call_ref: "pcall-failed-" <> id,
+        provider_run_id: "prun-failed-" <> id,
+        purpose: :conversation,
+        owner_refs: %{}
+      }
+
+      source = fn _, _, opts, on_data ->
+        opts[:on_request_attempt].()
+        :cont = on_data.(frame)
+        {:ok, 200, ""}
+      end
+
+      owner = self()
+      log = fn _, _, _, result, _ -> send(owner, {:failed_log, result}) end
+
+      execution =
+        SSEStream.execute(
+          %{
+            ctx: ctx,
+            state: %{model: "fixture", eventsource_fn: source, log_fn: log},
+            body: %{},
+            url: "http://fixture",
+            request_opts: [],
+            provider: "openai",
+            label: "fixture",
+            log_vendor: "openai"
+          },
+          decoder
+        )
+
+      assert {:error, facts} = execution
+      assert facts.provider_run.status == :failed
+      assert facts.error.type == :invalid_response
+      assert facts.output.status == :error
+      assert facts.output.output_type == :empty
+      assert_receive {:failed_log, {:error, _, %{usage: log_usage}}}
+
+      assert :ok =
+               ProviderRunLog.record_execution(execution, %{
+                 agent_run_id: "run-failed-" <> id,
+                 work_id: work.id,
+                 session_id: session.id,
+                 parent_turn_ref: "turn-failed-" <> id
+               })
+
+      assert :ok =
+               ProviderRunLog.record_execution(execution, %{
+                 agent_run_id: "run-failed-" <> id,
+                 work_id: work.id,
+                 session_id: session.id,
+                 parent_turn_ref: "turn-failed-" <> id
+               })
+
+      output = ProviderRunLog.get_output(ctx.provider_run_id)
+      events = ProviderRunLog.list_events(ctx.provider_run_id)
+      assert output.status == "error"
+      assert List.last(events).event_type == "error"
+      usages = Enum.filter(events, &(&1.event_type == "usage_recorded"))
+
+      if observed? do
+        expected = %{"input_tokens" => 17, "output_tokens" => nil, "cached_tokens" => 0}
+        assert Map.take(output.usage, Map.keys(expected)) == expected
+        assert [%{payload: %{"usage" => stored}}] = usages
+        assert stored == output.usage
+        assert log_usage == facts.output.usage
+        assert log_usage.input_tokens == 17
+        assert log_usage.output_tokens == nil
+        assert log_usage.cached_tokens == 0
+      else
+        assert output.usage == %{}
+        assert log_usage == %{}
+        assert usages == []
+      end
+    end
   end
 
   test "returns author-safe provider activity for one scoped turn", %{

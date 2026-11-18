@@ -48,7 +48,7 @@ defmodule NovelAgent.Provider.HTTPTest do
                 body: body,
                 url: server.url,
                 request_opts: [receive_timeout: 30_000],
-                provider: :openai,
+                provider: "openai",
                 label: "fixture",
                 log_vendor: "openai"
               },
@@ -294,12 +294,81 @@ defmodule NovelAgent.Provider.HTTPTest do
         body: %{"messages" => [%{"role" => "user", "content" => "原请求"}], "stream" => true},
         url: url,
         request_opts: [receive_timeout: 30_000],
-        provider: :openai,
+        provider: "openai",
         label: "fixture",
         log_vendor: "openai"
       },
       decoder
     )
+  end
+
+  test "HTTP200 empty completed response fails but retains actual partial usage" do
+    frame =
+      "data: {\"usage\":{\"prompt_tokens\":17,\"prompt_tokens_details\":{\"cached_tokens\":0}},\"choices\":[]}\n\ndata: [DONE]\n\n"
+
+    server = silent_server(frame, true)
+    parent = self()
+
+    try do
+      assert {:error, facts} =
+               run_sse(server.url, ChatDecoder, nil, nil, fn _, _, _, result, _ ->
+                 send(parent, {:empty_log, result})
+               end)
+
+      assert facts.provider_run.status == :failed
+      assert facts.error.type == :invalid_response
+      assert facts.output.usage.input_tokens == 17
+      assert facts.output.usage.output_tokens == nil
+      assert facts.output.usage.cached_tokens == 0
+      assert_receive {:empty_log, {:error, _, %{status: 200, usage: usage}}}
+      assert usage == facts.output.usage
+    after
+      stop_server(server)
+    end
+  end
+
+  test "failed transport retains observed usage while timeout diagnostics stay separate" do
+    for observed? <- [true, false], reason <- [:timeout, :connection_refused] do
+      owner = self()
+
+      source = fn _, _, opts, on_data ->
+        opts[:on_request_attempt].()
+
+        if observed? do
+          :cont =
+            on_data.(
+              ~s(data: {"usage":{"prompt_tokens":17,"prompt_tokens_details":{"cached_tokens":0}},"choices":[]}\n\n)
+            )
+        end
+
+        {:error, reason, 0, "transport failed"}
+      end
+
+      assert {:error, facts} =
+               run_sse("http://fixture", ChatDecoder, nil, source, fn _, _, _, result, _ ->
+                 send(owner, {:transport_log, result})
+               end)
+
+      assert facts.provider_run.status == :failed
+      assert facts.output.status == :error
+      assert_receive {:transport_log, {:error, _, attrs}}
+      assert attrs.usage == facts.output.usage
+
+      if observed? do
+        assert attrs.usage.input_tokens == 17
+        assert attrs.usage.output_tokens == nil
+        assert attrs.usage.cached_tokens == 0
+      else
+        assert attrs.usage == %{}
+        refute Enum.any?(facts.events, &(&1.event_type == :usage_recorded))
+      end
+
+      if reason == :timeout do
+        assert facts.error.details.timeout_kind == :connection_stall
+        assert attrs.resp_body.diagnostics.timeout_kind == :connection_stall
+        refute Map.has_key?(attrs.usage, :timeout_kind)
+      end
+    end
   end
 
   test "cancellation interrupts an actual silent HTTP stream without another byte or timeout" do
@@ -549,7 +618,7 @@ defmodule NovelAgent.Provider.HTTPTest do
     end
   end
 
-  defp silent_server(frame \\ nil) do
+  defp silent_server(frame \\ nil, complete? \\ false) do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
     {:ok, {_, port}} = :inet.sockname(listener)
     owner = self()
@@ -568,6 +637,11 @@ defmodule NovelAgent.Provider.HTTPTest do
               "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n" <>
                 Integer.to_string(byte_size(frame), 16) <> "\r\n" <> frame <> "\r\n"
             )
+        end
+
+        if complete? do
+          :gen_tcp.send(socket, "0\r\n\r\n")
+          :gen_tcp.shutdown(socket, :write)
         end
 
         send(owner, {:closed, id, :gen_tcp.recv(socket, 0, 15_000)})

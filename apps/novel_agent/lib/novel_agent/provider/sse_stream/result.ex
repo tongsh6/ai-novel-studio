@@ -32,21 +32,10 @@ defmodule NovelAgent.Provider.SSEStream.Result do
     state = opts.state
     all_events = initial_events ++ Enum.reverse(acc.events)
     timeouts = %{response_ms: response_ms, deadline_ms: deadline_ms}
+    usage = observed_usage(acc, decoder, duration)
 
     cond do
       cancelled? ->
-        finalized = decoder.finalize(acc.decoder_state)
-
-        usage =
-          if is_map(finalized.usage) and map_size(finalized.usage) > 0 do
-            finalized.usage
-            |> decoder.usage(finalized.model, duration, nil)
-            |> Usage.put_ttft(acc.ttft_ms)
-            |> Usage.to_map()
-          else
-            %{}
-          end
-
         if acc.request_attempted? do
           log_stream_result(
             state,
@@ -78,28 +67,51 @@ defmodule NovelAgent.Provider.SSEStream.Result do
         )
 
       Map.get(acc, :deadline_exceeded?, false) ->
-        provider_result = timeout_error(opts, acc, :deadline, duration, timeouts)
+        provider_result =
+          timeout_error(opts, acc, :deadline, duration, timeouts) |> with_observed_usage(usage)
 
         if acc.request_attempted?,
           do: log_stream_result(state, log_vendor, url, body, provider_result, started)
 
         AdapterExecution.materialize_result(provider_result.result, ctx,
           initial_events: all_events,
+          usage: usage,
           emit: :terminal
         )
 
       true ->
-        provider_result = provider_result(opts, decoder, acc, request_result, duration, timeouts)
+        provider_result =
+          provider_result(opts, decoder, acc, request_result, duration, timeouts)
+          |> with_observed_usage(usage)
 
         if acc.request_attempted?,
           do: log_stream_result(state, log_vendor, url, body, provider_result, started)
 
         AdapterExecution.materialize_result(provider_result.result, ctx,
           initial_events: all_events,
+          usage: usage,
           emit: :terminal
         )
     end
   end
+
+  defp observed_usage(acc, decoder, duration) do
+    finalized = decoder.finalize(acc.decoder_state)
+
+    if is_map(finalized.usage) and map_size(finalized.usage) > 0 do
+      finalized.usage
+      |> decoder.usage(finalized.model, duration, nil)
+      |> Usage.put_ttft(acc.ttft_ms)
+      |> Usage.to_map()
+    else
+      %{}
+    end
+  end
+
+  defp with_observed_usage(%{log_result: {:error, error, attrs}} = result, usage),
+    do: %{result | log_result: {:error, error, %{attrs | usage: usage}}}
+
+  defp with_observed_usage(result, _usage), do: result
 
   # ── 结果归一与错误分类 ─────────────────────────────────────────────────────
 
@@ -250,8 +262,14 @@ defmodule NovelAgent.Provider.SSEStream.Result do
     details = diagnostics(acc, kind, duration, timeouts)
     message = timeout_message(opts, acc, kind, timeouts)
 
-    # usage 字段在这里只承载诊断（供 llm-calls JSONL / 业务日志），不是计费用量。
-    error_result(opts, :timeout, message, 0, details, duration, details)
+    result = error_result(opts, :timeout, message, 0, %{}, duration, details)
+    {:error, error, attrs} = result.log_result
+
+    %{
+      result
+      | log_result:
+          {:error, error, %{attrs | resp_body: %{source: "event_stream", diagnostics: details}}}
+    }
   end
 
   defp timeout_kind(acc) do
