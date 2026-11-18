@@ -1439,3 +1439,5 @@ C8前置已另由2f14a861/b449a776实现：固定次序、取消前真实claim/d
 first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际failure.jpg已查看并保存visual-review.json；UI最后为完成回复、普通输入而非取消成功界面。owned本批PID32314已清理、remaining=[]；旧失败原样保留。
 
 独立语义核A及紧接复述正确承接保留秘密，11及C后来降为未确认；但冻结11确有晚到作者措辞“仍未确认”，属于层级/指令冲突未澄清，不能直接归为遗忘或假定只指读者。另一确定缺陷独立成立：11未回查原表，错误将10已提供的若干风险/收益/文件示例标成未交付，C部分继承；实际交付保护尚未可靠。R03仍doing，普通20/后继窗口、C取消、D原响应跨BEAM恢复均不能代签。
+
+观察器责任修复已按21219b48设计、76cede63实现：只以持久inserted_at及同执行唯一sequence核dispatch后真实非空chunk，正常nil emitted_at不再被误拒，缺时间/微秒逆序/重复sequence/已有output或终态仍不取得在途资格，确认前同target复核不变。不修改产品或原输入，独立literal红绿及只读复审通过，完整node1109/1109、module-size通过，完整scan19pass/2fail/7仅既有manifest/gitleaks，证据c8-observer-23。没有再开实模；676ms窗口下原生双确认仍未证，不能用observer修复或已有单元取消测试替代真实C/D。后续需先明确符合真实取消目标的可控外部观察/传输场景，不靠再跑模型赌时序；普通20的provider空响应/整轮超时及实际交付语义缺口保持独立待解。
