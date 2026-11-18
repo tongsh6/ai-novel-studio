@@ -1457,3 +1457,13 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 实批在A提问后、点击开始新讨论前因owned_native_surface_not_onscreen停止，未进入B、C门控或D恢复。最后本批输入为02:05:03.453Z发送A，其后无本批桌面操作；02:08:44.074Z WindowServer记录该App WebKit NotVisible，44.285Z得到问题，45.068Z截图失败，45.259Z可见性保护停止。主窗口13644仍存在但on_screen=false，is_hidden=false/is_active=false/AXwindow0；无本批hide/Space热键/关闭动作。近时段读电源日志未发现睡眠/唤醒或屏保启动证据，现有防休眠仍开；10:10当地时只读前台是ChatGPT，不能由此归责用户或推定失败时的切换原因。没有failure.jpg，不声称看过；没有抢占桌面或重新激活。
 
 代理51请求（31GET/20POST），50完整响应received/delivered长度和hash逐字一致，19个结束POST与产品LLM原请求唯一匹配；最后在途请求由cleanup断连，不是用户取消。registry window/arm/pause/disarm均0，因此只能证实际透明转发，不能签门控取消或D。四端口4657/4661/51474/51475无监听，owned runner/backend/proxy/app PID均无残留；independent-outcome-review.json与窄范围OS日志保存上述证据。下一真实验证需明确可持续原生窗口可见的桌面操作时段，不再盲跑/抢前台；R03仍doing，启动程序偏差、桌面环境缺证与既有20轮/语义缺口分别保留。
+
+### 14.34 静默传输中真实取消未及时收束（2026-11-18）
+
+作者重新授权可见窗口后，冻结79d8007f，独立前置检查成功再分发唯一c8-visible-window-26/native-01（wc_job_O1ph9k1zwCEOFfCX）。原82路径当前哈希与前置快照一致、原20+5输入不改，未复用25的事后审计充当前置。此次实际进入C：首份prun_mwlijx56_j37/pcall_mwlijx56_j36与request-64唯一绑定，原请求SHA50202f4eb3a6a6f2693ff09c392a20d21489393daad297fcd1a6c99e525681c7；02:40:57.039Z交付1106616原始前缀字节，独立解析恰一份非空content record、无DONE，57.040843Z同执行chunk持久化。
+
+真实AX取消命令/ACK发生02:40:58.601/.605Z，interrupt_state.requested_at为58.603197Z；但没有及时断开接收连接。代理30秒安全上限于02:41:27.041Z触发pause_timeout，随后27.061670Z才有Provider cancel_requested、27.064143Z cancelled。故gate_not_cancelled_and_drained保持FAIL，不把最终“已停止”状态当及时取消通过。取消目标没有checkpoint，D未进入。上游socket已在57.607Z关闭，早于取消，end可能被pause遮蔽；不能声称vendor仍生成或算力被取消。本批同时暴露外部判据对上游先自然结束的事实分支不足，须独立修正，不能用它抹除产品接收取消延迟。
+
+源码责任复核：现役取消token仅变更Agent状态，同步HTTP/SSE只在chunk回调及HTTP结束读取token；首块消费后连接静默时没有主动唤醒/中断路径。下一步先按VS-00L生命周期目标补设计及真实本地HTTP静默连接红例，再修责任层实现；不得发假chunk、放开suffix、延长暂停或靠新一批实模赌时序。cancel-delay-diagnostic.json保留12原证据哈希及精确时间线；四端口4657/4661/56704/56705均无监听，owned进程全清理。
+
+已亲看interleaved-a-waiting、cancel-confirmation及failure实际像素：等待问题正文一份，功能回答/选项/Why保留；取消确认对话框说明保护既有作品内容；最终页面可见“已停止”、无任务、普通输入恢复，正文标题/粗体正常渲染。但截图不证明及时取消或跨进程恢复，等待题无Markdown语法，不代签问题Markdown样式。R03仍doing，普通20/后继与实际交付语义缺口保留。
