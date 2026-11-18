@@ -22,7 +22,7 @@ async function setup(t, options = {}) {
       const captured = { req, res, body: Buffer.concat(body), closed: false };
       requests.push(captured);
       res.on("close", () => { captured.closed = true; });
-      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.writeHead(options.responseStatus ?? 200, { "content-type": "text/event-stream", ...options.responseHeaders });
       res.flushHeaders();
     });
   });
@@ -37,9 +37,9 @@ async function setup(t, options = {}) {
     const result = await response.json();
     return { status: response.status, ...result };
   };
-  const send = (body = '{ "model":"literal", "stream":true }') => {
+  const send = (body = '{ "model":"literal", "stream":true }', headers = {}, suffix = "/chat/completions") => {
     const received = [];
-    const req = http.request(proxy.ready.endpoint + "/chat/completions", { method: "POST" });
+    const req = http.request(proxy.ready.endpoint + suffix, { method: "POST", headers });
     req.on("error", () => {});
     const response = new Promise(resolve => req.on("response", res => {
       res.on("data", chunk => received.push(chunk)); res.on("error", () => {}); resolve(res);
@@ -259,4 +259,105 @@ test("暂停到期不是用户取消、无自动重试，不能disarm签成功",
   assert.equal(state.gate.cause, "pause_timeout");
   assert.equal((await f.control("/disarm", {})).status, 409);
   assert.equal(f.requests.length, 1);
+});
+const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+const observationEvents = f => fs.readFileSync(path.join(f.dir, "provider-stream.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+test("observe拒绝所有gate操作，原始帧/半帧/空正文/压缩均无解释透传", async t => {
+  const f = await setup(t, {mode:"observe"});
+  assert.equal(f.proxy.ready.mode, "observe");
+  for (const route of ["/window","/arm","/disarm"]) assert.equal((await f.control(route, {})).status,409);
+  const bodies = [Buffer.concat([role,done]), content,
+    Buffer.from('data: {"choices":[{"delta":{"content":"末字"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'),
+    Buffer.from("data: {unfinished"), Buffer.from([31,139,8,0,255,0,128])];
+  for (const bytes of bodies) {
+    const client = f.send(); await f.wait(()=>f.requests.length===bodies.indexOf(bytes)+1);
+    f.requests.at(-1).res.end(bytes); await client.response;
+    await f.wait(()=>Buffer.concat(client.received).equals(bytes));
+  }
+  await f.wait(()=>observationEvents(f).filter(e=>e.event==="transparent_complete").length===bodies.length);
+  const snap = await f.control("/snapshot");
+  assert.equal(snap.requests.length,bodies.length);
+  for (const [i,r] of snap.requests.entries()) {
+    const bytes=bodies[i];
+    assert.equal(r.received_sha256,digest(bytes)); assert.equal(r.delivered_sha256,digest(bytes));
+    assert.equal(r.response_status,200); assert.equal(r.content_type,"text/event-stream");
+    assert.equal(r.response_complete,true); assert.equal(r.cause,"upstream_end");
+    assert.equal(r.received_bytes,bytes.length); assert.equal(r.delivered_bytes,bytes.length);
+    assert.equal(fs.readFileSync(path.join(f.dir,"provider-stream-requests",r.request_id+".received.bin")).equals(bytes),true);
+  }
+  assert.equal(observationEvents(f).some(e=>e.event==="stream_error"),false);
+});
+test("observe只读snapshot不中断流、不消耗hash；断连保partial而非自然结束", async t => {
+  const f=await setup(t,{mode:"observe"}); const client=f.send();
+  await f.wait(()=>f.requests.length===1); f.requests[0].res.write(content); await client.response;
+  await f.wait(()=>Buffer.concat(client.received).equals(content));
+  const a=await f.control("/snapshot"), b=await f.control("/snapshot");
+  assert.equal(a.requests[0].received_sha256,b.requests[0].received_sha256);
+  assert.equal(a.requests[0].cause,null); assert.equal(a.active_requests.length,1);
+  f.requests[0].res.write(done); await f.wait(()=>Buffer.concat(client.received).equals(Buffer.concat([content,done])));
+  client.req.destroy(); await f.wait(()=>f.requests[0].closed);
+  const closed=observationEvents(f).find(e=>e.event==="request_closed");
+  assert.equal(closed.cause,"downstream_disconnect"); assert.equal(closed.response_complete,false);
+  assert.equal(closed.received_sha256,digest(Buffer.concat([content,done])));
+  const ev=observationEvents(f); assert.deepEqual(ev.map(e=>e.sequence),ev.map((_,i)=>i+1));
+  const offsets=ev.filter(e=>e.event==="bytes_received").map(e=>e.bytes);
+  assert.ok(offsets.length>=2); assert.equal(offsets.at(-1),content.length+done.length);
+});
+test("observe上游截断与清场保留独立partial hash，不伪造EOF或额外调用", async t => {
+  for (const cause of ["upstream","cleanup"]) {
+    const f=await setup(t,{mode:"observe"});const client=f.send();
+    await f.wait(()=>f.requests.length===1); f.requests[0].res.write(content);await client.response;
+    await f.wait(()=>Buffer.concat(client.received).equals(content));
+    if(cause==="upstream") f.requests[0].res.destroy(); else await f.proxy.close();
+    await f.wait(()=>observationEvents(f).some(e=>e.event==="request_closed"));
+    const closed=observationEvents(f).find(e=>e.event==="request_closed");
+    assert.equal(closed.received_sha256,digest(content));assert.equal(closed.delivered_sha256,digest(content));
+    assert.equal(closed.response_complete,false);
+    assert.equal(closed.cause,cause==="cleanup"?"cleanup":"upstream_aborted");
+    assert.equal(f.requests.length,1);
+    assert.equal(observationEvents(f).some(e=>e.event==="transparent_complete"),false);
+  }
+});
+test("observe响应白名单与私密header/query不落证据，HTTP错误/编码不改写", async t => {
+  const secret="CREDENTIAL_SENTINEL_DO_NOT_LOG";
+  const f=await setup(t,{mode:"observe",responseStatus:429,responseHeaders:{
+    "content-encoding":"gzip","set-cookie":secret,"x-access-token":secret}});
+  const bytes=Buffer.from([31,139,8,0,128,255]);
+  const client=f.send("literal-private-body",{"authorization":"Bearer "+secret,"cookie":secret},
+    "/chat/completions?access_token="+secret);
+  await f.wait(()=>f.requests.length===1);f.requests[0].res.end(bytes);
+  const response=await client.response;await f.wait(()=>Buffer.concat(client.received).equals(bytes));
+  assert.equal(response.statusCode,429);
+  assert.equal(f.requests[0].req.headers.authorization,"Bearer "+secret);
+  const snapshot=await f.control("/snapshot");const r=snapshot.requests[0];
+  assert.equal(r.response_status,429);assert.equal(r.response_encoding,"gzip");
+  assert.equal(r.content_type,"text/event-stream");assert.equal(r.received_sha256,digest(bytes));
+  assert.equal(JSON.stringify(snapshot).includes(secret),false);
+  assert.equal(fs.readFileSync(path.join(f.dir,"provider-stream.jsonl"),"utf8").includes(secret),false);
+});
+test("observe慢下游有背压，分包字节原样且取消结束暂停中的上游", async t => {
+  const f=await setup(t,{mode:"observe"});const client=f.send();
+  await f.wait(()=>f.requests.length===1);const response=await client.response;response.pause();
+  const bytes=Buffer.alloc(2*1024*1024,0x78);
+  f.requests[0].res.write(bytes);
+  await f.wait(()=>observationEvents(f).some(e=>e.event==="downstream_backpressure"));
+  client.req.destroy();await f.wait(()=>f.requests[0].closed);
+  const closed=observationEvents(f).find(e=>e.event==="request_closed");
+  assert.equal(closed.cause,"downstream_disconnect");
+  const raw=fs.readFileSync(path.join(f.dir,"provider-stream-requests","request-1.received.bin"));
+  const delivered=fs.readFileSync(path.join(f.dir,"provider-stream-requests","request-1.delivered.bin"));
+  assert.equal(closed.received_sha256,digest(raw));assert.equal(closed.delivered_sha256,digest(delivered));
+  assert.ok(raw.length>0);assert.ok(raw.equals(bytes.subarray(0,raw.length)));
+});
+test("observe非UTF8/分字节边界及大record不触SSE解析限制", async t => {
+  const f=await setup(t,{mode:"observe"});const client=f.send();
+  await f.wait(()=>f.requests.length===1);
+  for(const byte of content) f.requests[0].res.write(Buffer.from([byte]));
+  const large=Buffer.alloc(1024*1024+1,0xff);f.requests[0].res.end(large);
+  await client.response;const expected=Buffer.concat([content,large]);
+  await f.wait(()=>Buffer.concat(client.received).equals(expected));
+  const snap=await f.control("/snapshot");
+  assert.equal(snap.requests[0].received_sha256,digest(expected));
+  assert.equal(snap.requests[0].delivered_sha256,digest(expected));
+  assert.equal(observationEvents(f).some(e=>e.event==="stream_error"),false);
 });

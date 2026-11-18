@@ -793,6 +793,9 @@ cleanup() {
   trap '' TERM INT
   # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
   # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
+  if (( original != 0 )) && [[ "$NATIVE_SYSTEM_DRIVER" == "1" && "$SLICE_ID" == "b87-r01-request-cost" ]]; then
+    node "$PROJECT_ROOT/scripts/native_request_cost_drive.mjs" "$ARTIFACT_DIR" --failure-evidence >"$ARTIFACT_DIR/failure-capture-cleanup.log" 2>&1 || true
+  fi
   reap_process_tree "$UI_DRIVER_PID" 3 3 || cleanup_failed=1
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
     # macOS重开可能归launchd；独立包路径维持本批归属，不对同名作者实例发信号。
@@ -2659,8 +2662,15 @@ fi
 
 # C8 只临时路由隔离后端；上游 Splash 不属于本 runner，绝不停止或改配置。
 start_owned_provider_stream_proxy() {
-  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" || "${B71_AUTO_MAINTENANCE:-0}" != "1" ]]; then return 0; fi
-  if [[ "$SLICE_VERIFY_PROVIDER" != "splash" || "$SLICE_ID" != "b71-first-consumer" ]]; then
+  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then return 0; fi
+  local mode="gate"
+  if [[ "$SLICE_ID" == "b87-r01-request-cost" && ( "${REQUEST_COST_LENGTH:-}" == "10" || "${REQUEST_COST_LENGTH:-}" == "20" ) ]]; then
+    if [[ "${B71_AUTO_MAINTENANCE:-0}" == "1" ]]; then return 1; fi
+    mode="observe"
+  elif [[ "${B71_AUTO_MAINTENANCE:-0}" != "1" ]]; then return 0
+  elif [[ "$SLICE_ID" != "b71-first-consumer" ]]; then return 1
+  fi
+  if [[ "$SLICE_VERIFY_PROVIDER" != "splash" ]]; then
     echo "[tauri-slice-verify] provider stream proxy requires native Splash auto-maintenance" >&2
     return 1
   fi
@@ -2670,7 +2680,7 @@ start_owned_provider_stream_proxy() {
     echo "[tauri-slice-verify] refusing stale provider stream ready" >&2
     return 1
   fi
-  node "$PROJECT_ROOT/scripts/native_provider_stream_proxy.mjs" "$upstream" "$ARTIFACT_DIR" >"$ARTIFACT_DIR/provider-stream-proxy.log" 2>&1 &
+  node "$PROJECT_ROOT/scripts/native_provider_stream_proxy.mjs" "$upstream" "$ARTIFACT_DIR" "$mode" >"$ARTIFACT_DIR/provider-stream-proxy.log" 2>&1 &
   PROVIDER_STREAM_PID=$!
   local deadline=$((SECONDS + 10))
   while (( SECONDS < deadline )); do
@@ -2686,9 +2696,9 @@ start_owned_provider_stream_proxy() {
     return 1
   fi
   local fields
-  fields="$(node --input-type=module - "$ready" "$PROVIDER_STREAM_PID" "$upstream" <<'PROVIDER_READY'
+  fields="$(node --input-type=module - "$ready" "$PROVIDER_STREAM_PID" "$upstream" "$mode" <<'PROVIDER_READY'
 import fs from "node:fs";
-const [file, pid, upstream] = process.argv.slice(2);
+const [file, pid, upstream, mode] = process.argv.slice(2);
 const ready = JSON.parse(fs.readFileSync(file, "utf8"));
 const endpoint = new URL(ready.endpoint);
 const control = new URL(ready.control_endpoint);
@@ -2696,7 +2706,7 @@ const original = new URL(upstream);
 const loopback = (url) => url.protocol === "http:" && url.hostname === "127.0.0.1" &&
   !url.username && !url.password && !url.search && !url.hash &&
   Number.isInteger(Number(url.port)) && Number(url.port) > 0 && Number(url.port) <= 65535;
-if (ready.pid !== Number(pid) || ready.upstream_endpoint !== upstream ||
+if (ready.mode !== mode || ready.pid !== Number(pid) || ready.upstream_endpoint !== upstream ||
     !loopback(endpoint) || !loopback(control) || endpoint.port === control.port ||
     endpoint.pathname !== original.pathname || control.pathname !== "/") {
   throw new Error("provider stream ready identity/endpoint mismatch");

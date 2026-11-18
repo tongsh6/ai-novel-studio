@@ -1,4 +1,4 @@
-// External C8 transport only. Contract: model-interaction-coverage §5.2.
+// External transport evidence. Contract: model-interaction-coverage §5.2 / §5.10.
 // Never rewrites provider bodies, creates model content, retries, or signs product cancellation.
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -41,16 +41,26 @@ function hasContent(record) {
     typeof choice?.delta?.content === "string" && choice.delta.content.length > 0);
 }
 
-export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir, pauseMs = 30000 }) {
+export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir, pauseMs = 30000, mode = "gate" }) {
+  assert(["gate","observe"].includes(mode), "invalid_proxy_mode");
   const upstreamUrl = new URL(upstreamEndpoint);
   assert(["http:", "https:"].includes(upstreamUrl.protocol) && !upstreamUrl.username &&
     !upstreamUrl.password && !upstreamUrl.search && !upstreamUrl.hash, "unsafe_upstream_endpoint");
   assert(Number.isInteger(pauseMs) && pauseMs > 0 && pauseMs <= 30000, "invalid_pause_bound");
   fs.mkdirSync(path.join(artifactDir, "provider-stream-requests"), {recursive:true});
-  const log = (entry) => fs.appendFileSync(path.join(artifactDir, "provider-stream.jsonl"), JSON.stringify({at:now(), ...entry})+"\n");
+  let sequence = 0;
+  const log = (entry) => fs.appendFileSync(path.join(artifactDir, "provider-stream.jsonl"), JSON.stringify({at:now(), sequence:++sequence, ...entry})+"\n");
   const entries = [], live = new Map(), sockets = new Set(), upstreamClosures = [];
   let window = null, gate = null, disarmed = false, closing = false;
-  const state = () => ({ window, gate, disarmed, active_requests:[...live.keys()] });
+  const state = () => ({ mode, window, gate, disarmed, active_requests:[...live.keys()] });
+  const counters = io => ({
+    received_bytes:io.receivedBytes, delivered_bytes:io.deliveredBytes,
+    received_sha256:io.received.copy().digest("hex"), delivered_sha256:io.delivered.copy().digest("hex"),
+    response_complete:io.incoming?.complete === true,
+  });
+  const snapshot = () => ({...state(), captured_at:now(),
+    requests:entries.map(entry=>({...entry,...(live.has(entry.request_id)?counters(live.get(entry.request_id)):entry.final)}))});
+  const seal = (entry, io) => { entry.final = counters(io); return entry.final; };
   function finish(entry, cause) {
     const io = live.get(entry.request_id);
     if (!io) return;
@@ -65,16 +75,17 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
     }
     io.incoming?.destroy();
     if (!io.response.destroyed) io.response.destroy();
+    const facts = seal(entry,io);
     live.delete(entry.request_id);
     entry.ended_at = now();
-    log({event:"request_closed",request_id:entry.request_id,cause:entry.cause});
+    log({event:"request_closed",request_id:entry.request_id,cause:entry.cause,...facts});
   }
   const server = http.createServer(async (req, res) => {
     let entry;
     try {
       const raw = await readBody(req, MAX_BODY);
       const requestId = "request-" + (entries.length + 1);
-      entry = { request_id:requestId, method:req.method, path:req.url, received_at:now(),
+      entry = { request_id:requestId, method:req.method, path:req.url.startsWith("/") && !req.url.startsWith("//") ? req.url.split(/[?#]/u)[0] : "[rejected-origin]", received_at:now(),
         request_sha256:hash(raw), window_id:window?.id ?? null, first_content_at:null, ended_at:null,
         upstream_ended:false, cause:null };
       fs.writeFileSync(path.join(artifactDir, "provider-stream-requests", requestId+".bin"), raw);
@@ -90,11 +101,20 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
       const io = { upstream:outgoing, response:res, incoming:null, timer:null, pending:Buffer.alloc(0),
         received:createHash("sha256"), delivered:createHash("sha256"), receivedBytes:0, deliveredBytes:0 };
       live.set(requestId,io);
+      for (const kind of ["received","delivered"]) fs.writeFileSync(path.join(artifactDir,"provider-stream-requests",requestId+"."+kind+".bin"),Buffer.alloc(0));
       const deliver = bytes => {
         if (!bytes.length) return;
         io.delivered.update(bytes); io.deliveredBytes += bytes.length;
         fs.appendFileSync(path.join(artifactDir,"provider-stream-requests",requestId+".delivered.bin"),bytes);
-        res.write(bytes);
+        const writable = res.write(bytes);
+        if (mode === "observe") {
+          log({event:"bytes_delivered",request_id:requestId,bytes:io.deliveredBytes});
+          if (!writable) {
+            io.incoming.pause();
+            log({event:"downstream_backpressure",request_id:requestId,bytes:io.deliveredBytes});
+            res.once("drain",()=>{ if (live.has(requestId)) io.incoming.resume(); });
+          }
+        }
       };
       upstreamClosures.push(new Promise(resolve => outgoing.once("close", resolve)));
       outgoing.on("response", incoming => {
@@ -103,10 +123,18 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
         res.writeHead(incoming.statusCode, incoming.headers); res.flushHeaders();
         const sse = String(incoming.headers["content-type"] ?? "").toLowerCase().includes("text/event-stream");
         entry.response_encoding = String(incoming.headers["content-encoding"] ?? "identity");
+        entry.response_status = incoming.statusCode;
+        entry.content_type = String(incoming.headers["content-type"] ?? "");
+        log({event:"response_headers",request_id:requestId,response_status:entry.response_status,
+          content_type:entry.content_type,response_encoding:entry.response_encoding});
         incoming.on("data", chunk => {
           try {
             io.received.update(chunk); io.receivedBytes += chunk.length;
             fs.appendFileSync(path.join(artifactDir,"provider-stream-requests",requestId+".received.bin"),chunk);
+            if (mode === "observe") {
+              log({event:"bytes_received",request_id:requestId,bytes:io.receivedBytes});
+              deliver(chunk); return;
+            }
             const armed = gate?.request_id === requestId && !gate.cause;
             if (armed) assert(entry.response_encoding === "identity", "unsupported_sse_encoding");
             if (!sse) {
@@ -136,7 +164,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
           } catch (error) {
             entry.observation_error = error.message;
             log({event:"stream_error",request_id:requestId,error:error.message});
-            if (gate?.request_id === requestId) finish(entry,"stream_error");
+            if (mode === "observe" || gate?.request_id === requestId) finish(entry,"stream_error");
             else io.pending = Buffer.alloc(0);
           }
         });
@@ -146,10 +174,10 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
           log({event:"upstream_end",request_id:requestId});
           if (gate?.request_id === requestId && gate.paused_at && !gate.cause) return;
           entry.ended_at = now(); entry.cause = "upstream_end";
-          log({event:"transparent_complete",request_id:requestId,received_bytes:io.receivedBytes,
-            delivered_bytes:io.deliveredBytes,received_sha256:io.received.digest("hex"),delivered_sha256:io.delivered.digest("hex")});
+          log({event:"transparent_complete",request_id:requestId,...seal(entry,io)});
           live.delete(requestId); res.end();
         });
+        if (mode === "observe") incoming.on("aborted",()=>{ if(live.has(requestId)) finish(entry,"upstream_aborted"); });
         incoming.on("error", error => {
           entry.upstream_error = true;
           if (gate?.request_id === requestId) gate.upstream_error = true;
@@ -190,7 +218,9 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
   const control = http.createServer(async (req,res) => {
     try {
       if (req.method === "GET" && req.url === "/state") return json(res,200,state());
+      if (req.method === "GET" && req.url === "/snapshot") return json(res,200,snapshot());
       if (req.method === "GET" && req.url === "/registry") return json(res,200,{requests:entries.filter(e => e.window_id === window?.id)});
+      assert(mode === "gate","observe_control_read_only");
       assert(req.method === "POST","control_method");
       const body = JSON.parse((await readBody(req,65536)).toString());
       if (req.url === "/window") {
@@ -221,7 +251,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
     sockets.add(socket); socket.on("close",()=>sockets.delete(socket));
   });
   await listen(server); await listen(control);
-  const ready = {pid:process.pid,endpoint:address(server)+upstreamUrl.pathname.replace(/\/$/u,""),
+  const ready = {mode,pid:process.pid,endpoint:address(server)+upstreamUrl.pathname.replace(/\/$/u,""),
     control_endpoint:address(control),upstream_endpoint:upstreamEndpoint};
   fs.writeFileSync(path.join(artifactDir,"provider-stream-ready.json.tmp"),JSON.stringify(ready));
   fs.renameSync(path.join(artifactDir,"provider-stream-ready.json.tmp"),path.join(artifactDir,"provider-stream-ready.json"));
@@ -234,7 +264,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
   }};
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [upstreamEndpoint,artifactDir] = process.argv.slice(2);
-  const proxy = await createProviderStreamProxy({upstreamEndpoint,artifactDir});
+  const [upstreamEndpoint,artifactDir,mode = "gate"] = process.argv.slice(2);
+  const proxy = await createProviderStreamProxy({upstreamEndpoint,artifactDir,mode});
   for (const signal of ["SIGTERM","SIGINT"]) process.once(signal,()=>void proxy.close());
 }

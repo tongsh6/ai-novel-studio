@@ -28,15 +28,16 @@ const fakeProxy = `
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-const [upstream, dir] = process.argv.slice(2);
+const [upstream, dir, mode = "gate"] = process.argv.slice(2);
 fs.writeFileSync(path.join(dir,"fixture-owner.json"),JSON.stringify({pid:process.pid}));
 if (process.env.CASE === "exit") process.exit(23);
 const servers = [http.createServer((q, r) => r.end("local fixture")), http.createServer((q, r) => r.end("control fixture"))];
 for (const server of servers) await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const ports = servers.map(server => server.address().port);
-const ready = {pid:process.pid, endpoint:"http://127.0.0.1:"+ports[0]+new URL(upstream).pathname,
+const ready = {mode, pid:process.pid, endpoint:"http://127.0.0.1:"+ports[0]+new URL(upstream).pathname,
   control_endpoint:"http://127.0.0.1:"+ports[1], upstream_endpoint:upstream};
 if (process.env.CASE === "pid") ready.pid++;
+if (process.env.CASE === "mode") ready.mode = "unrelated";
 if (process.env.CASE === "upstream") ready.upstream_endpoint = "http://unrelated.invalid/v1";
 if (process.env.CASE === "external") ready.endpoint = "http://unrelated.invalid:1234/v1";
 if (process.env.CASE === "path") ready.endpoint += "/wrong";
@@ -53,6 +54,7 @@ function run(t, mode = "", overrides = {}, extra = "") {
   fs.mkdirSync(path.join(dir,"artifacts"));
   fs.writeFileSync(path.join(dir,"scripts/native_provider_stream_proxy.mjs"),fakeProxy);
   fs.writeFileSync(path.join(dir,"scripts/lib/native_app_ownership.mjs"),"// no native app in this fixture\n");
+  fs.writeFileSync(path.join(dir,"scripts/native_request_cost_drive.mjs"),`import fs from "node:fs";const dir=process.argv[2];const pid=JSON.parse(fs.readFileSync(dir+"/fixture-owner.json")).pid;process.kill(pid,0);fs.writeFileSync(dir+"/captured-before-cleanup","owned proxy still alive");`);
   fs.writeFileSync(path.join(dir,"bin/mix"),'#!/bin/bash\nprintf "%s\\n" "$NOVEL_SPLASH_ENDPOINT" >> "$ARTIFACT_DIR/backend-endpoints"\n');
   fs.chmodSync(path.join(dir,"bin/mix"),0o755);
   if(mode === "stale") fs.writeFileSync(path.join(dir,"artifacts/provider-stream-ready.json"),"{}");
@@ -114,13 +116,29 @@ for(const [name,vars] of [["non-native",{NATIVE_SYSTEM_DRIVER:"0"}],["not C8",{B
     assert.match(result.stdout,/route=\nowner=\n/);
   });
 }
-for(const mode of ["pid","upstream","external","path","ports","stale","exit","timeout"]) {
+for(const mode of ["pid","mode","upstream","external","path","ports","stale","exit","timeout"]) {
   test("fail closed and clean owned child: "+mode,t=>{
     const {result}=run(t,mode);
     assert.notEqual(result.status,0);
     assert.doesNotMatch(result.stdout,/route=http/);
   });
 }
+for (const length of ["10", "20"]) {
+  test("ordinary "+length+" explicitly observes without C8 flag", t=>{
+    const {result,ready}=run(t,"",{B71_AUTO_MAINTENANCE:"0",SLICE_ID:"b87-r01-request-cost",REQUEST_COST_LENGTH:length});
+    assert.equal(result.status,0,result.stderr);
+    assert.equal(ready?.mode,"observe");
+  });
+}
+test("ordinary runner failure captures before destroying owned proxy",t=>{
+  const {result,dir}=run(t,"",{B71_AUTO_MAINTENANCE:"0",SLICE_ID:"b87-r01-request-cost",REQUEST_COST_LENGTH:"10"},"exit 9");
+  assert.equal(result.status,9);
+  assert.equal(fs.readFileSync(path.join(dir,"artifacts/captured-before-cleanup"),"utf8"),"owned proxy still alive");
+});
+test("ordinary low pressure3 does not launch provider observation",t=>{
+  const {ready}=run(t,"",{B71_AUTO_MAINTENANCE:"0",SLICE_ID:"b87-r01-request-cost",REQUEST_COST_LENGTH:"3"});
+  assert.equal(ready,null);
+});
 test("invalid C8 provider fails before launch",t=>{
   const {result,ready}=run(t,"",{SLICE_VERIFY_PROVIDER:"strata"});
   assert.notEqual(result.status,0);

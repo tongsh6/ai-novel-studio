@@ -9,6 +9,7 @@ import { NativeScenarioHarness } from "./lib/native_ui/scenario_driver.mjs";
 import {
   buildTurnPlan,
   createAxObservation,
+  captureFailureEvidence,
   freshnessFacts,
   inputModeFacts,
   joinWireAfterTerminal,
@@ -374,7 +375,7 @@ test("等待作者且无可见新讨论：停止为 partial，不自动答/不�
   assert.equal(state.clicks.length, 0);
 });
 
-test("模型失败是 Before 行为结果：记录后继续下一固定输入", async () => {
+test("技术失败保留原结果并停止，不再发送下一固定输入", async () => {
   const { harness, state } = fakeHarness({
     outcomes: ["completed", "failed", "completed"],
     newDiscussion: true,
@@ -385,13 +386,22 @@ test("模型失败是 Before 行为结果：记录后继续下一固定输入", 
     length: 3,
     timeoutMs: 1_000,
   });
-  assert.equal(result.completed, true);
-  assert.equal(result.partial, false);
-  assert.deepEqual(state.sends, ["第一句", "第二句", "第三句"]);
-  assert.equal(result.turns.length, 3);
+  assert.equal(result.completed, false);
+  assert.equal(result.partial, true);
+  assert.equal(result.stop_reason, "technical_failure:turn_2");
+  assert.deepEqual(state.sends, ["第一句", "第二句"]);
+  assert.equal(result.turns.length, 2);
   assert.equal(result.turns[1].visible_outcome.kind, "failed");
 });
 
+
+test("unbound terminal stops before another author input",async()=>{
+  const {harness,state}=fakeHarness({outcomes:["completed","completed"],newDiscussion:true});
+  harness.sentUserMessageSince=()=>null;
+  const result=await runRequestCostSequence({harness,authors,length:2,timeoutMs:1000});
+  assert.equal(result.stop_reason,"identity_unbound:turn_1");
+  assert.deepEqual(state.sends,["第一句"]);
+});
 
 test("capability_gap 是可见终态：记录缺口后继续下一冻结输入", async () => {
   const { harness, state } = fakeHarness({
@@ -1140,7 +1150,8 @@ test("runWithHarness 序列未完成时抛 incomplete，不把 partial 当完成
           rawLaunchApp: async () => {},
           capture: () => {},
           writeDriverLog: (_name, value) => logs.push(value),
-          writeUiComplete: () => {},
+          writeUiComplete: () => assert(fs.existsSync(path.join(dir,"request-cost-failure-evidence/capture.json")),
+            "failure snapshot must exist before runner completion/cleanup"),
         },
         capture: () => ({ ok: true }),
       }),
@@ -1176,6 +1187,44 @@ test("CLI main：无批次目录给 usage，缺配置明确失败", async () => 
     console.error = originalError;
     process.exitCode = previous;
   }
+});
+
+test("interrupted capture keeps first bytes and explicitly records later missing receipt",async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"r01-interrupted-"));
+  try {
+    const target=path.join(dir,"request-cost-failure-evidence");fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target,"db-facts.json"),"original unfinished");
+    await assert.rejects(captureFailureEvidence(dir,{readFacts:()=>{throw Error("do not recollect");}}),/failure_capture_incomplete/);
+    assert.equal(fs.readFileSync(path.join(target,"db-facts.json"),"utf8"),"original unfinished");
+    const receipt=JSON.parse(fs.readFileSync(path.join(target,"incomplete.json")));
+    assert.equal(receipt.reason,"first_capture_receipt_missing");
+    assert.equal(receipt.original_capture_time_known,false);
+    assert.equal(fs.existsSync(path.join(target,"capture.json")),false);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test("failure evidence snapshots original facts/log prefixes before completion; missing evidence stays explicit", async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"r01-failure-"));
+  try {
+    fs.writeFileSync(path.join(dir,"provider-stream-ready.json"),JSON.stringify({mode:"observe",control_endpoint:"http://127.0.0.1:12345"}));
+    fs.mkdirSync(path.join(dir,"llm-calls"));
+    fs.writeFileSync(path.join(dir,"llm-calls/calls.jsonl"),"original partial log");
+    const events=[];
+    await captureFailureEvidence(dir,{readFacts:()=>{events.push("db");return {provider_runs:[{id:"literal-run"}]};},request:async(url,opts)=>{
+      events.push("proxy");assert.equal(url.pathname,"/snapshot");assert(opts.signal);
+      return {ok:true,json:async()=>({mode:"observe",requests:[]})};
+    }});
+    assert.deepEqual(events,["db","proxy"]);
+    const target=path.join(dir,"request-cost-failure-evidence");
+    assert.equal(fs.readFileSync(path.join(target,"llm-calls__calls.jsonl"),"utf8"),"original partial log");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(target,"db-facts.json"))),{provider_runs:[{id:"literal-run"}]});
+    const receipt=fs.readFileSync(path.join(target,"capture.json"),"utf8");
+    assert(JSON.parse(receipt).errors.some(x=>x.source==="native-transport.jsonl"));
+    assert.equal(JSON.parse(receipt).capture_mode,"ordered_non_atomic");
+    assert(JSON.parse(receipt).capture_finished_at >= JSON.parse(receipt).captured_at);
+    await captureFailureEvidence(dir,{readFacts:()=>{throw Error("must not recollect after cleanup");}});
+    assert.equal(fs.readFileSync(path.join(target,"capture.json"),"utf8"),receipt);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
 test("runWithHarness 已有 final 结果时不重复 capture", async () => {

@@ -17,6 +17,7 @@ import {
 import {
   captureBatch,
   captureSubjectWindow,
+  readCostWindowFacts,
   readSuccessorAuthor,
   loadSourceAuthors,
   readManifest,
@@ -353,15 +354,22 @@ export async function runRequestCostSequence({
         new_discussion_clicked: clickedNewDiscussion,
         ...joined,
       });
-      // 模型答错/gap/ask/失败是 Before 行为结果，不是测量失败；输入入口由下一轮
-      // prepareInput 根据当前真实 AX 决定，不继承上一轮 outcome。
+      if (!joined.joined) {
+        stopReason = `identity_unbound:turn_${item.turn}`;
+        break;
+      }
+      // 技术失败保留证据后停止；合法 gap/ask 不由驱动代作语义判断。
+      if (outcome.kind === "failed") {
+        stopReason = `technical_failure:turn_${item.turn}`;
+        break;
+      }
     } catch (error) {
       stopReason = `turn_error:${error.message}`;
       break;
     }
   }
 
-  // 只有 catch 会 break；没有 stopReason 就说明计划的每一轮都已记录。
+  // 技术失败或异常会停止；没有 stopReason 才表示所有固定输入已记录。
   const completed = stopReason === null;
   return {
     completed,
@@ -458,10 +466,10 @@ export async function runWithHarness({ dir, config, authors, harness, capture = 
       if (!fs.existsSync(path.join(dir, "request-cost-final.json"))) {
         capture({ batchDir: dir, checkpoint: "final" });
       }
-      harness.writeUiComplete("b87-r01-request-cost");
       if (!result.completed) {
         throw new Error(`request_cost_sequence_incomplete:${result.stop_reason}`);
       }
+      harness.writeUiComplete("b87-r01-request-cost");
     } catch (error) {
       driverLog = {
         ...driverLog,
@@ -472,6 +480,8 @@ export async function runWithHarness({ dir, config, authors, harness, capture = 
           : driverLog.stop_reason,
         error: error.message,
       };
+      try { await captureFailureEvidence(dir); }
+      catch (captureError) { driverLog.failure_evidence_error = captureError.message; }
       if (!fs.existsSync(path.join(dir, "request-cost-final.json"))) {
         try {
           capture({ batchDir: dir, checkpoint: "final" });
@@ -495,6 +505,50 @@ async function run(dir, { harnessFactory = (batchDir) => new NativeScenarioHarne
   return runWithHarness({ dir, config, authors, harness: harnessFactory(dir) });
 }
 
+export async function captureFailureEvidence(dir, { readFacts = readCostWindowFacts, request = fetch } = {}) {
+  const target = path.join(dir, "request-cost-failure-evidence");
+  if (fs.existsSync(target)) {
+    const receipt=path.join(target,"capture.json");
+    if (fs.existsSync(receipt) && JSON.parse(fs.readFileSync(receipt,"utf8")).capture_finished_at) return;
+    const incomplete=path.join(target,"incomplete.json");
+    if (!fs.existsSync(incomplete)) fs.writeFileSync(incomplete,JSON.stringify({
+      observed_at:new Date().toISOString(),reason:"first_capture_receipt_missing",
+      original_capture_time_known:false,existing_fragments_preserved:true,
+    },null,2)+"\n",{flag:"wx"});
+    throw new Error("failure_capture_incomplete");
+  }
+  fs.mkdirSync(target);
+  const result = { captured_at:new Date().toISOString(), capture_mode:"ordered_non_atomic",
+    phase:"before_owned_cleanup", errors:[], files:[] };
+  const save = (name, bytes) => {
+    fs.writeFileSync(path.join(target,name),bytes);
+    result.files.push({name,bytes:Buffer.byteLength(bytes),sha256:createHash("sha256").update(bytes).digest("hex")});
+  };
+  try { save("db-facts.json",JSON.stringify(readFacts(dir))); }
+  catch (error) { result.errors.push({source:"db",error:error.message}); }
+  for (const name of ["native-transport.jsonl","provider-stream.jsonl","llm-calls","app-log"]) {
+    try {
+      const source=path.join(dir,name);
+      const files=fs.statSync(source).isDirectory()?fs.readdirSync(source).filter(f=>f.endsWith(".jsonl")).map(f=>path.join(name,f)):[name];
+      for (const file of files) save(file.replaceAll("/", "__"),fs.readFileSync(path.join(dir,file)));
+    } catch (error) { result.errors.push({source:name,error:error.message}); }
+  }
+  try {
+    const ready=JSON.parse(fs.readFileSync(path.join(dir,"provider-stream-ready.json"),"utf8"));
+    const url=new URL(ready.control_endpoint);
+    assert(ready.mode==="observe" && url.protocol==="http:" && url.hostname==="127.0.0.1" &&
+      !url.username && !url.password && !url.search && !url.hash && url.pathname==="/" && url.port,
+    "invalid_observation_control_identity");
+    const response=await request(new URL("/snapshot",url),{signal:AbortSignal.timeout(2000)});
+    assert(response.ok,"observation_snapshot_http_error");
+    const snapshot=await response.json();
+    assert(snapshot.mode==="observe" && Array.isArray(snapshot.requests),"invalid_observation_snapshot");
+    save("proxy-snapshot.json",JSON.stringify(snapshot));
+  } catch (error) { result.errors.push({source:"proxy",error:error.message}); }
+  result.capture_finished_at=new Date().toISOString();
+  fs.writeFileSync(path.join(target,"capture.json"),JSON.stringify(result,null,2)+"\n");
+}
+
 export async function main(argv) {
   const batchArg = argv[0];
   if (!batchArg) {
@@ -502,6 +556,7 @@ export async function main(argv) {
     process.exitCode = 64;
     return;
   }
+  if (argv[1] === "--failure-evidence") return captureFailureEvidence(path.resolve(batchArg));
   await run(path.resolve(batchArg));
 }
 
