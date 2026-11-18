@@ -135,6 +135,34 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
              boundary_execute(eventsource, sink, cancellation_token: token)
   end
 
+  test "cancelled EOF does not publish a buffered frame and retains the accepted prefix" do
+    {:ok, token} = CancellationToken.start_link()
+    on_exit(fn -> if Process.alive?(token), do: GenServer.stop(token) end)
+    owner = self()
+
+    sink = fn {_status, facts} ->
+      for event <- facts.events,
+          event.event_type == :chunk,
+          do: send(owner, {:accepted_chunk, event})
+    end
+
+    eventsource = fn _, _, _, on_data ->
+      assert :cont = on_data.(text_frame("保留"))
+      # Complete JSON but no SSE record delimiter: only normal EOF could flush it.
+      assert :cont = on_data.(String.trim_trailing(text_frame("不应发布"), "\n"))
+      CancellationToken.cancel(token)
+      {:error, :cancelled, 0, "cancelled"}
+    end
+
+    assert {:error, %{provider_run: %{status: :cancelled}, events: events}} =
+             boundary_execute(eventsource, sink, cancellation_token: token)
+
+    chunks = Enum.filter(events, &(&1.event_type == :chunk))
+    assert length(chunks) == 1
+    assert_receive {:accepted_chunk, _}
+    refute_receive {:accepted_chunk, _}
+  end
+
   test "configured deadline remains authoritative after the sink returns" do
     sink = fn {_status, facts} ->
       if Enum.any?(facts.events, &(&1.event_type == :chunk)), do: Process.sleep(80)

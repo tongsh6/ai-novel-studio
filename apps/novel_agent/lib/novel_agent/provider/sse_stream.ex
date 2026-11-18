@@ -75,6 +75,10 @@ defmodule NovelAgent.Provider.SSEStream do
 
   defp execute_uncancelled(opts, decoder, state) do
     %{ctx: ctx, body: body, url: url, request_opts: request_opts} = opts
+
+    request_opts =
+      Keyword.put(request_opts, :cancellation_token, Map.get(ctx, :cancellation_token))
+
     started = System.monotonic_time(:millisecond)
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
@@ -111,7 +115,10 @@ defmodule NovelAgent.Provider.SSEStream do
           |> eventsource_fn()
           |> invoke_eventsource(url, body, request_opts, on_data)
 
-        update_and_emit(ctx, acc, &flush_buffer(ctx, &1))
+        if continue_or_halt(ctx, acc, started, deadline_ms) == :cont do
+          update_and_emit(ctx, acc, &flush_buffer(ctx, &1))
+        end
+
         continue_or_halt(ctx, acc, started, deadline_ms)
         {result, Agent.get(acc, & &1)}
       after

@@ -1,78 +1,76 @@
 defmodule NovelAgent.Provider.CancellationToken do
   @moduledoc """
-  ProviderExecution cancellation token.
-
-  The token is owned by the provider execution runtime and observed by adapters.
-  It is not a separate provider path: adapters use it to stop reading stream
-  data and materialize cancelled ProviderRun / ProviderEvent / ProviderOutput
-  facts in the same execution stream.
+  Execution-owned cancellation state and monitored, one-shot observer notifications.
+  Transport ownership remains with the adapter; this module never owns a socket.
   """
-
-  use Agent
-
+  use GenServer
   @type reason :: atom() | String.t()
   @type t :: pid()
 
-  @spec start_link(map()) :: Agent.on_start()
-  def start_link(metadata \\ %{}) when is_map(metadata) do
-    Agent.start_link(fn ->
-      %{
-        cancelled?: false,
-        reason: nil,
-        requested_at: nil,
-        metadata: metadata
-      }
-    end)
-  end
+  def start_link(metadata \\ %{}) when is_map(metadata),
+    do: GenServer.start_link(__MODULE__, metadata)
 
-  @spec cancel(t() | nil, reason()) :: :ok
   def cancel(token, reason \\ :author_cancelled)
-
   def cancel(nil, _reason), do: :ok
-
-  def cancel(token, reason) when is_pid(token) do
-    if Process.alive?(token) do
-      Agent.update(token, fn
-        %{cancelled?: true} = state ->
-          state
-
-        state ->
-          %{
-            state
-            | cancelled?: true,
-              reason: reason,
-              requested_at: DateTime.utc_now()
-          }
-      end)
-    else
-      :ok
-    end
-  catch
-    :exit, _reason -> :ok
-  end
-
-  @spec cancelled?(t() | nil) :: boolean()
-  def cancelled?(nil), do: false
-
-  def cancelled?(token) when is_pid(token) do
-    Process.alive?(token) and Agent.get(token, & &1.cancelled?)
-  catch
-    :exit, _reason -> false
-  end
-
-  @spec snapshot(t() | nil) :: map()
+  def cancel(token, reason), do: call(token, {:cancel, reason}, :ok)
+  def cancelled?(token), do: Map.get(snapshot(token), :cancelled?, false)
   def snapshot(nil), do: %{}
+  def snapshot(token), do: call(token, :snapshot, %{})
+  def reason(token), do: Map.get(snapshot(token), :reason)
 
-  def snapshot(token) when is_pid(token) do
-    if Process.alive?(token), do: Agent.get(token, & &1), else: %{}
-  catch
-    :exit, _reason -> %{}
+  @doc "Atomically subscribe the calling process, or report cancellation before dispatch."
+  def subscribe(nil), do: {:ok, nil}
+  def subscribe(token), do: call(token, {:subscribe, self()}, {:error, :token_unavailable})
+  def unsubscribe(_token, nil), do: :ok
+  def unsubscribe(token, ref), do: call(token, {:unsubscribe, ref}, :ok)
+
+  @impl true
+  def init(metadata) do
+    {:ok,
+     %{cancelled?: false, reason: nil, requested_at: nil, metadata: metadata, subscribers: %{}}}
   end
 
-  @spec reason(t() | nil) :: reason() | nil
-  def reason(token) do
-    token
-    |> snapshot()
-    |> Map.get(:reason)
+  @impl true
+  def handle_call(:snapshot, _from, state), do: {:reply, Map.delete(state, :subscribers), state}
+
+  def handle_call({:subscribe, _pid}, _from, %{cancelled?: true} = state),
+    do: {:reply, {:error, :cancelled}, state}
+
+  def handle_call({:subscribe, pid}, _from, state) do
+    ref = Process.monitor(pid)
+    {:reply, {:ok, ref}, %{state | subscribers: Map.put(state.subscribers, ref, pid)}}
+  end
+
+  def handle_call({:unsubscribe, ref}, _from, state) do
+    Process.demonitor(ref, [:flush])
+    {:reply, :ok, %{state | subscribers: Map.delete(state.subscribers, ref)}}
+  end
+
+  def handle_call({:cancel, _reason}, _from, %{cancelled?: true} = state),
+    do: {:reply, :ok, state}
+
+  def handle_call({:cancel, reason}, _from, state) do
+    next = %{state | cancelled?: true, reason: reason, requested_at: DateTime.utc_now()}
+    {:reply, :ok, next, {:continue, :notify}}
+  end
+
+  @impl true
+  def handle_continue(:notify, state) do
+    for {ref, pid} <- state.subscribers do
+      send(pid, {:provider_cancelled, ref})
+      Process.demonitor(ref, [:flush])
+    end
+
+    {:noreply, %{state | subscribers: %{}}}
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state),
+    do: {:noreply, %{state | subscribers: Map.delete(state.subscribers, ref)}}
+
+  defp call(token, message, fallback) do
+    GenServer.call(token, message)
+  catch
+    :exit, _ -> fallback
   end
 end

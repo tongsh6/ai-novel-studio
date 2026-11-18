@@ -6,6 +6,8 @@ defmodule NovelAgent.Provider.HTTP do
   LM Studio 和 Anthropic 不再各自处理原始 HTTP 结果。
   """
 
+  alias NovelAgent.Provider.CancellationToken
+
   require Logger
 
   @typedoc "Unified HTTP result"
@@ -64,6 +66,113 @@ defmodule NovelAgent.Provider.HTTP do
   @spec post_event_stream(String.t(), map(), keyword(), (binary() -> term())) ::
           event_stream_result()
   def post_event_stream(url, json_body, opts, on_data) when is_function(on_data, 1) do
+    token = Keyword.get(opts, :cancellation_token)
+
+    case CancellationToken.subscribe(token) do
+      {:ok, subscription} ->
+        try do
+          run_owned_stream(url, json_body, opts, on_data, token, subscription)
+        after
+          CancellationToken.unsubscribe(token, subscription)
+          flush_cancel(subscription)
+        end
+
+      {:error, reason} ->
+        {:error, reason, 0, "流请求未启动"}
+    end
+  end
+
+  defp run_owned_stream(url, body, opts, on_data, token, subscription) do
+    owner = self()
+    call_ref = make_ref()
+
+    task =
+      Task.async(fn ->
+        try do
+          receive do
+            {^call_ref, ^owner, :start} -> :ok
+          end
+
+          if CancellationToken.cancelled?(token) do
+            {:error, :cancelled, 0, "请求已取消"}
+          else
+            request_event_stream(url, body, opts, fn data ->
+              send(owner, {call_ref, self(), data})
+
+              receive do
+                {^call_ref, ^owner, decision} -> decision
+              end
+            end)
+          end
+        rescue
+          exception -> {:error, :provider_internal, 0, Exception.message(exception)}
+        catch
+          kind, reason -> {:error, :provider_internal, 0, "#{kind}: #{inspect(reason)}"}
+        end
+      end)
+
+    try do
+      unless CancellationToken.cancelled?(token), do: send(task.pid, {call_ref, owner, :start})
+      await_stream(task, call_ref, on_data, token, subscription)
+    after
+      Task.shutdown(task, :brutal_kill)
+      flush_stream(call_ref, task.pid, task.ref)
+    end
+  end
+
+  defp await_stream(task, call_ref, on_data, token, subscription) do
+    if CancellationToken.cancelled?(token) do
+      {:error, :cancelled, 0, "请求已取消"}
+    else
+      receive do
+        {:provider_cancelled, ^subscription} ->
+          {:error, :cancelled, 0, "请求已取消"}
+
+        {^call_ref, pid, data} when pid == task.pid ->
+          decision = on_data.(data)
+
+          if CancellationToken.cancelled?(token) do
+            {:error, :cancelled, 0, "请求已取消"}
+          else
+            send(pid, {call_ref, self(), decision})
+            await_stream(task, call_ref, on_data, token, subscription)
+          end
+
+        {:DOWN, ref, :process, pid, reason} when ref == task.ref and pid == task.pid ->
+          {:error, :provider_internal, 0, "传输进程退出: #{inspect(reason)}"}
+
+        {ref, result} when ref == task.ref ->
+          Process.demonitor(ref, [:flush])
+
+          if CancellationToken.cancelled?(token),
+            do: {:error, :cancelled, 0, "请求已取消"},
+            else: result
+      end
+    end
+  end
+
+  defp flush_stream(ref, pid, task_ref) do
+    receive do
+      {^ref, ^pid, _data} -> flush_stream(ref, pid, task_ref)
+      {^task_ref, _result} -> flush_stream(ref, pid, task_ref)
+      {:DOWN, ^task_ref, :process, ^pid, _} -> flush_stream(ref, pid, task_ref)
+      {:EXIT, ^pid, _} -> flush_stream(ref, pid, task_ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp flush_cancel(nil), do: :ok
+
+  defp flush_cancel(ref) do
+    receive do
+      {:provider_cancelled, ^ref} -> flush_cancel(ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp request_event_stream(url, json_body, opts, on_data) do
     headers =
       [
         {"content-type", "application/json"},
