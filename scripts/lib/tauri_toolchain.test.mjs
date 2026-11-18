@@ -236,7 +236,9 @@ test("Tauri runner 在成本步骤前预检，dev/build 两入口共用同一 he
   const cleanupStart = source.indexOf("cleanup() {");
   const trapInstall = source.indexOf("trap cleanup EXIT");
   const dbReset = source.indexOf("else\n  reset_test_db\nfi");
-  const seedRun = source.indexOf('mix run "$SEED_SCRIPT"');
+  // 现役入口先设 UTF-8，再用 --require 执行 seed；顺序目标仍为预检先于 seed。
+  const seedRun = source.indexOf('--require "$SEED_SCRIPT"');
+  assert.ok(seedRun >= 0, "主流程缺少真实 seed 入口");
   const phoenixStart = source.indexOf("mix run --no-start --no-halt scripts/slice_verify_server.exs");
   assert.ok(preflight >= 0, "主流程缺少工具链预检");
   assert.ok(preflight < artifactDir, "工具链预检必须早于 artifact 目录创建/清理");

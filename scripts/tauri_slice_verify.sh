@@ -752,6 +752,10 @@ PHX_PID=""
 TAURI_PID=""
 UI_DRIVER_PID=""
 NATIVE_PROXY_PID=""
+PROVIDER_STREAM_PID=""
+PROVIDER_STREAM_ENDPOINT=""
+PROVIDER_STREAM_PORT=""
+PROVIDER_STREAM_CONTROL_PORT=""
 TAURI_CONFIG_OVERRIDE=""
 
 reset_test_db() {
@@ -797,6 +801,7 @@ cleanup() {
   reap_process_tree "$NATIVE_PROXY_PID" 3 3 || cleanup_failed=1
   reap_process_tree "$TAURI_PID" 3 3 || cleanup_failed=1
   reap_process_tree "$PHX_PID" 3 3 || cleanup_failed=1
+  reap_process_tree "$PROVIDER_STREAM_PID" 3 3 || cleanup_failed=1
   if [[ -n "$TAURI_CONFIG_OVERRIDE" ]]; then
     rm -f "$TAURI_CONFIG_OVERRIDE" 2>/dev/null || cleanup_failed=1
   fi
@@ -1585,13 +1590,15 @@ native_action_description() {
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" "$SLICE_ID" "$PHOENIX_PORT" "${NATIVE_PROXY_PID:+$NATIVE_PROXY_PORT}" "$$" "$PHX_PID" "$NOVEL_TEST_DB_DIR" <<'READY'
+    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" "$SLICE_ID" "$PHOENIX_PORT" "${NATIVE_PROXY_PID:+$NATIVE_PROXY_PORT}" "$$" "$PHX_PID" "$NOVEL_TEST_DB_DIR" "$PROVIDER_STREAM_PORT" "$PROVIDER_STREAM_CONTROL_PORT" <<'READY'
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-const [dir, api, home, provider, sliceId, backendPort, transportPort, runnerPid, backendPid, databaseDir] = process.argv.slice(2);
-const ownedPorts = { backend: Number(backendPort), transport: transportPort ? Number(transportPort) : null };
-if (![ownedPorts.backend, ...(ownedPorts.transport === null ? [] : [ownedPorts.transport])].every((port) => Number.isInteger(port) && port > 0 && port <= 65535)) throw new Error("invalid owned port");
+const [dir, api, home, provider, sliceId, backendPort, transportPort, runnerPid, backendPid, databaseDir, providerStreamPort, providerStreamControlPort] = process.argv.slice(2);
+const ownedPorts = { backend: Number(backendPort), transport: transportPort ? Number(transportPort) : null,
+  provider_stream: providerStreamPort ? Number(providerStreamPort) : null,
+  provider_stream_control: providerStreamControlPort ? Number(providerStreamControlPort) : null };
+if (!Object.values(ownedPorts).filter((port) => port !== null).every((port) => Number.isInteger(port) && port > 0 && port <= 65535)) throw new Error("invalid owned port");
 // 开发 CLI 运行无 app 包元数据的二进制，macOS 应用发现无法按路径定位。
 // 仅为同一二进制补包装，供外部系统 UI 驱动；不改变产品代码。
 const runRef = randomUUID();
@@ -1622,6 +1629,7 @@ READY
     # 与浏览器 driver 同样由 builtin wait 接住信号，避免 Bash 等前台 node 结束后才执行 TERM trap。
     local native_watch_pids=("$PHX_PID")
     if [[ -n "$NATIVE_PROXY_PID" ]]; then native_watch_pids+=("$NATIVE_PROXY_PID"); fi
+    if [[ -n "$PROVIDER_STREAM_PID" ]]; then native_watch_pids+=("$PROVIDER_STREAM_PID"); fi
     node "$PROJECT_ROOT/scripts/native_ui_wait.mjs" wait "$ARTIFACT_DIR" "$API_URL" "${native_watch_pids[@]}" &
     UI_DRIVER_PID=$!
     while kill -0 "$UI_DRIVER_PID" 2>/dev/null; do
@@ -2649,11 +2657,64 @@ if [[ "$SLICE_ID" == "agent-provider-slow-stream-liveness" ]]; then
   LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-3000}"
 fi
 
+# C8 只临时路由隔离后端；上游 Splash 不属于本 runner，绝不停止或改配置。
+start_owned_provider_stream_proxy() {
+  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" || "${B71_AUTO_MAINTENANCE:-0}" != "1" ]]; then return 0; fi
+  if [[ "$SLICE_VERIFY_PROVIDER" != "splash" || "$SLICE_ID" != "b71-first-consumer" ]]; then
+    echo "[tauri-slice-verify] provider stream proxy requires native Splash auto-maintenance" >&2
+    return 1
+  fi
+  local upstream="${NOVEL_SPLASH_ENDPOINT:-http://127.0.0.1:8000/v1}"
+  local ready="$ARTIFACT_DIR/provider-stream-ready.json"
+  if [[ -e "$ready" ]]; then
+    echo "[tauri-slice-verify] refusing stale provider stream ready" >&2
+    return 1
+  fi
+  node "$PROJECT_ROOT/scripts/native_provider_stream_proxy.mjs" "$upstream" "$ARTIFACT_DIR" >"$ARTIFACT_DIR/provider-stream-proxy.log" 2>&1 &
+  PROVIDER_STREAM_PID=$!
+  local deadline=$((SECONDS + 10))
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$PROVIDER_STREAM_PID" 2>/dev/null; then
+      echo "[tauri-slice-verify] provider stream proxy exited before ready" >&2
+      return 1
+    fi
+    if [[ -f "$ready" ]]; then break; fi
+    sleep 0.1
+  done
+  if [[ ! -f "$ready" ]]; then
+    echo "[tauri-slice-verify] provider stream proxy ready timeout" >&2
+    return 1
+  fi
+  local fields
+  fields="$(node --input-type=module - "$ready" "$PROVIDER_STREAM_PID" "$upstream" <<'PROVIDER_READY'
+import fs from "node:fs";
+const [file, pid, upstream] = process.argv.slice(2);
+const ready = JSON.parse(fs.readFileSync(file, "utf8"));
+const endpoint = new URL(ready.endpoint);
+const control = new URL(ready.control_endpoint);
+const original = new URL(upstream);
+const loopback = (url) => url.protocol === "http:" && url.hostname === "127.0.0.1" &&
+  !url.username && !url.password && !url.search && !url.hash &&
+  Number.isInteger(Number(url.port)) && Number(url.port) > 0 && Number(url.port) <= 65535;
+if (ready.pid !== Number(pid) || ready.upstream_endpoint !== upstream ||
+    !loopback(endpoint) || !loopback(control) || endpoint.port === control.port ||
+    endpoint.pathname !== original.pathname || control.pathname !== "/") {
+  throw new Error("provider stream ready identity/endpoint mismatch");
+}
+process.stdout.write([ready.endpoint, endpoint.port, control.port].join("\t"));
+PROVIDER_READY
+)" || return 1
+  IFS=$'\t' read -r PROVIDER_STREAM_ENDPOINT PROVIDER_STREAM_PORT PROVIDER_STREAM_CONTROL_PORT <<<"$fields"
+  kill -0 "$PROVIDER_STREAM_PID"
+}
+
+
 start_owned_backend() {
   local backend_log="$1"
   local runtime_facts="$2"
   (
     cd "$PROJECT_ROOT"
+    if [[ -n "$PROVIDER_STREAM_ENDPOINT" ]]; then export NOVEL_SPLASH_ENDPOINT="$PROVIDER_STREAM_ENDPOINT"; fi
     MIX_ENV=test \
       PHOENIX_TEST_PORT="$PHOENIX_PORT" \
       PHOENIX_PORT="$PHOENIX_PORT" \
@@ -2690,6 +2751,7 @@ RUNTIME_FACTS_PATH=""
 if [[ "$SLICE_ID" == "b87-r01-request-cost" || ( "$SLICE_ID" == "b71-first-consumer" && "$SLICE_VERIFY_PROVIDER" == "splash" ) || "${B29_NATIVE_MODE:-}" == "r03-candidate" ]]; then
   RUNTIME_FACTS_PATH="$ARTIFACT_DIR/runtime-facts.json"
 fi
+start_owned_provider_stream_proxy
 start_owned_backend "$ARTIFACT_DIR/backend.log" "$RUNTIME_FACTS_PATH"
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" && "${TAURI_NATIVE_TRANSPORT_PROXY:-0}" == "1" ]]; then
