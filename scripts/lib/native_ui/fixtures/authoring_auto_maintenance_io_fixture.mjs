@@ -30,7 +30,7 @@ const SCREENS = ["01-workbench.jpg", "after-input.jpg", "final.jpg"];
 const SCHEMA_SQL = `
     CREATE TABLE agent_events (id TEXT, run_id TEXT, event_type TEXT, visibility TEXT, sequence INTEGER, payload TEXT, inserted_at TEXT);
     CREATE TABLE agent_runs (id TEXT, status TEXT, session_id TEXT, workspace_id TEXT, work_id TEXT, parent_turn_ref TEXT, goal_version INTEGER);
-    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT, workspace_id TEXT, work_id TEXT);
+    CREATE TABLE authoring_session_messages (id TEXT, run_id TEXT, session_id TEXT, sequence INTEGER, run_sequence INTEGER, role TEXT, message TEXT, format_version TEXT, workspace_id TEXT, work_id TEXT, inserted_at TEXT);
     CREATE TABLE provider_runs (id TEXT, provider_call_ref TEXT, provider_id TEXT, agent_run_id TEXT, session_id TEXT, workspace_id TEXT, work_id TEXT, parent_turn_ref TEXT, status TEXT, purpose TEXT, owner_refs TEXT, operation_checkpoint TEXT, started_at TEXT, inserted_at TEXT);
     CREATE TABLE provider_events (id TEXT, provider_run_id TEXT, provider_call_ref TEXT, event_type TEXT, emitted_at TEXT);
     CREATE TABLE provider_outputs (provider_run_id TEXT, provider_call_ref TEXT, agent_run_id TEXT, status TEXT, content_summary TEXT);
@@ -63,6 +63,95 @@ function seedDatabase(file, facts) {
   } finally {
     db.close();
   }
+}
+
+
+/**
+ * Current IO admission is v2. Keep the shared v1 historical fixture unchanged.
+ * Literal mixed window: three closed reads plus one reply protect four items;
+ * source-d is older. No production formatter or admission oracle builds this fixture.
+ */
+function currentAdmissionScenario(scenario) {
+  const responseText = '{"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"原建议仍待确认","retained_fragment_indices":[1,2]}]}';
+  const responseHash = createHash("sha256").update(responseText).digest("hex");
+  const sourceText = "暂定方案\r\n仍欠风险表\r请作者确认\n末行";
+  const items = [
+    { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "d-read-1", name: "chapter_read", raw_arguments: "{}" }] },
+    { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: "d-read-1", status: "ok", source_refs: ["d-source-1"], versions: {} }] },
+    { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "d-read-2", name: "chapter_read", raw_arguments: "{}" }] },
+    { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: "d-read-2", status: "ok", source_refs: ["d-source-2"], versions: {} }] },
+    { role: "assistant", provenance: "model", blocks: [{ type: "tool_call", call_id: "d-read-3", name: "chapter_read", raw_arguments: "{}" }] },
+    { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: "d-read-3", status: "ok", source_refs: ["d-source-3"], versions: {} }] },
+    { role: "assistant", provenance: "model", blocks: [{ type: "text", text: "三个查阅均已返回，原风险表仍未交付。" }] },
+  ];
+  for (const facts of [scenario.facts.before, scenario.facts.afterFailure, scenario.facts.beforeRestart,
+    scenario.facts.afterRestart, scenario.facts.afterRecovery, scenario.db]) {
+    for (const row of facts.authoring_session_messages) {
+      const message = JSON.parse(row.message);
+      if (row.run_id === "source-d" && row.role === "assistant") message.blocks = [{ type: "text", text: sourceText }];
+      for (const block of message.blocks) if (block.discussion?.provider_run_ref === "prun-failed-d")
+        Object.assign(block.discussion, { response_text: responseText, response_sha256: responseHash });
+      row.message = JSON.stringify(message);
+    }
+    const currentBase = facts.authoring_session_messages.find(row => row.run_id === "failed-d");
+    if (currentBase) {
+      const at = facts.authoring_session_messages.findLastIndex(row => row.run_id === "failed-d") + 1;
+      facts.authoring_session_messages.splice(at, 0, ...items.map((message, index) => ({
+        ...currentBase, id: "d-admission-item-" + index, run_sequence: index + 4, role: message.role,
+        message: JSON.stringify({ ...message, source_refs: [], versions: {} }),
+      })));
+      facts.authoring_session_messages.forEach((row, index) => { row.sequence = index + 1; });
+    }
+    // Real planner rows persist empty owner metadata rather than an absent field.
+    for (const run of facts.provider_runs) run.owner_refs ??= {};
+    for (const run of facts.provider_runs) if (run.id === "prun-failed-d") {
+      run.inserted_at = "2026-11-04T10:06:10.000001Z";
+      if (run.operation_checkpoint) Object.assign(run.operation_checkpoint, {
+        version: "provider-operation-checkpoint/v2", discussion_protocol_version: "authoring-discussion-summary/v2",
+        response_text: responseText,
+      });
+    }
+    for (const output of facts.provider_outputs) if (output.provider_run_id === "prun-failed-d")
+      output.content_summary.content_sha256 = responseHash;
+  }
+  // Literal chronology independent of the admission verifier: old rows before
+  // the 10:06 pre-send snapshot, all four current items before 10:06:10.000001,
+  // recovered rows after restart. Stable IDs retain exactly the same timestamp.
+  const preIds = new Set(scenario.facts.before.authoring_session_messages.map(row => row.id));
+  const rowTimes = new Map(scenario.db.authoring_session_messages.map((row, index) => {
+    const second = preIds.has(row.id) ? "10:05:00" : row.run_id === "failed-d" ? "10:06:09" : "10:09:00";
+    return [row.id, "2026-11-04T" + second + "." + String(index + 1).padStart(6, "0") + "Z"];
+  }));
+  for (const facts of [scenario.facts.before, scenario.facts.afterFailure, scenario.facts.beforeRestart,
+    scenario.facts.afterRestart, scenario.facts.afterRecovery, scenario.db])
+    for (const row of facts.authoring_session_messages) row.inserted_at = rowTimes.get(row.id);
+  const record = scenario.records.find(row => row.provider_run_ref === "prun-failed-d");
+  record.request.body.messages[0].content = "output_protocol_version: authoring-discussion-summary/v2";
+  const application = record.request.body.messages[1];
+  const start = application.content.indexOf("\n") + 1;
+  const material = JSON.parse(application.content.slice(start));
+  delete material.sources[0].text;
+  material.sources[0].fragments = [
+    { fragment_index: 0, text: "暂定方案\r\n" }, { fragment_index: 1, text: "仍欠风险表\r" },
+    { fragment_index: 2, text: "请作者确认\n" }, { fragment_index: 3, text: "末行" },
+  ];
+  application.content = application.content.slice(0, start) + JSON.stringify(material);
+  const finalRequest = scenario.records.find(row => row.provider_run_ref === "prun-final-e").request.body.messages;
+  const firstDiscussion = finalRequest.findIndex(message => message.role === "assistant");
+  finalRequest.splice(firstDiscussion, 0, ...items.map(message => message.role === "tool"
+    ? { role: "tool", tool_call_id: message.blocks[0].call_id,
+      content: JSON.stringify({ type: "observation", call_id: message.blocks[0].call_id, status: "ok" }) }
+    : message.blocks[0].type === "tool_call"
+      ? { role: "assistant", content: "", tool_calls: [{ id: message.blocks[0].call_id, type: "function",
+        function: { name: "chapter_read", arguments: "{}" } }] }
+      : { role: "assistant", content: message.blocks[0].text }));
+  const run = scenario.facts.afterFailure.provider_runs.find(row => row.id === "prun-failed-d");
+  scenario.injection.admission = {
+    provider_run_ref: "prun-failed-d", provider_call_ref: "pcall-failed-d",
+    source_keys: ["authoring-session-source/v1:" + JSON.stringify([WORK, WORK, SESSION, "source-d", 4])],
+    owner_refs: structuredClone(run.owner_refs), plan: structuredClone(run.operation_checkpoint.plan), goal_version: 1,
+  };
+  return scenario;
 }
 
 function seedFacts() {
@@ -113,9 +202,9 @@ export function autoMaintenanceFixtureSpec({ strip = true, expanded = true } = {
         inputSources[kind] = { file, source_path: "scripts/lib/native_ui/fixtures/" + file,
           sha256: createHash("sha256").update(raw).digest("hex") };
       }
-      const scenario = maintenanceRecoveryFacts({ workId: WORK, sessionId: SESSION,
+      const scenario = currentAdmissionScenario(maintenanceRecoveryFacts({ workId: WORK, sessionId: SESSION,
         base: dbFactsFor(), baseRecords: llmRecords(), failureInput: frozenInputs.discussions[11],
-        recoveryInputs: frozenInputs.discussions.slice(12, 20) });
+        recoveryInputs: frozenInputs.discussions.slice(12, 20) }));
       const driver = { ...driverLogFor(), failure_injection: { ...scenario.injection,
         before_snapshot: "before-failure.json", after_failure_snapshot: "after-failure.json",
         before_restart_snapshot: "before-restart.json", after_restart_snapshot: "after-restart.json",

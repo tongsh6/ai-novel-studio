@@ -112,6 +112,156 @@ export function readAutoMaintenanceDbFacts(dir) {
 function transcriptMessages(sessionMessageRows, agentRuns) {
   return canonicalMessagesFromRows(list(sessionMessageRows), list(agentRuns));
 }
+
+const admissionSourceKey = (ref) => "authoring-session-source/v1:" +
+  JSON.stringify([ref.workspace_id, ref.work_id, ref.session_id, ref.run_id, ref.run_sequence]);
+const pureDiscussion = (message) => message.role === "assistant" && message.provenance === "model" &&
+  Array.isArray(message.blocks) && message.blocks.length > 0 &&
+  message.blocks.every((block) => block.type === "text" && typeof block.text === "string");
+
+// 只按持久准入顺序选首份；状态/正文/资格不参与选择，微秒精度不得降为毫秒。
+export function firstSummaryAdmission(before, current, runId) {
+  const previous = new Set(before.provider_runs.map((run) => run.id));
+  const attempts = current.provider_runs.filter((run) => {
+    if (previous.has(run.id) || run.agent_run_id !== runId) return false;
+    const refs = parseJson(run.owner_refs);
+    assert(isObject(refs), "admission_owner_refs_unknown");
+    return refs.operation === "transcript_compaction";
+  });
+  assert(attempts.every((run) => typeof run.inserted_at === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(run.inserted_at)), "admission_order_unknown");
+  attempts.sort((a,b) => a.inserted_at.localeCompare(b.inserted_at));
+  assert(attempts.length < 2 || attempts[0].inserted_at !== attempts[1].inserted_at, "admission_order_ambiguous");
+  return attempts[0] ?? null;
+}
+
+// 独立按契约计数：完整工具组每个闭合调用一项、纯讨论一项，整组不可拆。
+// 输入是共同 coverage 审计后的真实未覆盖序列，不调用产品 planner。
+export function requireMixedProtection(retained, keys, ownerId) {
+  const currentAuthor = retained.findLastIndex((row) => row.role === "user" &&
+    row.provenance === "author" && row.canonical_ref?.run_id === ownerId);
+  assert(currentAuthor >= 0, "admission_current_author_missing");
+  const results = retained.flatMap((row,index) => (row.blocks ?? [])
+    .filter((block) => ["observation","validation_result"].includes(block.type))
+    .map((block) => ({row,index,block})));
+  const groups = retained.flatMap((row,index) => {
+    const calls = (row.blocks ?? []).filter((block) => block.type === "tool_call").map((block) => block.call_id);
+    const closed = calls.every((id) => {
+      const matches = results.filter((result) => result.block.call_id === id);
+      return nonBlank(id) && matches.length === 1 && matches[0].row.role === "tool" &&
+        matches[0].index > index && matches[0].row.canonical_ref?.run_id === row.canonical_ref?.run_id;
+    });
+    if (calls.length && new Set(calls).size === calls.length && row.role === "assistant" && closed)
+      return [{row,index,weight:calls.length}];
+    return pureDiscussion(row) ? [{row,index,weight:1}] : [];
+  });
+  const protectedRows = new Set();
+  let count = 0;
+  for (const group of [...groups].reverse()) {
+    if (count < 4 || group.index >= currentAuthor) protectedRows.add(group.row);
+    count += group.weight;
+  }
+  for (const key of keys) {
+    const sources = retained.filter((row) => row.canonical_ref && admissionSourceKey(row.canonical_ref) === key);
+    assert(sources.length === 1 && pureDiscussion(sources[0]) && !protectedRows.has(sources[0]) &&
+      retained.indexOf(sources[0]) < currentAuthor, "admission_source_protected_or_missing");
+  }
+}
+
+function admissionTimeline(before, current, first, scope) {
+  const exact = (value) => {
+    assert(typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,6}Z$/.test(value) &&
+      Number.isFinite(Date.parse(value)), "admission_message_time_unknown");
+    const [prefix, fraction] = value.slice(0,-1).split(".");
+    return prefix + "." + fraction.padEnd(6,"0") + "Z";
+  };
+  const cutoff = exact(first.inserted_at), beforeAt = exact(before.captured_at);
+  assert(beforeAt < cutoff, "admission_snapshot_not_before_admission");
+  const inScope = (row) => row.work_id === scope.work_id && row.session_id === scope.session_id;
+  for (const row of before.authoring_session_messages.filter(inScope))
+    assert(exact(row.inserted_at) <= beforeAt, "admission_pre_snapshot_time_conflict");
+  const rows = current.authoring_session_messages.filter(inScope).sort((a,b) => a.sequence-b.sequence);
+  let previous = null;
+  for (const row of rows) {
+    const time = exact(row.inserted_at);
+    assert(time !== cutoff && (previous === null || previous <= time), "admission_message_time_ambiguous");
+    previous = time;
+  }
+  return rows.filter((row) => exact(row.inserted_at) < cutoff);
+}
+
+export function freezeSummaryAdmission(before, current, records, runId, scope, frozen = null) {
+  assert(!before.agent_runs.some((run) => run.id === runId), "admission_snapshot_not_before_window");
+  const first = firstSummaryAdmission(before, current, runId);
+  if (!first) { assert(!frozen, "admission_disappeared"); return null; }
+  const owner = current.agent_runs.filter((run) => run.id === runId);
+  assert(owner.length === 1 && owner[0].work_id === scope.work_id && owner[0].session_id === scope.session_id,
+    "admission_owner_scope_mismatch");
+  for (const field of ["workspace_id","work_id","session_id","parent_turn_ref"])
+    assert(nonBlank(first[field]) && first[field] === owner[0][field], "admission_scope_mismatch");
+  const refs = parseJson(first.owner_refs), capsule = parseJson(first.operation_checkpoint);
+  assert(first.purpose === "other" && nonBlank(first.provider_call_ref) &&
+    refs.agent_run_id === runId && refs.parent_turn_ref === first.parent_turn_ref &&
+    ["workspace_id","work_id","session_id"].every((field) => refs[field] === first[field]),
+  "admission_identity_mismatch");
+  const keys = refs.discussion_source_keys;
+  assert(Array.isArray(keys) && keys.length > 0 && keys.length <= 4 && new Set(keys).size === keys.length,
+    "admission_sources_invalid");
+  assert(capsule?.version === "provider-operation-checkpoint/v2" &&
+    capsule.discussion_protocol_version === "authoring-discussion-summary/v2" &&
+    capsule.goal_version === owner[0].goal_version && isObject(capsule.plan), "admission_capsule_invalid");
+  const state = {provider_run_ref:first.id, provider_call_ref:first.provider_call_ref,
+    source_keys:keys, owner_refs:refs, plan:capsule.plan, goal_version:capsule.goal_version};
+  if (frozen) assert.deepEqual(state, frozen, "admission_frozen_identity_or_plan_changed");
+  const priorMessages = transcriptMessages(before.authoring_session_messages, before.agent_runs);
+  const rowsAtAdmission = admissionTimeline(before, current, first, scope);
+  const messages = transcriptMessages(rowsAtAdmission, current.agent_runs);
+  assertHistoryPreserved(before, current);
+  const audit = auditCanonicalCoverage(messages, {verifyExecutions:true, verifyRequests:true,
+    providerRuns:current.provider_runs, providerOutputs:current.provider_outputs, providerRecords:records});
+  assert(audit.ok, audit.reason);
+  let previous = -1;
+  for (const key of keys) {
+    assert(nonBlank(key), "admission_source_key_invalid");
+    const source = priorMessages.filter((row) => row.canonical_ref && admissionSourceKey(row.canonical_ref) === key);
+    assert(source.length === 1 && pureDiscussion(source[0]) &&
+      source[0].canonical_ref.run_status === "completed" &&
+      ["workspace_id","work_id","session_id"].every((field) => source[0].canonical_ref[field] === first[field]),
+    "admission_source_not_preexisting_completed");
+    const position = messages.findIndex((row) => admissionSourceKey(row.canonical_ref) === key);
+    assert(position > previous, "admission_sources_out_of_order"); previous = position;
+    assert.deepEqual(messages[position], source[0], "admission_source_changed");
+    for (const run of [...before.provider_runs, ...current.provider_runs.filter((run) => run.id !== first.id)]) {
+      const old = parseJson(run.owner_refs);
+      assert(isObject(old), "admission_prior_ownership_unknown");
+      if (old.operation === "transcript_compaction") {
+        assert(Array.isArray(old.discussion_source_keys), "admission_prior_sources_unknown");
+        assert(!old.discussion_source_keys.includes(key), "admission_source_already_owned");
+      }
+    }
+  }
+  requireMixedProtection(audit.retainedMessages, keys, runId);
+  const planRefs = capsule.plan.covers?.message_refs;
+  assert(Array.isArray(planRefs) && Array.isArray(capsule.plan.covers?.call_ids), "admission_plan_covers_invalid");
+  const seen = new Set();
+  for (const ref of planRefs) {
+    const key = admissionSourceKey({...first,run_id:ref.run_id,run_sequence:ref.run_sequence});
+    assert(!seen.has(key), "admission_plan_source_duplicate"); seen.add(key);
+    const rows = audit.retainedMessages.filter((row) => admissionSourceKey(row.canonical_ref) === key);
+    assert(rows.length === 1 && ["assistant","scope_update"].includes(ref.role), "admission_plan_source_missing");
+    const row = rows[0];
+    assert.deepEqual(ref, {run_id:row.canonical_ref.run_id,run_sequence:row.canonical_ref.run_sequence,
+      role:row.role,source_refs:row.source_refs ?? [],versions:row.versions ?? {}}, "admission_plan_source_changed");
+    assert(row.canonical_ref.run_id !== runId && row.canonical_ref.run_status === "completed",
+      "admission_plan_source_current_or_active");
+  }
+  const planned = capsule.plan.covers?.message_refs?.filter((ref) => ref.role === "assistant");
+  assert(Array.isArray(planned), "admission_plan_sources_missing");
+  assert.deepEqual(planned.map((ref) => admissionSourceKey({...first,run_id:ref.run_id,run_sequence:ref.run_sequence})),
+    keys, "admission_plan_sources_mismatch");
+  return structuredClone(state);
+}
+
 // checkpoint canonical 形状只有 {blocks: [{type: "checkpoint", covers: {call_ids}}]}。
 // 旧形状不再兜底：否则把任意字段里的 ID 当成 cover 证据（C6 假阳性）。
 function checkpointCallIds(message) {
@@ -226,6 +376,7 @@ export function readAutoMaintenanceRecoveryFacts(dir, config, injection) {
       beforeRestart: readMaintenanceSnapshot(dir, injection.before_restart_snapshot),
       afterRestart: readMaintenanceSnapshot(dir, injection.after_restart_snapshot),
       afterRecovery: readMaintenanceSnapshot(dir, injection.after_recovery_snapshot),
+      admissionRequired: true,
       failureInput: inputs.discussions[11], recoveryInputs: inputs.discussions.slice(12, 20),
       scope: { work_id: config.target.work_id, session_id: config.target.session_id } };
   } catch (error) { return { error: error.message }; }
@@ -260,6 +411,11 @@ export function verifyMaintenanceFailureFacts(injection, records, appLog, facts)
     assert(facts.scope && failedRun.work_id === facts.scope.work_id && failedRun.session_id === facts.scope.session_id,
       "recovery_scope_mismatch");
     assert(!before.agent_runs.some((run) => run.id === failedRun.id), "failure_request_reused_old_run");
+    if (facts.admissionRequired) {
+      const first = freezeSummaryAdmission(before, afterFailure, records, failedRun.id, facts.scope);
+      assert(first, "failure_first_admission_missing");
+      assert.deepEqual(injection.admission, first, "failure_first_admission_not_frozen");
+    }
 
     const log = appLog.find((entry) => entry.event === "agent_run.auto_maintenance.error" && entry.run_id === failedRun.id);
     detail.failure_log_run_id = log?.run_id ?? null;
@@ -955,6 +1111,22 @@ export function verifyAutoMaintenanceBatch(dir, { observeRuntime = runtimeAfterB
     }],
     ["R03_cancelled_run", "cancel_probe", () => {
       const trace = driverLog?.cancel_probe;
+      const pre = readMaintenanceSnapshot(dir, trace?.pre_window_snapshot);
+      const admitted = readMaintenanceSnapshot(dir, trace?.admission_snapshot);
+      const frozen = freezeSummaryAdmission(pre, admitted, llmRecords, trace.request.run_id, scope);
+      assert(frozen, "cancel_first_admission_missing");
+      assert.deepEqual(trace.admission, frozen, "cancel_first_admission_not_frozen");
+      freezeSummaryAdmission(pre, readMaintenanceSnapshot(dir, trace.confirmation_snapshot),
+        llmRecords, trace.request.run_id, scope, frozen);
+      assert(trace.summary_target.provider_run_ref === frozen.provider_run_ref &&
+        trace.summary_target.provider_call_ref === frozen.provider_call_ref, "cancel_first_admission_target_changed");
+      const run = admitted.provider_runs.find((row) => row.id === frozen.provider_run_ref);
+      const paired = llmRecords.filter((row) => row.provider_run_ref === run.id && row.provider_call_ref === run.provider_call_ref);
+      assert.equal(paired.length, 1, "cancel_actual_request_missing");
+      const request = auditDiscussionRequest(paired[0], run,
+        transcriptMessages(admitted.authoring_session_messages, admitted.agent_runs));
+      assert(request.ok, request.reason);
+      assert.equal(request.sourceCount, frozen.source_keys.length, "cancel_source_count_mismatch");
       return verifyCancelledRunFacts(trace, dbFacts, evidence.wire, {
         before: readMaintenanceSnapshot(dir, trace?.before_snapshot),
         confirmation: readMaintenanceSnapshot(dir, trace?.confirmation_snapshot),

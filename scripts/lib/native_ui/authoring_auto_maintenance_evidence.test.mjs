@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts, verifyMaintenanceFailureFacts } from "./authoring_auto_maintenance_evidence.mjs";
+import { evaluateAutoMaintenance, verifyBackendRestartFacts, verifyMaintenanceRecoveryFacts, verifyMaintenanceFailureFacts, freezeSummaryAdmission } from "./authoring_auto_maintenance_evidence.mjs";
 import { discussionMaintenanceFacts, maintenanceRecoveryFacts } from "./fixtures/authoring_discussion_facts.mjs";
 import {
   AFTER_STARTED_AT,
@@ -417,6 +417,51 @@ function v2RecoveryFacts() {
   return s;
 }
 
+
+
+function admissionFacts() {
+  const s=v2RecoveryFacts(), after=s.facts.afterFailure;
+  after.provider_runs[0].inserted_at="2026-11-04T10:06:09.000001Z";
+  const base=after.authoring_session_messages.find(row=>row.run_id==="failed-d");
+  for(let index=0;index<4;index++) after.authoring_session_messages.push({...base,
+    id:"current-item-"+index,sequence:8+index,run_sequence:4+index,role:"assistant",
+    message:JSON.stringify({role:"assistant",provenance:"model",blocks:[{type:"text",text:"当前讨论"+index}],source_refs:[],versions:{}})});
+  for(const snapshot of [s.facts.before,after]) for(const row of snapshot.authoring_session_messages)
+    row.inserted_at=(row.run_id==="source-d"?"2026-11-04T10:05:00.":"2026-11-04T10:06:08.")+
+      String(row.sequence).padStart(6,"0")+"Z";
+  return s;
+}
+
+test("首份准入冻结完整来源：原快照、scope、永久claim和计划任一不符即失败", () => {
+  const freeze=s=>freezeSummaryAdmission(s.facts.before,s.facts.afterFailure,s.records,"failed-d",s.facts.scope);
+  const original=admissionFacts(), frozen=freeze(original);
+  assert.deepEqual(frozen.source_keys,original.facts.afterFailure.provider_runs[0].owner_refs.discussion_source_keys);
+  assert.equal(frozen.provider_run_ref,"prun-failed-d");
+  for(const [name,mutate] of [
+    ["错scope",s=>{s.facts.scope.work_id="foreign";}],
+    ["来源非预存",s=>{s.facts.before.authoring_session_messages=s.facts.before.authoring_session_messages.filter(r=>r.role!=="assistant");}],
+    ["来源未完成",s=>{s.facts.before.agent_runs[0].status="running";}],
+    ["重复来源",s=>{const k=s.facts.afterFailure.provider_runs[0].owner_refs.discussion_source_keys;k.push(k[0]);}],
+    ["第二来源未知",s=>{s.facts.afterFailure.provider_runs[0].owner_refs.discussion_source_keys.push('authoring-session-source/v1:["work-discussion","work-discussion","session-discussion","unknown",4]');}],
+    ["此前已取消但claim不释放",s=>{s.facts.before.provider_runs.push({id:"cancelled-c",status:"cancelled",owner_refs:{
+      operation:"transcript_compaction",discussion_source_keys:[...s.facts.afterFailure.provider_runs[0].owner_refs.discussion_source_keys]}});}],
+    ["首份无capsule后份合法不可选后份",s=>{const first=s.facts.afterFailure.provider_runs[0];
+      s.facts.afterFailure.provider_runs.push({...structuredClone(first),id:"later",inserted_at:"2026-11-04T10:06:09.000002Z"});
+      first.operation_checkpoint=null;}],
+    ["后来第四项不能追溯解除保护",s=>{s.facts.afterFailure.authoring_session_messages.at(-1).inserted_at="2026-11-04T10:06:10.000001Z";}],
+    ["准入同刻未知",s=>{s.facts.afterFailure.authoring_session_messages.at(-1).inserted_at="2026-11-04T10:06:09.000001Z";}],
+    ["缺消息时间",s=>{delete s.facts.afterFailure.authoring_session_messages.at(-1).inserted_at;}],
+    ["时序逆转",s=>{s.facts.afterFailure.authoring_session_messages.at(-1).inserted_at="2026-11-04T10:05:00.000001Z";}],
+    ["计划错源",s=>{s.facts.afterFailure.provider_runs[0].operation_checkpoint.plan.covers.message_refs[0].run_id="foreign";}],
+  ]) {const s=admissionFacts();mutate(s);assert.throws(()=>freeze(s),undefined,name);}
+  const changed=admissionFacts();changed.facts.afterFailure.provider_runs[0].operation_checkpoint.plan.summary="改计划";
+  assert.throws(()=>freezeSummaryAdmission(changed.facts.before,changed.facts.afterFailure,changed.records,
+    "failed-d",changed.facts.scope,frozen),/frozen_identity_or_plan_changed/);
+  original.injection.admission=frozen;original.facts.admissionRequired=true;
+  assert.equal(verifyMaintenanceFailureFacts(original.injection,original.records,original.appLog,original.facts).ok,true);
+  original.facts.afterFailure.provider_outputs=[];
+  assert.equal(verifyMaintenanceFailureFacts(original.injection,original.records,original.appLog,original.facts).ok,false);
+});
 
 test("D重启前：只接受原响应持久且事务确实回滚，不借未来恢复证明前置", () => {
   const verify = (s) => verifyMaintenanceFailureFacts(s.injection,s.records,s.appLog,s.facts);
