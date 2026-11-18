@@ -1167,6 +1167,98 @@ test("事后完整性：ProviderRun 仍 running 或缺完成日志只标缺证/p
   }
 });
 
+
+test("原始传输库存不把完整原件或人工PASS当核验结论，保留独立out原件", async t => {
+  const capture=await import("../lib/native_ui/request_cost_capture.mjs");
+  const dir=caseLeaf(t,"raw-inventory");fs.mkdirSync(dir,{recursive:true});
+  writeJson(path.join(dir,"independent-raw-transport-audit.json"),{verdict:"PASS",all_raw_received_delivered_equal:true});
+  assert.equal(capture.readTransportInventory(dir).collection_status,"not_collected");
+  const rawDir=path.join(dir,"provider-stream-requests");fs.mkdirSync(rawDir);
+  writeJson(path.join(dir,"provider-stream-ready.json"),{mode:"observe"});
+  const bytes=Buffer.from("data: unfinished");
+  const eventRows=[
+    {sequence:1,event:"request_registered",request_id:"request-1"},
+    {sequence:2,event:"response_headers",request_id:"request-1",content_type:"text/event-stream"},
+    {sequence:3,event:"request_closed",request_id:"request-1",cause:"cleanup",response_complete:false}];
+  const inventory=path.join(dir,"provider-stream.jsonl");
+  fs.writeFileSync(inventory,eventRows.map(JSON.stringify).join("\n")+"\n");
+  for(const suffix of [".bin",".received.bin",".delivered.bin"])fs.writeFileSync(path.join(rawDir,"request-1"+suffix),bytes);
+  const complete=capture.readTransportInventory(dir);
+  assert.equal(complete.collection_status,"collected_unverified");
+  assert.equal(complete.raw_sse,"collected_unverified");
+  assert.ok(Object.values(complete.verification).every(value=>value==="not_evaluated"));
+  assert.equal(complete.requests[0].execution_transport.response_complete,false);
+  assert.equal(complete.requests[0].files[0].sha256,sha256Text(bytes));
+  fs.unlinkSync(path.join(rawDir,"request-1.delivered.bin"));
+  assert.equal(capture.readTransportInventory(dir).collection_status,"collection_incomplete");
+  fs.writeFileSync(path.join(rawDir,"request-1.delivered.bin"),bytes);
+  fs.writeFileSync(inventory,eventRows.slice(0,2).map(JSON.stringify).join("\n")+"\n");
+  assert.equal(capture.readTransportInventory(dir).collection_status,"collection_incomplete");
+  fs.writeFileSync(inventory,eventRows.map(JSON.stringify).join("\n")+"\n");
+  const fixture=nativeFixture(t);prepare(fixture);const turns=writeDriverLog(fixture.batchDir);
+  writeCalls(fixture.batchDir,turns);writeCheckpoints(fixture.batchDir,fixture.initial);
+  for(const name of ["provider-stream-ready.json","provider-stream.jsonl","provider-stream-requests"])
+    fs.cpSync(path.join(dir,name),path.join(fixture.batchDir,name),{recursive:true});
+  const original=path.join(fixture.batchDir,"summary.json");writeJson(original,{schema:"old-v1",status:"partial"});
+  const before=fs.readFileSync(original);
+  const outDir=path.join(caseLeaf(t,"raw-derived"),"out");
+  const report=verifyBatch({batchDir:fixture.batchDir,outDir});
+  assert.equal(report.schema,"b87-request-cost-native-report/v2");
+  assert.equal(report.summary.raw_sse,"collected_unverified");
+  assert.equal(report.raw_transport.requests.length,1);
+  assert.ok(fs.readFileSync(original).equals(before));
+  assert.equal(report.status,"pass"); // existing mechanism verdict, not a raw transport PASS
+});
+test("原始库存拒绝跨目录symlink、未注册文件和越界request ID", async t => {
+  const capture=await import("../lib/native_ui/request_cost_capture.mjs");
+  const root=caseLeaf(t,"raw-invalid");fs.mkdirSync(root,{recursive:true});
+  const external=caseLeaf(t,"raw-external");fs.mkdirSync(external,{recursive:true});
+  writeJson(path.join(external,"ready.json"),{mode:"observe"});
+  fs.symlinkSync(path.join(external,"ready.json"),path.join(root,"provider-stream-ready.json"));
+  fs.mkdirSync(path.join(root,"provider-stream-requests"));
+  fs.writeFileSync(path.join(root,"provider-stream.jsonl"),JSON.stringify({sequence:1,event:"request_registered",request_id:"../../secret"})+"\n");
+  fs.writeFileSync(path.join(root,"provider-stream-requests","foreign.bin"),"foreign");
+  const report=capture.readTransportInventory(root);
+  assert.equal(report.collection_status,"collection_incomplete");
+  assert.ok(report.gaps.some(gap=>gap.reason==="missing_or_invalid_ready"));
+  assert.ok(report.gaps.some(gap=>gap.reason==="invalid_or_duplicate_request_id"));
+  assert.ok(report.gaps.some(gap=>gap.reason==="unregistered_raw_artifact"));
+  assert.equal(report.requests.length,0);
+});
+test("入口不可访问不是未采集，IO错误留缺证不打断报告", async t => {
+  const capture=await import("../lib/native_ui/request_cost_capture.mjs");
+  const root=caseLeaf(t,"inventory-eacces");fs.mkdirSync(root,{recursive:true});
+  const original=fs.lstatSync;
+  try {
+    fs.lstatSync=(file,...args)=>{
+      if(String(file).startsWith(root+path.sep)) {
+        const error=new Error("denied");error.code="EACCES";throw error;
+      }
+      return original(file,...args);
+    };
+    assert.equal(capture.readTransportInventory(root).collection_status,"collection_incomplete");
+  } finally { fs.lstatSync=original; }
+});
+
+test("库存坏JSON/null事件、重复注册与目录symlink均留缺证，不读目录外", async t => {
+  const capture=await import("../lib/native_ui/request_cost_capture.mjs");
+  for(const text of ["null\n","{bad\n",
+    JSON.stringify({sequence:1,event:"request_registered",request_id:"request-1"})+"\n"+
+    JSON.stringify({sequence:2,event:"request_registered",request_id:"request-1"})+"\n"]) {
+    const root=caseLeaf(t,"inventory-malformed-"+Math.random().toString(36).slice(2));
+    fs.mkdirSync(root,{recursive:true});writeJson(path.join(root,"provider-stream-ready.json"),{mode:"observe"});
+    fs.writeFileSync(path.join(root,"provider-stream.jsonl"),text);
+    const outside=caseLeaf(t,"external-dir-"+Math.random().toString(36).slice(2));fs.mkdirSync(outside,{recursive:true});
+    fs.writeFileSync(path.join(outside,"request-1.bin"),"PRIVATE-OUTSIDE");
+    fs.symlinkSync(outside,path.join(root,"provider-stream-requests"));
+    const inventory=capture.readTransportInventory(root);
+    assert.equal(inventory.collection_status,"collection_incomplete");
+    assert.equal(JSON.stringify(inventory).includes("PRIVATE-OUTSIDE"),false);
+    assert.ok(inventory.requests.every(row=>row.files.length===0));
+  }
+});
+
+
 test("verifyBatch 支持独立 out，不覆盖批次原件", (t) => {
   const fixture = nativeFixture(t);
   prepare(fixture);

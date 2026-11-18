@@ -129,6 +129,8 @@ test("wire 消息互斥分类：内容 UTF-8 字节 + JSON 包装开销守恒", 
   assert.equal(analysis.cross.replay_assistant_text_bytes, utf8Bytes("上一轮回复"));
   assert.equal(analysis.response.actual_tool_calls, 1);
   assert.equal(analysis.response.raw_sse_collected, false);
+  assert.equal(analysis.response.raw_source_scope, "llm_call_log_only");
+  assert.match(analysis.response.raw_sse_note, /不判断批次外部传输原件/u);
   assert.equal(analysis.response.raw_assistant_text_collected, false);
 
   const categorySum = Object.values(analysis.category_bytes).reduce((sum, value) => sum + value, 0);

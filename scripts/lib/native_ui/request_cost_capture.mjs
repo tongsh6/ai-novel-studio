@@ -860,7 +860,8 @@ function nativeReportMarkdown(report) {
     `- length: ${report.batch.length}`,
     `- work: ${report.batch.work.title}`,
     `- session: ${report.batch.session_id}`,
-    "- 原始 HTTP body / SSE: not_collected（日志只保存对象/解码体）",
+    `- 本批原始 HTTP 实体 / SSE 采集: ${report.summary.raw_http_bytes} / ${report.summary.raw_sse}（不含 TLS/framing；采集不等于核验）`,
+    `- 独立核验: ${JSON.stringify(report.raw_transport?.verification ?? "not_evaluated")}`,
     "",
     markdownTable(rows, [
       "turn", "author", "calls", "scope", "history", "observation", "validation",
@@ -1240,6 +1241,81 @@ function verifyObservedRuntime({ batchDir, config, records, checks, fail, notCol
   );
 }
 
+// Inventory of original transport artifacts only: no SSE/identity/completion oracle.
+export function readTransportInventory(batchDir) {
+  const sourceScope = "batch_provider_transport_artifacts";
+  const verification = Object.fromEntries(["integrity","call_identity","sse_terminal","product_consistency"].map(key=>[key,"not_evaluated"]));
+  const result = {source_scope:sourceScope, collection_status:"not_collected", raw_http_bytes:"not_collected",
+    raw_sse:"not_collected", byte_boundary:"HTTP entity bytes, not TLS or transfer framing",
+    verification, requests:[], gaps:[]};
+  const root=path.resolve(batchDir), names=["provider-stream-ready.json","provider-stream.jsonl","provider-stream-requests"];
+  const exists = name => {
+    try {fs.lstatSync(path.join(root,name));return true;}
+    catch(error) {
+      if(error.code==="ENOENT") return false;
+      result.gaps.push({file:name,reason:"artifact_presence_unreadable"});return true;
+    }
+  };
+  if (!names.some(exists)) return result;
+  const read = relative => {
+    const parts=relative.split("/");
+    let current=root;
+    for (const part of parts) {
+      assert(part && part!=="." && part!=="..","unsafe_artifact_path");
+      current=path.join(current,part);
+      assert(!fs.lstatSync(current).isSymbolicLink(),"symlink_artifact");
+    }
+    assert(fs.statSync(current).isFile(),"not_regular_file");
+    return fs.readFileSync(current);
+  };
+  const gap = (file, reason) => result.gaps.push({file,reason});
+  let events=[];
+  try {
+    const ready=JSON.parse(read(names[0]));
+    assert(["observe","gate"].includes(ready.mode),"invalid_mode");
+    result.mode=ready.mode;
+  } catch { gap(names[0],"missing_or_invalid_ready"); }
+  try {
+    const bytes=read(names[1]); const text=bytes.toString("utf8");
+    assert(text.endsWith("\n"),"unsealed_jsonl");
+    events=text.trim().split("\n").map(line=>JSON.parse(line));
+    assert(events.every((event,index)=>event && typeof event==="object" && event.sequence===index+1),"invalid_event_sequence");
+  } catch { events=[]; gap(names[1],"missing_or_invalid_inventory"); }
+  const registered=events.filter(event=>event.event==="request_registered");
+  if (!registered.length) gap(names[1],"no_registered_requests");
+  const seen=new Set(), expected=new Set();
+  for (const registration of registered) {
+    const id=registration.request_id;
+    if (!/^request-[1-9][0-9]*$/u.test(id??"") || seen.has(id)) {gap(names[1],"invalid_or_duplicate_request_id");continue;}
+    seen.add(id);
+    const related=events.filter(event=>event.request_id===id);
+    const closures=related.filter(event=>["transparent_complete","request_closed"].includes(event.event));
+    const headers=related.filter(event=>event.event==="response_headers");
+    const row={request_id:id,files:[],closed:closures.length===1,
+      execution_transport:closures.length===1 ? {kind:closures[0].event,cause:closures[0].cause??"upstream_end",
+        response_complete:closures[0].response_complete??null} : null,
+      declared_content_type:headers.length===1 ? headers[0].content_type : null};
+    if(closures.length!==1) gap(id,"missing_or_duplicate_closure");
+    if(headers.length>1) gap(id,"duplicate_response_metadata");
+    for(const suffix of [".bin",".received.bin",".delivered.bin"]) {
+      const file=names[2]+"/"+id+suffix;expected.add(id+suffix);
+      try {const bytes=read(file); row.files.push({path:file,bytes:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex")});}
+      catch {gap(file,"missing_or_unreadable_raw_artifact");}
+    }
+    result.requests.push(row);
+  }
+  try {
+    assert(!fs.lstatSync(path.join(root,names[2])).isSymbolicLink(),"symlink_directory");
+    for(const file of fs.readdirSync(path.join(root,names[2]))) if(!expected.has(file)) gap(names[2],"unregistered_raw_artifact");
+  } catch { gap(names[2],"missing_or_invalid_raw_directory"); }
+  if(events.some(event=>event.request_id && !seen.has(event.request_id))) gap(names[1],"unregistered_event_request");
+  result.collection_status=result.gaps.length ? "collection_incomplete" : "collected_unverified";
+  result.raw_http_bytes=result.collection_status;
+  result.raw_sse=result.gaps.length ? "collection_incomplete" :
+    result.requests.some(row=>String(row.declared_content_type).toLowerCase().includes("text/event-stream")) ? "collected_unverified" : "not_collected";
+  return result;
+}
+
 function writeNativeReport({ batchDir, report, common, outDir = batchDir }) {
   writeDerivedJson(path.join(outDir, "request-cost-report.json"), report);
   writeDerivedText(path.join(outDir, "request-cost-report.md"), nativeReportMarkdown(report));
@@ -1296,7 +1372,8 @@ export function verifyBatch({ batchDir, outDir = null }) {
   const wire = transport(batchDir);
   const failures = [];
   const hardFailures = [];
-  const notCollected = ["raw_http_bytes", "raw_sse", "per_category_tokens"];
+  const rawTransport = readTransportInventory(batchDir);
+  const notCollected = ["per_category_tokens", ...["raw_http_bytes","raw_sse"].filter(key=>rawTransport[key]==="not_collected")];
   const fail = (key, reason, { hard = true } = {}) => {
     checks[key] = false;
     const entry = `${key}:${reason}`;
@@ -1392,6 +1469,7 @@ export function verifyBatch({ batchDir, outDir = null }) {
     batchDir,
     config,
     requestObservation: requestSettingsFacts(records),
+    rawTransport,
     compactionEvidence,
     checks,
     failures,

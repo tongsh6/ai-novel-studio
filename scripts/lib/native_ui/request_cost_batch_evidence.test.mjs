@@ -64,6 +64,19 @@ test("模型失败/等待是 behavior outcome，不是 measurement fail", () => 
   assert.equal(incomplete.outcomes[0].provider_calls, 0);
 });
 
+test("v2批次采集态与log-only成本子窗口分责，不冒充独立核验", () => {
+  assert.equal(NATIVE_REPORT_SCHEMA,"b87-request-cost-native-report/v2");
+  const base={config:{length:1},turnReports:[],allCalls:[]};
+  const rawTransport={source_scope:"batch_provider_transport_artifacts",raw_http_bytes:"collected_unverified",raw_sse:"collection_incomplete"};
+  const current=nativeSummary({...base,rawTransport});
+  assert.equal(current.raw_sse,"collection_incomplete");
+  assert.equal(current.raw_http_bytes,"collected_unverified");
+  assert.equal(current.raw_source_scope,rawTransport.source_scope);
+  const logOnly=nativeSummary(base);
+  assert.equal(logOnly.raw_sse,"not_collected");
+  assert.equal(logOnly.raw_source_scope,"llm_call_logs_only");
+});
+
 test("token 聚合保留 known_sum/missing，缺测 total null", () => {
   const calls = [
     turn(1, "completed").calls[0],

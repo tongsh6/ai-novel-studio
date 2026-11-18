@@ -11,9 +11,9 @@ import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_e
 const list = (value) => (Array.isArray(value) ? value : []);
 const purposeOf = (purposes, ref) => purposes.get(ref) ?? null;
 
-export const NATIVE_REPORT_SCHEMA = "b87-request-cost-native-report/v1";
+export const NATIVE_REPORT_SCHEMA = "b87-request-cost-native-report/v2";
 
-export function nativeSummary({ config, turnReports, allCalls }) {
+export function nativeSummary({ config, turnReports, allCalls, rawTransport = null }) {
   return {
     turns_expected: config.length,
     turns_completed: turnReports.filter((turn) => turn.status === "completed").length,
@@ -21,8 +21,9 @@ export function nativeSummary({ config, turnReports, allCalls }) {
     input_tokens: tokenAggregate(allCalls, "input_tokens"),
     cached_tokens: tokenAggregate(allCalls, "cached_tokens"),
     output_tokens: tokenAggregate(allCalls, "output_tokens"),
-    raw_http_bytes: "not_collected",
-    raw_sse: "not_collected",
+    raw_http_bytes: rawTransport?.raw_http_bytes ?? "not_collected",
+    raw_sse: rawTransport?.raw_sse ?? "not_collected",
+    raw_source_scope: rawTransport?.source_scope ?? "llm_call_logs_only",
     per_category_tokens: "not_collected",
     cached_is_input_subset: allCalls.every(
       (call) => call.analysis.usage.cached_within_input !== false,
@@ -105,6 +106,7 @@ export function modelBehaviorOf(
   return {
     signed: false,
     scope: "before_only",
+    raw_gap_source_scope: "llm_call_logs_only; external batch inventory is separate",
     outcomes,
     outcome_counts: outcomeCounts(outcomes),
     observed_effects: observedEffectsOf(checks),
@@ -288,6 +290,7 @@ export function buildNativeReport({
   checkpointChanges = null,
   requestObservation = null,
   compactionEvidence = null,
+  rawTransport = null,
 }) {
   const observedEffects = observedEffectsOf(checks);
   const canonEvidence = {
@@ -330,6 +333,7 @@ export function buildNativeReport({
     model: config.model,
     runtime: config.runtime,
     request_observation: requestObservation,
+    raw_transport: rawTransport,
     reference_accounting: referenceAccounting,
     evidence_boundaries: evidenceBoundaries(config, failures),
     checks,
@@ -343,7 +347,7 @@ export function buildNativeReport({
         kind: call.prefix_change.kind,
         shared: call.prefix_change.shared,
       })),
-    summary: nativeSummary({ config, turnReports, allCalls }),
+    summary: nativeSummary({ config, turnReports, allCalls, rawTransport }),
     turns: turnReports,
   };
 }
