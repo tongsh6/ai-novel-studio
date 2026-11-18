@@ -1586,3 +1586,13 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 语义先锁本批1–9真实承诺登记SHAe3e5978aba7b5676a101ca258767b3265ae6bbfb25f0e9cd2821862c27c8e501，再审10/后继。10 canonical44/run_mwlpy3ts_bij实质交付四场单/双收益、风险与可观察补证，允许合理共同材料，不要求24格。后继49/run_mwlq0h26_djm明确承认风险表已给，却把第二人选比较改挂为“结论性比较未交付”，依据仅“不是加权排序、不能替你决定”。独立两次回查seq12/34原承诺为逐项比较，seq44已分别给四场孟/珩收益风险及目标/代价/场景优势，未承诺加权排序。实际后继pcall_mwlq0h32_djp message23完整等于44原文，因此不是摘要漏源；这是完成条件漂移与交付/作者选择混淆，不是风险表整体被否认。未决定人选可保留，但不能因此重挂已给比较。语义报告SHAca02d2600aa563727c8e26939672e4309c27d9f753a955e02fd6b03e26d570aa，严格§14.42不晋20；没有追加纠正输入或另跑10求绿。
 
 亲看10/后继、历史原文橙框定位、刷新后展开恢复四图，Markdown与真实页面状态正常；视觉报告仅证可见状态、不代签语义。R03保持doing：当前普通10尾首后继机械缺口已补，旧10partial/普通20失败原样保留；本批无空响应并不能倒推旧14原因。下一步只做有证据的责任分析与报告修复，不能靠提示词加码、模型反复试跑或放宽判据宣称完成。
+
+### 14.45 传输采集与核验报告分责，保留真实语义阻塞（2026-11-18）
+
+先1c2a254f修验收§5.10再实现现役capture IO、batch evidence及log-local evidence：当前批次报告v2，历史v1不覆写；按本批ready/request库存和受限原件路径区分not_collected、collected_unverified、collection_incomplete，字节/身份/SSE/产品核验均独立not_evaluated。不读人工独审报告来自动签PASS，不新建解析器或完成台账；已合法封存的partial响应可以采集完整，不能等同采集缺件。原日志分析只描述LLM日志local scope，不冒充整批原件不存在。读取异常仅ENOENT按缺件，其余权限/IO错误归采集缺证，符号链接及越界拒绝；HTTP数值明确响应实体字节，不称TLS/framing。
+
+证据transport-report-34：原capture IO红33/2到绿，EACCES独立反例补正，邻owner120/120；全部native/model-contract/driver/toolchain Node1210/1210、0跳过，独立最终审查及diff-check通过。33原报告未改；首次独立out重算仍因SQLite只读连接在原目录创建-shm32KB/-wal0B，全目录hash检查抓出后立即停止，未宣称无副作用。核无打开DB且确仅两新文件后移动到derived归档保SHA/receipt，原258文件集合及hash恢复，真实DB/summary/driver从未改变。随后只原report副本+库存纯summary派生，不再开DB，前后258文件全同。
+
+独立derived-33-inventory-only/derived-report.json把44请求标collected_unverified，四项核验not_evaluated；原机制PASS只是引用原执行报告、不是此次重新验证，真实语义partial/不晋20明确。执行HEAD5091bdb7与分析HEAD/源码SHA/未提交diff SHA分列，不把新分析器版本冒作原执行版本。旧summary的not_collected原样保留，与本批独立raw审计分别理解。
+
+额外完整输入责任链核查SHAa06c2d5248f7d8fcaf6ea3ba01c9d0a9fc58a6759163ae21528c9a4ec21c1e13：原1把第二人选列未决且不需立即决定，原3模型已自行挂为欠比较；摘要忠实保留并有历史来源/authority:none，原8完整保留搁置限定，10最新实际交付也完整可见；system确有v4，scope未新增排序要求。不能说输入完全没有旧模型误导，但未证代码制造排序义务。49首次将完成条件升级为结论性/加权排序，证据支持模型未正确更新历史责任，而非足以再改投影或加规则宣称解决。20保持未启动、R03仍doing；此后无新的模型试跑或判据调整。
