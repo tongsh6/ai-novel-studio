@@ -66,3 +66,4 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 - [MarkdownText.module.css](src/components/MarkdownText.module.css)：文档流排版、代码与表格局部滚动，沿用现有 token。
 - [MarkdownText.test.tsx](src/components/MarkdownText.test.tsx)：中文强调、结构、安全 URL/HTML/外图与非生成状态的独立反例。
 - [WorkspaceChat.agentRunTimeline.test.tsx](src/components/WorkspaceChat.agentRunTimeline.test.tsx)：已有来源接管、跨调用/运行隔离、独立过程与流式字节；不是原生页面验收替代。
+- [WorkspaceChat.authorQuestionOwnership.test.tsx](src/components/WorkspaceChat.authorQuestionOwnership.test.tsx)：真实工作台组合的提问唯一正文、Markdown、历史状态、流式接管、身份与底部操作边界；不以文本去重替代语义责任，不替代原生验收。

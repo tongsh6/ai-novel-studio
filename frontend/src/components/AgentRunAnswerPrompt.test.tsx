@@ -45,7 +45,7 @@ function questionResult(withFreeText = true): WireTurnResult {
 }
 
 describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
-  it("显示问题、选项 chips 与「开始新讨论」显式入口", () => {
+  it("显示定位标签、选项 chips 与「开始新讨论」，不复制问题全文", () => {
     const html = renderToStaticMarkup(
       <AgentRunAnswerPrompt
         result={questionResult()}
@@ -56,7 +56,8 @@ describe("AgentRunAnswerPrompt（回答上下文提示条）", () => {
       />,
     );
     expect(html).toContain("需要你决定");
-    expect(html).toContain("这一章按哪个方向写？");
+    expect(html).not.toContain("这一章按哪个方向写？");
+    expect(html).toContain("回答当前问题");
     expect(html).toContain("选项A");
     expect(html).toContain("开始新讨论");
     expect(html).toContain("也可以直接在下方输入回复。");

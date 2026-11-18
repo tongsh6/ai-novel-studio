@@ -79,10 +79,8 @@ export function AgentRunAnswerPrompt({
           {WORKBENCH.authorQuestionAbandon}
         </button>
       </div>
-      {/* 问题全文已在消息流问题卡可见；此处只保留一行摘要，避免同一问题在页面上重复两次。 */}
-      <p className={styles.answerPromptQuestionBrief}>
-        {question.question.length > 48 ? `${question.question.slice(0, 48)}…` : question.question}
-      </p>
+      {/* 全文由消息流问题记录拥有；操作区不按长度复制问题，短问题也不复述。 */}
+      <p className={styles.answerPromptQuestionBrief}>{WORKBENCH.authorQuestionAnswerModeLabel}</p>
       {choices.length > 0 && (
         <div className={styles.answerPromptChoices}>
           {choices.map((action) => (
