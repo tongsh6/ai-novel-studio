@@ -405,6 +405,10 @@ Request IR / Provider body（初始 Base + 追加事实的投影）
 
 v2完整材料形状固定为`{material_kind:"quoted_discussion_sources",sources:[{source_index,source:{run_id,run_sequence},author_text,fragments:[{fragment_index,text}]}]}`，source不再重复携带顶层text，fragment_index从0连续编号。原source.text仍仅属于可信来源读取与coverage完整性计算，不因展示片段而变化。
 
+**实际提供范围与责任解除分责（2026-11-18，R03）**：摘要必须忠实概括来源实际提供的材料种类、对象与讨论范围，并保留其限制；“曾给出某项比较/解释/示例”是历史材料描述，不等于作者要求全部满足、承诺闭合、采纳或执行授权。不得因防止虚报完成而抹掉来源实际已提供的部分，也不得仅凭原文自称“完成”认定各项已交付。现役 `summary` 描述实际覆盖，`retained_fragment_indices` 继续保留未闭合义务及其完整语境；不新建完成台账、义务状态或第二份正文。摘要目标字数是概括目标，不是删去关键范围/限制的授权，亦不要求把全部历史永久保留在请求中。
+
+**摘要消费的证据边界**：RequestIR.Projection 是 checkpoint 展示的唯一 owner，须明确摘要与保留片段不是穷尽清单，未提及不证明原文不存在，沿已有 source/locator 按需回查。后继对“已提供/未提供”的判断都受实际观察范围约束；针对被整理历史作缺项、从未交付等否定结论前，应通过既有 `session_message_read` 核对相关来源的足够原文及 coverage/omissions，不能从节选缺省推导欠项。未读、分页未覆盖或权限/预算不足时只能说明当前不能核实的具体范围，不能改记为未交付；已经有充分原文证据不机械重复读取。不强制扫描全会话来证明“从未”，应缩小结论到已核回合/材料范围，无法覆盖则保持未知。共同材料确实适用时认可其覆盖，不强制重复排版或固定表格格数；作者后续撤回/重开选择按真实顺序承接，不把先前选择抹成从未发生。共有语义规则由既有 AuthoringSemantics 消费，读取/分页/观察回流复用现役 owner，不加后台求证循环或关键词完成判定器。
+
 **真实历史读取而非旧请求兼容**：已核实历史验收副本存在合法v1 canonical checkpoint及真实ProviderOutput同hash原响应，实际消费者要求保持可读。现役纯契约保留v1原格式的严格读取/逐字引文校验/投影，不再生成v1新请求，不改写原响应，也不释放已占用来源。现役Compaction在每个checkpoint之前完整canonical历史上复用MessageCoverage解析源，然后为三个wire生成仅本次展示材料；Projection只渲染该派生结果，不能从摘要反推原文。派生片段或展示字段不进入canonical/codec/私有capsule，不保存第二份摘要。v1/v2都绑定相同真实消息身份；历史缺源/冲突仍失败关闭。
 
 checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_ref/provider_run_ref`：原始响应字节及真实执行归因；entries 从原文解析，不双存第二份摘要真源。SHA-256 对真实 UTF-8 响应计算，并由既有 ProviderOutput 的安全内容摘要持有同一 hash；实际 Provider 事实提交成功且身份/状态/hash匹配后，才允许 checkpoint 生效。恢复同样核验来源，不补造调用或猜相同长度。普通系统整理说明与模型讨论摘要分开，后者不能升格为 canon、观察、已执行结果或授权。
