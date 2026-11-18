@@ -1398,7 +1398,9 @@ f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用�
 
 先统一UI46 §9.7与UI47 §3.4.1：消息正文按语义类型互斥；成功author_question由现役AuthorQuestionRecord负责全文Markdown与状态，普通text走普通正文；底部只保留操作与必要短定位标签，不再截断复述短/长问题。不同身份同文不合并，拒绝调用不变问题，流式/历史/已答/取消遵守同一正文责任；原始canonical/ProviderOutput/interaction均保留，Why与选项准确绑定。
 
-七问：Contract=UI46 §9.7、UI47 §3.4.1及UA-01作者问题身份/回复链；Invariant=一个成功question_ref一份完整正文、唯一可答入口、原事实不删；Boundary=现役问题记录与WorkspaceChat正文选择、底部操作标签，不新增文本去重/状态表；Consumer=真实等待回答与历史阅读；Proof=完整组合渲染的普通文本/长短Markdown问题、同源重连、异源同文、流式收束、已答/取消/只读、拒绝调用、Why/选项/自由回复反例；Acceptance Driver=既有真实原生等待/回答场景及截图，不改验收输入、不靠组件自证；Exploration=现役question_ref/run/version、AuthorQuestionRecord、MarkdownText、AuthorQuestionService已足够，不增新实体或第二协议。本次仅设计，产品/模板/测试尚未修改，旧截图仍失败，后续实施与真实验收不得跳过。
+七问：Contract=UI46 §9.7、UI47 §3.4.1及UA-01作者问题身份/回复链；Invariant=一个成功question_ref一份完整正文、唯一可答入口、原事实不删；Boundary=现役问题记录与WorkspaceChat正文选择、底部操作标签，不新增文本去重/状态表；Consumer=真实等待回答与历史阅读；Proof=完整组合渲染的普通文本/长短Markdown问题、同源重连、异源同文、流式收束、已答/取消/只读、拒绝调用、Why/选项/自由回复反例；Acceptance Driver=既有真实原生等待/回答场景及截图，不改验收输入、不靠组件自证；Exploration=现役question_ref/run/version、AuthorQuestionRecord、MarkdownText、AuthorQuestionService已足够，不增新实体或第二协议。设计先行提交b18c90f2，旧截图仍为失败证据，实施不能代替真实验收。
+
+e24ed695完成WorkspaceChat按author_question类型互斥选择正文，AuthorQuestionRecord复用MarkdownText，操作区只用现役功能定位标签，不按字符串比较去重、不删任何canonical事实。完整WorkspaceChat SSR红例先复现双全文，再目标16/16通过，覆盖长短/Markdown/普通文本/实际底bar/历史状态/异ref同文及真实upsert更新。upsert预览是合成TurnResult输入的组合验证，不等于真实WS streaming/重连与点击验证。独立review无新增阻塞；全frontend pnpm check格式/类型/lint通过、55文件520测试；首次fixture缺字段/多余断言失败日志保留后按真实类型修复。完整mix check3385/0，完整扫描19pass/2fail/7，剩余仅尚缺真实UI的task_done与既有gitleaks处置；证据question-owner-19。真实提问等待/回答及修正后C8尚待验收，不称已通过。
 
 ### 14.28 固定后继实现与一次独立20轮的实际失败（2026-11-18）
 
