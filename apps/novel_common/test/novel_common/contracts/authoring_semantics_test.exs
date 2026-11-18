@@ -33,12 +33,13 @@ defmodule NovelCommon.AuthoringSemanticsTest do
   end
 
   test "version and content hash are stable for identical canonical text" do
-    assert AuthoringSemantics.version() == "b27-semantics-v3"
+    assert AuthoringSemantics.version() == "b27-semantics-v4"
     assert AuthoringSemantics.content_hash() == AuthoringSemantics.content_hash()
     assert String.length(AuthoringSemantics.content_hash()) == 64
   end
 
-  test "completion rules and version boundaries do not upgrade historical tasks" do
+  test "shared rule wiring and version boundaries do not upgrade historical tasks" do
+    # These assertions verify rule wiring/version identity, not model semantic compliance.
     rules = AuthoringSemantics.shared_rules()
     assert rules =~ "完成声明必须对应作者实际要求与已交付内容"
     assert rules =~ "共同内容确实适用时可合并表达"
@@ -49,7 +50,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert rules =~ "当前已有充分原文证据时不重复读取"
     assert task().semantic_version == AuthoringSemantics.version()
 
-    for version <- ["b27-semantics-v2", "b27-semantics-v1", nil] do
+    for version <- ["b27-semantics-v3", "b27-semantics-v2", "b27-semantics-v1", nil] do
       expected_version = version || "b27-semantics-v1"
       map = AuthoringTask.to_map(task())
 
@@ -64,7 +65,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
       assert {:error,
               {:authoring_task_invalid,
-               {:semantic_version_mismatch, "b27-semantics-v3", ^expected_version}}} =
+               {:semantic_version_mismatch, "b27-semantics-v4", ^expected_version}}} =
                AuthoringSemantics.validate(restored)
     end
   end
@@ -242,7 +243,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
     expected =
       {:authoring_task_invalid,
-       {:semantic_version_mismatch, "b27-semantics-v3", "b27-semantics-v0"}}
+       {:semantic_version_mismatch, "b27-semantics-v4", "b27-semantics-v0"}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end
