@@ -17,8 +17,8 @@ function cancellationScenario() {
   before.provider_runs[0].parent_turn_ref = run.parent_turn_ref;
   before.provider_events = [
     { sequence: 1, event_type: "started", emitted_at: "2026-11-04T10:00:00.000Z", payload: {} },
-    { sequence: 2, event_type: "progress", emitted_at: "2026-11-04T10:00:00.020Z", payload: { phase: "request_dispatched" } },
-    { sequence: 3, event_type: "chunk", emitted_at: "2026-11-04T10:00:00.050Z", payload: { content_length: 12 } },
+    { sequence: 2, event_type: "progress", emitted_at: null, inserted_at: "2026-11-04T10:00:00.020Z", payload: { phase: "request_dispatched" } },
+    { sequence: 3, event_type: "chunk", emitted_at: null, inserted_at: "2026-11-04T10:00:00.050Z", payload: { content_length: 12 } },
   ].map((event) => ({ ...event, provider_run_id: "cancel-provider", provider_call_ref: "cancel-call", agent_run_id: RUN }));
   const confirmation = structuredClone(before);
   confirmation.captured_at = "2026-11-04T10:00:00.150Z";
@@ -63,7 +63,7 @@ test("唯一在途摘要：dispatch 和真实非空 chunk 必须同执行、同 
     (db) => { db.provider_events[1].payload.phase = "request_prepared"; },
     (db) => { db.provider_events[2].payload.content_length = 0; },
     (db) => { db.provider_events[2].payload.content_length = "12"; },
-    (db) => { db.provider_events[2].emitted_at = "2026-11-04T09:59:00Z"; },
+    (db) => { db.provider_events[2].inserted_at = "2026-11-04T09:59:00Z"; },
     (db) => { db.provider_outputs.push({ provider_run_id: "cancel-provider" }); },
     ...["final_output", "error", "cancel_requested", "cancelled"].map((event_type) => (db) =>
       db.provider_events.push({ ...db.provider_events[2], event_type, sequence: 4 })),
@@ -84,6 +84,33 @@ test("唯一在途摘要：dispatch 和真实非空 chunk 必须同执行、同 
     const db = structuredClone(before); mutate(db);
     assert.throws(() => inFlightSummaryForRun(db, selection));
   }
+});
+
+test("持久事件时间而非可选 emitted_at 决定资格，微秒倒序与缺证拒绝", () => {
+  const { before, scope } = cancellationScenario().options;
+  const selection = { runId: RUN, workId: scope.work_id, sessionId: scope.session_id };
+  before.provider_events[1].inserted_at = "2026-11-04T10:00:00.050001Z";
+  before.provider_events[2].inserted_at = "2026-11-04T10:00:00.050002Z";
+  const target = inFlightSummaryForRun(before, selection);
+  assert.equal(target.chunk_at, "2026-11-04T10:00:00.050002Z");
+  for (const emitted_at of [null, "2026-11-04T11:00:00.000Z", "bad"]) {
+    const db = structuredClone(before);
+    db.provider_events.forEach((event) => { event.emitted_at = emitted_at; });
+    assert.deepEqual(inFlightSummaryForRun(db, selection), target);
+  }
+  for (const mutate of [
+    (db) => { delete db.provider_events[1].inserted_at; },
+    (db) => { db.provider_events[2].inserted_at = null; },
+    (db) => { db.provider_events[2].inserted_at = "bad"; },
+    (db) => { db.provider_events[2].inserted_at = "2026-11-04T10:00:00.050000Z"; },
+    (db) => { db.provider_events[1].sequence = 4; },
+  ]) {
+    const db = structuredClone(before); mutate(db);
+    assert.equal(inFlightSummaryForRun(db, selection), null);
+  }
+  const duplicate = structuredClone(before);
+  duplicate.provider_events.push({ ...duplicate.provider_events[2], payload: { content_length: 0 } });
+  assert.throws(() => inFlightSummaryForRun(duplicate, selection), /sequence/);
 });
 
 test("真实摘要取消：命令/ACK/在途摘要Provider/终态/客户端恢复均需独立事实", () => {

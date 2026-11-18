@@ -16,6 +16,14 @@ const timeValue = (value) => {
   const parsed = Date.parse(String(value ?? "").replace(" ", "T").replace(/(\.\d{3})\d+/u, "$1"));
   return Number.isFinite(parsed) ? parsed : null;
 };
+// SQLite 持久时间是观察时钟；可选 emitted_at 不参与此判据，也不作 fallback。
+const persistedEventTime = (value) => {
+  const match = typeof value === "string" && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{1,6})Z$/u.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return null;
+  const normalized = match[1] + "." + match[2].padEnd(6, "0") + "Z";
+  if (new Date(value).toISOString() !== normalized.slice(0, 23) + "Z") return null;
+  return normalized;
+};
 const messageKey = (row) => JSON.stringify([row.run_id, row.run_sequence]);
 const messagesOf = (db, sessionId) => canonicalMessagesFromRows(
   db.authoring_session_messages.filter((row) => row.session_id === sessionId), db.agent_runs);
@@ -47,6 +55,8 @@ export function inFlightSummaryForRun(db, { runId, workId, sessionId }) {
     const events = db.provider_events.filter((event) => event.provider_run_id === provider.id);
     assert(events.every((event) => event.provider_call_ref === provider.provider_call_ref &&
       event.agent_run_id === runId), "摘要事件执行引用不一致");
+    assert(events.every((event) => Number.isInteger(event.sequence) && event.sequence > 0) &&
+      new Set(events.map((event) => event.sequence)).size === events.length, "摘要事件 sequence 缺失或多义");
     if (db.provider_outputs.some((output) => output.provider_run_id === provider.id ||
       output.provider_call_ref === provider.provider_call_ref) ||
       events.some((event) => ["final_output", "error", "cancel_requested", "cancelled"].includes(event.event_type))) continue;
@@ -54,16 +64,17 @@ export function inFlightSummaryForRun(db, { runId, workId, sessionId }) {
       payloadOf(event)?.phase === "request_dispatched");
     assert(dispatched.length <= 1, "摘要 dispatch 事实多义");
     const dispatch = dispatched[0];
-    if (!dispatch || timeValue(dispatch.emitted_at) === null || !Number.isInteger(dispatch.sequence) || dispatch.sequence <= 0) continue;
+    const dispatchedAt = persistedEventTime(dispatch?.inserted_at);
+    if (!dispatch || dispatchedAt === null) continue;
     const chunks = events.filter((event) => event.event_type === "chunk" &&
       Number.isInteger(payloadOf(event)?.content_length) && payloadOf(event).content_length > 0 &&
       Number.isInteger(event.sequence) && event.sequence > dispatch.sequence &&
-      timeValue(event.emitted_at) !== null && timeValue(event.emitted_at) >= timeValue(dispatch.emitted_at))
+      persistedEventTime(event.inserted_at) !== null && persistedEventTime(event.inserted_at) >= dispatchedAt)
       .sort((left, right) => left.sequence - right.sequence);
     if (!chunks.length) continue;
     assert(chunks[0].sequence !== chunks[1]?.sequence, "摘要首 chunk 事实多义");
     targets.push({ provider_run_ref: provider.id, provider_call_ref: provider.provider_call_ref,
-      dispatched_at: dispatch.emitted_at, chunk_at: chunks[0].emitted_at });
+      dispatched_at: dispatch.inserted_at, chunk_at: chunks[0].inserted_at });
   }
   assert(targets.length <= 1, "同一 run 的真实在途摘要目标多义");
   return targets[0] ?? null;
