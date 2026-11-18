@@ -22,7 +22,7 @@ import {
 } from "./scenario_evidence.mjs";
 import { readAutoMaintenanceInputs, readConfig } from "./authoring_capture_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
-import { assertHistoryPreserved, verifyCancelledRunFacts, verifyInterleavedResumeFacts } from "./authoring_interleaved_resume_evidence.mjs";
+import { assertHistoryPreserved, verifyStreamCancellationFacts, verifyCancelledRunFacts, verifyInterleavedResumeFacts } from "./authoring_interleaved_resume_evidence.mjs";
 import { readBackendRestartReceipt } from "../../native_ui_wait.mjs";
 import { canonicalCoverageForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
@@ -316,7 +316,7 @@ export function runtimeAfterBatch(dir, { exec } = {}) {
   assert.equal(path.resolve(ready.app_path), path.dirname(path.dirname(path.dirname(executable))), "owned app path mismatch");
   assert(isObject(ready.owned_ports) && Object.hasOwn(ready.owned_ports, "backend") &&
     Object.hasOwn(ready.owned_ports, "transport"), "owned_ports missing");
-  const ports = Object.fromEntries(["backend", "transport"].map((key) => {
+  const ports = Object.fromEntries(Object.keys(ready.owned_ports).map((key) => {
     const port = ready.owned_ports[key];
     assert(port === null || Number.isInteger(port) && port > 0 && port <= 65535, "owned port invalid");
     return [key, port === null ? false : portListening(port, exec)];
@@ -899,7 +899,10 @@ export function evaluateAutoMaintenance({
   const c10 = {
     ok: runtime === null ? null : Array.isArray(remaining) && remaining.length === 0 &&
       cleanup.executable === runtime.executable && runtime.app_processes === 0 &&
-      runtime.ports?.backend === false && runtime.ports?.transport === false && llmStopped,
+      runtime.ports?.backend === false && runtime.ports?.transport === false &&
+      isObject(runtime.owned_ports) && isObject(runtime.ports) &&
+      Object.keys(runtime.owned_ports).length === Object.keys(runtime.ports).length &&
+      Object.keys(runtime.owned_ports).every(key => runtime.ports[key] === false) && llmStopped,
     reason: null,
     detail: { remaining: Array.isArray(remaining) ? remaining.length : null,
       runtime_after_batch: runtime, llm_calls_stopped: llmStopped, external_model_service_in_scope: false },
@@ -1127,6 +1130,14 @@ export function verifyAutoMaintenanceBatch(dir, { observeRuntime = runtimeAfterB
         transcriptMessages(admitted.authoring_session_messages, admitted.agent_runs));
       assert(request.ok, request.reason);
       assert.equal(request.sourceCount, frozen.source_keys.length, "cancel_source_count_mismatch");
+      const ready = read(dir,"native-driver-ready.json");
+      if (ready?.owned_ports?.provider_stream != null || trace.stream_binding) {
+        const id = trace.stream_binding?.request_id;
+        assert(typeof id === "string" && /^request-[1-9][0-9]*$/u.test(id),"stream_binding_missing");
+        const events = fs.readFileSync(path.join(dir,"provider-stream.jsonl"),"utf8").trim().split("\n").map(JSON.parse);
+        verifyStreamCancellationFacts(trace,events,Object.fromEntries(["request","received","delivered"].map(kind=>
+          [kind,fs.readFileSync(path.join(dir,"provider-stream-requests",id+(kind==="request"?"":"."+kind)+".bin"))])),paired[0]);
+      }
       return verifyCancelledRunFacts(trace, dbFacts, evidence.wire, {
         before: readMaintenanceSnapshot(dir, trace?.before_snapshot),
         confirmation: readMaintenanceSnapshot(dir, trace?.confirmation_snapshot),

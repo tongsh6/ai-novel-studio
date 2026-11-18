@@ -1,5 +1,6 @@
 // G6/R03 交错恢复的唯一纯证据判据。输入均由现役 IO owner 读取；无 DB/文件访问。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { frameBody, frameEvent } from "./scenario_evidence.mjs";
 import { actionAck } from "./authoring_pending_evidence.mjs";
@@ -78,6 +79,63 @@ export function inFlightSummaryForRun(db, { runId, workId, sessionId }) {
   }
   assert(targets.length <= 1, "同一 run 的真实在途摘要目标多义");
   return targets[0] ?? null;
+}
+
+// External transport evidence cannot stand in for the product cancel/ACK/canonical oracle.
+export function verifyStreamCancellationFacts(probe, events, bytes, actualRequest) {
+  const binding = probe.stream_binding;
+  assert(binding && /^request-[1-9][0-9]*$/u.test(binding.request_id), "stream_binding_missing");
+  const digest = value => createHash("sha256").update(value).digest("hex");
+  assert.equal(digest(bytes.request),binding.request_sha256,"stream_request_bytes_changed");
+  assert.deepEqual(JSON.parse(bytes.request.toString("utf8")),actualRequest.request.body,"stream_actual_request_mismatch");
+  assert.equal(actualRequest.provider_run_ref,binding.provider_run_ref);
+  assert.equal(actualRequest.provider_call_ref,binding.provider_call_ref);
+  const unique = name => {
+    const matches = events.map((event,index)=>({event,index})).filter(({event})=>event.event===name &&
+      (event.request_id === binding.request_id || name === "gate_disarmed"));
+    assert.equal(matches.length,1,"stream_event_missing_or_repeated:"+name); return matches[0];
+  };
+  const windows = events.map((event,index)=>({event,index})).filter(({event})=>event.event==="window_opened");
+  assert.equal(windows.length,1,"stream_window_missing_or_repeated");
+  const registered = unique("request_registered"), armed = unique("gate_armed");
+  assert(windows[0].index < registered.index && registered.event.window_id === windows[0].event.id, "stream_wrong_window");
+  const paused = unique("prefix_delivered_and_paused"), downstream = unique("downstream_close");
+  const destroyed = unique("upstream_destroy_requested"), closed = unique("upstream_close");
+  const disarmed = unique("gate_disarmed");
+  assert([registered,armed,paused,downstream,destroyed,closed,disarmed].every((row,index,array)=>
+    index===0 || row.index>array[index-1].index),"stream_abort_order_invalid");
+  assert.equal(events.filter(event=>event.event==="request_registered" &&
+    event.request_sha256===binding.request_sha256).length,1,"stream_request_retried");
+  for (const key of ["request_id","request_sha256","provider_run_ref","provider_call_ref"])
+    assert.equal(armed.event[key],binding[key],"stream_arm_identity_changed");
+  assert.equal(destroyed.event.cause,"downstream_disconnect");
+  assert.equal(closed.event.cause,"downstream_disconnect");
+  assert.equal(disarmed.event.gate.cause,"downstream_disconnect");
+  assert.equal(disarmed.event.disarmed,true);
+  assert.deepEqual(disarmed.event.active_requests,[]);
+  assert.equal(events.filter(event=>event.event==="gate_armed").length,1,"stream_gate_rearmed");
+  assert.equal(events.filter(event=>event.event==="prefix_delivered_and_paused").length,1);
+  assert(timeValue(downstream.event.at)>=timeValue(probe.command_sent_at),"stream_closed_before_user_command");
+  assert.equal(bytes.delivered.length,paused.event.prefix_bytes);
+  assert.equal(digest(bytes.delivered),paused.event.prefix_sha256);
+  assert(bytes.received.subarray(0,bytes.delivered.length).equals(bytes.delivered),"stream_prefix_rewritten");
+  const prefix = new TextDecoder("utf-8",{fatal:true}).decode(bytes.delivered);
+  assert(/(?:\r\n\r\n|\n\n)$/u.test(prefix),"stream_prefix_incomplete_record");
+  const records = prefix.split(/\r?\n\r?\n/u);
+  records.pop();
+  const data = records
+    .map(record=>record.split(/\r?\n/u).filter(line=>line.startsWith("data:"))
+      .map(line=>line.slice(5).replace(/^ /u,"")).join("\n"));
+  assert(!data.includes("[DONE]"),"stream_done_delivered_before_cancel");
+  const bodyRecords = data.map(value=>value ? JSON.parse(value) : {});
+  const nonempty = bodyRecords.map(body=>(body.choices ?? []).some(choice=>
+    typeof choice.delta?.content==="string" && choice.delta.content.length>0));
+  assert(nonempty.at(-1) === true && nonempty.slice(0,-1).every(value=>value===false), "stream_not_first_content_boundary");
+  const content = bodyRecords.flatMap(value=>value.choices ?? []);
+  assert(content.some(choice=>typeof choice.delta?.content==="string" && choice.delta.content.length>0),
+    "stream_real_content_missing");
+  assert(content.every(choice=>choice.finish_reason==null),"stream_terminal_content_delivered");
+  return {ok:true,request_id:binding.request_id,transport_abort_observed:true,vendor_compute_stopped:null};
 }
 
 export function verifyCancelledRunFacts(probe, db, wire, { before, confirmation, afterCancel, afterClientRelaunch, author, scope }) {

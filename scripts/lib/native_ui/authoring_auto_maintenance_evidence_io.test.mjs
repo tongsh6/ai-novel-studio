@@ -105,6 +105,14 @@ test("A3 反例：刷新不幂等/清理失败 分别 fail", () => {
   assert.equal(cleanup.checks.C10_cleanup.ok, false);
   const busy = evaluateIn(template.dir, { runtime: { ...autoMaintenanceRuntime(), ports: { backend: true, transport: false } } });
   assert.equal(busy.checks.C10_cleanup.ok, false);
+  for (const key of ["provider_stream","provider_stream_control"]) {
+    const runtime = fixtureRuntime(template.dir);
+    assert.equal(evaluateIn(template.dir,{runtime}).checks.C10_cleanup.ok,true,"baseline independently passes");
+    runtime.owned_ports[key] = 12345; runtime.ports[key] = true;
+    assert.equal(evaluateIn(template.dir,{runtime}).checks.C10_cleanup.ok,false,"new owned listener must stop");
+    delete runtime.ports[key];
+    assert.equal(evaluateIn(template.dir,{runtime}).checks.C10_cleanup.ok,false,"missing new port observation");
+  }
   assert.equal(evaluateIn(template.dir, { runtime: null }).checks.C10_cleanup.ok, null);
 });
 

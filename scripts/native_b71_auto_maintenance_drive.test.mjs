@@ -1,10 +1,28 @@
 // 外部驱动的回答/取消业务绑定；帧工厂复用现役维护 fixture，ACK 身份由共同 owner 核验。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorChoiceAckFor, cancelAckFor, requireSameSummaryTarget, requireProbePressure, requireActualProbeSource, requireProbeSourceClaim } from "./native_b71_auto_maintenance_drive.mjs";
+import { createHash } from "node:crypto";
+import { bindStreamRequest, authorChoiceAckFor, cancelAckFor, requireSameSummaryTarget, requireProbePressure, requireActualProbeSource, requireProbeSourceClaim } from "./native_b71_auto_maintenance_drive.mjs";
 import { interleavedResumeFacts } from "./lib/native_ui/fixtures/authoring_auto_maintenance_facts.mjs";
 import { maintenanceRecoveryFacts } from "./lib/native_ui/fixtures/authoring_discussion_facts.mjs";
 import { firstSummaryAdmission, requireMixedProtection } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
+
+test("传输请求按完整独立材料唯一绑定首份准入，不用substring或自称身份", () => {
+  const s = maintenanceRecoveryFacts(), facts = s.facts.afterFailure, run = facts.provider_runs[0];
+  const frozen = {provider_run_ref:run.id,provider_call_ref:run.provider_call_ref,
+    source_keys:run.owner_refs.discussion_source_keys,owner_refs:run.owner_refs};
+  const raw = Buffer.from(JSON.stringify(s.records.find(r=>r.provider_run_ref===run.id).request.body));
+  const entry = {request_id:"request-1",method:"POST",path:"/v1/chat/completions",
+    request_sha256:createHash("sha256").update(raw).digest("hex")};
+  const registry = {requests:[entry]}, captures = {"request-1":raw};
+  assert.equal(bindStreamRequest(registry,captures,facts,frozen).provider_run_ref,run.id);
+  assert.throws(()=>bindStreamRequest({requests:[entry,{...entry,request_id:"request-2"}]},
+    {...captures,"request-2":raw},facts,frozen),/ambiguous/);
+  assert.throws(()=>bindStreamRequest(registry,{"request-1":Buffer.from("changed")},facts,frozen),/bytes_changed/);
+  const malformed = Buffer.from('{"messages":[{"role":"user","content":"transcript_compaction"}]}');
+  assert.equal(bindStreamRequest({requests:[{...entry,request_sha256:createHash("sha256").update(malformed).digest("hex")}]},
+    {"request-1":malformed},facts,frozen),null);
+});
 
 function answerAttempt() {
   const facts = interleavedResumeFacts();

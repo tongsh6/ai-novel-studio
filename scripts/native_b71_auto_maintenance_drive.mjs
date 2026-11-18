@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -18,7 +19,7 @@ import { readAutoMaintenanceDbFacts, scanAuthorVisibleFiles, verifyMaintenanceFa
 import { inFlightSummaryForRun } from "./lib/native_ui/authoring_interleaved_resume_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import { canonicalMessagesFromRows } from "./lib/native_ui/authoring_history_evidence.mjs";
-import { auditDiscussionRequest } from "./lib/native_ui/authoring_checkpoint_coverage.mjs";
+import { auditDiscussionRequest, auditDiscussionTransportBody } from "./lib/native_ui/authoring_checkpoint_coverage.mjs";
 
 
 const TURN_TIMEOUT_MS = Number(process.env.B71_AUTO_MAINT_TURN_TIMEOUT_MS ?? 360_000);
@@ -347,30 +348,86 @@ export function requireActualProbeSource(facts, records, runId, frozen) {
   assert.equal(audited.sourceCount, frozen.source_keys.length, "probe_summary_source_count_mismatch");
 }
 
+export function bindStreamRequest(registry, captures, facts, frozen) {
+  const run = requireProbeSourceClaim(facts, frozen.owner_refs.agent_run_id, frozen);
+  const messages = canonicalMessagesFromRows(facts.authoring_session_messages, facts.agent_runs);
+  const matches = registry.requests.filter(entry => {
+    if (entry.method !== "POST" || !entry.path.endsWith("/chat/completions")) return false;
+    const bytes = captures[entry.request_id];
+    assert(Buffer.isBuffer(bytes) && createHash("sha256").update(bytes).digest("hex") === entry.request_sha256,
+      "stream_registry_bytes_changed");
+    let body; try { body = JSON.parse(bytes.toString("utf8")); } catch { return false; }
+    return auditDiscussionTransportBody(body,run,messages).ok;
+  });
+  assert(matches.length <= 1, "stream_request_binding_ambiguous");
+  if (!matches.length) return null;
+  const selected = matches[0];
+  assert(registry.requests.filter(entry => entry.request_sha256 === selected.request_sha256).length === 1,
+    "stream_request_hash_repeated");
+  return {request_id:selected.request_id,request_sha256:selected.request_sha256,
+    provider_run_ref:run.id,provider_call_ref:run.provider_call_ref};
+}
+async function streamControl(route, body) {
+  const ready = JSON.parse(fs.readFileSync(path.join(dir,"provider-stream-ready.json"),"utf8"));
+  const url = new URL(ready.control_endpoint);
+  assert(url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/" &&
+    !url.username && !url.password && !url.search && !url.hash, "stream_control_not_loopback");
+  const response = await fetch(ready.control_endpoint + route, {
+    ...(body === undefined ? {} : {method:"POST",body:JSON.stringify(body)}),
+    signal:AbortSignal.timeout(2000),
+  });
+  const result = await response.json();
+  assert(response.ok, "stream_control: " + result.error);
+  return result;
+}
+
 async function runCancelProbe(report, author) {
   const before = probeSnapshot("r03-before-c-window", report.cancel_priming.run_id);
+  await streamControl("/window", {});
   const request = await startRequest(report, author);
   const probe = report.cancel_probe = { request, pre_window_snapshot:before.file, recovery_scope: "owned_tauri_client" };
   const scope = { runId: request.run_id, workId: config.target.work_id, sessionId: config.target.session_id };
-  const observed = await harness.runStep("turn", "summary_cancellation_in_flight", () =>
-    harness.pollWire(() => {
+  const observed = await harness.runStep("turn", "summary_cancellation_in_flight", async () => {
+    const deadline = Date.now() + TURN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      harness.checkSupervisor();
       const facts = readAutoMaintenanceDbFacts(dir);
-      const status = facts.agent_runs.find((run) => run.id === request.run_id)?.status;
-      assert(!TERMINAL_STATUSES.has(status) && status !== "awaiting_author",
-        "run_settled_without_in_flight_summary");
-      const frozen = freezeSummaryAdmission(before.facts, facts, logs(path.join(dir, "llm-calls")),
-        request.run_id, {work_id:scope.workId, session_id:scope.sessionId}, probe.admission ?? null);
-      if (!frozen) return null;
-      if (!probe.admission) {
-        probe.admission = frozen;
-        probe.admission_snapshot = snapshot("r03-c-first-admission", facts);
+      const status = facts.agent_runs.find(run => run.id === request.run_id)?.status;
+      assert(!TERMINAL_STATUSES.has(status) && status !== "awaiting_author", "run_settled_without_in_flight_summary");
+      const frozen = freezeSummaryAdmission(before.facts, facts, logs(path.join(dir,"llm-calls")),
+        request.run_id, {work_id:scope.workId,session_id:scope.sessionId}, probe.admission ?? null);
+      if (frozen) {
+        if (!probe.admission) {
+          probe.admission = frozen; probe.admission_snapshot = snapshot("r03-c-first-admission",facts);
+        }
+        const first = requireProbeSourceClaim(facts,request.run_id,frozen);
+        assert(!TERMINAL_STATUSES.has(first.status),"first_summary_ended_before_cancel");
+        if (!probe.stream_binding) {
+          const registry = await streamControl("/registry");
+          const captures = Object.fromEntries(registry.requests.map(entry => {
+            assert(/^request-[1-9][0-9]*$/u.test(entry.request_id),"invalid_stream_request_id");
+            return [entry.request_id,fs.readFileSync(path.join(dir,"provider-stream-requests",entry.request_id+".bin"))];
+          }));
+          const binding = bindStreamRequest(registry,captures,facts,frozen);
+          if (binding) {
+            probe.stream_binding = binding;
+            await streamControl("/arm",binding);
+          }
+        }
+        const target = inFlightSummaryForRun(facts,scope);
+        if (target) {
+          requireSameSummaryTarget(probe.admission,target);
+          const state = await streamControl("/state");
+          assert(state.gate?.request_id === probe.stream_binding?.request_id && state.gate.paused_at &&
+            !state.gate.cause, "stream_gate_not_paused");
+          probe.stream_paused = state;
+          return {target,facts,observed_at:harness.nowIso()};
+        }
       }
-      const first = facts.provider_runs.find((run) => run.id === frozen.provider_run_ref);
-      assert(!TERMINAL_STATUSES.has(first.status), "first_summary_ended_before_cancel");
-      const target = inFlightSummaryForRun(facts, scope);
-      if (target) requireSameSummaryTarget(probe.admission, target);
-      return target ? { target, facts, observed_at: harness.nowIso() } : null;
-    }, TURN_TIMEOUT_MS, FLOW_LABEL + ":summary_cancellation_in_flight"));
+      await new Promise(resolve => setTimeout(resolve,300));
+    }
+    throw new Error("summary_cancellation_in_flight_timeout");
+  });
   requireProbeSourceClaim(observed.facts, request.run_id, probe.admission);
   probe.summary_target = { ...observed.target, observed_at: observed.observed_at };
   probe.before_snapshot = snapshot("r03-before-cancel", observed.facts);
@@ -401,6 +458,7 @@ async function runCancelProbe(report, author) {
     after_cancel_snapshot: snapshot("r03-after-cancel") });
   harness.capture("cancelled-run", { allowFullScreenFallback: false });
   assert.equal(terminal.status, "cancelled", "cancel_requested_is_not_cancelled");
+  probe.stream_disarmed = await streamControl("/disarm", {});
   requireActualProbeSource(readAutoMaintenanceDbFacts(dir), logs(path.join(dir, "llm-calls")),
     request.run_id, probe.admission);
 }

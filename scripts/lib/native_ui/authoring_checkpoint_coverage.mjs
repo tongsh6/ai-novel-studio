@@ -152,6 +152,9 @@ function discussionRequestOwner(record, run) {
   coverageAssert(sameScopeOwner(record, run) && typeof run.parent_turn_ref === "string" &&
     run.parent_turn_ref.trim() !== "" && record.turn_id === run.parent_turn_ref,
   "discussion_request_owner_mismatch");
+  return discussionOwnerKeys(run);
+}
+function discussionOwnerKeys(run) {
   const refs = decodeJson(run.owner_refs, "provider owner_refs");
   coverageAssert(isRecord(refs) && refs.operation === "transcript_compaction" && run.purpose === "other" &&
     typeof run.agent_run_id === "string" && run.agent_run_id.trim() !== "" &&
@@ -190,6 +193,17 @@ function discussionRequestSources(keys, run, messages) {
     previousIndex = source.index;
     return source;
   });
+}
+
+// Transport body has no product execution headers. This audits material only;
+// caller must independently establish a unique captured HTTP request for the frozen admission.
+export function auditDiscussionTransportBody(body, run, messages) {
+  try {
+    const keys = discussionOwnerKeys(run);
+    const sources = discussionRequestSources(keys, run, messages);
+    discussionMaterial({request:{body}}, sources, messages, requestVersion(run, messages));
+    return {ok:true, sourceCount:sources.length};
+  } catch (error) { return {ok:false, reason:error.message, sourceCount:0}; }
 }
 
 // 维护来源与是否提交 checkpoint 分开；不以摘要输出、operation 标签或请求自报原文授信。
