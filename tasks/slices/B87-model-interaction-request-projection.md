@@ -1489,3 +1489,15 @@ first-admission-diagnostic.json独立核9个原始文件/DB哈希保持，实际
 独立反例覆盖部分已给/仅承诺/共享材料/尾页证据/作者重开及跨域措辞；确定性红例只证明现役规则与三wire投影原先缺契约接线，不宣称复现模型质量。focused68/0，完整mix check3396/0、编译/codegen/xref/架构/ADR/I-CACHE和I1/I2/I3通过，独立实现复审无阻塞。focused五条persistence error经trace绑定旧测试的主动terminal fact persistence failure；初始化SQLite锁日志保留，完整独立库check仍0失败，单应用trace无锁，不以日志删除制造绿灯。原82项WIP哈希全同，既有SessionMessageRead未改。
 
 最终统一scan仍19pass/2fail/7：既有六gitleaks中五false_positive、一accepted_risk，task_done_manifest仍pending；report/top10/disposition归档delivery-retention-27，不新建虚假完成manifest。未占桌面、未运行新模型批次，原10partial/20失败/26FAIL不改签。该步只闭合责任契约与接线，模型是否实际保留范围、主动求证并正确回答，仍须按原作者预期与真实原文独立验证；C/D原生及完整R03尚未闭环。
+
+### 14.37 原生取消及时收束，但取消请求审计缺失（2026-11-18）
+
+作者明确桌面随时可用后，先只读核HEADfe73ec44/原WIP82全同/index空、原批进程无残留/端口空闲与Finder前台；osascript只读查询超时，现役AX观察成功，不据超时推断锁屏。独立preflight成功后唯一启动c8-cancel-fixed-28/native-01（wc_job_iCz2izQkW7D_Sldk），保持原模型/原20+5输入/顺序/预算/30秒上限，不跳前置，不重跑普通20。
+
+C首次prun_mwllth8r_hcx/pcall_mwllth8r_hcw与原request-66唯一绑定；请求SHA888de8db33b28456a0fa62a4f752e255cba85f6b6c5b824043280a93ada5161b。首正文原字节04:11:28.941Z交付，upstream29.508Z先完整HTTP闭合；真实wire取消30.118Z，downstream30.120Z，Provider cancelled30.139870Z、root cancelled30.176Z，30.781Zdisarm且无活动请求。此为真实及时接收取消，不宣称vendor计算中断，也不为已先闭合上游虚造abort。
+
+随后requireActualProbeSource按原双ID核完整产品请求记录得到0≠1、probe_summary_request_missing而FAIL，D未进入，不能签C8通过。产品Result.cancelled分支跳过log_stream_result，28条日志无此prun；不是reader漏解析，也不能等日志或拿proxy副本替换产品审计。独立遍历原请求由完整材料审计仅匹配request-66/sourceCount1，证明目标与外部字节对应，但不填补产品日志责任。run checkpoint0，usage未采集不记零，15项原始证据哈希不变；四端口及四owned进程均已清理。cancel-log-diagnostic.json保留精确时间链。
+
+已亲看cancelled-run.jpg实际像素（SHA bce32af83ec02f48e2ee6e6043dc92d9038e1d85016f88195b3db908cae66092），页面已停止/无任务/普通输入恢复，标题粗体渲染；取消时效以真实wire/持久/传输事实判断，不由截图代签。下一步先修现役取消分支审计责任及独立反例，不放宽验收、不修改原FAIL。
+
+语义有正向与剩余反例：11真实session_message_read完整回查10，request57及C request63都带逐字一致10179bytes原文，11不再否认两场双视角存在；作者A选择与后次未确认时序保留。但11把未单列/未量化/未矩阵直接当未交付：早期模型确有相关深度承诺，仍须指出具体语义未覆盖而非强制格式。C还将讨论未登记为设定和范围外全书场景列入欠项，与只讨论、不写档及原四场范围混淆。故语义仍partial，不能以修复v3或一次正确回查签全面达标；独立原文审查JSON已保存。
