@@ -158,6 +158,14 @@
 
 **在途事件的持久观察边界（2026-11-18）**：ProviderEvent.emitted_at 在现役契约中允许 nil，不能把该可选发送时间当作 dispatch/chunk 存在的必要条件。既有 `authoring_interleaved_resume_evidence.inFlightSummaryForRun` 同时服务 driver 与取消事后核验，统一以同一执行的事件 sequence 与不可变 inserted_at 验证 request_dispatched 之后确有非空正文 chunk 已入库；不是 emitted_at 的任意 fallback。时间缺失、无效、倒序或 sequence 多义不取得资格，started、prepared、空 chunk、已终态或已有输出均不能替代真实在途。目标身份和确认前二次核验维持不变，不新增产品事件或验收 hook。独立 literal 反例核正常 nil emitted_at、持久时间缺损/微秒倒序、错执行、无正文及终态；全相关 node 与静态检查只证明 observer，不代签真实页面取消。`c8-first-admission-22/native-01` 首份 123 个非空 chunk 的 emitted_at 均为 null，旧 observer 永不命中；该批原 FAIL 永久保留。实际首 chunk 至输出仅约 676ms，字段修复不保证轮询及两步 AX 操作来得及；固定窗口捕获失败仍失败，不延长、换目标或追加调用。此 checkpoint 不涉及作品知识获取，探索项不适用。
 
+**C8 外部 Provider 传输窗口（两阶段、一次性）**：现役 Phoenix HTTP/WS proxy 不承担模型链路；新增 `scripts/native_provider_stream_proxy.mjs` 只负责 runner-owned loopback HTTP/SSE 透明转发与独立控制端口，由 `tauri_slice_verify.sh` 启动、监督、清理，通过已有 NOVEL_SPLASH_ENDPOINT 仅对隔离进程临时路由，不持久改作者设置、不接管 Splash。两个端口均 ephemeral，ready 文件为 `provider-stream-ready.json`，含 pid/endpoint/control_endpoint/upstream_endpoint，正文及认证不进入控制日志。请求原字节另存本批 artifacts，JSON 仅作为证据副本解析，转发不重序列化；请求数、hash、响应原字节前缀/剩余片段与关闭原因可独立核对。
+
+C 发送前开启只读 registry 窗口，所有业务请求正常透传。driver 通过现役首份准入与完整材料 oracle，将唯一真实外部 request_id/hash 绑定冻结的 pcall/prun/全部来源；HTTP 本身没有该内部身份，不伪称已由 header 证明。相同 hash 多请求、重复匹配、非同窗口、首份非法或无法唯一绑定均失败，不挑后份。只有精确绑定后才针对该 request_id 原子 arm，若首非空正文已经到达或请求已结束则拒绝，不能追认。首个完整 Chat SSE record 含真实非空 delta.content 后，代理先将至该 record 终止分隔符的原字节前缀交付下游，再暂停剩余字节；reasoning/role/空块不能触发。单个 HTTP data 含 content 与 DONE 时必须按原字节 record offset 切分；UTF-8/CRLF/跨包/multiline data 在解析副本处理，输出字节不改。driver 必须另见同一 prun 持久非空 chunk，再作真实 AX 双步取消，仍执行确认前在途及来源复核。
+
+暂停从前缀写出起最多 30 秒（小于原 300 秒静默超时），只允许一次，不能续期。下游提前断开因果触发对应上游 destroy，记录两端 close/abort/自然 end；不得自动重试。上限、异常或 cleanup 终结连接只记录失败，绝不代签作者取消。若上游已自然结束，仅证明产品接收传输取消，不声称停止 vendor 计算；无上游 close 证据不声明已传播。C 完成后必须取得 consumed + 无活动暂停/未完成连接的 disarm 事实，D 及后继仅透明转发，维持原响应/plan/hash、提交回滚与跨进程恢复判据。所有固定原文、预算、keep4 不变，迟 arm/短窗口仍可失败，旧失败批次不改签。
+
+本 checkpoint 七问：Contract 为本节 C8 真实在途与原载荷恢复；Invariant 是不造正文、不换首份、不将代理关连接代签用户取消；Boundary 仅外部 runner/HTTP代理/driver/证据，产品与模型服务不改；Consumer 为现役 C8 driver 与取消事后 oracle；Proof 为本地真实 HTTP server 的原字节守恒、任意分包、早/迟 arm、同 hash 多义、空块、终态、abort 因果、超时/cleanup 失败、一次性与 D 无干预独立反例，再全 node/静态检查及独立 review；Acceptance Driver 仍为真实 Tauri C8，未新跑前不宣称闭环；Exploration 不适用，因为不新增作品知识或模型输入。存在性审核：现有 proxy 只管 Phoenix，不混入不相干 SSE 责任；新脚本及同名测试登记 scripts 索引，不另建控制框架、DB reader 或产品 hook。
+
 **C8 证据链要求**：故障后快照必须含原 ProviderRun 的私有计划及响应文本，其字节 hash 与同次 ProviderOutput 一致；重启前后快照和既有受控换代 receipt 必须连成同一故障窗口。恢复后的 canonical 必须恰好一次引用原 pcall/prun、原响应字节及原计划覆盖，匹配同提交方作者事件，且私有载荷已清除。只保留 hash、仅有新来源成功、正文改写、原计划改选、在重启前已清除、第二次同源模型调用、事件与正文归属不同，均不能通过。该状态证据不能单独证明事务原子性，仍须与既有事务故障反例及真实故障场景共同判断。
 
 **历史面板可见证据**：展开后以及截图前须重新观察同一来源面板的实际边界；面板与完整记录按钮须在本窗口和滚动视口内，不以 AX 中有节点或仅一部分相交作为完整可见。必要滚动是显式 UI 动作，不改变只读等待规则；滚动不能使实际面板可见时如实失败。截图仍需独立视觉复核，报告不得自动代签颜色或完整 R03。
