@@ -43,10 +43,13 @@ defmodule NovelAgent.Provider.SSEStream.AnthropicDecoder do
   end
 
   @impl true
-  def usage(nil, model, duration), do: Usage.new(0, 0, model, duration)
+  def usage(usage, model, duration), do: usage(usage, model, duration, 0)
 
-  def usage(usage, model, duration) when is_map(usage) do
-    Usage.from_anthropic_response(%{"usage" => usage, "model" => model}, model, duration)
+  @impl true
+  def usage(nil, model, duration, missing), do: Usage.new(missing, missing, model, duration)
+
+  def usage(usage, model, duration, missing) when is_map(usage) do
+    Usage.from_anthropic_response(%{"usage" => usage, "model" => model}, model, duration, missing)
   end
 
   defp terminal_error(%{terminal?: true}), do: nil

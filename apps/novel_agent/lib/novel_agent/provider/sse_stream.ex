@@ -61,6 +61,9 @@ defmodule NovelAgent.Provider.SSEStream do
   @callback usage(usage :: map() | nil, model :: binary() | nil, duration_ms :: integer()) ::
               Usage.t()
 
+  @doc "Normalize observed partial usage without filling unknown token counts."
+  @callback usage(map() | nil, binary() | nil, integer(), non_neg_integer() | nil) :: Usage.t()
+
   @doc false
   @spec execute(map(), module()) :: AdapterExecution.execution_result()
   def execute(opts, decoder) do
@@ -80,7 +83,7 @@ defmodule NovelAgent.Provider.SSEStream do
       Keyword.put(request_opts, :cancellation_token, Map.get(ctx, :cancellation_token))
 
     started = System.monotonic_time(:millisecond)
-    initial_events = AdapterExecution.initial_events(ctx)
+    initial_events = AdapterExecution.prepared_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
     deadline_ms = AdapterExecution.deadline_timeout(ctx)
@@ -90,6 +93,7 @@ defmodule NovelAgent.Provider.SSEStream do
       Agent.start_link(fn ->
         %{
           buffer: "",
+          request_attempted?: false,
           events: [],
           next_sequence: length(initial_events) + 1,
           chunk_index: 0,
@@ -107,6 +111,9 @@ defmodule NovelAgent.Provider.SSEStream do
       end)
 
     on_data = &handle_wire_chunk(ctx, acc, started, deadline_ms, &1)
+
+    request_opts =
+      Keyword.put(request_opts, :on_request_attempt, fn -> record_attempt(ctx, acc) end)
 
     {request_result, final_acc} =
       try do
@@ -156,6 +163,8 @@ defmodule NovelAgent.Provider.SSEStream do
   end
 
   defp handle_wire_chunk(ctx, acc, started, deadline_ms, chunk) do
+    record_attempt(ctx, acc)
+
     cond do
       AdapterExecution.cancelled?(ctx) ->
         :halt
@@ -168,6 +177,23 @@ defmodule NovelAgent.Provider.SSEStream do
         update_and_emit(ctx, acc, &consume_wire_chunk(ctx, &1, chunk))
         continue_or_halt(ctx, acc, started, deadline_ms)
     end
+  end
+
+  defp record_attempt(ctx, acc) do
+    update_and_emit(ctx, acc, fn current ->
+      if current.request_attempted? do
+        current
+      else
+        event = AdapterExecution.request_dispatched_event(ctx, current.next_sequence)
+
+        %{
+          current
+          | request_attempted?: true,
+            next_sequence: current.next_sequence + 1,
+            events: [event | current.events]
+        }
+      end
+    end)
   end
 
   # The accumulator owns ordered facts, not external consumer latency. HTTP keeps

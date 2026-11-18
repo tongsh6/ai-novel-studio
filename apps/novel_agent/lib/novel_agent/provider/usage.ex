@@ -11,8 +11,8 @@ defmodule NovelAgent.Provider.Usage do
   defstruct [:input_tokens, :output_tokens, :model, :latency_ms, :cached_tokens, :ttft_ms]
 
   @type t :: %__MODULE__{
-          input_tokens: non_neg_integer(),
-          output_tokens: non_neg_integer(),
+          input_tokens: non_neg_integer() | nil,
+          output_tokens: non_neg_integer() | nil,
           model: String.t() | nil,
           latency_ms: non_neg_integer(),
           cached_tokens: non_neg_integer() | nil,
@@ -21,8 +21,8 @@ defmodule NovelAgent.Provider.Usage do
 
   @doc "创建一个 Usage 记录。所有构造最终收敛到这里。"
   @spec new(
-          non_neg_integer(),
-          non_neg_integer(),
+          non_neg_integer() | nil,
+          non_neg_integer() | nil,
           String.t() | nil,
           non_neg_integer(),
           non_neg_integer() | nil,
@@ -49,15 +49,18 @@ defmodule NovelAgent.Provider.Usage do
 
   LM Studio / DeepSeek / OpenAI 兼容矩阵共用此入口。缓存命中优先读
   `prompt_tokens_details.cached_tokens`（OpenAI / LM Studio），兼容
-  `prompt_cache_hit_tokens`（DeepSeek）。
+  `prompt_cache_hit_tokens`（DeepSeek）。显式 missing=nil 保留未观察字段；默认0保持完整响应既有行为。
   """
   @spec from_openai_response(map(), String.t() | nil, non_neg_integer()) :: t()
-  def from_openai_response(resp_body, fallback_model, latency_ms) when is_map(resp_body) do
+  @spec from_openai_response(map(), String.t() | nil, non_neg_integer(), non_neg_integer() | nil) ::
+          t()
+  def from_openai_response(resp_body, fallback_model, latency_ms, missing \\ 0)
+      when is_map(resp_body) do
     usage = resp_body["usage"] || %{}
 
     new(
-      usage["prompt_tokens"] || 0,
-      usage["completion_tokens"] || 0,
+      usage["prompt_tokens"] || missing,
+      usage["completion_tokens"] || missing,
       resp_body["model"] || fallback_model,
       latency_ms,
       usage["prompt_tokens_details"]["cached_tokens"] ||
@@ -66,14 +69,21 @@ defmodule NovelAgent.Provider.Usage do
     )
   end
 
-  @doc "从 Anthropic 响应体构造（`usage.input_tokens` / `usage.output_tokens`）。"
+  @doc "从 Anthropic usage 构造；显式 missing=nil 保留未知字段，默认0保持完整响应既有行为。"
   @spec from_anthropic_response(map(), String.t() | nil, non_neg_integer()) :: t()
-  def from_anthropic_response(resp_body, fallback_model, latency_ms) when is_map(resp_body) do
+  @spec from_anthropic_response(
+          map(),
+          String.t() | nil,
+          non_neg_integer(),
+          non_neg_integer() | nil
+        ) :: t()
+  def from_anthropic_response(resp_body, fallback_model, latency_ms, missing \\ 0)
+      when is_map(resp_body) do
     usage = resp_body["usage"] || %{}
 
     new(
-      usage["input_tokens"] || 0,
-      usage["output_tokens"] || 0,
+      usage["input_tokens"] || missing,
+      usage["output_tokens"] || missing,
       resp_body["model"] || fallback_model,
       latency_ms,
       usage["cache_read_input_tokens"]

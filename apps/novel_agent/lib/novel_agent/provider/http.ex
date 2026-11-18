@@ -85,6 +85,7 @@ defmodule NovelAgent.Provider.HTTP do
   defp run_owned_stream(url, body, opts, on_data, token, subscription) do
     owner = self()
     call_ref = make_ref()
+    on_attempt = Keyword.get(opts, :on_request_attempt, fn -> :ok end)
 
     task =
       Task.async(fn ->
@@ -96,6 +97,8 @@ defmodule NovelAgent.Provider.HTTP do
           if CancellationToken.cancelled?(token) do
             {:error, :cancelled, 0, "请求已取消"}
           else
+            send(owner, {call_ref, self(), :request_attempted})
+
             request_event_stream(url, body, opts, fn data ->
               send(owner, {call_ref, self(), data})
 
@@ -111,22 +114,34 @@ defmodule NovelAgent.Provider.HTTP do
         end
       end)
 
+    exit_ref = Process.monitor(task.pid)
+
     try do
       unless CancellationToken.cancelled?(token), do: send(task.pid, {call_ref, owner, :start})
-      await_stream(task, call_ref, on_data, token, subscription)
+      await_stream(task, call_ref, on_data, token, subscription, on_attempt)
     after
       Task.shutdown(task, :brutal_kill)
-      flush_stream(call_ref, task.pid, task.ref)
+
+      receive do
+        {:DOWN, ^exit_ref, :process, pid, _reason} when pid == task.pid -> :ok
+      end
+
+      # All messages sent by this worker precede this monitor exit signal.
+      flush_stream(call_ref, task.pid, task.ref, on_attempt)
     end
   end
 
-  defp await_stream(task, call_ref, on_data, token, subscription) do
+  defp await_stream(task, call_ref, on_data, token, subscription, on_attempt) do
     if CancellationToken.cancelled?(token) do
       {:error, :cancelled, 0, "请求已取消"}
     else
       receive do
         {:provider_cancelled, ^subscription} ->
           {:error, :cancelled, 0, "请求已取消"}
+
+        {^call_ref, pid, :request_attempted} when pid == task.pid ->
+          on_attempt.()
+          await_stream(task, call_ref, on_data, token, subscription, on_attempt)
 
         {^call_ref, pid, data} when pid == task.pid ->
           decision = on_data.(data)
@@ -135,7 +150,7 @@ defmodule NovelAgent.Provider.HTTP do
             {:error, :cancelled, 0, "请求已取消"}
           else
             send(pid, {call_ref, self(), decision})
-            await_stream(task, call_ref, on_data, token, subscription)
+            await_stream(task, call_ref, on_data, token, subscription, on_attempt)
           end
 
         {:DOWN, ref, :process, pid, reason} when ref == task.ref and pid == task.pid ->
@@ -151,12 +166,23 @@ defmodule NovelAgent.Provider.HTTP do
     end
   end
 
-  defp flush_stream(ref, pid, task_ref) do
+  defp flush_stream(ref, pid, task_ref, on_attempt) do
     receive do
-      {^ref, ^pid, _data} -> flush_stream(ref, pid, task_ref)
-      {^task_ref, _result} -> flush_stream(ref, pid, task_ref)
-      {:DOWN, ^task_ref, :process, ^pid, _} -> flush_stream(ref, pid, task_ref)
-      {:EXIT, ^pid, _} -> flush_stream(ref, pid, task_ref)
+      {^ref, ^pid, :request_attempted} ->
+        on_attempt.()
+        flush_stream(ref, pid, task_ref, on_attempt)
+
+      {^ref, ^pid, _data} ->
+        flush_stream(ref, pid, task_ref, on_attempt)
+
+      {^task_ref, _result} ->
+        flush_stream(ref, pid, task_ref, on_attempt)
+
+      {:DOWN, ^task_ref, :process, ^pid, _} ->
+        flush_stream(ref, pid, task_ref, on_attempt)
+
+      {:EXIT, ^pid, _} ->
+        flush_stream(ref, pid, task_ref, on_attempt)
     after
       0 -> :ok
     end

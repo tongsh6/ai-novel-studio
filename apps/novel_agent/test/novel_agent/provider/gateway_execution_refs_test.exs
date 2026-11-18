@@ -402,7 +402,8 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
     end
 
     test "error log carries the same refs as the failed ProviderRun", %{dir: dir} do
-      eventsource = fn _url, _body, _opts, _on_data ->
+      eventsource = fn _url, _body, opts, _on_data ->
+        opts[:on_request_attempt].()
         {:error, :http_error, 503, "stand-in upstream failed"}
       end
 

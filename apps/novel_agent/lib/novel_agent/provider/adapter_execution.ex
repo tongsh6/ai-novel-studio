@@ -109,12 +109,17 @@ defmodule NovelAgent.Provider.AdapterExecution do
   @doc "Initial provider execution facts shared by all adapters."
   @spec initial_events(map()) :: [ProviderEvent.t()]
   def initial_events(ctx) do
-    [
-      start_event!(ctx),
-      progress_event!(ctx, 2, :request_prepared, "Provider request prepared."),
-      progress_event!(ctx, 3, :request_dispatched, "Provider request dispatched.")
-    ]
+    prepared_events(ctx) ++ [request_dispatched_event(ctx, 3)]
   end
+
+  @doc "Prepared execution facts, without claiming a transport attempt."
+  def prepared_events(ctx) do
+    [start_event!(ctx), progress_event!(ctx, 2, :request_prepared, "Provider request prepared.")]
+  end
+
+  @doc "The transport has admitted this local request attempt, not proved vendor receipt."
+  def request_dispatched_event(ctx, sequence),
+    do: progress_event!(ctx, sequence, :request_dispatched, "Provider transport attempt started.")
 
   @doc """
   Build author-safe text chunk events for an adapter-owned execution.
@@ -226,13 +231,18 @@ defmodule NovelAgent.Provider.AdapterExecution do
     initial_events = Keyword.get(opts, :initial_events, [start_event!(ctx)])
     emit_mode = Keyword.get(opts, :emit, :all)
     error = cancellation_error(ctx)
+    usage = Keyword.get(opts, :usage, %{})
+    usage_events = usage_recorded_events!(ctx, length(initial_events) + 1, usage)
 
     execution_result =
       {:error,
        %{
          provider_run: provider_run!(ctx, :cancelled),
-         events: initial_events ++ cancellation_events!(ctx, length(initial_events), error),
-         output: provider_cancelled_output!(ctx, error),
+         events:
+           initial_events ++
+             usage_events ++
+             cancellation_events!(ctx, length(initial_events) + length(usage_events), error),
+         output: provider_cancelled_output!(ctx, error, usage),
          error: error
        }}
 
@@ -656,13 +666,14 @@ defmodule NovelAgent.Provider.AdapterExecution do
     output
   end
 
-  defp provider_cancelled_output!(ctx, error) do
+  defp provider_cancelled_output!(ctx, error, usage) do
     {:ok, output} =
       ProviderOutput.new(%{
         provider_run_ref: ctx.provider_run_id,
         provider_call_ref: ctx.provider_call_ref,
         status: :cancelled,
         output_type: :empty,
+        usage: usage,
         error: error,
         refs: [ctx.provider_call_ref]
       })

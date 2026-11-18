@@ -35,15 +35,53 @@ defmodule NovelAgent.Provider.SSEStream.Result do
 
     cond do
       cancelled? ->
+        finalized = decoder.finalize(acc.decoder_state)
+
+        usage =
+          if is_map(finalized.usage) and map_size(finalized.usage) > 0 do
+            finalized.usage
+            |> decoder.usage(finalized.model, duration, nil)
+            |> Usage.put_ttft(acc.ttft_ms)
+            |> Usage.to_map()
+          else
+            %{}
+          end
+
+        if acc.request_attempted? do
+          log_stream_result(
+            state,
+            log_vendor,
+            url,
+            body,
+            %{
+              log_result:
+                {:error, :cancelled,
+                 %{
+                   status: 0,
+                   usage: usage,
+                   duration: duration,
+                   resp_body: %{
+                     status: "cancelled",
+                     transport: "local_attempt",
+                     response_complete: false
+                   }
+                 }}
+            },
+            started
+          )
+        end
+
         AdapterExecution.materialize_cancelled(ctx,
           initial_events: all_events,
+          usage: usage,
           emit: :terminal
         )
 
       Map.get(acc, :deadline_exceeded?, false) ->
         provider_result = timeout_error(opts, acc, :deadline, duration, timeouts)
 
-        log_stream_result(state, log_vendor, url, body, provider_result, started)
+        if acc.request_attempted?,
+          do: log_stream_result(state, log_vendor, url, body, provider_result, started)
 
         AdapterExecution.materialize_result(provider_result.result, ctx,
           initial_events: all_events,
@@ -53,7 +91,8 @@ defmodule NovelAgent.Provider.SSEStream.Result do
       true ->
         provider_result = provider_result(opts, decoder, acc, request_result, duration, timeouts)
 
-        log_stream_result(state, log_vendor, url, body, provider_result, started)
+        if acc.request_attempted?,
+          do: log_stream_result(state, log_vendor, url, body, provider_result, started)
 
         AdapterExecution.materialize_result(provider_result.result, ctx,
           initial_events: all_events,

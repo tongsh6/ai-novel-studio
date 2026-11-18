@@ -1,9 +1,306 @@
 defmodule NovelAgent.Provider.HTTPTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.CancellationToken
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.SSEStream
+  alias NovelAgent.Provider.SSEStream.AnthropicDecoder
+  alias NovelAgent.Provider.SSEStream.ChatDecoder
+  alias NovelAgent.Provider.SSEStream.ResponsesDecoder
+  alias NovelTelemetry.LLMLog
+  alias NovelTelemetry.LogContext
+
+  test "real cancelled SSE retains one original request audit with caller execution bindings" do
+    log_dir = Path.join(System.tmp_dir!(), "cancel-audit-#{System.unique_integer([:positive])}")
+    old_dir = Application.get_env(:novel_telemetry, :llm_log_dir)
+    Application.put_env(:novel_telemetry, :llm_log_dir, log_dir)
+    frame = "data: {\"choices\":[{\"delta\":{\"content\":\"原文\"}}]}\n\n"
+    server = silent_server(frame)
+    {:ok, token} = CancellationToken.start_link()
+    parent = self()
+    body = %{"messages" => [%{"role" => "user", "content" => "原请求\r\n不可替换"}], "stream" => true}
+
+    ctx = %{
+      provider_name: :openai,
+      model_name: "fixture",
+      provider_call_ref: "pcall_cancel_audit",
+      provider_run_id: "prun_cancel_audit",
+      purpose: :conversation,
+      owner_refs: %{},
+      cancellation_token: token,
+      event_sink: fn {_, facts} ->
+        if Enum.any?(facts.events, &(&1.event_type == :chunk)), do: send(parent, :audit_chunk)
+      end
+    }
+
+    request =
+      Task.async(fn ->
+        LogContext.with_provider_call(
+          ctx.provider_call_ref,
+          ctx.provider_run_id,
+          %{source: "original"},
+          fn ->
+            SSEStream.execute(
+              %{
+                state: %{model: "fixture", log_fn: &LLMLog.record/5},
+                ctx: ctx,
+                body: body,
+                url: server.url,
+                request_opts: [receive_timeout: 30_000],
+                provider: :openai,
+                label: "fixture",
+                log_vendor: "openai"
+              },
+              ChatDecoder
+            )
+          end
+        )
+      end)
+
+    try do
+      assert_receive :audit_chunk, 2_000
+      CancellationToken.cancel(token)
+      assert {:ok, {:error, %{provider_run: %{status: :cancelled}}}} = Task.yield(request, 500)
+      assert_receive {:closed, _, {:error, :closed}}, 500
+
+      records =
+        Path.wildcard(Path.join(log_dir, "*.jsonl"))
+        |> Enum.flat_map(fn path -> File.read!(path) |> String.split("\n", trim: true) end)
+
+      assert length(records) == 1
+
+      [record] =
+        Enum.map(records, fn line ->
+          {pos, _} = :binary.match(line, "{")
+          Jason.decode!(binary_part(line, pos, byte_size(line) - pos))
+        end)
+
+      assert record["request"]["body"] == body
+      assert record["request"]["refs"] == %{"source" => "original"}
+      assert record["provider_call_ref"] == ctx.provider_call_ref
+      assert record["provider_run_ref"] == ctx.provider_run_id
+      refute record["response"]["status"] == 200
+      refute record["response"]["usage"]["input_tokens"] == 0
+    after
+      Task.shutdown(request, :brutal_kill)
+      stop_server(server)
+      GenServer.stop(token)
+
+      if old_dir,
+        do: Application.put_env(:novel_telemetry, :llm_log_dir, old_dir),
+        else: Application.delete_env(:novel_telemetry, :llm_log_dir)
+
+      File.rm_rf!(log_dir)
+    end
+  end
+
+  for {wire, decoder, frames} <- [
+        {:chat, ChatDecoder,
+         "data: {\"usage\":{\"prompt_tokens\":17,\"prompt_tokens_details\":{\"cached_tokens\":0}},\"choices\":[{\"delta\":{\"content\":\"原\"}}]}\n\n"},
+        {:anthropic, AnthropicDecoder,
+         "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":17,\"cache_read_input_tokens\":0}}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"原\"}}\n\n"},
+        {:responses, ResponsesDecoder,
+         "data: {\"type\":\"response.output_text.delta\",\"delta\":\"原\"}\n\ndata: {\"type\":\"response.incomplete\",\"response\":{\"usage\":{\"input_tokens\":17,\"input_tokens_details\":{\"cached_tokens\":0}}}}\n\n"}
+      ] do
+    test "#{wire} real cancelled stream keeps observed partial usage without invented zeros" do
+      server = silent_server(unquote(frames))
+      {:ok, token} = CancellationToken.start_link()
+      parent = self()
+
+      request =
+        Task.async(fn ->
+          run_sse(
+            server.url,
+            unquote(decoder),
+            token,
+            nil,
+            fn _, _, _, result, _ ->
+              send(parent, {:audit_result, result})
+            end,
+            fn {_, facts} ->
+              if Enum.any?(facts.events, &(&1.event_type == :chunk)),
+                do: send(parent, :usage_chunk)
+            end
+          )
+        end)
+
+      try do
+        assert_receive :usage_chunk, 2_000
+        CancellationToken.cancel(token)
+        assert {:ok, {:error, facts}} = Task.yield(request, 500)
+        assert facts.provider_run.status == :cancelled
+        assert facts.output.status == :cancelled
+        assert facts.output.output_type == :empty
+        assert facts.output.usage.input_tokens == 17
+        assert facts.output.usage.output_tokens == nil
+        assert facts.output.usage.cached_tokens == 0
+
+        assert [%{payload: %{usage: usage}}] =
+                 Enum.filter(facts.events, &(&1.event_type == :usage_recorded))
+
+        assert usage == facts.output.usage
+        assert Enum.map(facts.events, & &1.sequence) == Enum.to_list(1..length(facts.events))
+        assert_receive {:audit_result, {:error, :cancelled, %{usage: ^usage, status: 0}}}
+        assert_receive {:closed, _, {:error, :closed}}, 500
+      after
+        Task.shutdown(request, :brutal_kill)
+        stop_server(server)
+        GenServer.stop(token)
+      end
+    end
+  end
+
+  test "replaceable transport reports late and duplicate attempts exactly once before cancelled terminal" do
+    {:ok, token} = CancellationToken.start_link()
+    parent = self()
+
+    source = fn _, _, opts, _ ->
+      CancellationToken.cancel(token)
+      opts[:on_request_attempt].()
+      opts[:on_request_attempt].()
+      {:error, :cancelled, 0, "no response"}
+    end
+
+    log = fn _, _, _, result, _ -> send(parent, {:attempt_log, result}) end
+
+    try do
+      assert {:error, facts} =
+               run_sse(
+                 "http://unused",
+                 ChatDecoder,
+                 token,
+                 source,
+                 log
+               )
+
+      attempts = Enum.filter(facts.events, &(Map.get(&1.payload, :phase) == :request_dispatched))
+      assert [%{sequence: 3}] = attempts
+      assert List.last(facts.events).event_type == :cancelled
+      assert facts.output.usage == %{}
+      refute Enum.any?(facts.events, &(&1.event_type == :usage_recorded))
+      assert_receive {:attempt_log, {:error, :cancelled, %{usage: %{}}}}
+      refute_receive {:attempt_log, _}
+    after
+      GenServer.stop(token)
+    end
+  end
+
+  test "pre-gate and unattempted replaceable transport cancellation do not invent audit or budget" do
+    for pre_cancel <- [true, false] do
+      {:ok, token} = CancellationToken.start_link()
+      if pre_cancel, do: CancellationToken.cancel(token)
+
+      source = fn _, _, _, _ ->
+        CancellationToken.cancel(token)
+        {:error, :cancelled, 0, "not attempted"}
+      end
+
+      try do
+        assert {:error, facts} =
+                 run_sse(
+                   "http://unused",
+                   ChatDecoder,
+                   token,
+                   source,
+                   fn _, _, _, _, _ -> flunk("no attempt audit") end
+                 )
+
+        refute Enum.any?(facts.events, &(Map.get(&1.payload, :phase) == :request_dispatched))
+        assert facts.output.usage == %{}
+      after
+        GenServer.stop(token)
+      end
+    end
+  end
+
+  test "worker attempt already sent survives caller observing cancellation before its mailbox" do
+    parent = self()
+    # A test-only token protocol fixture holds the caller's post-start snapshot.
+    # The real HTTP worker must reach the actual TCP peer before cancellation wins.
+    token = spawn_link(fn -> held_snapshot_token(parent, nil, 0, nil) end)
+    server = silent_server()
+
+    request =
+      Task.async(fn ->
+        HTTP.post_event_stream(
+          server.url,
+          %{},
+          [
+            cancellation_token: token,
+            receive_timeout: 30_000,
+            on_request_attempt: fn -> send(parent, :drained_attempt) end
+          ],
+          fn _ -> flunk("server is silent") end
+        )
+      end)
+
+    try do
+      assert_receive :caller_snapshot_held, 2_000
+      assert_receive {:accepted, _}, 2_000
+      send(token, :release_cancelled)
+      assert {:ok, {:error, :cancelled, 0, _}} = Task.yield(request, 500)
+      assert_receive :drained_attempt
+      refute_receive :drained_attempt
+      assert_receive {:closed, _, {:error, :closed}}, 500
+    after
+      Task.shutdown(request, :brutal_kill)
+      stop_server(server)
+      Process.unlink(token)
+      Process.exit(token, :kill)
+    end
+  end
+
+  defp held_snapshot_token(parent, owner, reads, held) do
+    receive do
+      {:"$gen_call", from, {:subscribe, pid}} ->
+        GenServer.reply(from, {:ok, make_ref()})
+        held_snapshot_token(parent, pid, reads, held)
+
+      {:"$gen_call", {pid, _} = from, :snapshot} when pid == owner and reads == 1 ->
+        send(parent, :caller_snapshot_held)
+        held_snapshot_token(parent, owner, reads + 1, from)
+
+      {:"$gen_call", {pid, _} = from, :snapshot} ->
+        GenServer.reply(from, %{cancelled?: false})
+        held_snapshot_token(parent, owner, reads + if(pid == owner, do: 1, else: 0), held)
+
+      :release_cancelled ->
+        GenServer.reply(held, %{cancelled?: true})
+        held_snapshot_token(parent, owner, reads, nil)
+
+      {:"$gen_call", from, {:unsubscribe, _}} ->
+        GenServer.reply(from, :ok)
+        held_snapshot_token(parent, owner, reads, held)
+    end
+  end
+
+  defp run_sse(url, decoder, token, source, log, sink \\ fn _ -> :ok end) do
+    ctx = %{
+      provider_name: :openai,
+      model_name: "fixture",
+      provider_call_ref: "pcall_usage",
+      provider_run_id: "prun_usage",
+      purpose: :conversation,
+      owner_refs: %{},
+      cancellation_token: token,
+      event_sink: sink
+    }
+
+    SSEStream.execute(
+      %{
+        state: %{model: "fixture", log_fn: log, eventsource_fn: source},
+        ctx: ctx,
+        body: %{"messages" => [%{"role" => "user", "content" => "原请求"}], "stream" => true},
+        url: url,
+        request_opts: [receive_timeout: 30_000],
+        provider: :openai,
+        label: "fixture",
+        log_vendor: "openai"
+      },
+      decoder
+    )
+  end
 
   test "cancellation interrupts an actual silent HTTP stream without another byte or timeout" do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])

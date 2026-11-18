@@ -57,15 +57,17 @@ defmodule NovelAgent.Provider.ResponsesWire do
 
   defp text_parts(_item), do: []
 
-  @doc "provider usage 事实 → 统一 Usage；缺字段按 0 处理，cached 读嵌套明细。"
+  @doc "provider usage → 统一 Usage；missing=nil 保留未知，默认0保持完整响应既有行为。"
   @spec usage(map() | nil, String.t() | nil, non_neg_integer()) :: Usage.t()
-  def usage(resp_body, fallback_model, latency) do
+  @spec usage(map() | nil, String.t() | nil, non_neg_integer(), non_neg_integer() | nil) ::
+          Usage.t()
+  def usage(resp_body, fallback_model, latency, missing \\ 0) do
     usage = Map.get(resp_body || %{}, "usage") || %{}
     cached = get_in(usage, ["input_tokens_details", "cached_tokens"]) || usage["cached_tokens"]
 
     Usage.new(
-      usage["input_tokens"] || 0,
-      usage["output_tokens"] || 0,
+      usage["input_tokens"] || missing,
+      usage["output_tokens"] || missing,
       Map.get(resp_body || %{}, "model") || fallback_model,
       latency,
       cached
