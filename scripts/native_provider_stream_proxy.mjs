@@ -60,6 +60,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
     if (!io.upstream.destroyed) {
       if (gate?.request_id === entry.request_id) gate.upstream_destroy_requested = true;
       log({event:"upstream_destroy_requested",request_id:entry.request_id,cause});
+      io.destroyRequested = true;
       io.upstream.destroy();
     }
     io.incoming?.destroy();
@@ -150,15 +151,28 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
           live.delete(requestId); res.end();
         });
         incoming.on("error", error => {
-          if (live.has(requestId)) { log({event:"upstream_error",request_id:requestId,error:error.code ?? error.message}); finish(entry,"upstream_error"); }
+          entry.upstream_error = true;
+          if (gate?.request_id === requestId) gate.upstream_error = true;
+          log({event:"upstream_error",request_id:requestId,error:error.code ?? error.message});
+          if (live.has(requestId)) finish(entry,"upstream_error");
         });
       });
       outgoing.on("close", () => {
-        if (gate?.request_id === requestId) gate.upstream_closed = true;
-        log({event:"upstream_close",request_id:requestId,cause:entry.cause,upstream_ended:entry.upstream_ended});
+        const complete = io.incoming?.complete === true;
+        if (gate?.request_id === requestId) {
+          gate.upstream_closed = true;
+          gate.upstream_response_complete = complete;
+          gate.upstream_complete_before_disconnect = complete && entry.cause === null &&
+            !io.destroyRequested && !entry.upstream_error;
+        }
+        log({event:"upstream_close",request_id:requestId,cause:entry.cause,
+          upstream_ended:entry.upstream_ended,response_complete:complete});
       });
       outgoing.on("error", error => {
-        if (live.has(requestId)) { log({event:"upstream_error",request_id:requestId,error:error.code ?? error.message}); finish(entry,"upstream_error"); }
+        entry.upstream_error = true;
+        if (gate?.request_id === requestId) gate.upstream_error = true;
+        log({event:"upstream_error",request_id:requestId,error:error.code ?? error.message});
+        if (live.has(requestId)) finish(entry,"upstream_error");
       });
       res.on("close", () => {
         if (!live.has(requestId)) return;
@@ -191,10 +205,12 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
         assert(typeof body.provider_run_ref === "string" && typeof body.provider_call_ref === "string","missing_provider_binding");
         gate = {request_id:entry.request_id,request_sha256:entry.request_sha256,
           provider_run_ref:body.provider_run_ref,provider_call_ref:body.provider_call_ref,armed_at:now(),
-          paused_at:null,cause:null,upstream_destroy_requested:false,upstream_closed:false,upstream_ended:false};
+          paused_at:null,cause:null,upstream_destroy_requested:false,upstream_closed:false,upstream_ended:false,
+          upstream_response_complete:false,upstream_complete_before_disconnect:false,upstream_error:false};
         log({event:"gate_armed",...gate});
       } else if (req.url === "/disarm") {
-        assert(!disarmed && gate?.cause === "downstream_disconnect" && gate.paused_at && gate.upstream_destroy_requested &&
+        assert(!disarmed && gate?.cause === "downstream_disconnect" && gate.paused_at && !gate.upstream_error &&
+          (gate.upstream_destroy_requested || gate.upstream_complete_before_disconnect) &&
           gate.upstream_closed && live.size === 0,"gate_not_cancelled_and_drained");
         disarmed = true; log({event:"gate_disarmed",...state()});
       } else throw new Error("unknown_control");

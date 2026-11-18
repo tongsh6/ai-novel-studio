@@ -117,6 +117,64 @@ test("registry透传业务；精确arm后同data的content前缀原字节交付�
   await d.response; await f.wait(() => Buffer.concat(d.received).equals(Buffer.concat([content, done])));
 });
 
+test("上游HTTP先完整关闭不伪造abort，真实下游断开后可drain", async t => {
+  const f = await setup(t); await f.control("/window", {});
+  const client = f.send(); await f.wait(() => f.requests.length === 1); await arm(f);
+  const upstreamSocket = f.requests[0].res.socket;
+  f.requests[0].res.end(Buffer.concat([content, done]), () => upstreamSocket.end());
+  await client.response;
+  await f.wait(() => f.proxy.state().gate.upstream_closed);
+  assert.equal(f.proxy.state().gate.upstream_response_complete, true);
+  assert.equal((await f.control("/disarm", {})).status, 409, "上游关闭不能替代下游取消");
+  client.req.destroy();
+  await f.wait(() => f.proxy.state().gate.cause === "downstream_disconnect");
+  assert.equal(f.proxy.state().gate.upstream_destroy_requested, false);
+  assert.equal((await f.control("/disarm", {})).status, 200);
+});
+
+function literalTransport(priorComplete) {
+  const request = Buffer.from('{"stream":true}');
+  const binding = {request_id:"request-1",request_sha256:createHash("sha256").update(request).digest("hex"),
+    provider_run_ref:"prun-fixed",provider_call_ref:"pcall-fixed"};
+  const row = (event, second, extra={}) => ({event,request_id:"request-1",at:`2026-11-18T03:00:${String(second).padStart(2,"0")}.000Z`,...extra});
+  const close = row("upstream_close",priorComplete ? 3 : 6,
+    {cause:priorComplete ? null : "downstream_disconnect",response_complete:priorComplete});
+  const events = [
+    row("window_opened",0,{id:"c-window"}), row("request_registered",0,{...binding,window_id:"c-window"}),
+    row("gate_armed",1,binding),row("prefix_delivered_and_paused",2,
+      {prefix_bytes:content.length,prefix_sha256:createHash("sha256").update(content).digest("hex")}),
+    ...(priorComplete ? [close] : []),row("downstream_close",5),
+    ...(!priorComplete ? [row("upstream_destroy_requested",5,{cause:"downstream_disconnect"}),close] : []),
+    row("gate_disarmed",7,{disarmed:true,active_requests:[],gate:{cause:"downstream_disconnect"}}),
+  ];
+  return {probe:{stream_binding:binding,command_sent_at:"2026-11-18T03:00:04.000Z"},events,
+    bytes:{request,received:Buffer.concat([content,done]),delivered:content},
+    actual:{provider_run_ref:"prun-fixed",provider_call_ref:"pcall-fixed",request:{body:{stream:true}}}};
+}
+const verifyLiteral = s => verifyStreamCancellationFacts(s.probe,s.events,s.bytes,s.actual);
+test("独立原义：先完整HTTP关闭与仍在途abort分别证明，不倒签异常close", () => {
+  assert.equal(verifyLiteral(literalTransport(true)).transport_abort_observed,false);
+  assert.equal(verifyLiteral(literalTransport(false)).transport_abort_observed,true);
+  for (const mutate of [
+    s => { delete s.events.find(e=>e.event==="upstream_close").response_complete; },
+    s => { s.events.find(e=>e.event==="upstream_close").response_complete=false; },
+    s => { s.events=s.events.filter(e=>e.event!=="downstream_close"); },
+    s => { s.events.find(e=>e.event==="gate_disarmed").gate.cause="pause_timeout"; },
+    s => { s.events.find(e=>e.event==="gate_disarmed").gate.cause="cleanup"; },
+    s => { s.events.splice(4,0,{event:"upstream_error",request_id:"request-1",at:"2026-11-18T03:00:02.500Z"}); },
+    s => { s.events.splice(6,0,{event:"upstream_destroy_requested",request_id:"request-1",cause:"downstream_disconnect"}); },
+  ]) { const s=literalTransport(true);mutate(s);assert.throws(()=>verifyLiteral(s)); }
+});
+test("独立原义：仍在途缺abort、上游错误、超时或清理不得通过", () => {
+  for (const mutate of [
+    s => { s.events.find(e=>e.event==="gate_disarmed").gate.upstream_error=true; },
+    s => { s.events=s.events.filter(e=>e.event!=="upstream_destroy_requested"); },
+    s => { s.events.splice(4,0,{event:"upstream_error",request_id:"request-1",at:"2026-11-18T03:00:02.500Z"}); },
+    s => { s.events.find(e=>e.event==="upstream_destroy_requested").cause="pause_timeout"; },
+    s => { s.events.find(e=>e.event==="gate_disarmed").gate.cause="cleanup"; },
+  ]) { const s=literalTransport(false);mutate(s);assert.throws(()=>verifyLiteral(s)); }
+});
+
 test("首content已到达后迟arm拒绝，不能事后暂停", async t => {
   const f = await setup(t); await f.control("/window", {});
   const client = f.send(); await f.wait(() => f.requests.length === 1);

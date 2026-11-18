@@ -100,22 +100,38 @@ export function verifyStreamCancellationFacts(probe, events, bytes, actualReques
   const registered = unique("request_registered"), armed = unique("gate_armed");
   assert(windows[0].index < registered.index && registered.event.window_id === windows[0].event.id, "stream_wrong_window");
   const paused = unique("prefix_delivered_and_paused"), downstream = unique("downstream_close");
-  const destroyed = unique("upstream_destroy_requested"), closed = unique("upstream_close");
-  const disarmed = unique("gate_disarmed");
-  assert([registered,armed,paused,downstream,destroyed,closed,disarmed].every((row,index,array)=>
-    index===0 || row.index>array[index-1].index),"stream_abort_order_invalid");
+  const closed = unique("upstream_close"), disarmed = unique("gate_disarmed");
+  const requestEvents = events.map((event,index)=>({event,index}))
+    .filter(({event})=>event.request_id===binding.request_id);
+  assert(!requestEvents.some(({event})=>event.event==="upstream_error"),"stream_upstream_error");
+  const destroys = requestEvents.filter(({event})=>event.event==="upstream_destroy_requested");
+  const priorComplete = closed.index < downstream.index;
+  if (priorComplete) {
+    assert(closed.index > paused.index && closed.event.response_complete === true &&
+      closed.event.cause === null && destroys.length === 0,"stream_prior_close_not_complete");
+  } else {
+    assert.equal(destroys.length,1,"stream_abort_missing_or_repeated");
+    assert(downstream.index < destroys[0].index && destroys[0].index < closed.index,"stream_abort_order_invalid");
+    assert.equal(destroys[0].event.cause,"downstream_disconnect");
+    assert.equal(closed.event.cause,"downstream_disconnect");
+  }
+  assert([registered,armed,paused,downstream,disarmed].every((row,index,array)=>
+    index===0 || row.index>array[index-1].index) && closed.index < disarmed.index,"stream_abort_order_invalid");
   assert.equal(events.filter(event=>event.event==="request_registered" &&
     event.request_sha256===binding.request_sha256).length,1,"stream_request_retried");
   for (const key of ["request_id","request_sha256","provider_run_ref","provider_call_ref"])
     assert.equal(armed.event[key],binding[key],"stream_arm_identity_changed");
-  assert.equal(destroyed.event.cause,"downstream_disconnect");
-  assert.equal(closed.event.cause,"downstream_disconnect");
   assert.equal(disarmed.event.gate.cause,"downstream_disconnect");
+  assert.notEqual(disarmed.event.gate.upstream_error,true,"stream_disarm_upstream_error");
   assert.equal(disarmed.event.disarmed,true);
   assert.deepEqual(disarmed.event.active_requests,[]);
   assert.equal(events.filter(event=>event.event==="gate_armed").length,1,"stream_gate_rearmed");
   assert.equal(events.filter(event=>event.event==="prefix_delivered_and_paused").length,1);
-  assert(timeValue(downstream.event.at)>=timeValue(probe.command_sent_at),"stream_closed_before_user_command");
+  const downstreamAt=timeValue(downstream.event.at), commandAt=timeValue(probe.command_sent_at);
+  const pausedAt=timeValue(paused.event.at);
+  assert([downstreamAt,commandAt,pausedAt].every(value=>value!==null) &&
+    downstreamAt>=commandAt && downstreamAt>=pausedAt && downstreamAt-pausedAt<30000,
+  "stream_closed_outside_user_cancel_window");
   assert.equal(bytes.delivered.length,paused.event.prefix_bytes);
   assert.equal(digest(bytes.delivered),paused.event.prefix_sha256);
   assert(bytes.received.subarray(0,bytes.delivered.length).equals(bytes.delivered),"stream_prefix_rewritten");
@@ -135,7 +151,8 @@ export function verifyStreamCancellationFacts(probe, events, bytes, actualReques
   assert(content.some(choice=>typeof choice.delta?.content==="string" && choice.delta.content.length>0),
     "stream_real_content_missing");
   assert(content.every(choice=>choice.finish_reason==null),"stream_terminal_content_delivered");
-  return {ok:true,request_id:binding.request_id,transport_abort_observed:true,vendor_compute_stopped:null};
+  return {ok:true,request_id:binding.request_id,transport_abort_observed:!priorComplete,
+    upstream_complete_before_disconnect:priorComplete,vendor_compute_stopped:null};
 }
 
 export function verifyCancelledRunFacts(probe, db, wire, { before, confirmation, afterCancel, afterClientRelaunch, author, scope }) {
