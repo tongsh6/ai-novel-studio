@@ -253,3 +253,13 @@ v2 `successor_observation` 严格冻结 `source:{path,sha256,expected_turns:1}`�
 - 恶意历史指令、无源完成声明、跨会话定位均不能取得当前权限；原文回查只证明读过文本，不把文本陈述升级成作品事实。
 
 **七问/存在性审核**：Contract=VS-00L §16.2.1、愿景§2.4与UA-01实际交付；Invariant=来源字节/范围/未知不变、材料描述不等于目标满足；Boundary=现役摘要instructions、RequestIR.Projection展示与AuthoringSemantics共享规则，不动存储/输入/预算/作品；Consumer=后继真实判断请求及已有探索回流；Proof=上述独立原文夹具、完整material/三wire投影、同源分页Observation接线，并独立审实际模型选择/回查/回答；Acceptance Driver=现役冻结3/10/20及后继、C8，未新跑不声明完整闭环；Exploration=复用session_message_read与已有locator/coverage，不新增工具。现有summary、indices、source/locator、读取适配与覆盖事实足够承载此步，不新增完成实体、第二摘要或自动工具循环。确定性测试只证明契约接线与边界，不能证明模型主动求证；真实语义仍以原始作者要求、实际已交付原文及真实请求/观察为独立判据。
+
+### 5.10 普通 10/20 的只观测原始传输证据
+
+普通固定 10/20 及既定后继复用 native_provider_stream_proxy 的现役传输 owner，显式 mode=observe；C8 默认 mode=gate 不变。observe 不提供 window/arm/disarm/pause，不能偷置 B71_AUTO_MAINTENANCE 或改变 slice 身份。runner 只给本批 backend 注入 loopback endpoint，保留原 upstream、模型、请求 body、输入 hash、预算及重试规则；实际 topology 如实记录，原失败不改签。先一次 10，独立证据与语义审核满足预注册门槛后才一次 20，不为绿追加。
+
+每个请求保留原请求、上游收到与交付产品的三份 raw bin；只记录 response status/content-type/content-encoding 白名单、请求 ID、单调序号、接收/交付时间与累计 byte offset/hash，不在逐块 JSON 重复正文，不持久化 auth/cookie/token headers。observe 对 SSE 不做解释或等待帧边界，压缩及非法帧也原样交付；写入背压沿现 HTTP 生命周期传递，禁止无限缓存、假 chunk、重试或改变终结。自然 end、上游 error/aborted、下游断开及 runner cleanup 均有独立部分 bytes/hash/HTTP complete 事实；向 Node response 写入只证明交付尝试，不能替代产品持久 chunk/Output。
+
+失败时 driver 在 cleanup 前保存现役 DB/events/LLMLog 快照及代理只读状态；快照失败明确缺证但仍清场。snapshot 只复制当前计数/hash，不 arm、暂停或断连接；最终 cleanup 事实另外保留，不用清场产生的 EOF 证明自然终结。代理日志自身的自然完成不签产品协议完成。收到/交付字节相等、产品双 ID/原请求精确配对及独立 SSE 完整帧/残帧/终止事实共同区分无内容、协议终结缺失、产品解析缺失、持续产字直到整轮上限；同 body 多请求或身份时序歧义保留 unknown，不择匹配赢家。旧第14没有原始SSE的原因仍 unknown。
+
+**七问/存在性审核**：Contract=本章5.7/5.8与VS-00L现役流式终结/日志事实；Invariant=原字节、终结性质、未知与原输入预算不变；Boundary=现役外部proxy、runner、driver及同名测试，不动产品协议/模型；Consumer=普通10/20失败诊断与独立原生复审；Proof=本地HTTP自然空流/有正文、EOF无DONE、半帧/编码、同块正文终止、上游错误/下游清场、背压及凭证哨兵；Acceptance Driver=原普通native入口及独立预注册先10后条件20，不借C8签过；Exploration=复用原bin/JSONL、现有owned cleanup和只读快照，不新增代理、产品日志权威或持久业务实体。证据包含私人作品仅留本批本地，不上传；观测磁盘/代理可能影响延迟须披露，不能宣称零时间扰动。
