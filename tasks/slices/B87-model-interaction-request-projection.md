@@ -1399,3 +1399,17 @@ f9708c06在唯一shared_rules补实际要求/交付、多对象维度、共用�
 先统一UI46 §9.7与UI47 §3.4.1：消息正文按语义类型互斥；成功author_question由现役AuthorQuestionRecord负责全文Markdown与状态，普通text走普通正文；底部只保留操作与必要短定位标签，不再截断复述短/长问题。不同身份同文不合并，拒绝调用不变问题，流式/历史/已答/取消遵守同一正文责任；原始canonical/ProviderOutput/interaction均保留，Why与选项准确绑定。
 
 七问：Contract=UI46 §9.7、UI47 §3.4.1及UA-01作者问题身份/回复链；Invariant=一个成功question_ref一份完整正文、唯一可答入口、原事实不删；Boundary=现役问题记录与WorkspaceChat正文选择、底部操作标签，不新增文本去重/状态表；Consumer=真实等待回答与历史阅读；Proof=完整组合渲染的普通文本/长短Markdown问题、同源重连、异源同文、流式收束、已答/取消/只读、拒绝调用、Why/选项/自由回复反例；Acceptance Driver=既有真实原生等待/回答场景及截图，不改验收输入、不靠组件自证；Exploration=现役question_ref/run/version、AuthorQuestionRecord、MarkdownText、AuthorQuestionService已足够，不增新实体或第二协议。本次仅设计，产品/模板/测试尚未修改，旧截图仍失败，后续实施与真实验收不得跳过。
+
+### 14.28 固定后继实现与一次独立20轮的实际失败（2026-11-18）
+
+508414c9实现§14.25普通窗口，独立审查先发现后继AX终态信派生outcome与软失败可漏进PASS，两处均先反例后修正：由真实nodes重算终态、successor_visible进入partial判据。主体迟到、坏owner_refs、来源改字节、费用分账与旧v1不补输入等全native+driver1099/1099；扫描19pass/2fail/7，仍是UI/task_done与历史gitleaks，不称全扫绿。
+
+原普通输入/模型/预算不变，仅新v2 manifest显式一次后继；冻结82cab8f1与manifest SHA 185a6fdb656708e6c7500f3e1e952452499cc1ea93510eb3bc760844c8bdddc6，执行一次独立20场景（successor-native-18/native-20-01）。不是重跑旧10求有利输出；旧10partial永久保留。第16在冻结360秒整轮预算触发turn_timeout，17–20及后继未执行，owned窗口/端口已清理，无延时/重发。
+
+第14先已真实失败：两次HTTP200均被Gateway判invalid_response“Splash响应内容为空”，耗47.113/32.326秒；原调用记录仍有1551/1898输出tokens，持久Output是error。未收集原始SSE，不能猜thinking-only或解码丢失。driver既有策略把failed/gap/ask作为可采集终态继续，序列completed不是产品成功，不能称前15轮全通过。
+
+第16 root仍running：完整回查第一轮1822与第六轮2685 grapheme各一次，均EOF，无重复回查循环。两次planner加两次维护已耗264.776秒；第三planner仍在输出正文时到360秒清理，不是完成后UI等待或provider死锁。该最终调用无usage/Output，不估算补齐；29条结束调用已知输入591413/输出94569/缓存259872，另1在途未知，不能称全批总量。未生成完整request-cost报告/summary，不补造成功。
+
+语义独立核：第10又缺两处双视角证据却声称齐，第11实际识别并恢复缺项，12/13/15保留，证明缺口传播但不倒签10。14无正文不能因15补述过关；15承接作者仅公开改账、不公开父亲生死的决定且未整体采纳，但“父亲生前”引入未经确认死亡预设。11个v2 checkpoint涉及12原始来源，精确片段/响应hash与ProviderOutput/capsule清除另有真实证据，不代签语义或20完成。实际看10/14/15截图，14失败清楚可见；第16无failure.jpg，不声称看过超时截图。
+
+C8前置已另由2f14a861/b449a776实现：固定次序、取消前真实claim/dispatch/chunk、取消后实际request审计；D重启前共用verifyMaintenanceFailureFacts证原响应合法、hash/plan与事务回滚，再准许重启。独立review发现并补齐原先仅请求合法便重启的缺口，定向42/0、完整native+双driver1106/1106；尚无修正后真实C8验收，不将单测当恢复成功。
