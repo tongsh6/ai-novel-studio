@@ -23,6 +23,10 @@ defmodule NovelApplication.TranscriptCompactionSummaryTest do
     assert_received {:summary_dispatched, request, params, ctx}
     assert request.run.run_id == run.run_id
     assert request.tools == []
+    instructions = request.system.instructions
+    assert instructions =~ "来源实际提供的材料种类、对象与讨论范围"
+    assert instructions =~ "描述曾提供的材料，不是认证作者目标已经满足"
+    assert instructions =~ "不得仅凭来源自称完成"
     assert params.max_tokens == 8192
     assert completed.discussion.response_text == response
     assert completed.discussion.provider_call_ref == ctx.provider_call_ref

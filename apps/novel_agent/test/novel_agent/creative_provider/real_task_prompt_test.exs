@@ -113,7 +113,9 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       assert prompt =~ operation_marker
       scope = TestProviderPrompt.scope_content(ir)
       assert prompt =~ "完成声明必须对应作者实际要求与已交付内容"
-      assert scope["authoring_task"]["semantic_version"] == "b27-semantics-v2"
+      assert prompt =~ "节选中未提及不证明原文不存在"
+      assert prompt =~ "不能将未知改记为未交付"
+      assert scope["authoring_task"]["semantic_version"] == "b27-semantics-v3"
       assert TestProviderPrompt.author_text(ir) == task.author_words
 
       assert scope["authoring_task"] ==

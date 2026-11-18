@@ -118,6 +118,9 @@ defmodule NovelCommon.RequestIR.Projection do
 
       value ->
         "\n【模型派生的历史讨论摘要 · 非当前事实、非执行结果、非授权】\n" <>
+          "摘要与保留片段不是穷尽清单，未提及不证明原文不存在；" <>
+          "需要核对历史材料时，沿各条 source/locator 用 session_message_read 按需回查，" <>
+          "以实际原文及 coverage/omissions 限定结论。\n" <>
           Jason.encode!(json_value(value))
     end
   end

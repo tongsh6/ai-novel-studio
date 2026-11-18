@@ -84,6 +84,40 @@ defmodule NovelCommon.RequestIR.CompactionTest do
              RequestIR.validate(ir(Compaction.project(messages)))
   end
 
+  test "节选省略已给材料时，三 wire 固定告知非穷尽并保留原文定位，不改写源" do
+    original_text = "方案甲：降低延迟，代价是维护复杂。\n方案乙：维护简单，代价是等待更久。\n部署成本尚未比较。"
+
+    messages =
+      Enum.map(history(), fn
+        %{canonical_ref: %{run_id: "old", run_sequence: 4}} = message ->
+          %{message | blocks: [RequestIR.text_block(original_text)]}
+
+        message ->
+          message
+      end)
+
+    raw =
+      ~s({"version":"authoring-discussion-summary/v2","entries":[{"source_index":0,"summary":"早期讨论提供两方案取舍，部署成本仍待比较。","retained_fragment_indices":[2]}]})
+
+    original = checkpoint()
+    [block] = original.blocks
+    current = %{original | blocks: [%{block | discussion: discussion(raw)}]}
+
+    for target <- @targets do
+      assert {:ok, body} = Projection.project(ir(messages ++ [current]), target)
+      text = Enum.join(wire_texts(body), "\n")
+      assert text =~ "摘要与保留片段不是穷尽清单"
+      assert text =~ "未提及不证明原文不存在"
+      assert text =~ "session_message_read"
+      assert text =~ ~s("locator":{"run_id":"old","run_sequence":4})
+      assert text =~ "部署成本尚未比较"
+      refute text =~ "方案乙：维护简单"
+    end
+
+    assert Enum.at(messages, 3).blocks == [RequestIR.text_block(original_text)]
+    assert hd(current.blocks).discussion.response_text == raw
+  end
+
   test "v2 编号保留空行和尾换行且预算包含编号元数据" do
     source = %{
       source_index: 0,

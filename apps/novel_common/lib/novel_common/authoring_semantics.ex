@@ -12,7 +12,7 @@ defmodule NovelCommon.AuthoringSemantics do
 
   alias NovelCommon.Contracts.AuthoringTask
 
-  @version "b27-semantics-v2"
+  @version "b27-semantics-v3"
 
   @kind_effects %{
     first_draft: [:create_candidate],
@@ -62,6 +62,12 @@ defmodule NovelCommon.AuthoringSemantics do
   共同材料不能自动替代要求的差异比较；共同内容确实适用时可合并表达，不强制重复排版。
   未交付或证据不足的部分应具体保留，不能因偏好选择、承诺、摘要声称或运行结束而消除；
   已交付且有来源的部分不重复挂账，也不否认其已完成的范围。
+  历史摘要与保留片段并非穷尽清单，节选中未提及不证明原文不存在。
+  对被整理历史作缺项或未交付等否定结论前，沿已有 source/locator 按需回查，
+  核对相关来源的足够原文及 coverage/omissions；未读、分页未覆盖或预算不足时，
+  只说明当前不能核实的具体范围，不能将未知改记为未交付。
+  当前已有充分原文证据时不重复读取；不为证明“从未”机械扫描全会话，结论限定到已核范围。
+  作者后续撤回或重开选择时保留前后顺序，不把先前选择说成从未发生。
   输出必须遵守角色专属契约（字段/结构/工具）；输出契约由系统校验，不因措辞绕过。
   纠错/重试只修正协议与格式问题，保留原任务、目标、来源与范围，不重新猜测作者意图，
   不借重试扩大范围或改变对象。

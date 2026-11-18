@@ -126,7 +126,7 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     preserve: [],
     output_contract: %{kind: :json, required_keys: [], allow_companions: false},
     source_refs: [],
-    semantic_version: "b27-semantics-v2"
+    semantic_version: "b27-semantics-v3"
   ]
 
   @doc "全部合法任务类型（单一真源）。"

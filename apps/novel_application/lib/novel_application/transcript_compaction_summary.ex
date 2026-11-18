@@ -322,7 +322,11 @@ defmodule NovelApplication.TranscriptCompactionSummary do
     每个 sources 条目中的 fragments 是模型原话的预编号完整行，保留原换行；author_text 是该回合的作者原文，
     仅用于理解上下文，不得将模型建议升级为作者决定、授权、作品事实或已完成的承诺。
     保留提议、假设、不确定性和未完成状态；不要续写、回答旧问题或创造新的决定。
-    作者原文与当前范围将由应用另行原样保留，你不能改写它们或宣布任何义务已经完成。
+    作者原文与当前范围将由应用另行原样保留；不得改写它们或自行认证义务闭合。
+    summary 应保留来源实际提供的材料种类、对象与讨论范围及其限制；
+    描述曾提供的材料，不是认证作者目标已经满足，也不等于采纳或执行授权。
+    不得仅凭来源自称完成就认定全部要求已满足，也不得抹掉已经实际给出的部分。
+    部分已给、部分待办须分别概括；字数目标不授权删除关键范围与限制，不要求照搬全文。
 
     仅输出一个 JSON 对象，不加 Markdown、解释或额外字段：
     {"version":"#{Compaction.discussion_version()}","entries":[{"source_index":0,"summary":"摘要","retained_fragment_indices":[0]}]}

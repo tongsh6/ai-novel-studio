@@ -33,7 +33,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
   end
 
   test "version and content hash are stable for identical canonical text" do
-    assert AuthoringSemantics.version() == "b27-semantics-v2"
+    assert AuthoringSemantics.version() == "b27-semantics-v3"
     assert AuthoringSemantics.content_hash() == AuthoringSemantics.content_hash()
     assert String.length(AuthoringSemantics.content_hash()) == 64
   end
@@ -43,9 +43,14 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert rules =~ "完成声明必须对应作者实际要求与已交付内容"
     assert rules =~ "共同内容确实适用时可合并表达"
     assert rules =~ "已交付且有来源的部分不重复挂账"
+    assert rules =~ "节选中未提及不证明原文不存在"
+    assert rules =~ "核对相关来源的足够原文及 coverage/omissions"
+    assert rules =~ "不能将未知改记为未交付"
+    assert rules =~ "当前已有充分原文证据时不重复读取"
     assert task().semantic_version == AuthoringSemantics.version()
 
-    for version <- ["b27-semantics-v1", nil] do
+    for version <- ["b27-semantics-v2", "b27-semantics-v1", nil] do
+      expected_version = version || "b27-semantics-v1"
       map = AuthoringTask.to_map(task())
 
       historical =
@@ -54,12 +59,12 @@ defmodule NovelCommon.AuthoringSemanticsTest do
           else: Map.delete(map, "semantic_version")
 
       restored = AuthoringTask.from_map(historical)
-      assert restored.semantic_version == "b27-semantics-v1"
-      assert AuthoringTask.to_map(restored)["semantic_version"] == "b27-semantics-v1"
+      assert restored.semantic_version == expected_version
+      assert AuthoringTask.to_map(restored)["semantic_version"] == expected_version
 
       assert {:error,
               {:authoring_task_invalid,
-               {:semantic_version_mismatch, "b27-semantics-v2", "b27-semantics-v1"}}} =
+               {:semantic_version_mismatch, "b27-semantics-v3", ^expected_version}}} =
                AuthoringSemantics.validate(restored)
     end
   end
@@ -237,7 +242,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
     expected =
       {:authoring_task_invalid,
-       {:semantic_version_mismatch, "b27-semantics-v2", "b27-semantics-v0"}}
+       {:semantic_version_mismatch, "b27-semantics-v3", "b27-semantics-v0"}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end
