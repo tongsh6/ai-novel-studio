@@ -1566,3 +1566,11 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **事前独立语义口径。** 复用§14.40正反判据，先依据冻结作者原话及实际历史来源审要求/承诺/建议/未决/未知的性质，再核模型回答；本次1–9轮实际模型承诺须在审第10轮前按原文时序登记，不能拿旧批模型内容作新批预期；同语义不同排版不改变交付结论，真实模型承诺仍保留但不冒称作者要求，可选手法不自动必需，已替换选择不强制兼容，范围外未知不自动成债。“未闭合讨论事项”允许列选择/假设/边界，不能统称欠交付。没有强制文学答案、固定关键词或格数oracle。本计划只冻结离线审查口径，不另跑对照模型；若未来需真实对照，须独立预注册输入/预算/停止条件，不能临时塞入原20或借对照代签。
 
 **失败停止与证据边界。** 现役driver遇技术失败、预算耗尽、错误归属或无法继续的页面状态即停止；不延长360秒、不补输入、不自动重试。记录原始HTTP状态/SSE字节及结束标记、pcall/prun、产品chunk/终态/用量、各调用与维护耗时，区别整轮预算耗尽、wire静默、未终结流与已终结空内容。失败调用与未知费用全部保留，raw观测缺失则原因继续unknown；新批原因不能倒推旧14原因，失败usage修复不等于空响应修复。清理仅限owned资源，单列业务/维护/后继成本和窗口外未证项，机械与语义分别报告。此设计没有启动新批、没有签R03完成；后续实施与实际运行仍须满足全部前置。
+
+### 14.43 普通窗口透明传输取证与失败早停（2026-11-18）
+
+先af184544冻结验收§5.10并独审，再复用现役provider proxy/runner/ordinary driver与原测试六文件。普通10/20明确observe、C8保持gate、ready.mode严格匹配，不偷置C8 flag；observe拒window/arm/pause，不解释/改写SSE，原字节留received/delivered，安全响应status/type/encoding与分块累计偏移时序、所有终结/中断partial hash可查，无认证头/cookie/query落盘。GET snapshot为同事件循环只读hash副本；自然HTTP complete与写入尝试不代签协议终结/产品消费，仍须原SSE及chunk/Output独立核对。
+
+技术failed或身份未绑定立即停止原序列，不再像旧批14失败后继续；合法gap/ask不由driver伪作语义失败，未闭合交换仍不得后继。错误时先现役只读事务事实、日志前缀和proxy snapshot，再uiComplete/owned清场，runner异常退出沿同一入口补证，不新建第二快照owner。独审发现目录已建但receipt未写可能silentreturn，已先反例后修：保留旧片段，写独立较晚incomplete receipt并报缺证；正常receipt标ordered_non_atomic和开始/结束时间，不冒充多源原子快照。fetch2秒有界，本地只读DB无重试循环、finally关闭；不承诺磁盘故障下硬实时总时限。
+
+证据observe-transport-32：proxy红例到18/18，原C8回归、完整空流/合法正文、无DONE/半帧/非法JSON原样保留、同块终止/压缩/大record、背压清理与凭证哨兵均覆盖；runner/driver先缺接线和technical failure/unbound反例后54/54，中断receipt另红绿driver37/37。完整native/model-contract/driver/toolchain Node1205/1205、0跳过，bash-n/diff-check及独立最终审查通过；原82WIP哈希未变。此为外部观测与接线证明，尚未开新实模，也未证明模型语义或普通10/20完成。
