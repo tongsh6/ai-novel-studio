@@ -6,7 +6,8 @@ import { axTurnOutcome, countAxAuthorMessages } from "./authoring_g2_evidence.mj
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { LENGTHS, PREREGISTERED_SOURCE_KIND, SUCCESSOR_MANIFEST_SCHEMA, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
-import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalCoverageForProviderCall, joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const purposeOf = (purposes, ref) => purposes.get(ref) ?? null;
@@ -390,7 +391,44 @@ function lastAuthorMessage(messages, author) {
   return tail.every(isApplicationMessage) ? last : null;
 }
 
-function findAuthorMessage(record, author, expectedIndex = null) {
+function canonicalAuthorMessage(record, author, transcript) {
+  const coverage = canonicalCoverageForProviderCall(record, transcript);
+  const facts = requestFactsFromRecord(record);
+  if (!coverage?.ok || !facts.ok) return null;
+  const authors = coverage.retainedMessages.filter(
+    (message) => message.role === "user" && message.provenance === "author",
+  );
+  const textOf = (message) => list(message.blocks).map((block) => block.text ?? "").join("");
+  if (authors.length !== facts.authorMessages.length || authors.some((message, index) =>
+    !list(message.blocks).every((block) => block.type === "text" && typeof block.text === "string") ||
+    textOf(message) !== facts.authorMessages[index].text)) return null;
+  const run = transcript.run;
+  if (!run?.run_id || run.parent_turn_ref !== record.turn_id ||
+    run.work_id !== record.work_id || run.session_id !== record.session_id) return null;
+  const matches = authors.map((message, ordinal) => ({ message, ordinal })).filter(({ message }) => {
+    const ref = message.canonical_ref;
+    return ref?.run_id === run.run_id && ref.parent_turn_ref === record.turn_id &&
+      ["workspace_id", "work_id", "session_id"].every((key) => ref[key] === run[key]) &&
+      list(message.source_refs).length === 1 && message.source_refs[0]?.ref === record.turn_id;
+  });
+  if (matches.length !== 1 || textOf(matches[0].message) !== author.text) return null;
+  const index = facts.authorMessages[matches[0].ordinal].index;
+  return { message: record.request.body.messages[index], index };
+}
+
+function findAuthorMessage(record, author, expectedIndex = null, history = null) {
+  const transcript = history?.transcript;
+  // Canonical identity outranks a prior wire offset: valid coverage can move that offset.
+  // Never recover by matching text alone; equal text can belong to an older author turn.
+  if (history?.record || history?.segment || Object.hasOwn(history ?? {}, "sessionMessages") ||
+    list(transcript?.messages).some((message) => message.canonical_ref ||
+      (transcript?.run?.run_id && message.role === "user" && message.provenance === "author"))) {
+    // A run segment is not a session projection. Missing session evidence must fail closed.
+    if (!Array.isArray(history?.sessionMessages)) return null;
+    return canonicalAuthorMessage(record, author, {
+      ...transcript, messages: history.sessionMessages,
+    });
+  }
   const messages = list(record?.request?.body?.messages);
   return expectedIndex !== null
     ? expectedAuthorMessage(messages, author, expectedIndex)
@@ -530,7 +568,7 @@ function verifyRunCall({
       turn_id: record.turn_id ?? null, operation: "transcript_compaction", analysis, prefix_change: null },
     messages: null, authorIndex: null };
   }
-  const found = findAuthorMessage(record, author, authorIndex);
+  const found = findAuthorMessage(record, author, authorIndex, history);
   if (!found) return missingAuthor(prefix, fail);
   verifyCallModel({ record, prefix, config, fail });
   const analysis = analyzeAuthorCall({

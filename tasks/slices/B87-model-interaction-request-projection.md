@@ -1680,3 +1680,61 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **保留限制与后继。** 原批33模型质量partial、普通20第16轮中断及17–20未执行原样保留，普通20请求增长/成本测量由R04承接；B85未完成原生验收、B87/Issue#4未完成、R04尚未实施。下一批必须以新独立上下文读取共享README、R04任务卡、VS-00M及本节，先审当前有效Scope/不可变历史/三wire稳定前缀和实际消费者，再设计实现。既有只读候选“旧run revision9→新run revision1”的最后有效范围表达尚待独立反例核实，不是已证授权bug；不能重标历史或删旧Scope破坏稳定前缀。不在本R03会话滚动实施R04。
 
 **保护。** 本次只补有来源的证据桥、验证与状态/排期文档，不新增产品代码、原生长跑或模型调用；原WIP及暂停B85保持，不push。
+
+## 15. R04 当前有效 Scope 与三 wire 派生（2026-11-18，进行中）
+
+### 15.1 独立开工、目标与存在性审计
+
+新独立执行上下文，基线 `develop/dialogue-based-novel-workbench` / `b79a38bdd41a9721e45ce9afb3eb4c5908af9766`，109 项原 WIP（95 tracked、14 untracked）及暂停的 B85 保留。实施前由 `task_done.sh --begin` 真实封存 `artifacts/slice-verify/b87-r04-scope-wire-20261118/scope.json`，不追造历史 scope。初始 shell 缺 mix/node（127）是 PATH 前置失败；选择已安装 Node v24.19.0 与 Homebrew 工具后 baseline `mix compile` 退出 0；未安装依赖、未读取生产环境秘密。
+
+**独立目标**：作者连续询问时，当前范围由真实会话顺序和当前 run 决定，旧 run 的较大局部 revision 不恢复旧权限；同事实的旧完整 Scope 只有合法 checkpoint 才退出模型视图。未覆盖历史、作者原字节、真实 call_id/观察、已确认义务不丢。3/10/20 成本按 R01 原始 wire 口径可复算，缓存只证明前缀字节，不从 cached_tokens 推断权限或质量；真实页面/实模与确定性证据分别签收。R03旧33 quality partial、普通20第16轮中断/17–20未执行不改签。
+
+| 七问 | 本批执行边界 |
+|---|---|
+| Contract | VS-00M §5.4；VS-00L §14/16.1/16.2.1/19.2；VS-00I；R03 §14.48–52 与 R01 §11.21。 |
+| Invariant | 当前权威范围唯一、历史追加不可变、仅显式合法覆盖可省略；三 wire 同序同来源，跨 run revision 不作全局排序；稳定前缀、作者/工具字节与恢复/Replay 无假执行。 |
+| Boundary | application SessionHistory/Judgment 请求组装与 common RequestIR Scope/Compaction/Projection 既有边界；按实际反例决定修改，不新增持久历史、Provider adapter 或前端协议。B85、原 WIP、生产配置与作者数据库禁止改动。 |
+| Consumer | JudgmentProtocol.request_for_production/实际 Provider.Execution → 三 wire；AuthoringSession 的同源恢复与现役成本报告。 |
+| Proof | 旧 run revision9开放→新run revision1关闭；同run更新、交错/错作品/错版本、合法与非法覆盖、工具闭合、CRLF作者原文、JSON恢复/Replay、3/10/20分组字节/Token与I-CACHE。期望由独立顺序/来源构造，不从projector反推。 |
+| Acceptance Driver | 复用 native_request_cost 与 R03 现役外部Tauri驱动；先核旧证据和当前差异，仅对具体缺失应用/成本状态预注册必要实测，不无界重跑故事质量。产品不新增验收感知逻辑。 |
+| Exploration | 不新增作品要素；已有真实Observation必须保留call_id/source/coverage并进入后继请求。知识读取仍走现探索面，不增加固定packet。 |
+
+| 候选责任对象 | 现有 owner / 首个消费者 | 审计决定 |
+|---|---|---|
+| 会话顺序/归属 | AuthoringSessionHistory.compose → JudgmentProtocol | reuse；只派生当前Base一次、已提交原序与尾部，禁止第三份历史。 |
+| 合法省略 | TranscriptCompaction + MessageCoverage + Compaction → 三wire | reuse；已支持旧Scope与讨论精确覆盖，未证明不足前不另建压缩器。 |
+| Scope显示 | RequestIR.Scope/Projection.scope_update_text → 三wire | 调查中；现header“以最新版本为准”未明确局部revision与消息顺序，先做独立反例，不当作已证授权漏洞。 |
+| 成本与原生证据 | request_cost_* / native_request_cost_* | reuse；不建立第二分析器，不把估算token当供应商实测。 |
+| 新实体/字段/表/工具/API/事件/配置 | none | reject；当前目标未证明需要新持久/权威对象。 |
+
+成功标准保持 R04 全卡，不以小修或局部绿灯代签 PASS。具体反例、设计先行修订、执行与失败在本节续记；当前尚无产品变更或新模型调用，R04进行中。
+
+### 15.2 当前反例修复与唯一普通20成本预注册
+
+**已证反例。** 真实DB保存A关闭范围，再保存较晚活动B开放范围；A局部材料不变而公开生产入口先refresh后compose，实际IR最后Scope仍为B。新增测试先红（10项/1失败），证明请求表示责任缺口，不宣称执行授权已被绕过。统一实际request与request_for_production到现私有request_transcript，先构造/作者→恰一次compose→当前材料/归属refresh；外run末Scope即使内容相同也追加当前run声明，不改历史或额外存状态。通用段构造接口仍不带显式历史，真实会话准备与持久段分责。common renderer统一说明后继更新优先、数字不跨run排序，既有revision生成不变。两个真实DB反例覆盖相同/相反内容、恢复幂等、三wire前缀与显式/预组装视图等价。首次全mix check发现段构造接口误带历史的两项回归，已按原持久边界修复而非改测试；邻接117/0，全量复跑3415项/0失败（mix-check-02.log，退出0）；编译/codegen/xref/arch/ADR/I-CACHE均实际通过。独立review未发现当前阻断问题，局部测试不代签原生。
+
+**成本候选排除。** 批33第7–10轮虽各5个Scope、总Scope每轮增3500B，实际单Scope增700B来自作者处置/结果/引用元数据。上游InteractionLifecycle明确窗口10，旧普通20第11–14单Scope8833/8836/8837/8837B已稳定；不是无界增长证据，不删仍有消费者的元数据。当前无新压缩器/截断策略，合法历史仍只由checkpoint覆盖。
+
+**必要新证据。** 冻结 `artifacts/model-contracts/b87-r04/20261118/cost-01/manifest.json`：只执行一次独立普通20，采用原R03二十条输入和原hash、完整隔离快照，Splash local/Q4-PLE4、thinking enabled/high、max_tokens32000、HTTP300000ms、每作者整轮360000ms、重试0；维护窗口32000/0.7、keep4、同步摘要false。观察实际20轮及第3/10前缀，不冒称三个独立当前批次；不重复3/10或固定故事后继。旧3/10凭真实来源与明确版本桥延用，因header变化不能称旧Token是当前Token。原16轮中断和批33partial保留。技术/身份/页面失败或整轮预算耗尽即停止、不补轮不重试；模型故事质量单列观察，不用于重开。实际逐run调用预算和供应商用量照实记账，没有凭空声称总金额上限。
+
+**测量边界。** 沿现request_cost owner输出每call分组UTF-8 bytes、stable JSON/envelope守恒、真实input/cached/output（cached为input子集）、身份及prefix。R01历史3/10/20报告分组Token均not_collected；现无Q4 tokenizer，不能把bytes/4或实际总量按比例分摊冒充精确Token。缺失保持unknown，分组字节与实际调用总Token分别可复算，跨输入/配置历史差额不作严格单变量收益。当前manifest preflight已退出0，尚未启动新App/模型；启动后结果另记。
+
+### 15.3 普通20原始终态、验收消费者反例与复核边界
+
+唯一新原生批次在 `artifacts/slice-verify/b87-r04-scope-wire-20261118/native-20-01`：20/20界面轮次completed、39次Provider调用已终止，无追加后继或模型重试。原报告仍为FAIL（31/37），原failure.json和绑定不改：第16轮call3/5、第20轮call3被判作者缺失，all_llm_calls_bound为36/39，独立compaction preservation与后继Scope覆盖检查失败。原始HTTP/SSE采集不等于独立核验；未以模型故事质量解释失败。
+
+**来源核实后再修消费者。** 三个失败均为judgment探索回流请求，不是维护误分类。pcall_mwlxsbkk_lku、pcall_mwlxu5c9_lqv、pcall_mwly52tu_rt2中当前作者冻结原SHA分别唯一命中wire index34/32/44（279/279/369B）；现成本owner跨调用保留第一次绝对index，合法checkpoint使前方历史退出后index失效。修复须依同调用canonical覆盖及作者run/turn/source原序重新定位，不能换成唯一文本或最后文本猜测。另现Scope reader仍只接受旧精确header，实读39日志共109条新header全部scopeContent=null，首调用即失败；这是renderer迁移未覆盖验收消费者，不是已证应用覆盖损坏。已先加正反例18项/1失败，reader兼容新旧两个精确header并拒未知头后，相关67项/0失败。原FAIL不抹去，修复后只允许现owner verify --out另目录离线重算相同原调用，不能冒称一次新原生执行。
+
+**成本独立复算（未修签原报告）。** 同一次20运行第3/10/20前缀分别3/15/39调用，stable JSON为150762/917322/3308070B；input为36051/233604/877580，cached子集30432/117792/297632，output7104/41358/123957。原36调用报告漏计三次实际成本input147185/cached45984/output14271；不得以旧报告汇总替代全39。当前Scope第11–15为8866/8869/8870/8870/8870B，第16–20为8785/8896/8896/8896/8902B；第11后作者9、结果10、来源10，证明本次窗口观察稳定，不承诺所有未来输入。精确分类Token仍not_collected，不用字节比例补造。
+
+**工程出口保留失败。** 首次同scope task_done确实执行并退出1：UI change requires explicit --slice。scope实际增量仅本批6文件，未混入B85；既有isUiRelevantFile路径规则匹配request_ir/projection.ex，故需要合格原生绑定。原生binding已真实FAIL，后续离线复核不能覆写旧summary/failure/绑定来伪签；门禁未完成仍明示。其后WebCodex发生间歇timeout，未知写入先恢复read_revision核实再补缺，没有重放模型或未知执行。R04继续doing，B85暂停、原109项WIP及旧33 partial/旧20中断均保留。
+
+### 15.4 离线真实调用复核与本地修复 checkpoint（非 R04 PASS）
+
+**真实入口闭环。** 作者绑定初版fixture通过但offline-review-01仍漏三次，暴露当前run的history.transcript不能代替会话全序。最终消费现役history.sessionMessages并保留当前transcript.run，使用同pcall/prun截取请求时点、合法coverage、全部作者原序/字节和当前run/turn/work/session/source唯一坐标定位ordinal；缺会话证据、错来源、非法覆盖及错调用配对均拒绝，不回退唯一文本猜测。实际shape正反例与邻接100项/0失败；独立只读审查确认责任边界。作者39/39不替代Scope/工具/讨论的独立核验。
+
+**原始失败不改，另名复核。** 现owner `verify --out native-20-offline-review-02`完整重算同39调用，三作者错误及Scope解析错误均消除，总usage与独立复算一致。独立canonical coverage、全部作者原文、23个业务请求逐项原文/合法Scope/保留讨论、压力、早期讨论覆盖及原文UI成立。最后checkpoint缺后继请求，next_request为unknown、compaction仍partial；预注册没有successor，未追加模型调用。offline02唯一硬失败为原failure.json存在而拒绝native_ui_evidence PASS，这是正确保留原执行结果，不删除侧车或伪造成功绑定。`offline-evidence-bridge.json`核对1046个产品文件与原生执行前hash完全相同；后改仅验收消费者/测试及任务记录。当前只是有来源的离线复核，不是新原生执行或完整工程签收。
+
+**工程实际证据。** 同scope完成入口退出1的原记录保留。另完整执行无scope task_done的全静态inventory（明确不宣称任务完成）：19pass/2fail/0skip，I1/I2/I3/N-NARR/I-CACHE、前端与调度/规模等检查通过；gitleaks仍是既有5条false_positive和1条accepted_risk，未改处置。Semgrep首次因官方auto规则下载TLS EOF退出2；唯一有界重试在连接恢复后由原Job对账为completed/exit0，511规则/2269文件/0 findings，无禁TLS、跳规则或重复执行。原始静扫和重试结果并列保留，不改写19/2报告。全量mix check仍为3415/0，验收消费者focused67/0与100/0另列。证据均在本批scope目录，原生/失败/成本原始文件保留。
+
+**checkpoint边界。** 按授权仅提交本批可review修复与证据记录，混合WIP文件只取本批hunk；不把局部checkpoint当作本卡要求的整批PASS。精确分类Token仍not_collected、最终checkpoint后继请求未采集、原生成功执行绑定/同scope完整task_done仍缺，R04保持doing，不推进R05。B85、原WIP、旧批33质量partial及旧20中断不改签，不push。

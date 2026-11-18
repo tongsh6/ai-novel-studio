@@ -432,8 +432,8 @@ defmodule NovelCommon.RequestIRProjectionTest do
       legacy_text = "  历史范围原文\n保留为证据，不解析为新事实。 "
       legacy = message(:scope_update, :application, [RequestIR.text_block(legacy_text)])
       historical = g1_messages() ++ [legacy]
-      first = ir(historical ++ [scope.("只读探索开放", 1)])
-      second = ir(historical ++ [scope.("只读探索开放", 1), scope.("只读探索关闭", 2)])
+      first = ir(historical ++ [scope.("只读探索开放", 9)])
+      second = ir(historical ++ [scope.("只读探索开放", 9), scope.("只读探索关闭", 1)])
 
       assert Projection.text_of(List.last(second.messages).blocks) == ""
       assert :ok = RequestIR.validate(first)
@@ -449,10 +449,11 @@ defmodule NovelCommon.RequestIRProjectionTest do
           assert Enum.take(second_items, length(first_items)) == first_items
 
           assert projected_text(Enum.at(second_items, -3)) ==
-                   "【应用数据 · scope_update · 以最新版本为准】\n版本：{}\n来源：[]\n" <> legacy_text
+                   "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n版本：{}\n来源：[]\n" <> legacy_text
 
           scope_text = projected_text(List.last(second_items))
-          assert scope_text =~ ~s("scope_revision":2)
+          assert scope_text =~ "版本号不跨运行排序"
+          assert scope_text =~ ~s("scope_revision":1)
           assert scope_text =~ ~s("ref":"work:work-1")
           content = scope_text |> String.split("\n", parts: 4) |> List.last() |> Jason.decode!()
 

@@ -514,4 +514,102 @@ defmodule NovelApplication.B81Cp4SessionReplayTest do
     # 首末按作者消息会话顺序 A → B，不因调用先后逆序成 B → A。
     assert plan.covers.turn_range == "turn-#{a_run}..turn-#{b_run}"
   end
+
+  for same_scope? <- [false, true] do
+    @same_scope same_scope?
+    test "R04 交错范围 same=#{same_scope?} 的请求归属与恢复", %{
+      work: work,
+      session: session
+    } do
+      a_run = identity(work, session, "r04-current-a")
+      b_run = identity(work, session, "r04-history-b")
+
+      input = %{
+        author_text: "  只讨论，不再读取。\r\n",
+        source_input_ref: "author:r04-a",
+        scope: %{work_id: work.id, context: %{state: "closed"}},
+        options: [plan_run: a_run]
+      }
+
+      assert {:ok, a} = NovelApplication.JudgmentProtocol.transcript_for_production(input)
+      :ok = TestAgenticLoopFixtures.append_segment!(a, status: "running")
+
+      b_input = %{
+        input
+        | author_text: "另一个运行可以读取。",
+          source_input_ref: "author:r04-b",
+          scope: %{work_id: work.id, context: %{state: "open"}},
+          options: [plan_run: b_run]
+      }
+
+      assert {:ok, b} = NovelApplication.JudgmentProtocol.transcript_for_production(b_input)
+      a_scope = Enum.find(a.messages, &(&1.role == "scope_update"))
+
+      b =
+        if @same_scope,
+          do: %{
+            b
+            | messages:
+                Enum.map(b.messages, fn message ->
+                  if message.role == "scope_update", do: a_scope, else: message
+                end)
+          },
+          else: b
+
+      :ok = TestAgenticLoopFixtures.append_segment!(b, status: "running")
+      assert {:ok, history} = AuthoringSessionHistory.fetch(a.run)
+      before = AuthoringSessionHistory.compose(a, history)
+      expected_prior = if @same_scope, do: "closed", else: "open"
+
+      assert AuthoringTranscript.current_scope(before).content["context"]["state"] ==
+               expected_prior
+
+      request =
+        NovelApplication.JudgmentProtocol.request_for_production(
+          Map.merge(input, %{transcript: a, session_history: history})
+        )
+
+      last_scope = request.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
+      assert hd(last_scope.blocks).content["context"]["state"] == "closed"
+      assert last_scope.canonical_ref.run_id == a_run.run_id
+      assert Enum.take(request.messages, length(before.messages)) == before.messages
+      assert Enum.count(request.messages, &author_text?(&1, input.author_text)) == 1
+
+      precomposed =
+        NovelApplication.JudgmentProtocol.request_for_production(
+          Map.put(input, :transcript, before)
+        )
+
+      assert precomposed.messages == request.messages
+      assert {:ok, before_ir} = AuthoringTranscript.to_request_ir(before)
+
+      for format <- @run_formats do
+        assert {:ok, before_body} = Projection.project(before_ir, format)
+        assert {:ok, request_body} = Projection.project(request, format)
+        before_items = Map.get(before_body, :messages, before_body[:input])
+        request_items = Map.get(request_body, :messages, request_body[:input])
+        assert Enum.take(request_items, length(before_items)) == before_items
+      end
+
+      assert {:ok, view} = AuthoringTranscript.from_request_ir(request)
+      segment = AuthoringSessionHistory.strip_request_history(view)
+      :ok = TestAgenticLoopFixtures.append_segment!(segment, status: "running")
+
+      assert {:ok, restored, :session_segment} =
+               AuthoringCheckpoint.restore(run_record(work, session, a_run.run_id), nil)
+
+      assert {:ok, after_history} = AuthoringSessionHistory.fetch(a.run)
+
+      repeated =
+        NovelApplication.JudgmentProtocol.request_for_production(
+          Map.merge(input, %{transcript: restored, session_history: after_history})
+        )
+
+      for format <- @run_formats do
+        assert {:ok, first_body} = Projection.project(request, format)
+        assert {:ok, restored_body} = Projection.project(repeated, format)
+        assert first_body == restored_body
+      end
+    end
+  end
 end

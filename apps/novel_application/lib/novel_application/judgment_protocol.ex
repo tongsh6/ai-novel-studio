@@ -59,9 +59,8 @@ defmodule NovelApplication.JudgmentProtocol do
       |> Execution.result_fn()
 
     if is_function(result_fn, 1) do
-      with {:ok, segment} <- transcript_for_production(input, profile) do
-        {request_transcript, strip_history?} = compose_session_history(segment, input, snapshot)
-
+      with {:ok, request_transcript, strip_history?} <-
+             request_transcript(input, profile, snapshot) do
         result_fn
         |> invoke(request_transcript, input, profile, 1)
         |> strip_session_history(strip_history?)
@@ -106,10 +105,16 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp strip_session_history(result, _strip_history?), do: result
 
-  @doc "当前 run 的唯一请求事实源；每次 Provider body 都是它的瞬时投影。"
+  @doc "构造当前 run 段；显式会话历史只在实际请求准备边界组装，不进入持久段。"
   @spec transcript_for_production(map(), atom()) ::
           {:ok, AuthoringTranscript.t()} | {:error, term()}
   def transcript_for_production(input, profile \\ :judgment) do
+    with {:ok, transcript, _strip_history?} <-
+           request_transcript(Map.delete(input, :session_history), profile, %{}),
+         do: {:ok, transcript}
+  end
+
+  defp request_transcript(input, profile, snapshot) do
     # 判断入口只生成一次实际 scope；首次构造与既有 transcript 追加消费同一事实。
     scope = profile_scope(input, profile)
     base_refs = context_refs(input, :supplied_context_refs)
@@ -134,7 +139,10 @@ defmodule NovelApplication.JudgmentProtocol do
             transcript
         end
 
-      {:ok, refresh_transcript(input, transcript, profile, scope, scope_refs, base_refs)}
+      {view, strip_history?} = compose_session_history(transcript, input, snapshot)
+
+      {:ok, refresh_transcript(input, view, profile, scope, scope_refs, base_refs),
+       strip_history?}
     else
       false -> {:error, :invalid_author_input}
       {:error, _reason} = error -> error
@@ -144,9 +152,8 @@ defmodule NovelApplication.JudgmentProtocol do
   @doc "生产请求入口；返回已选择本次工具与 tool_choice 的 canonical IR。"
   @spec request_for_production(map(), atom()) :: RequestIR.t()
   def request_for_production(input, profile \\ :judgment) do
-    with {:ok, segment} <- transcript_for_production(input, profile),
-         {request_transcript, _strip_history?} <- compose_session_history(segment, input, %{}),
-         {:ok, request} <- prepare_request(request_transcript, profile) do
+    with {:ok, transcript, _strip_history?} <- request_transcript(input, profile, %{}),
+         {:ok, request} <- prepare_request(transcript, profile) do
       request
     else
       {:error, reason} -> raise ArgumentError, "invalid authoring transcript: #{inspect(reason)}"
@@ -158,12 +165,19 @@ defmodule NovelApplication.JudgmentProtocol do
     previous = AuthoringTranscript.current_scope(transcript)
     versions = scope_versions(input, previous)
 
-    if same_scope?(previous, scope, scope_refs, versions) and
+    if current_scope_owner?(transcript) and same_scope?(previous, scope, scope_refs, versions) and
          Enum.all?(base_refs, &(&1 in transcript.base_refs)) do
       transcript
     else
       AuthoringTranscript.append_scope_update(transcript, scope, versions, scope_refs, base_refs)
     end
+  end
+
+  defp current_scope_owner?(transcript) do
+    message = Enum.find(Enum.reverse(transcript.messages), &(&1.role == "scope_update"))
+    owner = get_in(message || %{}, [:canonical_ref, :run_id])
+    history_owner = AuthoringSessionHistory.session_history_run_id(message)
+    (owner || history_owner || transcript.run.run_id) == transcript.run.run_id
   end
 
   defp same_scope?(nil, _scope, _refs, _versions), do: false

@@ -181,6 +181,10 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 **协议注意**：目前 VS-00L 对 `covers.call_ids` 与 tool exchange 有严格约束，ADR-0035 明确会话连续性；若需要覆盖纯 user/assistant 回合或被替代 Scope，R00 必须先给出**现有 Compaction 可否合法承载的证明**。不能合法承载则先按真实需求提交 VS-00L/ADR 补充决策，选定唯一覆盖结构并迁移现有消费者，**不保留旧兼容分支**。不能把“只保留最新 Scope”作为绕过契约的快捷优化。
 
+
+
+**R04 请求时点与版本顺序澄清（2026-11-18，实施前）**：Scope revision 不是跨 run 的全局排序键，新 run 的 revision 1 可以晚于旧 run 的 revision 9；三 wire 的共同展示须明确按真实消息顺序承接更新，而不是取数值最大。历史条目不随下一请求重标“当前/过时”。裸 compose/Replay 保留真实全序，不保证末项属于恢复的旧 run，也不因此调模型。实际 Judgment 请求须先恰一次组装已有会话历史，再核当前真实材料和运行归属，必要时沿现 append_scope_update 追加当前 run 范围；不能先比较局部旧段后把外 run Scope 拼到末尾。已是会话视图的主流程不重复 compose，不剥离未消费历史。writer/evaluator/plan/mission 已有无条件追加当前操作 Scope 的 owner 继续复用。版本数字保留既有生成规则，不另建全局计数或持久 current 标记；末范围相同但归属外 run 仍不得代替当前运行声明。原序/字节、合法 checkpoint、真实来源与执行门禁保持不变。
+
 ## 6. 响应链、工具协议与作者可见原文
 
 ```text

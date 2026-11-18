@@ -67,7 +67,7 @@ defmodule NovelCommon.RequestIR.Projection do
 
   @doc "所有 Provider 共用的版本化 scope 文本；旧版本仅作为历史证据。"
   def scope_update_text(message) do
-    "【应用数据 · scope_update · 以最新版本为准】\n" <>
+    "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n" <>
       "版本：" <>
       Jason.encode!(json_value(Map.get(message, :versions, %{}))) <>
       "\n来源：" <>

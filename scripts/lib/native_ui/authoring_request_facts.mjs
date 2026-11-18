@@ -15,7 +15,11 @@ export const RETIRED_PROVIDER_PROMPT = "provider_prompt/v1";
 
 const APPLICATION_PREFIX = "【应用数据 · ";
 const SCOPE_PREFIX = "【应用数据 · scope_update";
-const SCOPE_HEADER = "【应用数据 · scope_update · 以最新版本为准】";
+// 已保存原生证据的旧 header 保持只读；现役 renderer 仅生成新 header。
+const SCOPE_HEADERS = new Set([
+  "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】",
+  "【应用数据 · scope_update · 以最新版本为准】",
+]);
 const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";
 
 const IR_APPLICATION_ROLES = new Set([
@@ -58,12 +62,12 @@ export function scopeContentOf(message) {
   return scopeBlockContent(message.blocks);
 }
 
-// 只接受现役公共 renderer：固定来源标记、版本、来源列表、原结构 JSON。
-// 原 wire 文本始终保留；缺失/旧文本/坏 JSON 不被升格为结构化事实。
+// 只接受当前或已保存历史 renderer 的精确 header、版本、来源列表、原结构 JSON。
+// 原 wire 文本始终保留；未知 header/缺失/非结构文本/坏 JSON 不被升格为结构化事实。
 function wireScopeAttributes(content) {
   if (typeof content !== "string") return null;
   const [header, versionLine, sourceLine, ...payload] = content.split("\n");
-  if (header !== SCOPE_HEADER) return null;
+  if (!SCOPE_HEADERS.has(header)) return null;
   if (!versionLine?.startsWith("版本：") || !sourceLine?.startsWith("来源：")) return null;
   const versions = decodedJson(versionLine.slice("版本：".length));
   const sourceRefs = decodedJson(sourceLine.slice("来源：".length));

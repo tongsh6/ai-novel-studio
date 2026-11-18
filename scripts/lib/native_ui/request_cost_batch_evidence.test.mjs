@@ -530,6 +530,78 @@ test("targetFor 按 author_id 映射；无目标时返回 null 而不是近似�
 // ---- 公共契约反例：verifyTurns/verifyDriverShape/verifyConfigMatches 直接吃真实记录形状 ----
 const AUTHOR_TEXT = "作者原文";
 const AUTHOR_SHA = createHash("sha256").update(AUTHOR_TEXT, "utf8").digest("hex");
+function shiftedCanonicalAuthorFixture() {
+  const scope = { run_id: "run-1", workspace_id: "ws", work_id: "work",
+    session_id: "session", parent_turn_ref: "turn-1", run_status: "completed" };
+  const ref = (run, sequence) => ({ ...scope, run_id: run, run_sequence: sequence,
+    parent_turn_ref: run === "old" ? "old-turn" : "turn-1" });
+  const author = (run, sequence) => ({ role: "user", provenance: "author",
+    canonical_ref: ref(run, sequence), source_refs: [{ ref: run === "old" ? "old-turn" : "turn-1" }],
+    blocks: [{ type: "text", text: AUTHOR_TEXT }] });
+  const oldScope = { role: "scope_update", provenance: "application",
+    canonical_ref: ref("old", 1), source_refs: [], versions: {},
+    blocks: [{ type: "scope", content: {} }] };
+  const currentScope = { ...oldScope, canonical_ref: ref("run-1", 1) };
+  const reply = (pcall, prun, sequence) => ({ role: "assistant", provenance: "model",
+    canonical_ref: ref("run-1", sequence), provider_call_ref: pcall, provider_run_ref: prun,
+    blocks: [{ type: "text", text: "观察" }] });
+  const checkpoint = { role: "checkpoint", provenance: "application",
+    canonical_ref: ref("run-1", 4), blocks: [{ type: "checkpoint",
+      covers: { call_ids: [], message_refs: [{ role: "scope_update", run_id: "old",
+        run_sequence: 1, source_refs: [], versions: {} }] },
+      omissions: ["旧范围已覆盖"], source_refs: [{ ref: "session_message:old:1", version: 1 }],
+      versions: {}, summary: "范围已更新" }] };
+  const app = { role: "user", content: "【应用数据 · application_base · 非作者原话】范围" };
+  const user = { role: "user", content: AUTHOR_TEXT };
+  const first = syntheticRecord({ messages: [app, user, app, user] });
+  const second = syntheticRecord({ pcall: "p2", prun: "r2",
+    messages: [user, app, user, { role: "assistant", content: "观察" }, app] });
+  const transcript = { run: scope, messages: [oldScope, author("old", 2), currentScope,
+    author("run-1", 2), reply("p1", "r1", 3), checkpoint, reply("p2", "r2", 5)] };
+  const records = [first, second];
+  const sessionMessages = transcript.messages;
+  // Real history shape: the local run segment has no cross-run canonical coordinates.
+  transcript.messages = sessionMessages.slice(2).map(({ canonical_ref, ...message }) => message);
+  const setup = syntheticSetup(records, { transcript });
+  setup.binding.history.sessionMessages = sessionMessages;
+  return { records, setup };
+}
+
+test("canonical 合法覆盖移动作者位置，原序同文历史不能取代当前作者", () => {
+  const { records, setup } = shiftedCanonicalAuthorFixture();
+  const result = runVerify(records, setup);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.allCalls.length, 2);
+  assert.equal(result.allCalls[0].analysis.cross.current_author_index, 3);
+  assert.equal(result.allCalls[1].analysis.cross.current_author_index, 2);
+});
+
+test("canonical 作者重定位拒绝缺失/增添/改写/乱序和错误来源，不回退到相同文本", () => {
+  const mutations = [
+    ({ records }) => records[1].request.body.messages.splice(2, 1),
+    ({ setup }) => { delete setup.binding.history.sessionMessages; },
+    ({ setup }) => { setup.binding.history.sessionMessages = []; },
+    ({ setup }) => { setup.binding.history.sessionMessages = setup.binding.history.sessionMessages.slice(2); },
+    ({ records }) => records[1].request.body.messages.push({ role: "user", content: AUTHOR_TEXT }),
+    ({ records }) => { records[1].request.body.messages[0].content = "历史被改写"; },
+    ({ records, setup }) => {
+      setup.binding.history.sessionMessages[1].blocks[0].text = "另一条历史";
+      records[0].request.body.messages[1] = { role: "user", content: "另一条历史" };
+      records[1].request.body.messages[2] = { role: "user", content: "另一条历史" };
+    },
+    ({ setup }) => { setup.binding.history.sessionMessages[3].canonical_ref.run_id = "other"; },
+    ({ setup }) => { setup.binding.history.sessionMessages[3].source_refs = [{ ref: "wrong-turn" }]; },
+    ({ setup }) => { setup.binding.history.sessionMessages[5].blocks[0].covers.message_refs[0].run_sequence = 99; },
+    ({ setup }) => { setup.binding.history.sessionMessages[6].provider_run_ref = "wrong-pair"; },
+  ];
+  for (const mutate of mutations) {
+    const fixture = shiftedCanonicalAuthorFixture();
+    mutate(fixture);
+    const result = runVerify(fixture.records, fixture.setup);
+    assert.ok(result.failures.some((failure) => failure.includes("author_message_missing_or_ambiguous")));
+  }
+});
+
 
 function syntheticRecord({
   messages,
