@@ -1574,3 +1574,15 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 技术failed或身份未绑定立即停止原序列，不再像旧批14失败后继续；合法gap/ask不由driver伪作语义失败，未闭合交换仍不得后继。错误时先现役只读事务事实、日志前缀和proxy snapshot，再uiComplete/owned清场，runner异常退出沿同一入口补证，不新建第二快照owner。独审发现目录已建但receipt未写可能silentreturn，已先反例后修：保留旧片段，写独立较晚incomplete receipt并报缺证；正常receipt标ordered_non_atomic和开始/结束时间，不冒充多源原子快照。fetch2秒有界，本地只读DB无重试循环、finally关闭；不承诺磁盘故障下硬实时总时限。
 
 证据observe-transport-32：proxy红例到18/18，原C8回归、完整空流/合法正文、无DONE/半帧/非法JSON原样保留、同块终止/压缩/大record、背压清理与凭证哨兵均覆盖；runner/driver先缺接线和technical failure/unbound反例后54/54，中断receipt另红绿driver37/37。完整native/model-contract/driver/toolchain Node1205/1205、0跳过，bash-n/diff-check及独立最终审查通过；原82WIP哈希未变。此为外部观测与接线证明，尚未开新实模，也未证明模型语义或普通10/20完成。
+
+### 14.44 唯一普通10及固定后继实证：机械通过、语义停止20（2026-11-18）
+
+先独立preflight成功再启动observe-native-33/native-10-01，冻结5091bdb7、原82WIP/index、原snapshot/输入/模型预算，Finder前台/AC100%/端口空闲；新manifest只换批身份及证据目录，数据seed并非旧源码。唯一job wc_job_0NEEnewFQA459uLO完成exit0，原10条及一次固定后继齐全，未再跑C8、未开始20。
+
+停机DB独立核主体5CP与封窗集合相同、无迟到；从全部业务started事实独立选真正首请求5/5覆盖，末CP由固定后继首调用覆盖，所有capsule清空。11作者字节与原seed内容、6CP来源/响应hash/双ID绑定成立。机械报告SHA6271b6a5eddd744577b3a94ad2aba43c219c5a6b8bc48537275de49cc3b78517、来源绑定SHA73530d85c8c9282f5cfa8b0e76b0d576a2dc344c681f6987f1bc683351f8a264。后继新1CP属于窗口外未证，不再加观察。主体10业务+5维护，后继1业务+1维护，17调用usage全知，总input272482/output44711，cached114656属input子集，不能重复相加。06:10:42.145Z cleanup remaining=[]，四端口与owned PID均清、82WIP不变。
+
+独立raw传输审计SHA20c2451cf4652c245c7d7962fd7acebfafdb6e9e4eb78ebf6f12c37973b1e3ea：44请求中27模型列表GET、17POST，全程observe零gate；17流均HTTP200自然完整、恰一DONE/stop且无残帧，received/delivered共9,561,436响应实体字节逐字/hash相同，不称TLS或HTTP framing字节。按原body、唯一执行时间区间、双ID/scope配对，非hash-only猜；独立解码正文SHA均等持久Output，18,396个产品chunk末累计长度对应，全completed/ok。原summary仍硬编码raw_sse/not_collected，保留不覆写，以独立原件审计纠正范围；报告owner须另修采集与核验分责，不能见bin即倒签全部通过。
+
+语义先锁本批1–9真实承诺登记SHAe3e5978aba7b5676a101ca258767b3265ae6bbfb25f0e9cd2821862c27c8e501，再审10/后继。10 canonical44/run_mwlpy3ts_bij实质交付四场单/双收益、风险与可观察补证，允许合理共同材料，不要求24格。后继49/run_mwlq0h26_djm明确承认风险表已给，却把第二人选比较改挂为“结论性比较未交付”，依据仅“不是加权排序、不能替你决定”。独立两次回查seq12/34原承诺为逐项比较，seq44已分别给四场孟/珩收益风险及目标/代价/场景优势，未承诺加权排序。实际后继pcall_mwlq0h32_djp message23完整等于44原文，因此不是摘要漏源；这是完成条件漂移与交付/作者选择混淆，不是风险表整体被否认。未决定人选可保留，但不能因此重挂已给比较。语义报告SHAca02d2600aa563727c8e26939672e4309c27d9f753a955e02fd6b03e26d570aa，严格§14.42不晋20；没有追加纠正输入或另跑10求绿。
+
+亲看10/后继、历史原文橙框定位、刷新后展开恢复四图，Markdown与真实页面状态正常；视觉报告仅证可见状态、不代签语义。R03保持doing：当前普通10尾首后继机械缺口已补，旧10partial/普通20失败原样保留；本批无空响应并不能倒推旧14原因。下一步只做有证据的责任分析与报告修复，不能靠提示词加码、模型反复试跑或放宽判据宣称完成。
