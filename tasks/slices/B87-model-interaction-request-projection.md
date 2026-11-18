@@ -1501,3 +1501,13 @@ C首次prun_mwllth8r_hcx/pcall_mwllth8r_hcw与原request-66唯一绑定；请求
 已亲看cancelled-run.jpg实际像素（SHA bce32af83ec02f48e2ee6e6043dc92d9038e1d85016f88195b3db908cae66092），页面已停止/无任务/普通输入恢复，标题粗体渲染；取消时效以真实wire/持久/传输事实判断，不由截图代签。下一步先修现役取消分支审计责任及独立反例，不放宽验收、不修改原FAIL。
 
 语义有正向与剩余反例：11真实session_message_read完整回查10，request57及C request63都带逐字一致10179bytes原文，11不再否认两场双视角存在；作者A选择与后次未确认时序保留。但11把未单列/未量化/未矩阵直接当未交付：早期模型确有相关深度承诺，仍须指出具体语义未覆盖而非强制格式。C还将讨论未登记为设定和范围外全书场景列入欠项，与只讨论、不写档及原四场范围混淆。故语义仍partial，不能以修复v3或一次正确回查签全面达标；独立原文审查JSON已保存。
+
+### 14.38 取消审计、真实尝试与未知用量的闭合（2026-11-18）
+
+按8681842f/12d4411e先修VS-00L责任设计，再0b1fc568/367e79b1实现：SSE准备事件不再提前冒充request_dispatched，HTTP worker实际进入本地Req尝试时通知原caller，沿唯一事件序列分配一次phase，预算/恢复继续消费同一事实。取消先到时停止worker并等待独立monitor退出屏障，再按同sender信号顺序收取已发生attempt，不能仅凭零等待猜消息已齐。未尝试取消无日志/无假调用，已尝试无响应仍有原请求与未知响应，不宣称vendor收到或计费完成；eventsource_fn遵循同契约，不按函数身份特判。
+
+取消Result在原caller复用LLMLog，恰一次绑定原body/双ID/refs，取消非成功、原chunk保留但不变成完成正文。三wire只保已观察usage，缺失nil、明确0仍0；沿现usage事件/ProviderOutput/ProviderRunLog往返。真实持久红例发现safe_value曾将nil转成字符串“nil”，已在唯一sanitize owner加nil分支，不改字面字符串或历史存储，不加表/台账/模型。
+
+证据cancel-audit-29：真实TCP→SSE→LLMLog原请求红13/1（0日志）到绿；取消尾消息通过held-token+真实accepted连接控制顺序，验证一次attempt及对端close，不靠睡眠猜时序；三wire部分17/null/0、无量/显式零、预gate取消、重复通知、事件顺序均覆盖。真实DB同execution提交两次，output/events/usage汇总保17/null/0，16/1→16/0。provider目录428/0，全mix check3404/0、force编译/xref/arch/ADR/I-CACHE、I1 4/4、I2三对、I3 3/3、Credo773文件零问题及独立final review通过。原WIP82哈希全同。
+
+最终完整scan仍19pass/2fail/7，既有五gitleaks false_positive、一accepted_risk及task_done_manifest pending，report/top10/disposition归档，不造完成manifest。局部机制与确定性绿不代签真实C/D；28原FAIL及语义partial保留。源码门禁后按作者持续桌面授权与现场冲突检查冻结下一单批，不更改输入/阈值/keep4/取消上限或D原载荷恢复标准。
