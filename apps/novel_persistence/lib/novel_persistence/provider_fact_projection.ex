@@ -267,6 +267,7 @@ defmodule NovelPersistence.ProviderFactProjection do
 
   defp safe_map(_), do: %{}
 
+  defp safe_value(nil), do: nil
   defp safe_value(value) when is_boolean(value), do: value
   defp safe_value(value) when is_map(value), do: safe_map(value)
   defp safe_value(values) when is_list(values), do: Enum.map(values, &safe_value/1)

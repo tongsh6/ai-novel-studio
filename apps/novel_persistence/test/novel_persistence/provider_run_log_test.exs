@@ -12,6 +12,48 @@ defmodule NovelPersistence.ProviderRunLogTest do
     :ok = Sandbox.checkout(Repo)
   end
 
+  test "cancelled execution round-trips observed partial usage without filling unknown values" do
+    run_id = unique("prun-cancel-usage")
+    call_ref = unique("pcall-cancel-usage")
+    agent_run_id = unique("run-cancel-usage")
+    usage = %{input_tokens: 17, output_tokens: nil, cached_tokens: 0}
+    run = fact_run(run_id, call_ref, :cancelled)
+
+    events = [
+      fact_event(run_id, call_ref, unique("usage"), 1, :usage_recorded, %{
+        payload: %{usage: usage}
+      }),
+      fact_event(run_id, call_ref, unique("cancelled"), 2, :cancelled)
+    ]
+
+    output =
+      fact_output(run_id, call_ref, %{
+        status: :cancelled,
+        output_type: :empty,
+        content: %{},
+        usage: usage,
+        error: %{type: :cancelled}
+      })
+
+    execution =
+      {:error, %{provider_run: run, events: events, output: output, error: %{type: :cancelled}}}
+
+    assert :ok = ProviderRunLog.record_execution(execution, fact_context(agent_run_id))
+    assert :ok = ProviderRunLog.record_execution(execution, fact_context(agent_run_id))
+    expected = %{"input_tokens" => 17, "output_tokens" => nil, "cached_tokens" => 0}
+
+    assert %{status: "cancelled", output_type: "empty", usage: ^expected} =
+             ProviderRunLog.get_output(run_id)
+
+    assert [
+             %{event_type: "usage_recorded", payload: %{"usage" => ^expected}},
+             %{event_type: "cancelled"}
+           ] = ProviderRunLog.list_events(run_id)
+
+    assert [%{status: "cancelled", usage: ^expected, provider_call_ref: ^call_ref}] =
+             ProviderRunLog.list_usage_summaries(agent_run_id)
+  end
+
   test "persists provider execution facts as author-safe usage summaries" do
     agent_run_id = "run-provider-log-#{System.unique_integer([:positive, :monotonic])}"
     provider_run_id = "prun-provider-log"
