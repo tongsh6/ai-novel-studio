@@ -1608,3 +1608,9 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **五方案取舍。** 首选现来源/时序/版本架构并修中性标签，不建立语义状态权威。结构化claim加责任/交付refs可改善审计，但正确引用仍可推出错误欠项，无独立消费者不产品化。有界独立review若研究应复用AgentRun预算/取消/trace，现planner协议纠正不能偷偷变文学裁判；同模型相关错误、误纠正与额外费用须测量，不能称确定性保证。作者裁决偏好与采纳，不应被迫逐轮确认明显的交付历史，不能把认知负担转回作者。模型能力/上下文消融可另行预注册小预算诊断：固定同一事实与任务，仅比较标签等明确变量，含真缺项/原承诺排序的负对照，盲审误挂与误销；不借改变上下文或模型代签原R03。此节不授权立即调用模型；任何后续实验先冻结输入、次数、费用、数据目的地和失败停止条件，禁止失败后追绿。
 
 **七问/存在性审核。** Contract=愿景§2.1/2.4及VS-00L§16中性展示；Invariant=来源字节与历史身份不变、保留不等于当前义务；Boundary=DiscussionSummary派生projection与现Projection/wire/replay消费者，不改响应契约或持久状态；Consumer=真实业务请求中的历史展示；Proof=上述四类源片段、v1/v2及真实三wire的独立反例；Acceptance Driver=确定性接线只证标签责任，未来真实语义验证须另按冻结计划；Exploration=复用现source/locator与历史原文，不新增查询循环或第二正文。无需新实体/模块/存储/协议，仅替换现役展示键。批33语义partial、20停止与R03 doing保留；设计实施成功也不证明排序漂移解决，不覆写旧实证。
+
+**本轮实现与验证收口。** 设计b410ca45之后，仅修改现役DiscussionSummary派生展示键与私有helper名称、common compaction测试；当前v1/v2统一retained_source_fragments，不保留旧展示别名，不改v1原response字段/hash、v2索引协议、canonical/capsule或AuthoringSemantics版本。四类literal源分别覆盖已交付说明、可选建议、未决选择与真承诺，逐一走v1/v2和三真实wire精确map，来源/locator/原字节与重复历史投影不变；连续/非连续片段既有断言保持。原application持久摘要、恢复及CP3消费者继续通过，不新建执行。
+
+证据`artifacts/model-contracts/b87-r03/20261118/neutral-projection-34/`：baseline compile通过；先红24例2失败，再绿common24/24、application35/35；独立最终源码审查通过。完整门禁job wc_job_xtQvxMDYCAhGPk6t退出0，核full-mix-check.log合计3408 tests/0 failures；I1 4/4、I2三对disjoint、I3 3/3、N-NARR PASS、Credo773文件无问题、NEXT检查通过。
+
+按AGENTS执行`bash scripts/ai_static_scan.sh --top 10`，job wc_job_7tTWSvn-ocGEBKqs退出1，21项中19通过/2失败/0跳过、7 findings；完整日志及top10/disposition/report已归档该目录static-scan。剩余六项gitleaks沿既有处置：Pencil元数据、确认fixture历史标识、RFC示例nonce、B63历史spec文字、E10 spec标识为五项false_positive；ProjectGod历史config为一项accepted_risk，不改原WIP、不重写历史。另一项task-done-manifest仍pending，引用旧20261115清单及当前test_touched，真实UI/模型语义未闭环，不能制造新完成凭据消警；本轮不签全扫描绿或R03 done。无新增本次两源码文件发现。原82 WIP逐项SHA与批26基准相同、暂存区检查为空后仅纳入本轮文件，不push。未新增实模，批33语义partial及普通20未启动保持；中性分类修正只证应用不附加义务标签，不证明模型能正确更新责任或排序漂移已解决。

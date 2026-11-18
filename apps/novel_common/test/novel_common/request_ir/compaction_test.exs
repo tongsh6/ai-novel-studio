@@ -49,15 +49,88 @@ defmodule NovelCommon.RequestIR.CompactionTest do
     discussion = make.([0, 2])
     assert :ok = Compaction.validate_discussion(discussion, [source])
 
-    assert %{entries: [%{retained_obligations: ["甲\r\n", "丙\n"]}]} =
+    assert %{entries: [%{retained_source_fragments: ["甲\r\n", "丙\n"]}]} =
              DiscussionSummary.projection(discussion, [source])
 
-    assert %{entries: [%{retained_obligations: ["甲\r\n乙\r丙\n丁"]}]} =
+    assert %{entries: [%{retained_source_fragments: ["甲\r\n乙\r丙\n丁"]}]} =
              DiscussionSummary.projection(make.([0, 1, 2, 3]), [source])
 
     for invalid <- [[-1], [4], [1.0], ["0"], [0, 0], [2, 0]] do
       assert {:error, :checkpoint_invalid_discussion} =
                Compaction.validate_discussion(make.(invalid), [source])
+    end
+  end
+
+  test "历史四类原文在 v1/v2 三 wire 只作中性片段，不变成义务分类" do
+    # 四类性质由字面 fixture 给定；预期只证明来源保真，不判断是否履行。
+    fragments = [
+      "已给出两种路线的逐项比较。\r\n",
+      "也可以考虑先写短篇。",
+      "第二视角暂未选择。\r",
+      "我会再补充风险表。\n"
+    ]
+
+    for text <- fragments,
+        {version, retained} <- [
+          {"authoring-discussion-summary/v1", %{retained_obligations: [text]}},
+          {"authoring-discussion-summary/v2", %{retained_fragment_indices: [0]}}
+        ] do
+      messages =
+        Enum.map(history(), fn
+          %{canonical_ref: %{run_id: "old", run_sequence: 4}} = message ->
+            %{message | blocks: [RequestIR.text_block(text)]}
+
+          message ->
+            message
+        end)
+
+      raw =
+        Jason.encode!(%{
+          version: version,
+          entries: [Map.merge(%{source_index: 0, summary: "原讨论材料"}, retained)]
+        }) <> "\r\n"
+
+      original = checkpoint()
+      [block] = original.blocks
+      saved = discussion(raw)
+      current = %{original | blocks: [%{block | discussion: saved}]}
+      canonical = messages ++ [current]
+      assert :ok = RequestIR.validate(ir(canonical))
+
+      expected = %{
+        "provenance" => "model_derived_history",
+        "authority" => "none",
+        "entries" => [
+          %{
+            "source" => %{"ref" => "session_message:old:4", "version" => 1},
+            "locator" => %{"run_id" => "old", "run_sequence" => 4},
+            "summary" => "原讨论材料",
+            "retained_source_fragments" => [text]
+          }
+        ]
+      }
+
+      for target <- @targets do
+        assert {:ok, body} = Projection.project(ir(canonical), target)
+
+        checkpoint_text =
+          Enum.find(wire_texts(body), &String.contains?(&1, "模型派生的历史讨论摘要"))
+
+        projected = checkpoint_text |> String.split("\n") |> List.last() |> Jason.decode!()
+        assert projected == expected
+        refute Map.has_key?(hd(projected["entries"]), "retained_obligations")
+
+        # 重放同一历史原响应只作纯投影，不产生 Provider 调用或改写其原字节。
+        assert {:ok, ^body} = Projection.project(ir(canonical), target)
+      end
+
+      assert hd(List.last(canonical).blocks).discussion == saved
+      assert saved.response_text == raw
+
+      assert saved.response_sha256 ==
+               :crypto.hash(:sha256, raw) |> Base.encode16(case: :lower)
+
+      assert Jason.decode!(saved.response_text)["version"] == version
     end
   end
 

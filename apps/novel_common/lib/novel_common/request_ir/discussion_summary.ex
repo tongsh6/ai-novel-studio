@@ -105,7 +105,7 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
           source: MessageCoverage.source_ref(source.source),
           locator: Map.take(source.source, [:run_id, :run_sequence]),
           summary: entry["summary"],
-          retained_obligations: obligations(entry, source, version)
+          retained_source_fragments: source_fragments(entry, source, version)
         }
       end)
 
@@ -175,9 +175,9 @@ defmodule NovelCommon.RequestIR.DiscussionSummary do
   # Split only at complete line boundaries, never between CR and LF.
   defp fragments(text), do: Regex.split(~r/(?<=\n)|(?<=\r)(?!\n)/, text, trim: true)
 
-  defp obligations(entry, _source, @historical_version), do: entry["retained_obligations"]
+  defp source_fragments(entry, _source, @historical_version), do: entry["retained_obligations"]
 
-  defp obligations(entry, source, @version) do
+  defp source_fragments(entry, source, @version) do
     lines = fragments(source.text)
 
     entry["retained_fragment_indices"]
