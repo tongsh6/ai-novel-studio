@@ -94,14 +94,14 @@ export function businessContentSha(canonSnapshot) {
   return sha256Hex(stableJson(business));
 }
 
-// canon 内容权威：复用现役 CANON_TABLES/buildAuthoringCanonSnapshot 定义，只排除
-// works.updated_at。引用日志必须经唯一无损读取边界进入，不能用空数组丢证。
+// 成本快照只需内容签名，不把使命设计字段齐全作为复制条件；完整设计解析仍由其 owner 默认执行。
+// 复用现役 CANON_TABLES/buildAuthoringCanonSnapshot；引用日志经唯一无损读取边界进入，不能丢证。
 function contentCanon(db, at = new Date().toISOString()) {
   return buildAuthoringCanonSnapshot({
     tables: canonTables(db),
     referenceLogs: referenceLogRows(db),
     at,
-    includeChapterFacts: true,
+    includeChapterFacts: false,
   });
 }
 
@@ -581,11 +581,13 @@ export function reconcileSetupDelta({
     tables: beforeTables,
     referenceLogs: sourceReferenceLogs,
     at: sourceAt,
+    includeChapterFacts: false,
   });
   const afterCanon = buildAuthoringCanonSnapshot({
     tables: afterTables,
     referenceLogs: afterReferenceLogs,
     at: afterAt,
+    includeChapterFacts: false,
   });
   const comparison = compareAuthoringCanonSnapshots(beforeCanon, afterCanon);
   assert.equal(comparison.checks.no_canon_write, true, "setup 改变了声明字段以外的作品内容");
@@ -603,6 +605,7 @@ export function reconcileSetupDelta({
     tables: canonTables(afterDb),
     referenceLogs: afterReferenceLogs,
     at: afterAt,
+    includeChapterFacts: false,
   });
   return {
     work,

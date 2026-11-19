@@ -1289,6 +1289,19 @@ test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品
   }
 });
 
+test("v2 evidence 明确种类，不从旧字段形状猜测或补默认设计事实", () => {
+  const start = snapshot();
+  const final = snapshot({ at: FINAL });
+  assert.equal(start.chapter_evidence, "design_state");
+  for (const kind of [undefined, null, "unknown", "__proto__", "content_signatures"]) {
+    const bad = structuredClone(start);
+    if (kind === undefined) delete bad.chapter_evidence;
+    else bad.chapter_evidence = kind;
+    assert.throws(() => compareAuthoringCanonSnapshots(bad, final),
+      /invalid_authoring_canon_snapshot/u, String(kind));
+  }
+});
+
 test("live canon 快照：includeChapterFacts=false 不解析章节设计态（真实 seed 缺 decided_at 仍可取表级签名）", () => {
   // 真实 b71-first-consumer seed 的 chapter_mission 缺 decided_at；live 场景 L9 只
   // 需要表级内容签名，不应为快照伪造字段，也不应因设计态明细严格解析而失败。
@@ -1309,4 +1322,24 @@ test("live canon 快照：includeChapterFacts=false 不解析章节设计态（�
   assert.deepEqual(Object.keys(live.tables).sort(), [...CANON_TABLES].sort());
   assert.equal(live.tables.chapters.row_count, 1);
   assert.match(live.tables.chapters.canon_sha256, /^[0-9a-f]{64}$/u);
+  const final = { ...JSON.parse(JSON.stringify(live)), at: FINAL };
+  assert.equal(compareAuthoringCanonSnapshots(live, final).checks.no_canon_write, true);
+  assert.equal(live.chapter_evidence, "content_signatures");
+  assert.throws(() => compareSourceDesignSnapshots(live, final, { targetChapterId: "chapter-row" }),
+    /design.state.*required/u);
+  for (const table of CANON_TABLES) {
+    const missing = structuredClone(live);
+    delete missing.tables[table];
+    assert.throws(() => compareAuthoringCanonSnapshots(missing, { ...missing, at: FINAL }),
+      /invalid_authoring_canon_snapshot/u, table);
+  }
+  for (const mutate of [
+    (value) => { delete value.chapters["chapter-row"]; },
+    (value) => { value.chapters["chapter-row"].approved_sha256 = "missing"; },
+    (value) => { value.chapter_evidence = "design_state"; },
+  ]) {
+    const bad = structuredClone(live);
+    mutate(bad);
+    assert.throws(() => compareAuthoringCanonSnapshots(bad, final), /invalid_authoring_canon_snapshot/u);
+  }
 });

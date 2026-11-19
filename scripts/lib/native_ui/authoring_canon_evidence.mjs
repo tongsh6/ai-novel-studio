@@ -3,12 +3,13 @@
 // 输入只来自只读 DB 的 9 张 canon 表完整行与 memory_reference_logs 归一化行；
 // 本模块不做 I/O、不读时钟、不依赖机器时区。canon、章设计态与引用统计是三类事实：
 // - no_canon_write：9 表行数/ canon hash 不变；memory_items 只排除两个引用统计列。
-// - 章设计态：v2 快照逐章保存 protected 字段 hash、真实 mission 与 updated_at；
-//   chapters 完整行 hash 仍原义保留，不以设计态见证替换整表 hash。
+// - 章证据：v2 显式区分 design_state 完整设计事实和 content_signatures 内容签名；
+//   chapters 完整行 hash 仍原义保留，不以附加章见证替换整表 hash。
 // - memory_reference_updates_accounted：统计增量与新增 dialogue_context 引用日志精确对应。
 //
 // 版本迁移：v1 只读仍严格解析，但绝不为修订两段补造章设计态；需要设计态见证的
-// 比较只接受 v2，缺/坏/歧义字段一律 fail closed。SQLite 的 JSON 列（plan_direction）
+// 比较只接受 v2/design_state；新 v2 缺模式不补默认值，旧原件/报告不改写重签。
+// 缺/坏/歧义字段一律 fail closed。SQLite 的 JSON 列（plan_direction）
 // 只在该列按真实 map 语义解析，其它字符串字段保持原字节；UUID/BLOB/UTC 沿用既有边界。
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -436,14 +437,22 @@ function parseChapterFact(id, value, path) {
   };
 }
 
-function parseChapters(value, expectedRows) {
+function parseChapterSignatures(_id, value, path) {
+  const record = requireRecord(value, path);
+  return {
+    approved_sha256: requireHash(requireOwn(record, "approved_sha256", path), `${path}.approved_sha256`),
+    design_state_sha256: requireHash(requireOwn(record, "design_state_sha256", path), `${path}.design_state_sha256`),
+  };
+}
+
+function parseChapters(value, expectedRows, parseFact) {
   const source = requireRecord(value, "chapters");
   const ids = Object.keys(source);
-  if (ids.length !== expectedRows) invalid("chapters", "one design-state entry per chapters row");
+  if (ids.length !== expectedRows) invalid("chapters", "one evidence entry per chapters row");
   const chapters = {};
   for (const id of ids) {
     if (id === "") invalid("chapters", "non-empty chapter ids");
-    chapters[id] = parseChapterFact(id, source[id], `chapters.${id}`);
+    chapters[id] = parseFact(id, source[id], `chapters.${id}`);
   }
   return chapters;
 }
@@ -548,6 +557,7 @@ export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, include
   }
   return {
     version: SNAPSHOT_VERSION,
+    chapter_evidence: includeChapterFacts ? "design_state" : "content_signatures",
     at: snapshotAt,
     tables: snapshotTables,
     chapters: includeChapterFacts ? chapterFacts(chapterRows) : liveChapterEvidence(chapterRows),
@@ -597,13 +607,19 @@ function parseSnapshot(value, label) {
   const at = requireString(snapshot.at, `${label}.at`);
   parseUtcTimestamp(at);
   const tables = parseSnapshotTables(snapshot.tables);
+  const chapterEvidence = snapshot.version === SNAPSHOT_VERSION ? snapshot.chapter_evidence : null;
+  if (snapshot.version === SNAPSHOT_VERSION && !["design_state", "content_signatures"].includes(chapterEvidence)) {
+    invalid(`${label}.chapter_evidence`, "design_state or content_signatures");
+  }
+  const parseFact = chapterEvidence === "design_state" ? parseChapterFact : parseChapterSignatures;
   const chapters = snapshot.version === SNAPSHOT_VERSION
-    ? parseChapters(snapshot.chapters, tables.chapters.row_count)
+    ? parseChapters(snapshot.chapters, tables.chapters.row_count, parseFact)
     : null;
   const memoryItems = parseMemoryStats(snapshot.memory_items, tables.memory_items.row_count);
   const logs = normalizedLogs(snapshot.memory_reference_logs);
   return {
     version: snapshot.version,
+    chapter_evidence: chapterEvidence,
     at,
     tables,
     chapters,
@@ -843,6 +859,9 @@ function requireDesignSnapshots(startValue, finalValue, label) {
   const final = parseSnapshot(finalValue, label);
   if (start.version !== SNAPSHOT_VERSION || final.version !== SNAPSHOT_VERSION) {
     invalid(`${label}.version`, `version 2 design-state witness required (got ${start.version}/${final.version})`);
+  }
+  if (start.chapter_evidence !== "design_state" || final.chapter_evidence !== "design_state") {
+    invalid(`${label}.chapter_evidence`, "design_state witness required");
   }
   return { start, final };
 }

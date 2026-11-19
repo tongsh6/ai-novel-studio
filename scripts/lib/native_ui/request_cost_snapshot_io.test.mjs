@@ -238,6 +238,58 @@ test("完整副本：full/work 字节镜像、逐表行数与 canon 内容一致
   assert.equal(record.restored_sha256, fx.manifest.snapshot.work_sha256);
 });
 
+test("成本完整快照：G2 使命缺 decided_at 仍逐字恢复，篡改 statement 改变内容签名", (t) => {
+  const fixture = sourceFixture();
+  // scripts/seed_judgment_explore_chapter_full_read.exs 的真实作者使命形状；不补 decided_at。
+  const plan = `{"chapter_mission":{
+  "mission_id":"cm_b24_full_read",
+  "statement":"本章必须让全章手印线索被完整核对。",
+  "must_advance":[{"text":"读完 7000 字整章"}],
+  "must_avoid":[{"text":"只读开头就下结论"}],
+  "status":"CONFIRMED","source":"author"
+}}`;
+  withWorkingCopy(fixture, (copy) => {
+    const source = copy.files.get(SOURCE_DB_REL);
+    const db = new DatabaseSync(source);
+    try {
+      db.prepare("UPDATE chapters SET plan_direction = ? WHERE id = ?").run(plan, CHAPTER);
+    } finally {
+      db.close();
+    }
+    const sourceHash = independentSha(source);
+    const snap = snapshotOf(t, source, { label: "g2-mission" });
+    const batchDir = path.join(snap.leaf, "restored");
+    restoreSnapshot({ batchDir, snapshotDir: snap.outDir });
+    const restored = path.join(batchDir, "database", "ai_novel_studio_test.sqlite3");
+    const files = [source, path.join(snap.outDir, "full.sqlite3"),
+      path.join(snap.outDir, "work.sqlite3"), restored];
+    assert.deepEqual(files.map(independentSha), Array(4).fill(sourceHash));
+    for (const file of files) {
+      assert.equal(withDb(file, (db) =>
+        db.prepare("SELECT plan_direction FROM chapters WHERE id = ?").get(CHAPTER).plan_direction), plan);
+    }
+    assert.equal(snap.manifest.snapshot.canon.chapter_evidence, "content_signatures");
+    renameAndCreateSession(restored);
+    const delta = reconcile({ source, batchDb: restored });
+    assert.equal(delta.projected_content_sha256, delta.source_content_sha256);
+    const signatures = () => withDb(restored, (db) => ({
+      raw: contentCanonSha(db), business: businessContentSha(contentCanonSnapshot(db, TIME)),
+    }));
+    const before = signatures();
+    const changed = new DatabaseSync(restored);
+    try {
+      changed.prepare("UPDATE chapters SET plan_direction = ? WHERE id = ?").run(
+        plan.replace("本章必须让全章手印线索被完整核对。", "本章必须让全章手印线索被完整核验。"), CHAPTER);
+    } finally {
+      changed.close();
+    }
+    const after = signatures();
+    assert.notEqual(after.raw, before.raw);
+    assert.notEqual(after.business, before.business);
+    assert.equal(independentSha(source), sourceHash);
+  }, { scope: runScope, context: t });
+});
+
 test("快照防护：错误 hash/非冻结路径/越界目录/已存在目录都拒绝", (t) => {
   const fixture = sourceFixture();
   const source = sourceFile(fixture);
@@ -456,14 +508,14 @@ test("setup 时间回退必须失败；同一 tick 不进入 changed", (t) => {
   }
 });
 
-test("完整副本 canon 保留章节设计态事实，不退化为 live 摘要", (t) => {
+test("成本完整副本 canon 明示内容签名，保留逐章已采纳与设计原文字节签名", (t) => {
   const fx = setup(t);
   const canon = withDb(fx.source, (db) => contentCanonSnapshot(db, TIME));
   const fact = canon.chapters[CHAPTER];
-  assert.equal(fact.seq, 1);
-  assert.equal(fact.title, "第01章");
-  assert.equal(fact.status, "DRAFTING");
-  assert.equal(Object.hasOwn(fact, "approved_sha256"), false);
+  assert.equal(canon.chapter_evidence, "content_signatures");
+  assert.deepEqual(Object.keys(fact).sort(), ["approved_sha256", "design_state_sha256"]);
+  assert.match(fact.approved_sha256, /^[0-9a-f]{64}$/u);
+  assert.match(fact.design_state_sha256, /^[0-9a-f]{64}$/u);
 });
 
 test("快照目录递归创建缺失的中间目录", (t) => {
