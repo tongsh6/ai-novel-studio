@@ -154,6 +154,20 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 **2026-11-15 职责复核**：原生 Scope 的构造/校验/绑定/revision/append 统一由 `RequestIR.Scope` 承担，RequestIR 只组合该纯值 owner；这不是新 DTO 或第二事实源。独立文本请求归已有 `RequestIR.Operation.text_operation`，全部现役消费者迁移并删除旧 parent 入口。判断专属静态规则归已有 AuthoringTaskPolicy；原文登记的应用业务规则归 NovelApplication.AuthorContentRegistration，已有同名 persistence 模块继续只持有事务防重。TurnInteractionService 保留 Interaction 接收、receipt 和真实作者输入选择。存在性审计、七问、消费链与退役记录见 B87 §13.2；以上划分不改变本文的来源/作者/覆盖语义。
 
+### 5.2.2 R03 真实反例后的判断材料责任修订（2026-11-15，先于实现）
+
+本修订消费愿景 §2.4 与 §5.2 的最小供给原则。真实三轮在作品事实没有变化时，Scope 默认重复携带完整章计划/章摘要、全角色正文及历史文字预览，并把无关作品人物带入新故事讨论。修订的是判断材料的生产与实际消费职责，不能在 History/Projection 中过滤已记录 Scope，也不能降低压力判据、最近 K 保护或作者原文要求。
+
+- **判断底座只提供当前必要事实。** 保留真实作品身份、明确绑定的当前写作坐标、权限、预算、版本和采纳/处置边界；全章节材料、全角色清单及正文不默认披露。操作目标只供应当前消费者实际需要的定位/类型/版本/状态元数据，不能把目标 DTO 全字段当模型材料。完整章计划、章摘要、角色正文转由现役探索读取。应用内部合法对象核验可以读取真实目标集合，但不会因此授予模型“已观察”的事实。
+- **历史文字只有既有 canonical 供给链。** 判断 Scope 的交互状态保留来源身份、handling、registration、truthfulness、pending/resolved adoption 及覆盖缺口，退役作者文字和 assistant 400 字预览；不得另造摘要或文本字段补位。run.goal 实体继续存在，判断 Scope 只提供版本/作者来源等目标关联，不再复制作者原文。旧 canonical 消息和 Interaction 原始内容不改写。
+- **稳定定义与当前允许集分离。** 既有 AuthoringTaskPolicy/CapabilityRegistry/ExplorationService 提供当前 profile 的稳定定义，由既有 SystemEnvelope/初始 Base 构造一次；Scope 只携当前允许名称、真实目标、预算与状态。定义目录不是授权，旧目录或旧 Scope 不恢复已失效能力；同 run 稳定层不因预算、目标和权限更新而重写。不建立全局全能力投喂表或第二注册表。
+- **按需读取必须同批闭环。** 复用 archive_read、chapter_read 与现有 ReadingProjectionService、CharacterProfile、AdoptionRepository 读口。archive_read 明确提供章节/角色目录及角色详情的有界查询，模型无需故意猜错名称发现目录；保留 string query 传输，结构参数沿现役 JSON query 方式表达 facet/ref/offset。角色目录用于发现及只读身份核对，显式返回 ref/name/aliases/narrative_role/status 与所返字段/条目范围，不返回自由文本 role、summary、updated_at 或完整修订基线；未标记身份不能推断为主角，多主角如实保留。正文经详情分页完整可达，不能沿用无续读的 1500 字截断。只返回真实本作品 accepted/edited_accepted 对象；无结果、未读、缺页、跨作品、过期来源都明确表达。角色沿用既有 base_fingerprint，不伪造整数版本。 memory_recall 只返回实际记忆来源，不再按“主角/谁是”等关键词暗读人物主档案拼入记忆正文；当前人物事实通过显式 characters 目录/详情或现役 character_roster 读取，并携自身来源与版本。 章节目录按既有 ReadingProjection 的 accepted 正文 word_count>0 语义返回 has_prose，以区分同名计划章与已存正文章；该布尔事实不授予正文已读覆盖。
+- **观察与精确操作共用实际来源。** ExplorationService 的既有 observation_metadata 把同一次真实读取的 source_refs、versions、coverage/omissions 传给既有 AgentObservation；判断续行和 writer 的 used_context_refs 沿现役证据校验消费。角色操作必须绑定实际观察中的对象 ref 与当前指纹，不能因猜中了应用内部 roster 的 ref 就视为已读取；实际供应集取本次 prepared RequestIR 经现役 Compaction.project 的可见消息，并复用 RequestIR.observation_payloads 展开真实观察叶；可见且当前指纹一致的历史详情可以复用，不能要求新 run 机械重读，被覆盖隐藏的旧详情与累计 refs 不构成已读事实。CharacterProfile.observed_target 是唯一匹配规则，返回当前真实 target 与选中的原 canonical 叶；协议仅在既有 judgment 的内部 character_observation 保存该叶，实际候选构造消费同一叶再核当前指纹，不能在二者之间悄悄换成未观察的新基线。不接受 raw exploration 与 canonical 两种形状并行，也不将该内部凭证加入 Scope 或模型 schema。 现有 reply_record.supplied_observation_refs 同样只从本次 prepared 可见观察叶取得；raw exploration 暂存列表、累计会话 refs 或 profile 猜测均不能证明该次供应。narrative_role 修订要求所需身份/消歧字段、当前叙事身份、采纳状态和完整真实指纹已在详情观察中返回；长 summary 的未读页如实保留，不强迫无关正文续读，也不冒称完整档案已读。最终采纳继续由既有事务重验完整指纹与字段边界。读取不构成写入授权。
+- **续读资格由真实上一页决定。** 既有普通探索两轮与额外分页八轮的上界不变。普通额度耗尽后，只允许上一真实 Observation 的同工具、同来源坐标与精确 next_offset；章节 ref、会话 run_id/run_sequence、档案 facet/ref 均不可更换，目录转详情也是新读取而非续页。读取完成、无 next_offset 或坐标不匹配都不授予续读资格。复用各现役 query parser 与 ExplorationService 的统一校验，模型提示只是说明，不承担约束执行。
+- **Base 与关联引用继续分立。** 只有确实供应的材料进入 base_refs；目标、目录或来源身份不等于完整内容已读。专业 writer/reviewer 的必要完整基线仍由其现有输入 owner 按具体目标提供，不因判断底座收敛被全局删减。新故事讨论不通过关键词、fixture 标记或预算特判取得另一套供给策略。
+
+验证必须先给独立正反例：无探索的新故事判断不含作品长材料与历史预览；作者原文和未完义务保真；必要对象经实际只读观察进入后继请求，来源与版本闭合；隐藏合法 ref、过期指纹、跨作品 ref 和缺页不能冒充已读。真实三轮低压及 10/20 轮整理继续使用原冻结输入/阈值；补充真实按需探索→观察回流→writer used refs/角色精确对象的证明。具体任务状态与存在性审核只在 B87 §14 记录。
+
 ### 5.3 事实/意图/观察分界
 
 | 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |
