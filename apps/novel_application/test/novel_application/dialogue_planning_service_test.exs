@@ -693,7 +693,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   defp capability_for_profile_ref("world_building_with_context_v1"), do: "world_building"
 
-  # 判断①替身：单调用响应同时返回 content 与可选工具（叙事字节绑定）。
+  # 判断①替身：正文按实际来源绑定；ask_author 仅在 question 中提供原文。
   defp judgment_execution(action, capability, opts \\ []) do
     narrative = Keyword.get(opts, :narrative, "这是一个明确的创作动作，准备生成待采纳候选。")
     on_prompt = Keyword.get(opts, :on_prompt, fn _ -> :ok end)
@@ -756,13 +756,19 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
           ]
       end
 
+    content =
+      case calls do
+        [%{name: "ask_author"}] -> ""
+        _ -> narrative
+      end
+
     %Execution{
       result_fn: fn prompt ->
         on_prompt.(prompt)
 
         {:ok,
          %{
-           content: narrative,
+           content: content,
            tool_calls: calls,
            provider_output: %ProviderOutput{
              provider_run_ref:
@@ -770,7 +776,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
              provider_call_ref:
                NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("pcall-judgment"),
              status: :ok,
-             content: %{text: narrative, tool_calls: calls}
+             content: %{text: content, tool_calls: calls}
            }
          }}
       end

@@ -1601,8 +1601,10 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, full, %InferenceParams{})
     assert [%{"name" => "ask_author", "arguments" => ask}] = result.tool_calls
-    assert (ask[:question] || ask["question"]) =~ "同名/多候选"
-    assert result.content =~ "同名/多候选"
+    author_question = ask[:question] || ask["question"]
+    assert author_question =~ "同名/多候选"
+    assert author_question =~ ~r/请.*选择.*哪一位/
+    assert result.content == ""
   end
 
   test "讨论/询问不触发修订（reply）；设计新主角不误触发本分支" do

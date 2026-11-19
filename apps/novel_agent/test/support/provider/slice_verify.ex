@@ -153,7 +153,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp author_behavior_stimulus(%{"action" => "ask_author"}, _prompt_text) do
     {:ok,
-     Result.new("需要作者补充目标信息后才能继续。", nil,
+     Result.new("", nil,
        tool_calls: [
          %{
            id: "tool-b70-ask-author",
@@ -803,7 +803,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         )
 
       String.contains?(input, "结尾有两个方向，先让我选择") ->
-        Result.new("结尾要保留悬念，还是当章收束？", nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               name: "ask_author",
@@ -820,7 +820,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         )
 
       String.contains?(input, "结尾还没想清楚，请先问我一个问题") ->
-        Result.new("你希望读者在结尾留下怎样的感受？", nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               name: "ask_author",
@@ -1055,7 +1055,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         "想从哪个方向开始这部新作品：先定题材/基调，还是先起书名？确认前不会直接写正文。"
       end
 
-    Result.new(question, nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           name: "ask_author",
@@ -1149,7 +1149,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       if name, do: [%{"id" => "call_#{name}", "name" => name, "arguments" => payload}], else: []
 
     calls = fixture_conflicting_calls(calls, args)
-    %{result | content: text, tool_calls: calls}
+
+    content =
+      case calls do
+        [%{"name" => "ask_author"}] -> ""
+        _ -> text
+      end
+
+    %{result | content: content, tool_calls: calls}
   end
 
   defp fixture_conflicting_calls(
@@ -1310,7 +1317,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
         else: {"ask_author", %{question: narrative, options: []}}
 
-    Result.new(narrative, nil, tool_calls: [%{name: name, arguments: args}])
+    content = if name == "ask_author", do: "", else: narrative
+    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
@@ -4387,7 +4395,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         )
 
       :clarify ->
-        Result.new(decision.question, nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               "id" => "call_ask_author",
@@ -4589,7 +4597,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         )
 
       :clarify ->
-        Result.new(decision.question, nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               "id" => "call_ask_author",
@@ -5190,7 +5198,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_chapter_revision_missing_target_result do
     question = "当前没有可修订的已保存章节正文。请确认目标章节，或先采纳一章正文再调整排版。"
 
-    Result.new(question, nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           "id" => "call_ask_author",

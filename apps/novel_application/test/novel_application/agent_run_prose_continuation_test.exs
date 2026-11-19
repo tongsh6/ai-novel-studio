@@ -2,14 +2,54 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
   use NovelPersistence.DataCase, async: false
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.JudgmentProtocol
+  alias NovelApplication.JudgmentToolContract
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
   alias NovelTest.TestProviderPrompt
 
   @work "work-agent-prose-flow"
+
+  test "续行替身消费当前回复与真实失败事实，分别提问、重试和报告缺口" do
+    for {goal, tool, phrase} <- [
+          {"写下一章正文", "ask_author", "还没有可采纳的正文草稿"},
+          {"  先按原目标重试一次。  ", "continuation_decision", "保持原范围再执行一次"},
+          {"写下一章正文，然后同步到发布平台", "report_capability_gap", "没有同步到发布平台的能力"}
+        ] do
+      # 生产请求入口已统一为 canonical IR；续行请求保留真实续行工具目录与 tool_choice。
+      prompt =
+        JudgmentProtocol.request_for_production(
+          %{
+            author_text: goal,
+            source_input_ref: "continuation-author",
+            deviation_summary: "工具 prose_writing 执行失败",
+            options: [
+              plan_run: %{
+                run_id: "run-continuation-fixture",
+                goal: %{text: goal, source_ref: "continuation-author", version: 1}
+              }
+            ]
+          },
+          :continuation
+        )
+
+      {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+      assert [%{name: ^tool, arguments: arguments}] = result.tool_calls
+
+      if tool == "ask_author" do
+        assert result.content == ""
+        assert arguments.question =~ phrase
+      else
+        assert result.content =~ phrase
+      end
+
+      assert :ok = JudgmentToolContract.validate(result.tool_calls, :continuation)
+    end
+  end
 
   test "作者已采纳旗标在迭代边界机械收束（0 调用，不再进判断②/改进步）（M0）" do
     {:ok, plan} =

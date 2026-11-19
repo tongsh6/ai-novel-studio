@@ -314,7 +314,8 @@ defmodule NovelAgent.Provider.Stub do
           {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
         else: {"ask_author", %{question: narrative, options: []}}
 
-    Result.new(narrative, nil, tool_calls: [%{name: name, arguments: args}])
+    content = if name == "ask_author", do: "", else: narrative
+    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp creative_output_prompt?(text) do
@@ -397,7 +398,13 @@ defmodule NovelAgent.Provider.Stub do
           [%{name: "judgment_decision", arguments: args}]
       end
 
-    Result.new(narrative, nil, tool_calls: calls)
+    content =
+      case calls do
+        [%{name: "ask_author"}] -> ""
+        _ -> narrative
+      end
+
+    Result.new(content, nil, tool_calls: calls)
   end
 
   # CP5a 内部翼：explore 仅在判断 prompt 开放「先探索」形态时成立（协议 options

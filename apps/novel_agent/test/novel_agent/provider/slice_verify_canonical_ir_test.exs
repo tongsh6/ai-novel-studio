@@ -488,7 +488,9 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
 
     assert [%{"name" => "ask_author", "arguments" => ask}] = result.tool_calls
     assert ask["question"] =~ "没有可修订的已保存章节正文"
-    assert ask["question"] == result.content
+    assert ask["question"] =~ "确认目标章节"
+    assert ask["question"] =~ "先采纳一章正文"
+    assert result.content == ""
     refute result.content =~ "prose_writing"
   end
 end
