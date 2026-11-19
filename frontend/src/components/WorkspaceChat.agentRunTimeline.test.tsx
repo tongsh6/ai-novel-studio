@@ -11,6 +11,166 @@ import {
 } from "../lib/agentRunTimeline";
 
 describe("AgentRun reasoning flow", () => {
+  const contentSource = {
+    source_type: "provider_output",
+    provider_run_ref: "provider-call-a",
+    provider_call_ref: "call-a",
+    provider_output_ref: "provider-call-a",
+    source_hash: "complete-content-hash",
+    source_byte_range: { start: 0, length: 48 },
+    narrative_hash: "accepted-narrative-hash",
+  };
+  const toolSource = {
+    ...contentSource,
+    source_type: "provider_output_tool_narrative",
+    tool_call_name: "judgment_decision",
+    tool_call_narrative_field: "author_narrative",
+  };
+  const accepted = (
+    id: string,
+    narrative: string,
+    source: Record<string, unknown>,
+    sequence = 1,
+  ): AgentEventData => ({
+    event_id: id,
+    run_ref: "run-a",
+    sequence,
+    event_type: "judgment_decided",
+    visibility: "author",
+    summary: "已完成本次判断",
+    reason_codes: [],
+    refs: [],
+    payload: { author_narrative: narrative, author_narrative_source: source },
+  });
+  const delivered = (source: Record<string, unknown>, text = "同一段说明") => ({
+    turn_id: "turn-a",
+    phase: "completed",
+    status: "completed",
+    assistant_message: { text },
+    agent_run: { run_id: "run-a" },
+    trace_summary: {
+      reply_record: {
+        provider_call_ref: "call-a",
+        response_kind: "structured_tool",
+        author_narrative_source: source,
+      },
+    },
+  });
+
+  it("shows accepted intermediate judgments with their original Markdown but no private attempt", () => {
+    const narrative = "  ### 下一步\n\n**先核对沈砚**，再给出建议。\n";
+    const judgment = accepted("accepted", narrative, contentSource, 2);
+    const privateAttempt: AgentEventData = {
+      ...judgment,
+      event_id: "rejected-attempt",
+      sequence: 1,
+      visibility: "developer",
+      event_type: "provider_progress",
+      payload: { author_narrative_delta: "不得出现的未校验正文" },
+    };
+    const privateJudgment: AgentEventData = {
+      ...judgment,
+      event_id: "private-decision",
+      sequence: 3,
+      visibility: "developer",
+    };
+    const unboundJudgment = {
+      ...judgment,
+      event_id: "no-source",
+      payload: { author_narrative: "无来源正文" },
+    };
+
+    expect(
+      agentRunReasoningFlow([privateJudgment, judgment, privateAttempt, unboundJudgment])
+        .narrativeEvents,
+    ).toEqual([
+      {
+        key: "accepted",
+        eventType: "judgment_decided",
+        label: "判断",
+        narrative,
+        sequence: 2,
+      },
+    ]);
+  });
+
+  it("one accepted source has one owner across stage events and final delivery", () => {
+    const earlier = accepted("earlier", "我先核对角色事实。", {
+      ...contentSource,
+      provider_call_ref: "earlier-call",
+      provider_run_ref: "earlier-provider",
+      provider_output_ref: "earlier-provider",
+    });
+    const final = accepted("final-judgment", "同一段说明", contentSource, 2);
+    const plan = { ...final, event_id: "plan-projection", event_type: "plan_drafted", sequence: 3 };
+    const events = [plan, earlier, final];
+
+    expect(agentRunReasoningFlow(events).narrativeEvents.map((event) => event.narrative)).toEqual([
+      "我先核对角色事实。",
+      "同一段说明",
+    ]);
+    expect(
+      agentRunReasoningFlow(events, [
+        delivered(contentSource),
+        delivered(contentSource),
+      ]).narrativeEvents.map((event) => event.narrative),
+    ).toEqual(["我先核对角色事实。"]);
+
+    const incomplete = { ...contentSource, narrative_hash: undefined };
+    expect(agentRunReasoningFlow(events, [delivered(incomplete)]).narrativeEvents).toHaveLength(2);
+  });
+
+  it("distinct content and tool fields keep their own body even in one call with equal words", () => {
+    const questionSource = {
+      ...toolSource,
+      tool_call_name: "ask_author",
+      tool_call_narrative_field: "question",
+    };
+    const events = [
+      accepted("content", "同一段说明", contentSource),
+      accepted("tool-narrative", "同一段说明", toolSource, 2),
+      accepted("tool-question", "同一段说明", questionSource, 3),
+    ];
+    const toolDelivery = delivered(toolSource);
+    toolDelivery.trace_summary.reply_record.response_kind = "plain_text";
+    expect(
+      agentRunReasoningFlow(events, [toolDelivery]).narrativeEvents.map((event) => event.key),
+    ).toEqual(["content", "tool-question"]);
+    expect(
+      agentRunReasoningFlow(events, [delivered(contentSource)]).narrativeEvents.map(
+        (event) => event.key,
+      ),
+    ).toEqual(["tool-narrative", "tool-question"]);
+    expect(
+      agentRunReasoningFlow(events, [
+        delivered(contentSource),
+        toolDelivery,
+        delivered(questionSource),
+      ]).narrativeEvents,
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["provider execution", { provider_run_ref: "another-provider" }],
+    ["provider call", { provider_call_ref: "another-call" }],
+    ["provider output", { provider_output_ref: "another-output" }],
+    ["tool name", { tool_call_name: "another_tool" }],
+    ["tool field", { tool_call_narrative_field: "reason" }],
+    ["source bytes", { source_hash: "different-complete-output" }],
+    ["narrative bytes", { narrative_hash: "different-selected-text" }],
+    ["selected range", { source_byte_range: { start: 48, length: 48 } }],
+  ])("delivery cannot claim another %s source", (_label, changed) => {
+    const event = accepted("retained", "同一段说明", toolSource);
+    expect(
+      agentRunReasoningFlow(
+        [event],
+        [delivered({ ...toolSource, ...(changed as Record<string, unknown>) })],
+      ).narrativeEvents.map((item) => item.narrative),
+    ).toEqual(["同一段说明"]);
+    const anotherRun = { ...delivered(toolSource), agent_run: { run_id: "another-run" } };
+    expect(agentRunReasoningFlow([event], [anotherRun]).narrativeEvents).toHaveLength(1);
+  });
+
   it("a tool-field delivery cannot consume independent content from the same call", () => {
     const content: AgentEventData = {
       event_id: "content",
@@ -35,9 +195,10 @@ describe("AgentRun reasoning flow", () => {
       payload: {
         author_narrative: "独立工具字段",
         author_narrative_source: {
-          source_type: "provider_output_tool_narrative",
+          ...toolSource,
           provider_run_ref: "provider-channels",
           provider_call_ref: "call-channels",
+          provider_output_ref: "provider-channels",
         },
       },
     };
@@ -45,15 +206,19 @@ describe("AgentRun reasoning flow", () => {
       turn_id: "turn-channels",
       phase: "completed",
       status: "completed",
-      assistant_message: { text: "工具字段交付" },
+      assistant_message: { text: "独立工具字段" },
       agent_run: { run_id: "run-channels" },
       trace_summary: {
-        reply_record: { provider_call_ref: "call-channels", response_kind: "structured_tool" },
+        reply_record: {
+          provider_call_ref: "call-channels",
+          response_kind: "structured_tool",
+          author_narrative_source: process.payload?.author_narrative_source,
+        },
       },
     };
     expect(
       agentRunReasoningFlow([content, process], [delivery]).narrativeEvents.map((e) => e.narrative),
-    ).toEqual(["公开说明", "独立工具字段"]);
+    ).toEqual(["公开说明"]);
     expect(
       agentRunReasoningFlow(
         [content],
@@ -97,7 +262,13 @@ describe("AgentRun reasoning flow", () => {
       phase: "completed",
       assistant_message: { text: "# 标题\n\n**中文**" },
       agent_run: { run_id: "run-a", status: "running", phase: "executing" },
-      trace_summary: { reply_record: { provider_call_ref: "call-a", response_kind: "plain_text" } },
+      trace_summary: {
+        reply_record: {
+          provider_call_ref: "call-a",
+          response_kind: "plain_text",
+          author_narrative_source: contentSource,
+        },
+      },
     };
     expect(
       agentRunReasoningFlow(events, [delivered]).narrativeEvents.map((e) => e.narrative),
@@ -360,7 +531,7 @@ describe("AgentRun reasoning flow", () => {
 
     expect(activeFlow.narrativeEvents).toEqual([
       {
-        key: 'stream:["run_streaming_reasoning","prun_streaming_reasoning"]',
+        key: 'stream:["run_streaming_reasoning","prun_streaming_reasoning","pcall_streaming_reasoning"]',
         eventType: "provider_progress",
         label: "推理",
         narrative: "先读取当前作品上下文。",

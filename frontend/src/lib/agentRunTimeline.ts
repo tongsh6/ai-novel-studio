@@ -56,30 +56,59 @@ export interface AgenticLoopReasoningFlow {
   narrativeEvents: AgenticLoopNarrativeEvent[];
 }
 
-function callSourceKey(runId: unknown, callRef: unknown): string | null {
-  return typeof runId === "string" &&
-    runId.trim() !== "" &&
-    typeof callRef === "string" &&
-    callRef.trim() !== ""
-    ? JSON.stringify([runId, callRef])
+// 判断正文只按已校验的 ProviderOutput 来源归属；同一 call 的不同字段互不接管。
+function narrativeSourceKey(runId: unknown, value: unknown): string | null {
+  const source = recordValue(value);
+  const type = source?.source_type;
+  if (type !== "provider_output" && type !== "provider_output_tool_narrative") return null;
+  const identity = [
+    runId,
+    type,
+    source?.provider_run_ref,
+    source?.provider_call_ref,
+    source?.provider_output_ref,
+    source?.source_hash,
+    source?.narrative_hash,
+  ];
+  if (type === "provider_output_tool_narrative") {
+    identity.push(source?.tool_call_name, source?.tool_call_narrative_field);
+  }
+  if (!identity.every((part) => typeof part === "string" && part.trim() !== "")) return null;
+  const range = recordValue(source?.source_byte_range);
+  const start = range?.start;
+  const length = range?.length;
+  if (
+    typeof start !== "number" ||
+    !Number.isSafeInteger(start) ||
+    start < 0 ||
+    typeof length !== "number" ||
+    !Number.isSafeInteger(length) ||
+    length <= 0
+  )
+    return null;
+  return JSON.stringify([...identity, start, length]);
+}
+
+function contentStreamSourceKey(runId: unknown, value: unknown): string | null {
+  const source = recordValue(value);
+  return source?.source_type === "provider_output" && narrativeSourceKey(runId, source) !== null
+    ? JSON.stringify([runId, source.provider_run_ref, source.provider_call_ref])
     : null;
 }
 
-function deliveredNarrativeSources(results: ReadonlyArray<WireTurnResult>): Set<string> {
+function deliveredNarrativeSources(results: ReadonlyArray<WireTurnResult>) {
   const sources = new Set<string>();
+  const contentStreams = new Set<string>();
   for (const result of results) {
     if (!result.assistant_message?.text) continue;
     const record = recordValue(result.trace_summary?.reply_record);
-    if (record?.response_kind !== "plain_text") continue;
-    const source = callSourceKey(result.agent_run?.run_id, record?.provider_call_ref);
-    if (source !== null) sources.add(source);
+    const source = record?.author_narrative_source;
+    const key = narrativeSourceKey(result.agent_run?.run_id, source);
+    if (key !== null) sources.add(key);
+    const streamKey = contentStreamSourceKey(result.agent_run?.run_id, source);
+    if (streamKey !== null) contentStreams.add(streamKey);
   }
-  return sources;
-}
-
-function deliveredNarrative(event: AgentEventData, delivered: ReadonlySet<string>): boolean {
-  const key = callSourceKey(event.run_ref, event.payload?.provider_call_ref);
-  return key !== null && delivered.has(key);
+  return { sources, contentStreams };
 }
 
 interface AgentRunDialogueStatusVisibility {
@@ -147,12 +176,11 @@ export function agentRunReasoningFlow(
     .sort((a, b) => a.sequence - b.sequence);
   const streamedEvents = streamedAuthorReasoningEvents(
     events,
-    boundReasoningProviderRuns(reasoningEvents),
-    delivered,
+    boundContentStreams(reasoningEvents, delivered.contentStreams),
   );
   const narrativeEvents = [
     ...streamedEvents,
-    ...narrativeEventsFromReasoning(reasoningEvents),
+    ...narrativeEventsFromReasoning(reasoningEvents, delivered.sources),
   ].sort((a, b) => a.sequence - b.sequence);
   const latestPlanEvent =
     [...reasoningEvents]
@@ -233,6 +261,13 @@ export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivit
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
   if (event.visibility !== "author") return false;
 
+  if (event.event_type === "judgment_decided") {
+    return (
+      stringPayloadValue(event.payload, "author_narrative") !== null &&
+      narrativeSourceKey(event.run_ref, event.payload?.author_narrative_source) !== null
+    );
+  }
+
   if (
     ![
       "plan_drafted",
@@ -250,29 +285,44 @@ function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
   return event.event_type === "exploration_observed" && typeof event.summary === "string";
 }
 
-function narrativeEventsFromReasoning(events: AgentEventData[]): AgenticLoopNarrativeEvent[] {
-  return events.map((event) => ({
-    key: event.event_id,
-    eventType: event.event_type,
-    label: WORKBENCH.agenticLoopEventLabels[event.event_type] ?? event.event_type,
-    narrative: rawStringPayloadValue(event.payload, "author_narrative") ?? event.summary ?? "",
-    sequence: event.sequence,
-  }));
+function narrativeEventsFromReasoning(
+  events: AgentEventData[],
+  delivered: ReadonlySet<string>,
+): AgenticLoopNarrativeEvent[] {
+  const owned = new Set(delivered);
+  return events.flatMap((event) => {
+    const source = narrativeSourceKey(event.run_ref, event.payload?.author_narrative_source);
+    if (source !== null) {
+      if (owned.has(source)) return [];
+      owned.add(source);
+    }
+    return [
+      {
+        key: event.event_id,
+        eventType: event.event_type,
+        label: WORKBENCH.agenticLoopEventLabels[event.event_type] ?? event.event_type,
+        narrative: rawStringPayloadValue(event.payload, "author_narrative") ?? event.summary ?? "",
+        sequence: event.sequence,
+      },
+    ];
+  });
 }
 
 function streamSourceKey(event: AgentEventData): string {
   return JSON.stringify([
     event.run_ref,
-    stringPayloadValue(event.payload, "provider_run_ref") ??
-      stringPayloadValue(event.payload, "provider_call_ref") ??
+    rawStringPayloadValue(event.payload, "provider_run_ref") ??
+      rawStringPayloadValue(event.payload, "provider_call_ref") ??
+      event.event_id,
+    rawStringPayloadValue(event.payload, "provider_call_ref") ??
+      rawStringPayloadValue(event.payload, "provider_run_ref") ??
       event.event_id,
   ]);
 }
 
 function streamedAuthorReasoningEvents(
   events: AgentEventData[],
-  boundProviderRunRefs: Set<string>,
-  delivered: ReadonlySet<string>,
+  boundContentSources: ReadonlySet<string>,
 ): AgenticLoopNarrativeEvent[] {
   const ended = new Set(
     events
@@ -290,7 +340,7 @@ function streamedAuthorReasoningEvents(
     .filter(isAuthorReasoningDeltaEvent)
     .sort((a, b) => a.sequence - b.sequence)) {
     const groupKey = streamSourceKey(event);
-    if (boundProviderRunRefs.has(groupKey) || deliveredNarrative(event, delivered)) continue;
+    if (boundContentSources.has(groupKey)) continue;
     const delta = rawStringPayloadValue(event.payload, "author_narrative_delta");
     if (delta === null) continue;
     const group = groups.get(groupKey) ?? { sequence: event.sequence, parts: [] };
@@ -358,16 +408,15 @@ function isAuthorReasoningDeltaEvent(event: AgentEventData): boolean {
   );
 }
 
-function boundReasoningProviderRuns(events: AgentEventData[]): Set<string> {
-  const refs = new Set<string>();
-
-  events.forEach((event) => {
-    const source = recordValue(event.payload?.author_narrative_source);
-    if (source?.source_type !== "provider_output") return;
-    const providerRunRef = stringRecordValue(source, "provider_run_ref");
-    if (providerRunRef) refs.add(JSON.stringify([event.run_ref, providerRunRef]));
-  });
-
+function boundContentStreams(
+  events: AgentEventData[],
+  delivered: ReadonlySet<string>,
+): Set<string> {
+  const refs = new Set(delivered);
+  for (const event of events) {
+    const key = contentStreamSourceKey(event.run_ref, event.payload?.author_narrative_source);
+    if (key !== null) refs.add(key);
+  }
   return refs;
 }
 

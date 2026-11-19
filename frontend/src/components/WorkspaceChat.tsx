@@ -4997,19 +4997,17 @@ export function WorkspaceChat() {
                       <div className={styles.text}>{msg.text}</div>
                     )}
 
-                    {msg.role === "assistant" &&
-                      messageAgentRun &&
-                      !msg.turnResult?.author_question && (
-                        <AgentRunDialogueFlow
-                          run={messageAgentRun}
-                          events={messageAgentRunEvents}
-                          draftCharCount={pendingDraftCharCount(msg.turnResult)}
-                          deliveredResults={deliveredResults}
-                          onOpenHistory={(target) => {
-                            void handleOpenHistoryTurn(target);
-                          }}
-                        />
-                      )}
+                    {msg.role === "assistant" && messageAgentRun && (
+                      <AgentRunDialogueFlow
+                        run={messageAgentRun}
+                        events={messageAgentRunEvents}
+                        draftCharCount={pendingDraftCharCount(msg.turnResult)}
+                        deliveredResults={deliveredResults}
+                        onOpenHistory={(target) => {
+                          void handleOpenHistoryTurn(target);
+                        }}
+                      />
+                    )}
 
                     {msg.role === "assistant" && msg.turnResult && (
                       <button
@@ -5028,127 +5026,119 @@ export function WorkspaceChat() {
                       </button>
                     )}
 
-                    {!isReadOnlySessionView &&
-                      msg.turnResult?.ui_cards?.map((card, ci) => {
-                        // 卡片集合由 ADR-0024 决策 3 冻结（07 §4.2）；
-                        // 未知类型走 DefaultCard 容错兜底，漂移告警在 turnResultWire 校验层。
-                        const turnResult = msg.turnResult;
-                        if (!turnResult) return null;
-                        const cardKey = `${card.card_type}:${ci}`;
-                        switch (card.card_type) {
-                          case "confirmation_card":
-                            return <ConfirmationCard key={cardKey} card={card} />;
-                          case "candidate_set": {
-                            const selectionMode = hasMultiplePerItemAdoptionUnits(turnResult, card);
-                            const selectionKey = `${turnResult.turn_id}:${
-                              card.candidate_set_ref ?? ci
-                            }`;
-                            const candidateArtifact = pendingArtifactForCard(
-                              turnResult.adoption_state?.pending ?? [],
-                              card,
-                            );
-                            const cardArtifactActions = candidateArtifact
-                              ? visibleAvailableActions(turnResult).filter(
-                                  (action) => action.target_ref === candidateArtifact.artifact_id,
-                                )
-                              : [];
-                            return (
-                              <CandidateSetCard
-                                key={cardKey}
-                                card={card}
-                                selectionMode={selectionMode}
-                                renderArtifactActions={
-                                  cardArtifactActions.length > 0
-                                    ? () => renderTurnActionButtons(turnResult, cardArtifactActions)
-                                    : undefined
-                                }
-                                selectedItemId={selectedCandidateItemIds[selectionKey] ?? null}
-                                onSelectItem={
-                                  selectionMode
-                                    ? (itemId) => {
-                                        setSelectedCandidateItemIds((current) => ({
-                                          ...current,
-                                          [selectionKey]: itemId,
-                                        }));
-                                      }
-                                    : undefined
-                                }
-                                renderEmptySelectionActions={
-                                  selectionMode ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className={styles.btnSecondary}
-                                        disabled
-                                      >
-                                        {CARD.tentativeArtifact.candidateEmptyDiscardLabel}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className={styles.btnSecondary}
-                                        disabled
-                                      >
-                                        {CARD.tentativeArtifact.candidateEmptyEditLabel}
-                                      </button>
-                                      <button type="button" className={styles.btnPrimary} disabled>
-                                        {card.artifact_type === "work_skeleton_suggestion"
-                                          ? CARD.tentativeArtifact
-                                              .candidateEmptyAcceptWorkSkeletonLabel
-                                          : CARD.tentativeArtifact.candidateEmptyAcceptLabel}
-                                      </button>
-                                    </>
-                                  ) : undefined
-                                }
-                                renderItemActions={
-                                  isReadOnlySessionView || !msg.turnResult
-                                    ? undefined
-                                    : (item, index) => {
-                                        const itemActions = perItemAdoptionActions(
-                                          msg.turnResult!,
-                                          card,
-                                          item,
-                                        );
-                                        if (itemActions.length === 0) return null;
-                                        return itemActions.map((action) => (
-                                          <button
-                                            key={action.action_id}
-                                            type="button"
-                                            className={
-                                              selectionMode && action.action_type === "accept"
-                                                ? styles.btnPrimary
-                                                : styles.btnSecondary
+                    {msg.turnResult?.ui_cards?.map((card, ci) => {
+                      // 卡片集合由 ADR-0024 决策 3 冻结（07 §4.2）；
+                      // 历史仅恢复无动作的结果通告；其它决策面保留原只读边界。
+                      const turnResult = msg.turnResult;
+                      if (
+                        !turnResult ||
+                        (isReadOnlySessionView && card.card_type !== "result_card")
+                      )
+                        return null;
+                      const cardKey = `${card.card_type}:${ci}`;
+                      switch (card.card_type) {
+                        case "confirmation_card":
+                          return <ConfirmationCard key={cardKey} card={card} />;
+                        case "candidate_set": {
+                          const selectionMode = hasMultiplePerItemAdoptionUnits(turnResult, card);
+                          const selectionKey = `${turnResult.turn_id}:${
+                            card.candidate_set_ref ?? ci
+                          }`;
+                          const candidateArtifact = pendingArtifactForCard(
+                            turnResult.adoption_state?.pending ?? [],
+                            card,
+                          );
+                          const cardArtifactActions = candidateArtifact
+                            ? visibleAvailableActions(turnResult).filter(
+                                (action) => action.target_ref === candidateArtifact.artifact_id,
+                              )
+                            : [];
+                          return (
+                            <CandidateSetCard
+                              key={cardKey}
+                              card={card}
+                              selectionMode={selectionMode}
+                              renderArtifactActions={
+                                cardArtifactActions.length > 0
+                                  ? () => renderTurnActionButtons(turnResult, cardArtifactActions)
+                                  : undefined
+                              }
+                              selectedItemId={selectedCandidateItemIds[selectionKey] ?? null}
+                              onSelectItem={
+                                selectionMode
+                                  ? (itemId) => {
+                                      setSelectedCandidateItemIds((current) => ({
+                                        ...current,
+                                        [selectionKey]: itemId,
+                                      }));
+                                    }
+                                  : undefined
+                              }
+                              renderEmptySelectionActions={
+                                selectionMode ? (
+                                  <>
+                                    <button type="button" className={styles.btnSecondary} disabled>
+                                      {CARD.tentativeArtifact.candidateEmptyDiscardLabel}
+                                    </button>
+                                    <button type="button" className={styles.btnSecondary} disabled>
+                                      {CARD.tentativeArtifact.candidateEmptyEditLabel}
+                                    </button>
+                                    <button type="button" className={styles.btnPrimary} disabled>
+                                      {card.artifact_type === "work_skeleton_suggestion"
+                                        ? CARD.tentativeArtifact
+                                            .candidateEmptyAcceptWorkSkeletonLabel
+                                        : CARD.tentativeArtifact.candidateEmptyAcceptLabel}
+                                    </button>
+                                  </>
+                                ) : undefined
+                              }
+                              renderItemActions={
+                                isReadOnlySessionView || !msg.turnResult
+                                  ? undefined
+                                  : (item, index) => {
+                                      const itemActions = perItemAdoptionActions(
+                                        msg.turnResult!,
+                                        card,
+                                        item,
+                                      );
+                                      if (itemActions.length === 0) return null;
+                                      return itemActions.map((action) => (
+                                        <button
+                                          key={action.action_id}
+                                          type="button"
+                                          className={
+                                            selectionMode && action.action_type === "accept"
+                                              ? styles.btnPrimary
+                                              : styles.btnSecondary
+                                          }
+                                          disabled={action.enabled === false || loading}
+                                          title={actionTitle(msg.turnResult!, action)}
+                                          onClick={() => {
+                                            if (msg.turnResult) {
+                                              handleVisibleAvailableAction(msg.turnResult, action);
                                             }
-                                            disabled={action.enabled === false || loading}
-                                            title={actionTitle(msg.turnResult!, action)}
-                                            onClick={() => {
-                                              if (msg.turnResult) {
-                                                handleVisibleAvailableAction(
-                                                  msg.turnResult,
-                                                  action,
-                                                );
-                                              }
-                                            }}
-                                          >
-                                            {selectionMode
-                                              ? selectedCandidateActionLabel(
-                                                  action,
-                                                  index,
-                                                  card.artifact_type,
-                                                )
-                                              : actionLabel(msg.turnResult!, action)}
-                                          </button>
-                                        ));
-                                      }
-                                }
-                              />
-                            );
-                          }
-                          case "result_card":
-                            return <ResultCard key={cardKey} card={card} />;
-                          default:
-                            return <DefaultCard key={cardKey} card={card} />;
+                                          }}
+                                        >
+                                          {selectionMode
+                                            ? selectedCandidateActionLabel(
+                                                action,
+                                                index,
+                                                card.artifact_type,
+                                              )
+                                            : actionLabel(msg.turnResult!, action)}
+                                        </button>
+                                      ));
+                                    }
+                              }
+                            />
+                          );
                         }
-                      })}
+                        case "result_card":
+                          return <ResultCard key={cardKey} card={card} />;
+                        default:
+                          return <DefaultCard key={cardKey} card={card} />;
+                      }
+                    })}
 
                     {(() => {
                       const turnResult = msg.turnResult;
