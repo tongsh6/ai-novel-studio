@@ -1393,7 +1393,7 @@ defmodule NovelApplication.DialoguePlanningService do
                snapshot
              ) do
         stage_state =
-          Map.merge(result.stage_state || %{}, %{
+          Map.merge(Map.get(result, :stage_state) || %{}, %{
             pending_artifact_request: nil,
             pending_artifact_tool: nil,
             judgment_settled: "completed"
