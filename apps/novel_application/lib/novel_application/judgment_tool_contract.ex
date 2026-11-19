@@ -1,6 +1,8 @@
 defmodule NovelApplication.JudgmentToolContract do
   @moduledoc "B26：固定判断工具 schema 与同源字段校验，合法对象在派发前另行验证。"
 
+  alias NovelCommon.AuthorVisible.Text
+
   @version "b26-tools-v1"
   def version, do: @version
 
@@ -10,7 +12,7 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @plan_tool_description_suffix "必须与 judgment_decision(action=plan) 同一响应同批返回；单独返回非法。"
 
-  @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。"
+  @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。选择按钮标签必须非空且可区分，不能只靠首尾或重复空白；仅用已知事实区分，材料仍不可辨认时提出开放问题并用空 options，不追加内部引用或序号制造区分。"
 
   @text %{type: "string", minLength: 1}
   @strings %{type: "array", items: %{type: "string"}}
@@ -41,6 +43,30 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @doc "提问正文契约的唯一文案真源，供工具描述、prompt 和纠错回执共用。"
   def question_response_guidance, do: @question_response_guidance
+
+  @doc "校验已经过 schema 的提问选项；可见资格只比较投影，原字段不改写。"
+  def validate_question_options(options) do
+    values = Enum.map(options, &field(&1, :value))
+
+    labels =
+      options
+      |> Enum.reject(&(field(&1, :kind) == "free_text"))
+      |> Enum.map(&Text.html_normal(field(&1, :label)))
+
+    cond do
+      Enum.any?(options, &(Text.validate_narrative(field(&1, :label)) != :ok)) ->
+        {:error, :author_visible_narrative_invalid}
+
+      not (values == Enum.uniq(values) and Enum.all?(values, &(&1 == String.trim(&1)))) ->
+        {:error, :question_option_values_invalid}
+
+      labels != Enum.uniq(labels) ->
+        {:error, :question_option_labels_invalid}
+
+      true ->
+        :ok
+    end
+  end
 
   @doc "工具 schema 参数纠错与对应字段约束同属固定工具契约。"
   def invalid_arguments_guidance do

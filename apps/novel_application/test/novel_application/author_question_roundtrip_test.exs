@@ -254,7 +254,8 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
   end
 
   test "选项使用持久 label，不采用客户端替代文字；同一问题第二份提交被拒绝", scope do
-    {_id, source} = start_question(scope, [%{value: "keep", label: "保留悬念", recommended: true}])
+    label = "  保留悬念\nΩ\u00a0 "
+    {_id, source} = start_question(scope, [%{value: "keep", label: label, recommended: true}])
 
     assert {:ok, _} =
              AuthorQuestionService.reply(
@@ -263,7 +264,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
                input(source, "客户端伪造", "choice_1", "keep")
              )
 
-    assert_receive {:continued, %{text: "保留悬念", version: 2}, _}, 2000
+    assert_receive {:continued, %{text: ^label, version: 2}, _}, 2000
     saved = InteractionLifecycle.submission_input(scope.work, scope.session, "choice_1")
     assert saved.content["author_choice_value"] == "keep"
     assert saved.content["source_question_turn_ref"] == source["turn_id"]

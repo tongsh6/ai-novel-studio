@@ -472,8 +472,9 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp correction_content(:author_question_content_conflict),
-    do: JudgmentToolContract.question_response_guidance()
+  defp correction_content(reason)
+       when reason in [:author_question_content_conflict, :question_option_labels_invalid],
+       do: JudgmentToolContract.question_response_guidance()
 
   defp correction_content(:author_visible_narrative_invalid) do
     "作者叙述包含内部协议字段、对象/调用标识或基线指纹。请用作者能理解的名称和自然语言重新说明，" <>
@@ -1142,23 +1143,13 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp validate_operation("await_author", args, options) do
-    values = Enum.map(field(args, :options), &field(&1, :value))
-
-    cond do
-      Enum.any?(field(args, :options), &(Text.validate_narrative(field(&1, :label)) != :ok)) ->
-        {:error, :author_visible_narrative_invalid}
-
-      not (values == Enum.uniq(values) and Enum.all?(values, &(&1 == String.trim(&1)))) ->
-        {:error, :question_option_values_invalid}
-
+    with :ok <- JudgmentToolContract.validate_question_options(field(args, :options)) do
       # 作者指代可能已有的历史原文、只读探索可用且本轮尚无观察：先取证再问作者。
-      Keyword.get(options, :explore, false) and
-        Keyword.get(options, :observation_count, 0) == 0 and
-          AuthorContentRegistration.anaphoric_reference?(Keyword.get(options, :author_text, "")) ->
-        {:error, :explore_before_ask_required}
-
-      true ->
-        :ok
+      if Keyword.get(options, :explore, false) and
+           Keyword.get(options, :observation_count, 0) == 0 and
+           AuthorContentRegistration.anaphoric_reference?(Keyword.get(options, :author_text, "")),
+         do: {:error, :explore_before_ask_required},
+         else: :ok
     end
   end
 

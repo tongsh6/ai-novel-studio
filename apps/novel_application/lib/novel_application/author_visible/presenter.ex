@@ -235,11 +235,11 @@ defmodule NovelApplication.AuthorVisible.Presenter do
        })
        when is_binary(name) and name != "" and is_list(aliases) do
     with true <- Enum.all?(aliases, &is_binary/1),
-         name when name != "" <- character_identity_text(name),
+         name when name != "" <- Text.html_normal(name),
          {:ok, role_label} <- narrative_role_label(narrative_role) do
       aliases =
         aliases
-        |> Enum.map(&character_identity_text/1)
+        |> Enum.map(&Text.html_normal/1)
         |> Enum.reject(&(&1 == ""))
         |> Enum.uniq()
         |> Enum.sort()
@@ -258,16 +258,10 @@ defmodule NovelApplication.AuthorVisible.Presenter do
 
   defp character_identity(_target), do: {:error, :display_target_missing}
 
-  # 身份在卡片中按 HTML normal 显示；资格判定必须比较同一可见投影。
-  # 仅折叠 ASCII 可折叠空白，不改写事实或不换行空格等可见身份材料。
-  defp character_identity_text(text) do
-    text |> String.replace(~r/[ \t\n\r\f]+/, " ") |> String.trim(" ")
-  end
-
   defp optional_character_detail(_title, nil), do: []
 
   defp optional_character_detail(title, value) when is_binary(value) do
-    case character_identity_text(value) do
+    case Text.html_normal(value) do
       "" -> []
       text -> ["#{title}：#{text}"]
     end

@@ -26,6 +26,11 @@ defmodule NovelCommon.AuthorVisible.Text do
     raise ArgumentError, "author-visible text must not be empty"
   end
 
+  @doc "HTML normal 展示/比较共用的 ASCII 空白投影；不改写模型原值或 NBSP 等其它字符。"
+  @spec html_normal(String.t()) :: String.t()
+  def html_normal(text) when is_binary(text),
+    do: text |> String.replace(~r/[ \t\n\r\f]+/, " ") |> String.trim(" ")
+
   @doc "按共用协议字段/ref规则校验模型叙述；自然用语和姓名不套用固定UI文案规则，不改写文本。"
   @spec validate_narrative(String.t()) :: :ok | {:error, :author_visible_narrative_invalid}
   def validate_narrative(text) when is_binary(text) do

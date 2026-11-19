@@ -75,6 +75,14 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
   end
 
   describe "Text" do
+    test "HTML normal 投影只折叠可观察为同一间隔的 ASCII 空白，原值保持" do
+      original = " \t林澈 \r\n调查员\f "
+      assert Text.html_normal(original) == "林澈 调查员"
+      assert Text.html_normal(" \t\r\n\f") == ""
+      assert Text.html_normal("林澈\u00a0调查员") == "林澈\u00a0调查员"
+      assert Text.text(Text.new(original)) == original
+    end
+
     test "narrative 校验拒绝内部协议与真实身份形状，不生成清洗文本" do
       for text <- [
             "角色 character:e9fe5f90-c939-4f9e-abee-da235d1eaa45",

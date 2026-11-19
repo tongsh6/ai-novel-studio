@@ -369,6 +369,98 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
     assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
   end
 
+  test "不可辨认角色不能用同可见标签的不同目标选项伪装已澄清", ctx do
+    other = duplicate_role(ctx)
+    input = role_judgment_input(ctx, [source_observation(ctx)])
+
+    # 空白标签属于既有非空 schema；其它反例补可见投影的选择唯一性。
+    for {labels, reason} <- [
+          {["林澈", "林澈"], :question_option_labels_invalid},
+          {["  林澈 ", "林澈"], :question_option_labels_invalid},
+          {["林澈\t调查员", "林澈 调查员"], :question_option_labels_invalid},
+          {["林澈\r\n调查员", "林澈 调查员"], :question_option_labels_invalid},
+          {[" \t\r\n\f "], :invalid_tool_arguments}
+        ] do
+      options =
+        Enum.zip_with([ctx.ref, "character:#{other.id}"], labels, &%{value: &1, label: &2})
+
+      ask = %{
+        id: "role-ambiguous-choice",
+        name: "ask_author",
+        arguments: %{
+          question: "哪位林澈需要修订？",
+          options: options
+        }
+      }
+
+      provider =
+        role_execution([
+          role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
+          role_response("", [ask], "second")
+        ])
+
+      assert {:error, {:judgment_protocol_violation, ^reason}, state} =
+               NovelApplication.JudgmentProtocol.request_judgment(provider, %{}, input)
+
+      assert state.provider_call_count == 2
+
+      assert Enum.any?(state.judgment_transcript.messages, fn message ->
+               Enum.any?(message.blocks, fn block ->
+                 block[:type] == "validation_result" and block[:status] == "failed" and
+                   block[:call_id] == "role-ambiguous-choice" and
+                   block[:reason_code] == Atom.to_string(reason)
+               end)
+             end)
+    end
+
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  test "同标签首答纠错后才交付可区分选项，question和label原字节保持", ctx do
+    input = role_judgment_input(ctx, [source_observation(ctx)])
+    question = "  先补充身份信息，还是暂缓本次修订？\n"
+    bad_options = [%{value: "clarify", label: "继续"}, %{value: "pause", label: "继续"}]
+    options = [%{value: "clarify", label: "  补充身份说明\n"}, %{value: "pause", label: " 暂缓修订\t"}]
+
+    bad = %{
+      id: "role-ambiguous-choice",
+      name: "ask_author",
+      arguments: %{question: question, options: bad_options}
+    }
+
+    good = %{
+      id: "role-clear-choice",
+      name: "ask_author",
+      arguments: %{question: question, options: options}
+    }
+
+    provider =
+      role_execution([
+        role_response("", [bad], "labels-first"),
+        role_response("", [good], "labels-second")
+      ])
+
+    assert {:ok, judgment} =
+             NovelApplication.JudgmentProtocol.request_judgment(provider, %{}, input)
+
+    assert judgment.provider_call_count == 2
+    assert judgment.question == question
+    assert judgment.options == options
+    assert judgment.narrative_source.provider_call_ref == "call-role-labels-second"
+
+    result =
+      NovelApplication.AuthorQuestion.attach(
+        %{turn_id: "role-choice-turn"},
+        judgment,
+        input.options[:plan_run]
+      )
+
+    assert result.author_question.options == options
+
+    assert Enum.map(Enum.take(result.available_actions, 2), &{&1.candidate_ref, &1.label}) ==
+             [{"clarify", "  补充身份说明\n"}, {"pause", " 暂缓修订\t"}]
+  end
+
   test "JP 真实 ask_author 才能把不可辨认角色交给作者决定，保留原失败回执", ctx do
     duplicate_role(ctx)
     question = "两份林澈档案的姓名、别名和身份相同，请先补充能区分他们的信息。"
