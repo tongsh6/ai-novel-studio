@@ -13,6 +13,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   alias NovelAgent.Provider.{Execution, NativeToolExchange}
   alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
+  alias NovelCommon.AuthorVisible.Text
   alias NovelDomain.{AgentPlan, AgentRun}
 
   @draft_tool_name "agent_plan_draft"
@@ -156,10 +157,10 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     result_fn =
       provider_execution
       |> Execution.with_purpose(purpose)
-      |> Execution.with_content_visibility(:author)
+      |> Execution.with_content_visibility(:developer)
       |> ProviderActivityProjector.with_stage_sink(snapshot,
         purpose: :planner,
-        content_visibility: :author
+        content_visibility: :developer
       )
       |> Execution.result_fn()
 
@@ -262,22 +263,20 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   # 只绑定当前有效响应；纠正调用不能沿用失败响应的作者文字。
   defp resolve_narrative(ctx, parsed) do
-    content =
-      ctx.provider_result
-      |> map_get(:content)
-      |> to_string()
-      |> String.trim()
+    content = ctx.provider_result |> map_get(:content) |> to_string()
+    tool_reasoning = parsed |> map_get(:author_reasoning) |> to_string()
 
-    tool_reasoning =
-      parsed
-      |> map_get(:author_reasoning)
-      |> to_string()
-      |> String.trim()
+    selected =
+      cond do
+        String.trim(content) != "" -> {:ok, content, :content}
+        String.trim(tool_reasoning) != "" -> {:ok, tool_reasoning, :tool_arguments}
+        true -> {:error, :reasoning_text_required}
+      end
 
-    cond do
-      content != "" -> {:ok, content, :content, ctx.provider_result}
-      tool_reasoning != "" -> {:ok, tool_reasoning, :tool_arguments, ctx.provider_result}
-      true -> {:error, :reasoning_text_required}
+    # 起草、修订和 inline plan 共用实际选中的来源；不改写原文，也不以另一字段逃逸校验。
+    with {:ok, text, origin} <- selected,
+         :ok <- Text.validate_narrative(text) do
+      {:ok, text, origin, ctx.provider_result}
     end
   end
 
@@ -869,9 +868,18 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp plan_feedback(%{reason: reason}, run, tool_name) do
     targets = allowed_targets(run)
 
+    narrative_requirement =
+      if reason == :author_visible_narrative_invalid do
+        "作者说明含内部协议字段或内部身份。请重写实际正文来源，使用作者可读的角色名和章名；" <>
+          "有非空 assistant content 时先修正 content，不能只将 author_reasoning 改干净。"
+      else
+        ""
+      end
+
     message =
       """
       你上一次的 AgentRun 计划 tool call 无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
+      #{narrative_requirement}
       - 必须调用 #{tool_name}，且只调用这一个 tool（function name 必须是 #{tool_name}，不能把 auto 当 function name）。
       - arguments 是 JSON object，顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence。
       - plan 只是其中一个顶层字段，不能只返回 {"plan":{...}}；四个顶层字段缺一不可，不要添加 status、title、body 等额外字段。

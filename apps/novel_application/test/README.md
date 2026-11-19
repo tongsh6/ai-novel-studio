@@ -13,6 +13,7 @@
 - [novel_application/judgment_paged_sources_test.exs](novel_application/judgment_paged_sources_test.exs)：真实判断循环的候选目录、候选全文、记忆全文分页；两轮普通读取与额外续页预算、下一请求材料及来源绑定。
 
 - [novel_application/agentic_plan_completed_prefix_test.exs](novel_application/agentic_plan_completed_prefix_test.exs)：已完成计划前缀的纯不变量；保留、改写、缺失及无当前计划边界，与真实 Provider/IR 规划编排测试分离，不复制 Provider 支撑。
+- [novel_application/agentic_plan_narrative_test.exs](novel_application/agentic_plan_narrative_test.exs)：计划起草、修订与同批计划的作者叙述接收；独立原文字节、来源字段、拒绝后真实调用纠错与调用预算，复用 test_helper 的既有计划夹具。
 
 - [test_helper.exs](test_helper.exs)：启动 ExUnit/Sandbox，定义 `NovelApplication.TestAssertions` 与 `NovelApplication.TestAgenticLoopFixtures`。`prompt_text/1` 对 `%NovelCommon.RequestIR{}` 读取 canonical `role/blocks`，对 binary 或 Gateway 注入后的真实 system/user list 复用 `NovelTest.TestProviderPrompt.text/1`；`message_text/1` 只提取消息文本块，不合成 canonical 字段。
 - [support/README.md](support/README.md)：可被 `novel_application` 与 `novel_web` 共同加载的测试生命周期 helper 索引。

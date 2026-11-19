@@ -173,6 +173,173 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
     assert [%{sequence: 1}] = persisted_events
   end
 
+  for {operation, tool_name} <- [
+        {:draft_plan_with_meta, "agent_plan_draft"},
+        {:revise_plan_with_meta, "agent_plan_revision"}
+      ] do
+    @plan_operation operation
+    @plan_tool_name tool_name
+
+    test "#{tool_name} 跨片段内部身份在验收前不公开，原始 Provider 证据仍完整持久" do
+      run = %{
+        agent_run(unique("run-plan-narrative"))
+        | profile_ref: "judgment_plan_v1",
+          authority_scope: %{production_write: false, allowed_tools: ["archive_read"]}
+      }
+
+      owner = self()
+      chunks = ["准备读取 charac", "ter:e9fe5f90-c939-4f9e-abee-", "da235d1eaa45。"]
+      leaked = Enum.join(chunks)
+
+      arguments = %{
+        "author_reasoning" => "先读取作品材料，再安排下一步。",
+        "plan" => %{
+          "steps" => [
+            %{
+              "step_id" => "read-context",
+              "kind" => "explore",
+              "description" => "读取作品材料",
+              "success_criteria" => ["作品材料已读取"],
+              "target_tool_ref" => "context_assemble"
+            }
+          ]
+        },
+        "reason_codes" => ["agent_plan_drafted"],
+        "confidence" => 0.9
+      }
+
+      execution = %Execution{
+        result_fn: fn _request ->
+          provider_run_id = unique("prun-plan-narrative")
+          call_ref = unique("pcall-plan-narrative")
+
+          tool_calls = [
+            %{"id" => "tool-#{call_ref}", "name" => @plan_tool_name, "arguments" => arguments}
+          ]
+
+          events =
+            for {delta, sequence} <- Enum.with_index(chunks, 1) do
+              provider_event(provider_run_id, call_ref, unique("chunk"), sequence, :chunk, %{
+                payload: %{author_narrative_delta: delta, chunk_index: sequence}
+              })
+            end
+
+          {:ok,
+           %{
+             provider_run:
+               provider_run(provider_run_id, call_ref, :completed, %{purpose: :planner}),
+             events: events,
+             output:
+               provider_output(provider_run_id, call_ref, %{
+                 content: %{text: leaked, tool_calls: tool_calls}
+               }),
+             result: Result.new(leaked, nil, tool_calls: tool_calls)
+           }}
+        end
+      }
+
+      snapshot = %{
+        run: run,
+        stage_sink: fn event ->
+          send(owner, {
+            :plan_progress,
+            event,
+            ProviderRunLog.list_events(event.payload.provider_run_ref),
+            ProviderRunLog.get_output(event.payload.provider_run_ref)
+          })
+        end
+      }
+
+      result =
+        apply(NovelApplication.AgenticPlanDraftPlanner, @plan_operation, [
+          run,
+          execution,
+          snapshot
+        ])
+
+      for _attempt <- 1..2, _chunk <- chunks do
+        assert_receive {:plan_progress, event, stored, output}
+        assert event.visibility == :developer
+        assert Map.get(event.payload, :author_narrative_delta) == nil
+        assert Enum.map(stored, & &1.payload["author_narrative_delta"]) == chunks
+
+        assert output.content_summary["content_sha256"] ==
+                 Base.encode16(:crypto.hash(:sha256, leaked), case: :lower)
+      end
+
+      refute_receive {:plan_progress, _, _, _}, 10
+
+      assert {:error, {:agent_plan_protocol_violation, :author_visible_narrative_invalid}, meta} =
+               result
+
+      assert meta.provider_call_count == 2
+    end
+  end
+
+  test "判断说明接受前只保留开发者进度和原始证据，不把流式片段发布给作者" do
+    run = agent_run(unique("run-judgment-narrative"))
+    owner = self()
+    leaked = "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
+
+    execution = %Execution{
+      result_fn: fn _request ->
+        provider_run_id = unique("prun-judgment-narrative")
+        call_ref = unique("pcall-judgment-narrative")
+
+        chunk =
+          provider_event(provider_run_id, call_ref, unique("chunk"), 1, :chunk, %{
+            payload: %{author_narrative_delta: leaked, chunk_index: 1}
+          })
+
+        {:ok,
+         %{
+           provider_run:
+             provider_run(provider_run_id, call_ref, :completed, %{purpose: :planner}),
+           events: [chunk],
+           output: provider_output(provider_run_id, call_ref, %{content: %{text: leaked}}),
+           result: Result.new(leaked)
+         }}
+      end
+    }
+
+    snapshot = %{
+      run: run,
+      stage_sink: fn event ->
+        send(
+          owner,
+          {:judgment_progress, event, ProviderRunLog.list_events(event.payload.provider_run_ref),
+           ProviderRunLog.get_output(event.payload.provider_run_ref)}
+        )
+      end
+    }
+
+    input = %{
+      author_text: "核对角色身份",
+      source_input_ref: run.parent_turn_ref,
+      scope: %{work_id: run.work_id, facts: %{}, context: %{}, coverage: %{}},
+      options: [plan_run: run]
+    }
+
+    result = NovelApplication.JudgmentProtocol.request_judgment(execution, snapshot, input)
+
+    for _ <- 1..2 do
+      assert_receive {:judgment_progress, event, [stored], output}
+      assert event.visibility == :developer
+      assert Map.get(event.payload, :author_narrative_delta) == nil
+      assert stored.payload["author_narrative_delta"] == leaked
+
+      assert output.content_summary["content_sha256"] ==
+               Base.encode16(:crypto.hash(:sha256, leaked), case: :lower)
+    end
+
+    refute_receive {:judgment_progress, _, _, _}, 10
+
+    assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, state} =
+             result
+
+    assert state.provider_call_count == 2
+  end
+
   test "public chunk bytes do not become the required event summary, including whitespace" do
     run_id = unique("run-projector-whitespace")
     provider_run_id = unique("prun-projector-whitespace")
