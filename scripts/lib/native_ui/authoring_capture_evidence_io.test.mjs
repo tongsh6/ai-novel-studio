@@ -25,6 +25,8 @@ import {
   G2_VISIBLE_TARGET,
   G3_MESSAGE,
   LIVE_MODEL,
+  R05_BUDGET,
+  R05_CASES,
   SESSION,
   WORK,
 } from "./fixtures/authoring_capture_facts.mjs";
@@ -609,6 +611,100 @@ test("G2 Splash 预检 CLI 按显式 provider 校验同一冻结副本", () => {
     const wrong = spawnSync(process.execPath, [cli, "validate-preregistration", file, dir, "strata"], { encoding: "utf8" });
     assert.notEqual(wrong.status, 0);
     assert.match(wrong.stderr, /provider/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+function r05Preregistration(dir, scenario = R05_CASES[0]) {
+  splashPreregistration(dir, { scenarioId: scenario.id, message: scenario.message,
+    authorVisibleTarget: scenario.target });
+  const value = JSON.parse(fs.readFileSync(path.join(dir, "preregistration.json"), "utf8"));
+  value.budget = { ...R05_BUDGET };
+  value.scenarios[0].slice_id = "b71-first-consumer";
+  value.scenarios[0].seed = {
+    script: scenario.seed_script, sha256: shaFile(path.resolve(scenario.seed_script)),
+  };
+  writeJson(dir, "preregistration.json", value);
+  return value;
+}
+
+test("R05 prepare/readConfig 共用冻结场景、原文、目标、seed字节和900秒owned预算", () => {
+  for (const scenario of R05_CASES) {
+    const dir = tempDir("r05-capture-");
+    try {
+      splashReady(dir);
+      const manifest = r05Preregistration(dir, scenario);
+      const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+        dir, provider: "splash", scenarioId: scenario.id,
+      });
+      assert.deepEqual(record.author_visible_target, scenario.target);
+      assert.deepEqual(record.seed, manifest.scenarios[0].seed);
+      assert.deepEqual(record.budget, R05_BUDGET);
+      prepare(dir);
+      const config = readConfig(dir);
+      assert.equal(config.scenario_id, scenario.id);
+      assert.equal(config.message, scenario.message);
+      assert.deepEqual(config.author_visible_target, scenario.target);
+      assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+      assert.deepEqual(config.budget, R05_BUDGET);
+      assert.equal(config.target, undefined);
+      assert.equal(fs.existsSync(path.join(dir, "strata-slot.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test("R05 错原文/对象/seed/预算/slice 的预登记在启动之前拒绝，不能借任意Splash场景过关", () => {
+  const changes = [
+    ["作者原文", (value) => { value.scenarios[0].message += "另加要求"; }],
+    ["作品", (value) => { value.scenarios[0].author_visible_target.work_title = "另一作品"; }],
+    ["章节", (value) => { value.scenarios[0].author_visible_target.chapter_title = "第1章：灰烬中的手印"; }],
+    ["摘录", (value) => { value.scenarios[0].author_visible_target.reading_excerpt = "伪造摘录"; }],
+    ["缺种子", (value) => { delete value.scenarios[0].seed; }],
+    ["错种子", (value) => { value.scenarios[0].seed = {
+      script: "scripts/seed_ca04_carry_gaps.exs",
+      sha256: shaFile(path.resolve("scripts/seed_ca04_carry_gaps.exs")),
+    }; }],
+    ["错字节", (value) => { value.scenarios[0].seed.sha256 = "0".repeat(64); }],
+    ["缺预算", (value) => { delete value.budget; }],
+    ["加发送", (value) => { value.budget.author_sends = 2; }],
+    ["加重试", (value) => { value.budget.manual_retries = 1; }],
+    ["延长整批", (value) => { value.budget.scenario_seconds = 901; }],
+    ["换slice", (value) => { value.scenarios[0].slice_id = "b71-authoring-revision"; }],
+  ];
+  for (const [label, change] of changes) {
+    const dir = tempDir("r05-invalid-");
+    try {
+      const value = r05Preregistration(dir);
+      change(value);
+      writeJson(dir, "preregistration.json", value);
+      assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+        dir, provider: "splash", scenarioId: R05_CASES[0].id,
+      }), undefined, label);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test("R05 不能借Strata或篡改后配置恢复本批资格", () => {
+  const dir = tempDir("r05-binding-");
+  try {
+    splashReady(dir);
+    const value = r05Preregistration(dir);
+    value.model.provider = "strata";
+    value.model.model = LIVE_MODEL;
+    writeJson(dir, "preregistration.json", value);
+    assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+      dir, provider: "strata", model: LIVE_MODEL, scenarioId: R05_CASES[0].id,
+    }), /R05|splash|provider/u);
+    r05Preregistration(dir);
+    prepare(dir);
+    const config = readConfig(dir);
+    writeJson(dir, "native-b71-config.json", { ...config,
+      seed: { ...config.seed, sha256: "0".repeat(64) } });
+    assert.throws(() => readConfig(dir), /seed|种子/u);
+    writeJson(dir, "native-b71-config.json", { ...config,
+      budget: { ...config.budget, scenario_seconds: 901 } });
+    assert.throws(() => readConfig(dir), /budget|预算/u);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

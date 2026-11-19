@@ -25,6 +25,34 @@ export const write = (dir, file, value) => {
 // 可重算的派生证据允许重写（同一批次重复核验时不扩展事实）。
 export const rewrite = (dir, file, value) =>
   fs.writeFileSync(path.join(dir, file), JSON.stringify(value, null, 2));
+// 成本原生批次与固定同输入配对共用：派生报告保留先前产物，不覆盖原件。
+function derivedFile(file) {
+  if (!fs.existsSync(file)) return file;
+  const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
+  const extension = path.extname(file);
+  return `${file.slice(0, -extension.length)}.${stamp}${extension}`;
+}
+
+export function writeDerivedJson(file, value) {
+  const output = derivedFile(file);
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  rewrite(path.dirname(output), path.basename(output), value);
+}
+
+export function writeDerivedText(file, value) {
+  const output = derivedFile(file);
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, value);
+}
+
+export function markdownTable(rows, header) {
+  return [
+    `| ${header.join(" | ")} |`,
+    `|${header.map(() => "---").join("|")}|`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n");
+}
+
 export const jsonl = (file) =>
   fs
     .readFileSync(file, "utf8")

@@ -68,12 +68,14 @@ function rewriteRecords(dir, records) {
 
 // 预注册副本冻结在本批目录内：evidence.dir 指向工作副本，配置标记用同一哈希。
 // 普通 live 不写 author_visible_target；b82-g2/b82-g3 写入冻结目标。
-function bindPreregistration(dir, { scenarioId = null, authorVisibleTarget = null, message = AUTHOR } = {}) {
+function bindPreregistration(dir, { scenarioId = null, authorVisibleTarget = null, message = AUTHOR,
+  model = { provider: "strata", model: "iq3_s" }, runtime = null } = {}) {
   const file = path.join(dir, "preregistration.json");
   const text = JSON.stringify(
     {
       id: "b82-live-sse-prereg",
-      model: { provider: "strata", model: "iq3_s" },
+      model,
+      ...(runtime ? { runtime } : {}),
       scenarios: [{
         ...(scenarioId ? { id: scenarioId } : {}),
         ...(authorVisibleTarget ? { author_visible_target: authorVisibleTarget } : {}),
@@ -88,11 +90,12 @@ function bindPreregistration(dir, { scenarioId = null, authorVisibleTarget = nul
   const configFile = path.join(dir, "native-b71-config.json");
   const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
   config.message = message;
+  config.provider = model.provider;
   if (authorVisibleTarget) config.author_visible_target = authorVisibleTarget;
   else delete config.author_visible_target;
-  config.preregistration = { id: "b82-live-sse-prereg", sha256: sha256(text), model: "iq3_s" };
+  config.preregistration = { id: "b82-live-sse-prereg", sha256: sha256(text), model: model.model };
   writeJson(configFile, config);
-  return { id: "b82-live-sse-prereg", sha256: sha256(text), model: "iq3_s" };
+  return config.preregistration;
 }
 
 function assertVisiblePreregistration(copy, mode) {
@@ -349,6 +352,84 @@ test("B82 冻结 live：b82-g3 旧回合候选不能代签本次只读完成", (
     assert.equal(summary.verdict.author_visible, "pass");
     assert.equal(summary.author_visible.observed.pending_candidate, false);
     assert.equal(summary.author_visible.observed.save_action, false);
+  });
+});
+
+
+function bindSplashVisible(copy) {
+  const model = { provider: "splash", model: "local/Q4-PLE4", thinking: "enabled",
+    reasoning_effort: "high", max_tokens: 32000, timeout_ms: 300000, context_window: 262144 };
+  const runtime = { profile: "b87-r03-splash-product-maintenance-budget",
+    context_pressure: { window: 32000, maintenance_ratio: 0.70 },
+    auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false };
+  bindPreregistration(copy.dir, { scenarioId: "b82-g2", authorVisibleTarget: G2_VISIBLE_TARGET,
+    message: G2_MESSAGE, model, runtime });
+  const observed = { schema: "b87-r01-runtime-facts/v1", mix_env: "test",
+    provider: { selected: "splash", model: "local/Q4-PLE4", endpoint: "http://127.0.0.1:8000" },
+    context_pressure: { provider: "splash", window: 32000, maintenance_ratio: 0.70 },
+    auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false };
+  const text = JSON.stringify(observed, null, 2);
+  fs.writeFileSync(path.join(copy.dir, "runtime-facts.json"), text);
+  const configFile = path.join(copy.dir, "native-b71-config.json");
+  const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+  config.runtime = { profile: runtime.profile, observed, facts_sha256: sha256(text) };
+  writeJson(configFile, config);
+  for (const file of ["native-driver-ready.json", "native-b71-driver-log.json"]) {
+    const value = JSON.parse(fs.readFileSync(path.join(copy.dir, file), "utf8"));
+    value.provider = "splash";
+    value.model = model.model;
+    delete value.strata;
+    writeJson(path.join(copy.dir, file), value);
+  }
+  fs.rmSync(path.join(copy.dir, "strata-slot.json"));
+  return config;
+}
+
+test("G2 Splash 页面证据消费实际 runtime，不要求或伪造外部模型卸载", () => {
+  withWorkingCopy(visibleTemplate("candidate"), (copy) => {
+    const config = bindSplashVisible(copy);
+    const { checks, summary } = verifyLiveBatch(copy.dir);
+    assert.equal(summary.provider, "splash");
+    assert.equal(summary.model, "local/Q4-PLE4");
+    assert.equal(summary.verdict.author_visible, "pass");
+    assert.equal(summary.surface, "tauri-native");
+    assert.equal(summary.all_checks_passed, true);
+    assert.equal(summary.status, "pass");
+    assert.equal(summary.strata_slot, undefined);
+    assert.deepEqual(summary.runtime, config.runtime);
+    assert.equal(checks.measured.provider, "splash");
+    assert.equal(checks.measured.strata_slot, undefined);
+    assert.equal(fs.existsSync(path.join(copy.dir, "strata-slot.json")), false);
+    assert(summary.not_signed.includes("mechanism"));
+  });
+});
+
+test("G2 Splash 页面不能以真实 runtime 掩盖错 provider/模型的 driver 或 ready", () => {
+  for (const [file, field, value] of [
+    ["native-b71-driver-log.json", "provider", "strata"],
+    ["native-b71-driver-log.json", "model", "other-model"],
+    ["native-driver-ready.json", "provider", "strata"],
+  ]) {
+    withWorkingCopy(visibleTemplate("candidate"), (copy) => {
+      bindSplashVisible(copy);
+      const target = path.join(copy.dir, file);
+      writeJson(target, { ...JSON.parse(fs.readFileSync(target, "utf8")), [field]: value });
+      assert.throws(() => verifyLiveBatch(copy.dir), /provider|模型|model/);
+      assert.equal(fs.existsSync(path.join(copy.dir, "summary.json")), false);
+    });
+  }
+});
+
+test("G2 Splash 可见失败保留失败报告，runtime 合法不能代签候选", () => {
+  withWorkingCopy(visibleTemplate("candidate"), (copy) => {
+    bindSplashVisible(copy);
+    fs.writeFileSync(path.join(copy.dir, "final.text.txt"), [G2_MESSAGE, "这次处理失败，未产生候选。"].join("\n"));
+    assert.throws(() => verifyLiveBatch(copy.dir), /作者可见证据未成立/);
+    const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
+    assert.equal(summary.status, "fail");
+    assert.equal(summary.all_checks_passed, false);
+    assert.equal(summary.verdict.author_visible, "fail");
+    assert.equal(summary.provider, "splash");
   });
 });
 

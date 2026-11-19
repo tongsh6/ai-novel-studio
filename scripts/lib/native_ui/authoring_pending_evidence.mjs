@@ -666,15 +666,15 @@ function resolvedByRef(facts, artifactId) {
 }
 
 function resolvedExact(facts, expected) {
-  if (!isObject(expected)) return false;
+  if (!isObject(expected) || !nonBlank(expected.artifact_id) || !nonBlank(expected.status) ||
+      !nonBlank(expected.title) || !hasOwn(expected, "revision_of")) return false;
   const matches = resolvedByRef(facts, expected.artifact_id);
   if (matches.length !== 1) return false;
   const entry = matches[0];
   return allOf(
     entry.status === expected.status,
-    entry.body_preview === expected.body,
-    expected.title === undefined || entry.title === expected.title,
-    expected.revision_of === undefined || entry.revision_of === expected.revision_of,
+    entry.title === expected.title,
+    hasOwn(entry, "revision_of") && entry.revision_of === expected.revision_of,
   );
 }
 
@@ -713,12 +713,10 @@ export function scopeFactsChecks(facts, { source, revision } = {}) {
   };
 }
 
-function acceptedContentConsumed(accepted, reply) {
-  return accepted.some(
-    (entry) =>
-      (nonBlank(entry.body_preview) && reply.includes(entry.body_preview)) ||
-      (nonBlank(entry.title) && reply.includes(entry.title)),
-  );
+function acceptedArtifactIdentified(accepted, reply) {
+  return accepted.some((entry) =>
+    (nonBlank(entry.artifact_ref) && reply.includes(entry.artifact_ref)) ||
+    (nonBlank(entry.title) && reply.includes(entry.title)));
 }
 
 function replyNoWrite(turnResult) {
@@ -740,7 +738,7 @@ export function followupReplyChecks({ turnResult, providerContent, facts } = {})
     reply_consumes_resolved_statuses:
       statusesPresent(resolved, ["ACCEPTED", "DISCARDED"]) &&
       statuses.every((status) => reply.includes(status)),
-    reply_consumes_accepted_content: acceptedContentConsumed(accepted, reply),
+    reply_identifies_accepted_artifact: acceptedArtifactIdentified(accepted, reply),
     reply_no_production_write: replyNoWrite(turnResult),
   };
 }

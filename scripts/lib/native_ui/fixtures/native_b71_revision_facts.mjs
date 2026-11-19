@@ -373,10 +373,11 @@ function sourceResult() {
   return {
     turn_id: SOURCE_TURN,
     status: "conversational",
+    work_id: WORK, session_id: SESSION,
     phase: "completed",
     agent_run: {
       run_id: SOURCE_RUN,
-      status: "completed",
+      status: "running",
       run_mode: "bounded",
       profile_ref: "prose_drafting_with_quality_v1",
       parent_turn_ref: USER_TURN,
@@ -400,10 +401,11 @@ function childResult() {
   return {
     turn_id: CHILD_TURN,
     status: "conversational",
+    work_id: WORK, session_id: SESSION,
     phase: "completed",
     agent_run: {
       run_id: CHILD_RUN,
-      status: "completed",
+      status: "running",
       run_mode: "bounded",
       profile_ref: "prose_revision_from_findings_v1",
       parent_turn_ref: SOURCE_TURN,

@@ -3,7 +3,7 @@
 // 并在 source→revision→Why→accept→discard→restore→followup 顺序推进。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { drivePending, isCompletedTurn, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
+import { drivePending, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -83,6 +83,9 @@ function buildWire() {
       adoption_state: { pending: [], resolved: [{ artifact_id: artifactId, adoption_status: payload.action_type === "accept" ? "ACCEPTED" : "DISCARDED" }] },
     }]),
   ];
+  const completed = (offset, runId, turnId) => frame(iso(offset), "received", [null, null, TOPIC, "agent_run_state", {
+    run_id: runId, parent_turn_ref: turnId, workspace_id: WORK, work_id: WORK, session_id: SESSION, status: "completed",
+  }]);
   const sourceArtifact = { artifact_id: SOURCE_ID, artifact_type: "world_setting", payload: { items: [{ item_id: "s", title: SOURCE_TITLE, body: SOURCE_BODY, rationale: null }] } };
   const revisionArtifact = { artifact_id: REVISION_ID, artifact_type: "world_setting", payload: { revision_of: SOURCE_ID, items: [{ item_id: "r", title: REVISION_TITLE, body: REVISION_BODY, rationale: "r" }] } };
   const acceptAction = { action_id: `accept:${REVISION_ID}`, action_type: "accept", idempotency_key: `idem:${REVISION_TURN}:accept:${REVISION_ID}`, source_turn_ref: REVISION_TURN, target_ref: REVISION_ID, enabled: true };
@@ -99,21 +102,23 @@ function buildWire() {
         turn_id: SOURCE_TURN,
         work_id: WORK,
         session_id: SESSION,
-        agent_run: { run_id: SOURCE_RUN, status: "completed", parent_turn_ref: SOURCE_TURN },
+        agent_run: { run_id: SOURCE_RUN, status: "running", parent_turn_ref: SOURCE_TURN },
         assistant_message: { text: "" },
         adoption_state: { pending: [sourceArtifact], resolved: [] },
         available_actions: [discardAction],
       }]),
+      completed(1002, SOURCE_RUN, SOURCE_TURN),
       ...user(2000, "join-a", "req-revision", REVISION_TURN, config.revision_message, REVISION_RUN),
       frame(iso(2000), "received", [null, null, TOPIC, "turn_result", {
         turn_id: REVISION_TURN,
         work_id: WORK,
         session_id: SESSION,
-        agent_run: { run_id: REVISION_RUN, status: "completed", parent_turn_ref: REVISION_TURN },
+        agent_run: { run_id: REVISION_RUN, status: "running", parent_turn_ref: REVISION_TURN },
         assistant_message: { text: "" },
         adoption_state: { pending: [revisionArtifact], resolved: [] },
         available_actions: [acceptAction],
       }]),
+      completed(2002, REVISION_RUN, REVISION_TURN),
       frame(iso(2500), "http", null),
       ...action(3000, "req-accept", acceptAction, "accepted", "adopt", REVISION_ID, REVISION_TURN, "turn-accept"),
       ...action(4000, "req-discard", discardAction, "discarded", "discard", SOURCE_ID, SOURCE_TURN, "turn-discard"),
@@ -124,10 +129,11 @@ function buildWire() {
         turn_id: FOLLOWUP_TURN,
         work_id: WORK,
         session_id: SESSION,
-        agent_run: { run_id: FOLLOWUP_RUN, status: "completed", parent_turn_ref: FOLLOWUP_TURN },
+        agent_run: { run_id: FOLLOWUP_RUN, status: "running", parent_turn_ref: FOLLOWUP_TURN },
         assistant_message: { text: "已处置 ACCEPTED / DISCARDED。" },
         adoption_state: { pending: [], resolved: [] },
       }]),
+      completed(6002, FOLLOWUP_RUN, FOLLOWUP_TURN),
     ],
   };
 }
@@ -201,11 +207,11 @@ function fakeHarness(fixture) {
   return harness;
 }
 
-test("isCompletedTurn 只接受同 run 的 completed 结果", () => {
-  const record = { direction: "received", frame: [null, null, TOPIC, "turn_result", { agent_run: { run_id: "r", status: "completed" } }] };
-  assert.equal(isCompletedTurn(record, "r"), true);
-  assert.equal(isCompletedTurn(record, "other"), false);
-  assert.equal(isCompletedTurn({ ...record, direction: "sent" }, "r"), false);
+test("turnOutcome 缺业务结果或实际终态都不完成，真实running回复可在运行完成后交付", () => {
+  assert.equal(turnOutcome([turnRecord()], turnIdentity), null);
+  assert.equal(turnOutcome([turnState()], turnIdentity), null);
+  assert.equal(turnOutcome([turnRecord(), turnState({ status: "running" })], turnIdentity), null);
+  assert.equal(turnOutcome([turnRecord(), turnState()], turnIdentity).kind, "completed");
 });
 
 test("revealItem 用候选标题+正文定位并滚动所属 AX 结构", async () => {
@@ -260,20 +266,26 @@ function turnRecord(overrides = {}) {
       turn_id: "turn-turn",
       work_id: WORK,
       session_id: SESSION,
-      agent_run: { run_id: "run-turn", status: "completed", parent_turn_ref: "turn-turn" },
+      agent_run: { run_id: "run-turn", status: "running", parent_turn_ref: "turn-turn" },
       ...overrides,
     }],
   };
 }
 
+function turnState(extra = {}) {
+  return { at: "2026-11-02T10:00:03.000Z", direction: "received",
+    frame: [null, null, TOPIC, "agent_run_state", { run_id: "run-turn", parent_turn_ref: "turn-turn",
+      workspace_id: WORK, work_id: WORK, session_id: SESSION, status: "completed", ...extra }] };
+}
+
 test("turnOutcome 按 owning topic/sent/work/session/parent 绑定完成，错身份与重复为冲突", () => {
-  assert.equal(turnOutcome([turnRecord()], turnIdentity).kind, "completed");
+  assert.equal(turnOutcome([turnRecord(), turnState()], turnIdentity).kind, "completed");
   const wrongSession = turnRecord({ session_id: "other" });
   assert.equal(turnOutcome([wrongSession], turnIdentity).reason, "turn_identity_mismatch");
   const wrongParent = turnRecord({ agent_run: { run_id: "run-turn", status: "completed", parent_turn_ref: "other" } });
   assert.equal(turnOutcome([wrongParent], turnIdentity).reason, "turn_identity_mismatch");
   const duplicate = turnRecord({}, "2026-11-02T10:00:03.000Z");
-  assert.equal(turnOutcome([turnRecord(), duplicate], turnIdentity).reason, "turn_completed_duplicate");
+  assert.equal(turnOutcome([turnRecord(), duplicate, turnState()], turnIdentity).reason, "turn_completed_duplicate");
 });
 
 test("turnOutcome 对同 run 的 run_failed/run_cancelled 立即返回失败，不等待完成", () => {
@@ -289,10 +301,10 @@ test("turnOutcome 对同 run 的 run_failed/run_cancelled 立即返回失败，�
   };
   assert.deepEqual(
     { kind: turnOutcome([base], turnIdentity).kind, status: turnOutcome([base], turnIdentity).status },
-    { kind: "failed", status: "run_failed" },
+    { kind: "failed", status: "failed" },
   );
   const cancelled = { ...base, frame: [...base.frame.slice(0, 4), { ...base.frame[4], event_type: "run_cancelled" }] };
-  assert.equal(turnOutcome([cancelled], turnIdentity).status, "run_cancelled");
+  assert.equal(turnOutcome([cancelled], turnIdentity).status, "cancelled");
   assert.equal(turnOutcome([], turnIdentity), null);
 });
 
@@ -317,24 +329,22 @@ test("revealItem 只吞明确不支持的滚动结果，目标/权限/归属错�
   await assert.doesNotReject(() => revealItem(harness, SOURCE_TITLE, SOURCE_BODY));
 });
 
-test("isCompletedTurn 对错事件/缺 agent_run/非对象记录失败关闭", () => {
-  const base = { direction: "received", frame: [null, null, TOPIC, "turn_result", { agent_run: { run_id: "r", status: "completed" } }] };
-  assert.equal(isCompletedTurn(base, "r"), true);
-  assert.equal(isCompletedTurn({ ...base, frame: [null, null, TOPIC, "agent_event", base.frame[4]] }, "r"), false);
-  assert.equal(isCompletedTurn({ ...base, frame: [null, null, TOPIC, "turn_result", {}] }, "r"), false);
-  assert.equal(isCompletedTurn(null, "r"), false);
+test("turnOutcome 对错事件/缺agent_run/非对象业务记录失败关闭", () => {
+  const base = turnRecord();
+  for (const malformed of [
+    { ...base, frame: [null, null, TOPIC, "agent_event", base.frame[4]] },
+    { ...base, frame: [null, null, TOPIC, "turn_result", {}] },
+    { ...base, direction: "sent" }, null,
+  ]) assert.equal(turnOutcome([malformed, turnState()], turnIdentity), null);
 });
 
-test("turnOutcome 对错 work/run 与 agent_run.status=failed 给出明确结果", () => {
-  const identity = { ...turnIdentity };
-  assert.equal(turnOutcome([turnRecord({ work_id: "other" })], identity).reason, "turn_identity_mismatch");
-  assert.equal(turnOutcome([turnRecord({ agent_run: { run_id: "other", status: "completed", parent_turn_ref: "turn-turn" } })], identity), null);
-  const failedBody = { run_id: "run-turn", work_id: WORK, session_id: SESSION, agent_run: { run_id: "run-turn", status: "failed" } };
-  const failed = { at: "2026-11-02T10:00:02.000Z", direction: "received", frame: [null, null, TOPIC, "agent_event", failedBody] };
-  assert.deepEqual(
-    { kind: turnOutcome([failed], identity).kind, status: turnOutcome([failed], identity).status },
-    { kind: "failed", status: "failed" },
-  );
+test("turnOutcome 不把业务嵌套failed或无类型event当成运行失败", () => {
+  assert.equal(turnOutcome([turnRecord({ work_id: "other" })], turnIdentity).reason, "turn_identity_mismatch");
+  assert.equal(turnOutcome([turnRecord({ agent_run: { run_id: "other", status: "completed", parent_turn_ref: "turn-turn" } })], turnIdentity), null);
+  const failed = turnRecord({ agent_run: { run_id: "run-turn", parent_turn_ref: "turn-turn", status: "failed" } });
+  assert.equal(turnOutcome([failed], turnIdentity), null);
+  assert.equal(turnOutcome([{ ...failed, frame: [null, null, TOPIC, "agent_event", failed.frame[4]] }], turnIdentity), null);
+  assert.equal(turnOutcome([failed, turnState({ status: "failed" })], turnIdentity).status, "failed");
 });
 
 test("drivePending 在发送帧错 work 或 ACK 缺 run_id 时拒绝", async () => {

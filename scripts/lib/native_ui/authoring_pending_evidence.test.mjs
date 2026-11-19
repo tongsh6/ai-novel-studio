@@ -455,21 +455,19 @@ test("writer arguments 支持对象、标准 JSON 字符串与 raw_arguments，�
   assert.equal(writerArtifactMatch({ artifact, records: [record({ arguments: "not-json" })] }).ok, false);
 });
 
-test("scope facts 只解析消息处置 section 的 JSON，并逐 ref/status/body 核对", () => {
+test("scope facts 只解析末次 Scope 元数据，按独立来源逐 ref/status/title/lineage 核对", () => {
   const facts = {
     pending_adoptions: [],
     resolved_adoptions: [
       {
         status: "DISCARDED",
         title: SOURCE_TITLE,
-        body_preview: SOURCE_BODY,
         artifact_ref: SOURCE_ID,
         revision_of: null,
       },
       {
         status: "ACCEPTED",
         title: REVISION_TITLE,
-        body_preview: REVISION_BODY,
         artifact_ref: REVISION_ID,
         revision_of: SOURCE_ID,
       },
@@ -489,6 +487,16 @@ test("scope facts 只解析消息处置 section 的 JSON，并逐 ref/status/bod
     revision: { artifact_id: REVISION_ID, status: "ACCEPTED", title: REVISION_TITLE, body: REVISION_BODY, revision_of: SOURCE_ID },
   });
   assert.equal(Object.values(checks.checks).every(Boolean), true);
+  for (const patch of [
+    { artifact_ref: "wrong-ref" }, { status: "ACCEPTED" },
+    { title: "错标题" }, { revision_of: "wrong-source" },
+  ]) {
+    const changed = { ...facts, resolved_adoptions: [{ ...facts.resolved_adoptions[0], ...patch }, facts.resolved_adoptions[1]] };
+    assert.equal(scopeFactsChecks(changed, {
+      source: { artifact_id: SOURCE_ID, status: "DISCARDED", title: SOURCE_TITLE, revision_of: null },
+      revision: { artifact_id: REVISION_ID, status: "ACCEPTED", title: REVISION_TITLE, revision_of: SOURCE_ID },
+    }).checks.scope_discarded_source_exact, false);
+  }
   const bad = { ...facts, pending_adoptions: [{ artifact_ref: REVISION_ID }], pending_adoption_count: 1 };
   assert.equal(
     Object.values(
@@ -528,14 +536,14 @@ test("scope facts 只认最新 applied scope_update，作者引用和历史 scop
   assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, null), scope(2, facts), authorQuote] }), facts);
   assert.equal(scopeFactsFromRequest({ messages: [scope(1, { ...facts, pending_adoptions: {} })] }), null);});
 
-test("followup 回复必须等于同次 Provider 原字节并消费真实状态/已采纳全文", () => {
+test("followup 回复必须等于同次 Provider 原字节并识别真实状态及已采纳候选", () => {
   const facts = {
     resolved_adoptions: [
-      { status: "DISCARDED", title: SOURCE_TITLE, body_preview: SOURCE_BODY, artifact_ref: SOURCE_ID },
-      { status: "ACCEPTED", title: REVISION_TITLE, body_preview: REVISION_BODY, artifact_ref: REVISION_ID },
+      { status: "DISCARDED", title: SOURCE_TITLE, artifact_ref: SOURCE_ID },
+      { status: "ACCEPTED", title: REVISION_TITLE, artifact_ref: REVISION_ID },
     ],
   };
-  const reply = `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。${REVISION_BODY}`;
+  const reply = `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。`;
   const turnResult = {
     assistant_message: { text: reply },
     truthfulness: { production_write_performed: false, artifact_adopted: false },
@@ -664,35 +672,35 @@ test("AX 可见性按 frame 的 y/宽/高判定，x=0 仍可见，零高度不�
 });
 
 
-test("scope facts 允许省略 title/revision_of，但出现时必须精确", () => {
+test("scope facts 的身份、标题及前后继证据不可缺省", () => {
+  const source = { artifact_id: SOURCE_ID, status: "DISCARDED", title: SOURCE_TITLE, revision_of: null };
+  const revision = { artifact_id: REVISION_ID, status: "ACCEPTED", title: REVISION_TITLE, revision_of: SOURCE_ID };
   const facts = {
     pending_adoptions: [],
     resolved_adoptions: [
-      { status: "DISCARDED", artifact_ref: SOURCE_ID, body_preview: SOURCE_BODY },
-      { status: "ACCEPTED", artifact_ref: REVISION_ID, body_preview: REVISION_BODY },
+      { artifact_ref: SOURCE_ID, status: "DISCARDED", title: SOURCE_TITLE, revision_of: null },
+      { artifact_ref: REVISION_ID, status: "ACCEPTED", title: REVISION_TITLE, revision_of: SOURCE_ID },
     ],
-    pending_adoption_count: 0,
-    resolved_adoption_count: 2,
-    omitted_adoptions: 0,
+    pending_adoption_count: 0, resolved_adoption_count: 2, omitted_adoptions: 0,
   };
-  const source = { artifact_id: SOURCE_ID, status: "DISCARDED", body: SOURCE_BODY };
-  const revision = { artifact_id: REVISION_ID, status: "ACCEPTED", body: REVISION_BODY };
-  const checks = scopeFactsChecks(facts, { source, revision });
-  assert.equal(checks.checks.scope_discarded_source_exact, true);
-  assert.equal(checks.checks.scope_accepted_revision_exact, true);
-  const bad = scopeFactsChecks(facts, {
-    source: { ...source, title: "错标题" },
-    revision: { ...revision, revision_of: "other" },
-  });
-  assert.equal(bad.checks.scope_discarded_source_exact, false);
-  assert.equal(bad.checks.scope_accepted_revision_exact, false);
+  for (const field of ["artifact_id", "status", "title", "revision_of"]) {
+    const missing = { ...source }; delete missing[field];
+    assert.equal(scopeFactsChecks(facts, { source: missing, revision }).checks.scope_discarded_source_exact, false);
+  }
+  for (const field of ["artifact_ref", "status", "title", "revision_of"]) {
+    const missing = { ...facts.resolved_adoptions[1] }; delete missing[field];
+    assert.equal(scopeFactsChecks({ ...facts, resolved_adoptions: [facts.resolved_adoptions[0], missing] },
+      { source, revision }).checks.scope_accepted_revision_exact, false);
+  }
+  const duplicate = { ...facts, resolved_adoptions: [...facts.resolved_adoptions, facts.resolved_adoptions[1]] };
+  assert.equal(scopeFactsChecks(duplicate, { source, revision }).checks.scope_accepted_revision_exact, false);
 });
 
-test("followup 回复消费已采纳标题或正文任一即可，两者都缺失败", () => {
+test("followup 回复识别已采纳候选，正文片段不能替代身份", () => {
   const facts = {
     resolved_adoptions: [
-      { status: "DISCARDED", title: SOURCE_TITLE, body_preview: SOURCE_BODY, artifact_ref: SOURCE_ID },
-      { status: "ACCEPTED", title: REVISION_TITLE, body_preview: REVISION_BODY, artifact_ref: REVISION_ID },
+      { status: "DISCARDED", title: SOURCE_TITLE, artifact_ref: SOURCE_ID },
+      { status: "ACCEPTED", title: REVISION_TITLE, artifact_ref: REVISION_ID },
     ],
   };
   const check = (reply) =>
@@ -700,9 +708,10 @@ test("followup 回复消费已采纳标题或正文任一即可，两者都缺�
       turnResult: { assistant_message: { text: reply }, truthfulness: {} },
       providerContent: reply,
       facts,
-    }).reply_consumes_accepted_content;
+    }).reply_identifies_accepted_artifact;
   assert.equal(check(`ACCEPTED DISCARDED ${REVISION_TITLE}`), true);
-  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_BODY}`), true);
+  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_ID}`), true);
+  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_BODY}`), false);
   assert.equal(check("ACCEPTED DISCARDED"), false);
 });
 

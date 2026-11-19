@@ -7,6 +7,9 @@
 import assert from "node:assert/strict";
 import { frameBody, frameEvent, frameOf } from "./scenario_driver.mjs";
 import { broadcastFrames } from "./scenario_evidence.mjs";
+import { wireTerminal } from "./live_run_wait.mjs";
+import { textOf } from "./driver.mjs";
+
 import { turnIdMatches } from "./scenario_driver.mjs";
 import {
   actionAck,
@@ -29,24 +32,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function isCompletedTurn(record, runId) {
-  if (record?.direction !== "received") return false;
-  if (frameEvent(record) !== "turn_result") return false;
-  const run = frameBody(record)?.agent_run;
-  return run?.run_id === runId && run?.status === "completed";
-}
-
-const TERMINAL_FAILURES = new Set(["failed", "cancelled", "run_failed", "run_cancelled"]);
-
-function eventStatus(body) {
-  return body?.event_type ?? body?.payload?.event_type;
-}
-
-function terminalStatus(body) {
-  const status = body?.status ?? body?.agent_run?.status ?? eventStatus(body);
-  return TERMINAL_FAILURES.has(status) ? status : null;
-}
-
 function sameMessageScope(body, identity) {
   return body?.work_id === identity.workId && body?.session_id === identity.sessionId;
 }
@@ -60,45 +45,18 @@ function sameTurnIdentity(body, identity) {
   );
 }
 
-function runScoped(record, identity) {
-  return (
-    record?.direction === "received" &&
-    frameOf(record)?.[2] === identity.topic &&
-    record?.at >= identity.since &&
-    ["agent_run_state", "agent_event", "turn_result"].includes(frameEvent(record))
-  );
-}
-
-function bodyRunId(body) {
-  return body?.run_id ?? body?.run_ref ?? body?.agent_run?.run_id ?? null;
-}
-
-// 完成检测复用 broadcastFrames 的 owning topic/after-sent 语义，并额外绑定
-// 作者消息的 work/session/turn 与 agent_run.parent_turn_ref。失败/取消和错身份
-// 立即返回明确结果，等待缺失只返回 null，不用错误文案当状态协议。
+// 只保留本候选流程额外的身份/唯一性约束；完成事实由共同 owner 唯一组合。
 export function turnOutcome(wire, identity) {
-  const scoped = list(wire).filter((record) => runScoped(record, identity));
-  const runRecords = scoped.filter((record) => bodyRunId(frameBody(record)) === identity.runId);
-  const failed = runRecords.find((record) => terminalStatus(frameBody(record)) !== null);
-  if (failed) {
-    return { kind: "failed", status: terminalStatus(frameBody(failed)), record: failed };
-  }
   const results = broadcastFrames(wire, {
-    topic: identity.topic,
-    at: identity.since,
-    agentRunId: identity.runId,
-    event: "turn_result",
+    topic: identity.topic, at: identity.since, agentRunId: identity.runId, event: "turn_result",
   });
   const mismatched = results.filter((record) => !sameTurnIdentity(frameBody(record), identity));
-  if (mismatched.length > 0) {
+  if (mismatched.length > 0)
     return { kind: "conflict", reason: "turn_identity_mismatch", records: mismatched };
-  }
-  const completed = results.filter((record) => frameBody(record)?.agent_run?.status === "completed");
-  if (completed.length > 1) {
-    return { kind: "conflict", reason: "turn_completed_duplicate", records: completed };
-  }
-  if (completed.length === 1) return { kind: "completed", record: completed[0] };
-  return null;
+  const terminal = wireTerminal(wire, { ...identity, requireWireTerminal: true });
+  if (terminal?.kind === "completed" && terminal.results.length > 1)
+    return { kind: "conflict", reason: "turn_completed_duplicate", records: terminal.results };
+  return terminal;
 }
 
 function assertSentIdentity(sent, config, label) {
@@ -182,6 +140,29 @@ export async function revealItem(harness, itemTitle, itemBody) {
       if (!isScrollUnsupported(error)) throw error;
     }
   }
+}
+
+// 只观察未采纳候选：入口与所属动作分屏采集，不点击保存。
+export async function capturePendingItemViews(harness, { itemTitle, itemBody, knownItems, prefix }) {
+  await revealItem(harness, itemTitle, itemBody);
+  const views = [];
+  for (const kind of ["entry", "action"]) {
+    const nodes = harness.dumpNodes();
+    const located = kind === "entry"
+      ? locatePendingItem(nodes, { itemTitle, itemBody })
+      : locateScopedButton(nodes, { itemTitle, itemBody, knownItems, label: "保存修订稿" });
+    if (!located.ok) throw new Error(`pending_view_target:${located.reason}:${kind}`);
+    const target = kind === "entry"
+      ? nodes.find((node) => node.path?.startsWith(located.scope.path + "/") && textOf(node) === itemTitle)
+      : located.button;
+    if (!target) throw new Error(`pending_view_target_missing:${kind}`);
+    try { harness.ensureInput().scrollTo(target.path); }
+    catch (error) { if (!isScrollUnsupported(error)) throw error; }
+    await sleep(300);
+    const capture = `${prefix}-${kind}`;
+    views.push({ capture, nodes: harness.capture(capture, { allowFullScreenFallback: false }) });
+  }
+  return views;
 }
 
 async function clickScopedAction(harness, { itemTitle, itemBody, label, step, knownItems }) {

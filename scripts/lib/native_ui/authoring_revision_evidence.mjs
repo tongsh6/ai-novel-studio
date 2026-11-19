@@ -7,6 +7,7 @@
 // - 修订 child 的两次原生调用按 canonical assistant 顺序定位；第二请求必须严格
 //   继承第一请求并只追加 assistant+tool(native result)，不允许伪 user 纠错。
 // - artifact 字节只与 child 最后合法响应的同 item_id 字段逐字比较。
+import { wireTerminal } from "./live_run_wait.mjs";
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import {
@@ -1036,6 +1037,8 @@ function receiptBound(receiptRow, { receiptId, childRunId, sourceRecord, sourceT
 }
 
 function oneWorkTurn({
+  wire,
+  childRecord,
   childTurnResultsCount,
   childTurnId,
   sourceTurnId,
@@ -1044,14 +1047,16 @@ function oneWorkTurn({
   childRunId,
   sourceTurnRef,
 }) {
-  if (!isObject(childTurnResult)) return false;
+  if (!isObject(childTurnResult) || !isObject(childRecord)) return false;
+  const terminal = wireTerminal(wire, { turnId: sourceTurnRef, runId: childRunId, runRow: childRecord,
+    topic: "workspace:" + childRecord.workspace_id, workId: childRecord.work_id, sessionId: childRecord.session_id });
   return allTrue(
+    terminal?.kind === "completed" && same(terminal.body, childTurnResult),
     childTurnResultsCount === 1,
     nonBlank(childTurnId),
     childTurnId !== sourceTurnId,
     childTurnId !== sourceUserTurnId,
     getIn(childTurnResult, ["agent_run", "run_id"]) === childRunId,
-    getIn(childTurnResult, ["agent_run", "status"]) === "completed",
     getIn(childTurnResult, ["agent_run", "parent_turn_ref"]) === sourceTurnRef,
   );
 }
@@ -1069,6 +1074,7 @@ function childTraceBound(childInteraction, decisionTrace, childTurnResult, child
 }
 
 export function revisionRunChecks({
+  wire,
   sourceRunId,
   childRunId,
   sourceTurnId,
@@ -1103,6 +1109,8 @@ export function revisionRunChecks({
       receiptBound(receiptRow, { receiptId, childRunId, sourceRecord, sourceTurnId }),
     one_work_turn_per_child_run:
       oneWorkTurn({
+        wire,
+        childRecord,
         childTurnResultsCount,
         childTurnId,
         sourceTurnId,

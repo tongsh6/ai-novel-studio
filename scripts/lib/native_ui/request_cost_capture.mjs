@@ -59,6 +59,9 @@ import {
   jsonl,
   logs,
   productionTableCounts,
+  markdownTable,
+  writeDerivedJson,
+  writeDerivedText,
   seedFields,
   withDb,
   transport,
@@ -93,25 +96,9 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
-function writeText(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, value);
-}
 
-function derivedFile(file) {
-  if (!fs.existsSync(file)) return file;
-  const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
-  const extension = path.extname(file);
-  return `${file.slice(0, -extension.length)}.${stamp}${extension}`;
-}
 
-function writeDerivedJson(file, value) {
-  writeJson(derivedFile(file), value);
-}
 
-function writeDerivedText(file, value) {
-  writeText(derivedFile(file), value);
-}
 
 export function readManifest(manifestPath) {
   const file = resolvePath(manifestPath);
@@ -319,13 +306,7 @@ function statusFromChecks(checks) {
   return Object.values(checks).every(Boolean) ? "pass" : "fail";
 }
 
-function markdownTable(rows, header) {
-  return [
-    `| ${header.join(" | ")} |`,
-    `|${header.map(() => "---").join("|")}|`,
-    ...rows.map((row) => `| ${row.join(" | ")} |`),
-  ].join("\n");
-}
+
 
 export function analyzeHistory({ manifestPath, outDir }) {
   const loaded = readManifest(manifestPath);

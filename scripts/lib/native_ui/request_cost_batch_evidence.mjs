@@ -6,7 +6,7 @@ import { axTurnOutcome, countAxAuthorMessages } from "./authoring_g2_evidence.mj
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { LENGTHS, PREREGISTERED_SOURCE_KIND, SUCCESSOR_MANIFEST_SCHEMA, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
-import { canonicalCoverageForProviderCall, joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalCoverageForProviderCall, canonicalReplyForProviderCall, joinNativeCallEvidence, providerTurnMatchesParent, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -391,7 +391,7 @@ function lastAuthorMessage(messages, author) {
   return tail.every(isApplicationMessage) ? last : null;
 }
 
-function canonicalAuthorMessage(record, author, transcript) {
+export function canonicalAuthorMessage(record, author, transcript) {
   const coverage = canonicalCoverageForProviderCall(record, transcript);
   const facts = requestFactsFromRecord(record);
   if (!coverage?.ok || !facts.ok) return null;
@@ -403,13 +403,16 @@ function canonicalAuthorMessage(record, author, transcript) {
     !list(message.blocks).every((block) => block.type === "text" && typeof block.text === "string") ||
     textOf(message) !== facts.authorMessages[index].text)) return null;
   const run = transcript.run;
-  if (!run?.run_id || run.parent_turn_ref !== record.turn_id ||
-    run.work_id !== record.work_id || run.session_id !== record.session_id) return null;
+  const reply = canonicalReplyForProviderCall(record, transcript);
+  if (!run?.run_id || !providerTurnMatchesParent(record.turn_id, run.parent_turn_ref) ||
+    run.work_id !== record.work_id || run.session_id !== record.session_id ||
+    ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"].some(
+      (key) => reply?.canonical_ref?.[key] !== run[key])) return null;
   const matches = authors.map((message, ordinal) => ({ message, ordinal })).filter(({ message }) => {
     const ref = message.canonical_ref;
-    return ref?.run_id === run.run_id && ref.parent_turn_ref === record.turn_id &&
+    return ref?.run_id === run.run_id && ref.parent_turn_ref === run.parent_turn_ref &&
       ["workspace_id", "work_id", "session_id"].every((key) => ref[key] === run[key]) &&
-      list(message.source_refs).length === 1 && message.source_refs[0]?.ref === record.turn_id;
+      list(message.source_refs).length === 1 && message.source_refs[0]?.ref === run.parent_turn_ref;
   });
   if (matches.length !== 1 || textOf(matches[0].message) !== author.text) return null;
   const index = facts.authorMessages[matches[0].ordinal].index;

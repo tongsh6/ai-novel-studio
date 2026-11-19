@@ -26,7 +26,8 @@ import {
 } from "./lib/native_ui/driver.mjs";
 import { flatText, writeUiComplete } from "./lib/native_ui/workbench.mjs";
 import { cleanupNativeApp } from "./lib/native_app_ownership.mjs";
-import { INPUTS, WORK_TITLE } from "./native_b29_evidence.mjs";
+import { INPUTS, WORK_TITLE, readB29Config } from "./native_b29_evidence.mjs";
+import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dir = path.resolve(process.argv[2] ?? "");
@@ -38,10 +39,11 @@ const ready = readJson(path.join(dir, "native-driver-ready.json"));
 let APP = buildTarget(ready, dir);
 const PROVIDER = ready.provider ?? "slice_verify";
 const STRATA = PROVIDER === "strata";
+const REAL_MODEL = ["strata", "splash"].includes(PROVIDER);
 // 分型预算：确定性 provider 用默认预算；真实模型按 B37 strata 预算（input120/turn360/candidate300/adoption180/maintenance300/restore30）。
-const TURN_TIMEOUT = STRATA ? 330_000 : 110_000;
-const CANDIDATE_TIMEOUT = STRATA ? 280_000 : 110_000;
-const MAINTENANCE_VISIBLE_TIMEOUT = STRATA ? 120_000 : 60_000;
+const TURN_TIMEOUT = REAL_MODEL ? 330_000 : 110_000;
+const CANDIDATE_TIMEOUT = REAL_MODEL ? 280_000 : 110_000;
+const MAINTENANCE_VISIBLE_TIMEOUT = REAL_MODEL ? 120_000 : 60_000;
 const EVIDENCE = path.join(ROOT, "scripts/native_b29_evidence.mjs");
 const DB_FILE = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
 const step = new Step(dir);
@@ -246,26 +248,12 @@ function ackFor(wire, messageRecord) {
         entry.direction === "received" &&
         frameOf(entry) &&
         entry.at >= messageRecord.at &&
+        entry.frame[0] === messageRecord.frame[0] && entry.frame[2] === messageRecord.frame[2] &&
         entry.frame[1] === messageRecord.frame[1] &&
         entry.frame[3] === "phx_reply" &&
         entry.frame[4]?.status === "ok" &&
         entry.frame[4]?.response?.turn_id === turnId,
     ) ?? null
-  );
-}
-
-function turnResultFor(wire, turnId, sinceIso) {
-  return (
-    wire
-      .filter(
-        (entry) =>
-          entry.direction === "received" &&
-          frameOf(entry) &&
-          entry.at >= sinceIso &&
-          entry.frame[3] === "turn_result" &&
-          String(entry.frame[4]?.turn_id ?? "").startsWith(turnId),
-      )
-      .at(-1) ?? null
   );
 }
 
@@ -733,12 +721,19 @@ async function sendAuthorInput(text, label) {
   const message = await runStep("input", `type_send:${label}`, () => rawTypeAndSend(text, label));
   const turnId = String(frameBody(message)?.turn_id ?? "");
   if (!turnId) throw new Error(`user_message_without_turn:${label}`);
-  await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), 25_000, `${label}:ack`));
-  const resultRecord = await runStep("turn", `turn:${label}`, () =>
-    pollWire((wire) => turnResultFor(wire, turnId, startedAt), TURN_TIMEOUT, `${label}:turn_result`),
+  const ack = await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), 25_000, `${label}:ack`));
+  const runId = frameBody(ack)?.response?.run_id;
+  if (!runId) throw new Error(`ack_without_run:${label}`);
+  const terminal = await runStep("turn", `turn:${label}`, () =>
+    pollWire((wire) => wireTerminal(wire, {
+      turnId, runId, topic: frameOf(message)[2], workId: frameBody(message).work_id,
+      sessionId: frameBody(message).session_id, since: startedAt,
+      resultPosition: "last", requireWireTerminal: true,
+    }), TURN_TIMEOUT, `${label}:actual_terminal`),
   );
+  if (terminal.kind !== "completed") throw new Error(`unexpected_run_terminal:${label}:${terminal.kind}`);
   await sleep(1_200);
-  return { turnId, turnResult: resultRecord.frame[4], messageAt: message.at, startedAt };
+  return { turnId, turnResult: terminal.body, messageAt: message.at, startedAt };
 }
 
 async function restartApp(label) {
@@ -751,20 +746,12 @@ async function inputReady(label) {
 
 // ── 主流程（确定性 slice_verify）：T1 正例 → T2 同名澄清 → T3 讨论 → T4 刷新/消费者 → T5 负例矩阵 ──
 async function runDeterministicScenario() {
-  evidence("prepare");
-  const config = readJson(path.join(dir, "b29-native-config.json"));
+  const config = readB29Config(dir);
   await launchAndSelectWork();
   await capture("T0-workbench");
 
   // ── T1：唯一别名「指定老沈为主角」→ 候选 old→new → 保存 → 同 id 字段更新 ──
-  evidence("capture", "t1-before");
-  const t1 = await sendAuthorInput(INPUTS.t1, "T1");
-  const t1Pending = requirePending(t1.turnResult, "character_profile_revision", "T1");
-  log.push({ op: "t1_pending", artifact_id: t1Pending.artifact_id, payload: t1Pending.payload ?? {} });
-  await runStep("candidate", "candidate:T1", () =>
-    rawWaitCandidateCard({ anchorText: "叙事身份修订", label: "T1", requireOldToNew: true }),
-  );
-  await capture("T1-candidate");
+  const t1Pending = await generateT1Candidate("T1", "t1_pending");
   const t1Adoption = await runStep("adoption", "adopt:T1", () =>
     rawAdoptCandidate(t1Pending.artifact_id, "叙事身份修订", "T1"),
   );
@@ -876,28 +863,20 @@ async function runDeterministicScenario() {
 
 // ── 真实模型 scoped（strata）：T1 正例 + T2 同名澄清负例，不重跑 23 项矩阵 ──────────
 // B29 scoped 只有两轮判断交互：T1 的 judgment_decision 与 T2 的 await_author 澄清都是
-// turn_result 终态（产品对话语义），不存在需要作者作答才能继续的 agent-run 阻塞提问。
+// 业务结果与真实运行终态共同确认完成；若出现阻塞提问，驱动保留缺证，不自动作答。
 // 因此不自动点击「回复此问题」卡（那是 T2 的预期产品输出），author_question_events 记录为空数组；
 // 若真实模型在 agent-run 中阻塞提问，本 scoped 驱动会按 turn 预算 fail-fast，不伪造应答。
 const authorQuestionEvents = [];
 
 async function runStrataScopedScenario() {
-  evidence("prepare");
-  const config = readJson(path.join(dir, "b29-native-config.json"));
+  const config = readB29Config(dir);
   await launchAndSelectWork();
   await capture("T0-workbench");
 
   // T1：真实模型「指定老沈为主角」→ judgment revise_character_profile + character_ref →
   // 候选 old→new → 原生「保存到作品」→ 同 id/角色数/正文 hash 等不变 + receipt。
   await inputReady("T1");
-  evidence("capture", "t1-before");
-  const t1 = await sendAuthorInput(INPUTS.t1, "T1-real");
-  const t1Pending = requirePending(t1.turnResult, "character_profile_revision", "T1-real");
-  log.push({ op: "t1_pending_real", artifact_id: t1Pending.artifact_id, payload: t1Pending.payload ?? {} });
-  await runStep("candidate", "candidate:T1-real", () =>
-    rawWaitCandidateCard({ anchorText: "叙事身份修订", label: "T1-real", requireOldToNew: true }),
-  );
-  await capture("T1-candidate");
+  const t1Pending = await generateT1Candidate("T1-real", "t1_pending_real");
   const adoption = await runStep("adoption", "adopt:T1-real", () =>
     rawAdoptCandidate(t1Pending.artifact_id, "叙事身份修订", "T1-real"),
   );
@@ -946,8 +925,40 @@ async function runStrataScopedScenario() {
   console.log(`B29 真实模型 scoped 驱动完成: screenshots=${screenshots.length} questions=${authorQuestionEvents.length}`);
 }
 
+async function generateT1Candidate(label, logOp) {
+  evidence("capture", "t1-before");
+  const turn = await sendAuthorInput(INPUTS.t1, label);
+  const pending = requirePending(turn.turnResult, "character_profile_revision", label);
+  log.push({ op: logOp, artifact_id: pending.artifact_id, payload: pending.payload ?? {} });
+  await runStep("candidate", `candidate:${label}`, () =>
+    rawWaitCandidateCard({ anchorText: "叙事身份修订", label, requireOldToNew: true }),
+  );
+  await capture("T1-candidate");
+  return pending;
+}
+
+async function runR03CandidateScenario(config) {
+  await launchAndSelectWork();
+  await capture("T0-workbench");
+  await inputReady("T1");
+  await generateT1Candidate("T1-r03", "t1_pending_r03");
+  evidence("capture", "t1-after");
+  await capture("B29-final");
+  evidence("capture", "final");
+  writeJson("b29-native-driver-log.json", {
+    slice_id: config.slice_id, driver: "ax-native-system-ui", provider: config.provider,
+    model: config.model, runtime: config.runtime, scope: config.scope,
+    finished_at: nowIso(), captures: log,
+  });
+  writeUiComplete(dir, { runRef: ready.run_ref, screenshots,
+    driver: "ax-native-system-ui", scope: config.slice_id });
+}
+
 async function main() {
-  if (STRATA) await runStrataScopedScenario();
+  evidence("prepare");
+  const config = readB29Config(dir);
+  if (config.scope === "r03-candidate") await runR03CandidateScenario(config);
+  else if (STRATA) await runStrataScopedScenario();
   else await runDeterministicScenario();
 }
 

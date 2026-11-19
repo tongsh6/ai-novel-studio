@@ -3,6 +3,7 @@
 // 本模块不判断场景是否通过；它负责把真实帧/日志/AX/DB 读数归一为纯函数输入，
 // 并把最终 checks/measured/summary 按既有命名写入批次目录。
 import assert from "node:assert/strict";
+import { wireTerminal } from "./live_run_wait.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -19,6 +20,7 @@ import {
   frameEvent,
   frameOf,
   read,
+  sha256,
   turnFacts,
   withDb,
   write,
@@ -26,7 +28,12 @@ import {
   writeNativeSummary,
 } from "./scenario_evidence.mjs";
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
-import { joinNativeCallEvidence, readProviderRuns } from "./authoring_call_evidence.mjs";
+import { joinNativeCallEvidence, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { writerArtifactMatch } from "./authoring_pending_evidence.mjs";
+import { analyzeRequestCost } from "./request_cost_evidence.mjs";
+import { nativeSummary } from "./request_cost_batch_evidence.mjs";
+import { prefixComparison } from "./request_cost_manifest.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import {
   g2CandidateEvidence,
@@ -75,32 +82,17 @@ export function ackRunId(ack, spec) {
   return runId;
 }
 
-function agentRunOf(body) {
-  return body !== null && typeof body === "object" ? body.agent_run : null;
+export function firstCompletedTurn(wire, identity, message) {
+  const terminal = wireTerminal(wire, identity);
+  assert(terminal?.kind === "completed", message);
+  return terminal.body;
 }
 
-export function completedForRun(body, runId) {
-  const run = agentRunOf(body);
-  return run !== null && typeof run === "object" &&
-    run.run_id === runId && run.status === "completed";
+export function lastCompletedTurn(wire, identity, message) {
+  return firstCompletedTurn(wire, { ...identity, resultPosition: "last" }, message);
 }
 
-export function firstCompletedTurn(results, runId, message) {
-  const completed = results.find((body) => completedForRun(body, runId));
-  assert(completed, message);
-  return completed;
-}
-
-export function lastCompletedTurn(results, runId, message) {
-  const completed = results.filter((body) => completedForRun(body, runId)).at(-1);
-  assert(completed, message);
-  return completed;
-}
-
-const COMPLETED_TURN = Object.freeze({
-  first: (results, runId, message) => firstCompletedTurn(results, runId, message),
-  last: (results, runId, message) => lastCompletedTurn(results, runId, message),
-});
+const COMPLETED_TURN = Object.freeze({ first: firstCompletedTurn, last: lastCompletedTurn });
 
 function wireFacts(wire) {
   return wire.map((entry) => ({
@@ -134,11 +126,6 @@ export function authoringRunFacts(dir, evidence, spec) {
     agentRunId: runId,
   }).map(frameBody);
   const allResults = facts.results.map(frameBody);
-  const completed = COMPLETED_TURN[spec.completedTurn](
-    results,
-    runId,
-    spec.missingCompleted,
-  );
   const workId = readConfig(dir).target.work_id;
   const scope = {
     ...authoringScope(evidence.wire, sent, { workId, parentTurnId: facts.turnId }),
@@ -146,6 +133,10 @@ export function authoringRunFacts(dir, evidence, spec) {
     topic,
   };
   const history = readAuthoringHistory(dir, scope, { requireMode: spec.requireRunMode });
+  const completed = COMPLETED_TURN[spec.completedTurn](evidence.wire, {
+    turnId: facts.turnId, runId, runRow: history.record, topic, since: sent.at,
+    workId, sessionId: scope.session_id,
+  }, spec.missingCompleted);
   const calls = bindNativeCalls(dir, scope, history, evidence.llmRecords);
   return {
     sent,
@@ -228,6 +219,15 @@ export function finishVerification(
 // parseChapterLabel），不再依赖 seed.log；DB title 允许去编号名或完整可见名。
 // 唯一 ACCEPTED 稿与冻结阅读摘录必须同属该章，歧义/缺摘录直接拒绝；started 只取
 // 同一 AgentRun 的实际发生顺序。
+// 同一 run 的实际开始顺序，G2 页证据与 B29 角色取证共用；DB 生命周期由调用者持有。
+export function readNativeCallStarts(db, runId) {
+  assert(typeof runId === "string" && runId !== "", "provider started 读取缺少 run_id");
+  return all(db,
+    "SELECT provider_run_id, provider_call_ref, emitted_at FROM provider_events " +
+      "WHERE agent_run_id = ? AND event_type = 'started' ORDER BY emitted_at",
+    [runId]);
+}
+
 export function readG2PageInputs(dir, { workId, runId, target } = {}) {
   assert(typeof workId === "string" && workId !== "", "G2 页证据缺少 work_id");
   assert(typeof runId === "string" && runId !== "", "G2 页证据缺少 run_id");
@@ -261,12 +261,7 @@ export function readG2PageInputs(dir, { workId, runId, target } = {}) {
       prose.includes(target.reading_excerpt),
       "G2 页证据: 冻结阅读摘录不属于目标章已保存正文",
     );
-    const starts = all(
-      db,
-      "SELECT provider_run_id, provider_call_ref, emitted_at FROM provider_events " +
-        "WHERE agent_run_id = ? AND event_type = 'started' ORDER BY emitted_at",
-      [runId],
-    );
+    const starts = readNativeCallStarts(db, runId);
     return {
       chapter_ref: `chapter:${draft.chapter_id}`,
       draft_ref: `draft:${draft.draft_id}`,
@@ -275,6 +270,90 @@ export function readG2PageInputs(dir, { workId, runId, target } = {}) {
       starts,
     };
   });
+}
+
+function readR05ReplySource(dir, history, reply) {
+  const events = withDb(dir, (db) => all(db,
+    "SELECT run_id, event_type, payload FROM agent_events WHERE run_id = ? AND event_type = 'judgment_decided'",
+    [history.record.id])).map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
+  const matching = events.filter((event) =>
+    event.payload.action === "reply" && event.payload.author_narrative === reply);
+  if (matching.length !== 1) return null;
+  const source = matching[0].payload.author_narrative_source;
+  const outputs = history.transcript.messages.filter((message) =>
+    message.role === "assistant" && message.provenance === "model" &&
+    message.provider_call_ref === source?.provider_call_ref &&
+    message.provider_run_ref === source?.provider_run_ref);
+  if (outputs.length !== 1) return null;
+  const output = outputs[0];
+  return { event: matching[0], output: {
+    run_id: history.transcript.run.run_id, role: output.role, provenance: output.provenance,
+    provider_call_ref: output.provider_call_ref, provider_run_ref: output.provider_run_ref,
+    blocks: output.blocks,
+  } };
+}
+
+// R05 输入仍由本 reader 组合：冻结可见目标、真实终局、同次 writer/回复与实际请求。
+// 不在这里裁决全文/范围或文学语义；旧 G2/B29 reader 与判据保持各自契约。
+export function readR05Inputs(dir, { config, history, records, wire }) {
+  const run = history.record;
+  const source = { work_id: run.work_id, ...readG2PageInputs(dir, {
+    workId: run.work_id, runId: run.id, target: config.author_visible_target,
+  }) };
+  if (config.r05_goal === "style") {
+    source.style = withDb(dir, (db) => {
+      const rows = all(db, "SELECT id, version, content FROM memory_items " +
+        "WHERE work_id = ? AND type = 'STYLE_RULE' AND status = 'CONFIRMED'", [run.work_id]);
+      assert.equal(rows.length, 1, "R05 冻结作品必须唯一命中已确认风格原文");
+      assert.equal(rows[0].content, "多用对白推进情节，少用心理独白。", "R05 风格 seed 原文不符");
+      return { ref: `memory:${rows[0].id}`, version: Number(rows[0].version), body: rows[0].content };
+    });
+  }
+  const body = lastCompletedTurn(wire, {
+    turnId: history.facts.turnId, runId: run.id, runRow: run,
+    topic: history.facts.ack.frame[2], workId: run.work_id, sessionId: run.session_id,
+    since: history.facts.ack.at,
+  }, "R05 缺少当前作者输入对应的真实 completed 终局");
+  const allPending = Array.isArray(body.adoption_state?.pending) ? body.adoption_state.pending : [];
+  const pending = allPending.filter((entry) => history.pending.includes(entry.artifact_id));
+  const candidate = pending.length === 1 ? pending[0] : null;
+  const writer = candidate ? writerArtifactMatch({ artifact: candidate, records }) : null;
+  const reply = String(body.assistant_message?.text ?? "");
+  const writing = config.r05_goal === "whole" || config.r05_goal === "style";
+  const replySource = writing ? null : readR05ReplySource(dir, history, reply);
+  const requests = records.map((record) => ({
+    provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref,
+    facts: requestFactsFromRecord(record),
+    scope: scopeForProviderCall(record, { messages: history.sessionMessages }),
+  }));
+  const order = new Map(source.starts.map((start, index) =>
+    [`${start.provider_call_ref}\u0000${start.provider_run_id}`, index]));
+  const startedIndex = (request) => order.get(
+    `${request.provider_call_ref}\u0000${request.provider_run_ref}`);
+  assert(requests.every((request) => Number.isInteger(startedIndex(request))), "R05 实际调用缺少 started 身份");
+  requests.sort((left, right) => startedIndex(left) - startedIndex(right));
+  const consumer = writing ? writer?.provider_call_ref : replySource !== null &&
+    requests.some((request) => request.provider_call_ref === replySource.output.provider_call_ref &&
+      request.provider_run_ref === replySource.output.provider_run_ref)
+      ? replySource.output.provider_call_ref : null;
+  const costCalls = requests.map((request, index) => {
+    const authors = request.facts.authorMessages.filter((message) => message.text === config.message);
+    const analysis = analyzeRequestCost(request.facts.record, {
+      authorBinding: authors.length === 1
+        ? { messageIndex: authors[0].index, text: config.message, sha256: sha256(config.message) } : null,
+      purpose: request.provider_call_ref === writer?.provider_call_ref ? "writer" : null,
+    });
+    return { provider_call_ref: request.provider_call_ref, provider_run_ref: request.provider_run_ref,
+      analysis, prefix_change: index === 0 ? null
+        : prefixComparison(requests[index - 1].facts.messages, request.facts.messages) };
+  });
+  const cost = { calls: costCalls, summary: nativeSummary({
+    config: { length: 1 }, turnReports: [{ status: "completed" }], allCalls: costCalls,
+  }) };
+  return { source, requests, reply, candidate, writer, consumer_call_ref: consumer,
+    run_id: run.id, reply_source: replySource, pending_count: history.pending.length, cost,
+    known_items: allPending.flatMap((entry) => entry.payload?.items ?? [])
+      .map((item) => ({ itemTitle: item.title, itemBody: item.body })) };
 }
 
 // ── B82 §7 G2 报告：复用同一条已绑定 run 的 canonical transcript 与已对账 records ──

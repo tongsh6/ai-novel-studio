@@ -13,9 +13,13 @@
 // 已对账记录逐字节核对，最终可见文本必须新增出现对应 item 标题/正文，缺/空 baseline 记
 // baseline_visible_missing。结果只含 refs/原因，不含正文。
 import { isDeepStrictEqual } from "node:util";
+import { wireTerminal } from "./live_run_wait.mjs";
+import { observationNextRequestEvidence } from "./authoring_call_evidence.mjs";
 import {
   observationRefOf,
   plannedExplorationLeaves,
+  proseObservationBodyReason,
+  singleDraftVersionReason,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
 import { writerArtifactMatch } from "./authoring_pending_evidence.mjs";
@@ -23,7 +27,6 @@ import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 
 const TOTAL = 7000;
 const PAGES = [[1, 6000], [6001, 7000]];
-const BODY_MARKER = "【正文】";
 const SEGMENTER = new Intl.Segmenter("zh", { granularity: "grapheme" });
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -54,58 +57,6 @@ function pageObservations(messages, chapterRef) {
   return found;
 }
 
-function versionReason(block, draftRef, revision) {
-  const versions = block.versions;
-  const keys = isObject(versions) ? Object.keys(versions) : [];
-  if (keys.length === 0) return "version_missing";
-  if (keys.length !== 1) return "version_ambiguous";
-  if (keys[0] !== draftRef) return "version_mismatch";
-  return versions[draftRef] === revision ? null : "version_mismatch";
-}
-
-function bodyReason(block, expected) {
-  const summary = text(block.content?.summary);
-  if (summary.split(BODY_MARKER).length !== 2) return "prose_body_missing";
-  const after = summary.slice(summary.indexOf(BODY_MARKER) + BODY_MARKER.length);
-  const newline = after.indexOf("\n");
-  if (newline < 0) return "prose_body_missing";
-  const body = after.slice(newline + 1);
-  if (body === expected) return null;
-  return body.startsWith(expected) && body.slice(expected.length).startsWith("\n【")
-    ? null
-    : "prose_mismatch";
-}
-
-function callsBefore(messages, callId, beforeIndex) {
-  const found = [];
-  messages.forEach((message, messageIndex) => {
-    if (messageIndex >= beforeIndex || message?.role !== "assistant") return;
-    list(message.blocks).forEach((block) => {
-      if (block?.type === "tool_call" && block.call_id === callId) found.push({ block, message });
-    });
-  });
-  return found;
-}
-
-function startRef(start, index) {
-  return start
-    ? {
-      started_index: index,
-      provider_run_id: start.provider_run_id ?? null,
-      provider_call_ref: start.provider_call_ref ?? null,
-    }
-    : null;
-}
-
-function recordFor(start, records) {
-  if (!start) return { record: null, reason: "missing" };
-  const matches = list(records).filter((record) =>
-    record?.provider_run_ref === start.provider_run_id &&
-    record?.provider_call_ref === start.provider_call_ref);
-  if (matches.length === 1) return { record: matches[0], reason: null };
-  return { record: null, reason: matches.length ? "ambiguous" : "missing" };
-}
-
 function startsMatchRecords(starts, records) {
   const startList = list(starts);
   const recordList = list(records);
@@ -119,20 +70,6 @@ function startsMatchRecords(starts, records) {
       record?.provider_run_ref === start?.provider_run_id &&
       record?.provider_call_ref === start?.provider_call_ref).length === 1;
   });
-}
-
-function hasResult(record, callId) {
-  const facts = requestFactsFromRecord(record);
-  return facts.ok && list(facts.toolResults).some((result) =>
-    result.callId === callId || result.toolCallId === callId);
-}
-
-function laterHasResult(starts, records, fromIndex, callId) {
-  for (let index = fromIndex; index < starts.length; index += 1) {
-    const matched = recordFor(starts[index], records);
-    if (matched.record && hasResult(matched.record, callId)) return true;
-  }
-  return false;
 }
 
 // 页报告只搬运 canonical observation 已带的身份；缺 ref 不改变页证据结论（旧档案
@@ -160,82 +97,16 @@ function pageCheck({ messages, records, starts, chapterRef, draftRef, revision, 
   const coverage = block.coverage;
   if (block.status !== "ok") fail("observation_status");
   if (coverage.prose_total_chars !== chars.length) fail("coverage_total_mismatch");
-  const versionBad = versionReason(block, draftRef, revision);
+  const versionBad = singleDraftVersionReason(block, draftRef, revision);
   if (versionBad !== null) fail(versionBad);
-  const bodyBad = bodyReason(block, chars.slice(start - 1, end).join(""));
+  const bodyBad = proseObservationBodyReason(block, chars.slice(start - 1, end).join(""));
   if (bodyBad !== null) fail(bodyBad);
   if (end < chars.length ? block.next_offset !== end : block.next_offset != null) {
     fail("next_offset_mismatch");
   }
 
-  // 真正 call_id 只在父块；同一父调用内的两页共享它去找 canonical assistant 与请求。
-  const callId = parent.call_id;
-  page.call_id = nonBlank(callId) ? callId : null;
-  page.observation_ref = observationRefOf(block);
-  if (!nonBlank(callId)) {
-    fail("call_id_missing");
-    return page;
-  }
-  const calls = callsBefore(messages, callId, messageIndex);
-  if (calls.length !== 1) {
-    fail(calls.length > 1 ? "assistant_call_ambiguous" : "assistant_call_missing");
-    return page;
-  }
-  const { message: callMessage } = calls[0];
-  const pcall = callMessage?.provider_call_ref;
-  const prun = callMessage?.provider_run_ref;
-  if (!nonBlank(pcall) || !nonBlank(prun)) {
-    fail("assistant_ref_missing");
-    return page;
-  }
-  const sourceIndexes = list(starts).flatMap((item, index) =>
-    item?.provider_run_id === prun && item?.provider_call_ref === pcall ? [index] : []);
-  if (sourceIndexes.length !== 1) {
-    fail(sourceIndexes.length > 1 ? "source_started_ambiguous" : "source_started_missing");
-    return page;
-  }
-  const sourceIndex = sourceIndexes[0];
-  page.source = startRef(starts[sourceIndex], sourceIndex);
-  const source = recordFor(starts[sourceIndex], records);
-  if (!source.record) {
-    fail(source.reason === "ambiguous" ? "source_record_ambiguous" : "source_record_missing");
-  } else if (hasResult(source.record, callId)) {
-    fail("source_already_has_result");
-  }
-
-  const nextIndex = sourceIndex + 1;
-  page.next = startRef(starts[nextIndex], nextIndex);
-  if (!page.next) {
-    fail("next_started_missing");
-    return page;
-  }
-  const next = recordFor(starts[nextIndex], records);
-  if (!next.record) {
-    fail(next.reason === "ambiguous" ? "next_record_ambiguous" : "next_record_missing");
-    return page;
-  }
-  const facts = requestFactsFromRecord(next.record);
-  if (!facts.ok) {
-    fail("next_record_unreadable");
-    return page;
-  }
-  const nextCalls = list(facts.toolCalls).filter((call) => call.callId === callId);
-  const nextResults = list(facts.toolResults).filter((result) =>
-    result.callId === callId || result.toolCallId === callId);
-  if (nextCalls.length !== 1) {
-    fail(nextCalls.length > 1 ? "next_call_ambiguous" : "next_call_missing");
-  } else if (nextResults.length === 1 && nextCalls[0].messageIndex >= nextResults[0].messageIndex) {
-    fail("next_call_order");
-  }
-  if (nextResults.length !== 1) {
-    if (laterHasResult(starts, records, nextIndex + 1, callId)) fail("late_replay");
-    else fail(nextResults.length > 1 ? "next_result_ambiguous" : "next_result_missing");
-  } else if (nextResults[0].toolCallId !== callId) {
-    fail("result_id_mismatch");
-  } else if (!isDeepStrictEqual(nextResults[0].payload, parent)) {
-    fail("next_payload_mismatch");
-  }
-  return page;
+  const supplied = observationNextRequestEvidence({ messages, records, starts, parent, messageIndex });
+  return { ...page, ...supplied, observation_ref: observationRefOf(block), reason: page.reason ?? supplied.reason };
 }
 
 // ── B82 §7/§16.9 候选证据 ────────────────────────────────────────────────────
@@ -254,7 +125,7 @@ function candidateTurn(facts, run) {
   const completed = list(facts.results).filter((record) => {
     if (!nonBlank(record?.at) || record.at < facts.ack.at) return false;
     const agentRun = resultBody(record)?.agent_run;
-    return isObject(agentRun) && agentRun.run_id === run.id && agentRun.status === "completed";
+    return isObject(agentRun) && agentRun.run_id === run.id;
   });
   if (completed.length === 0) return { reason: "completed_result_missing" };
   if (completed.length > 1) return { reason: "completed_result_ambiguous" };
@@ -262,7 +133,9 @@ function candidateTurn(facts, run) {
   // 终局身份必须精确等于 run；缺字段不接受（nonBlank 同时排除 null/undefined/空串）。
   if (!nonBlank(body.work_id) || body.work_id !== run.work_id) return { reason: "work_mismatch" };
   if (!nonBlank(body.session_id) || body.session_id !== run.session_id) return { reason: "session_mismatch" };
-  return { body };
+  const terminal = wireTerminal(completed, { turnId: facts.turnId, runId: run.id, runRow: run,
+    topic: facts.ack.frame?.[2], workId: run.work_id, sessionId: run.session_id, since: facts.ack.at });
+  return terminal?.kind === "completed" ? { body } : { reason: "completed_result_missing" };
 }
 
 function candidateEntry(body, { pending, chapterRef }) {
@@ -630,7 +503,7 @@ function processGroupKind(nodes, group) {
 
 // 现役 capability_gap 结果：真实 AXGroup 的可访问说明 + 直接子文本「能力缺口」，
 // 且同一作者边界内必须有对应回复组和「为什么」入口。正文关键词不参与。
-function withinAuthorBoundary(node, { container, afterPath, beforePath }) {
+export function withinAuthorBoundary(node, { container, afterPath, beforePath }) {
   if (axParentPath(node) !== container) return false;
   if (compareAxPath(node, { path: afterPath }) <= 0) return false;
   if (beforePath === null) return true;
@@ -700,7 +573,7 @@ function capabilityGapFacts(nodes, boundary) {
 
 // baselineAuthorCount = 发送前页面里同一原话的作者消息数；只有新增的最后一条才是
 // 本轮消息，重复输入不会回看旧回合终局。
-function authorBoundary(nodes, message, baselineAuthorCount) {
+export function authorBoundary(nodes, message, baselineAuthorCount) {
   const authors = axAuthorMessages(nodes, message);
   if (authors.length <= baselineAuthorCount) return { authors, author: null };
   const author = authors.at(-1);
@@ -887,7 +760,7 @@ function readingActivityReason(activities) {
 
 // 共享的作者可见页面表面：冻结目标、本次作者消息之后的本回合、前后完整阅读页与
 // 内部词扫描。G2/G3 只在这层之上追加各自终局判据，不复制阅读页/作者消息/泄漏判定。
-function visiblePageSurface({
+export function visiblePageSurface({
   target,
   message,
   afterInputText,

@@ -115,7 +115,8 @@ export function firstConsumerEvidence() {
     "turn_result",
     {
       turn_id: F_PARENT,
-      agent_run: { run_id: F_RUN, status: "completed", run_mode: "bounded" },
+      work_id: F_WORK, session_id: F_SESSION,
+      agent_run: { run_id: F_RUN, parent_turn_ref: F_PARENT, status: "running", run_mode: "bounded" },
       adoption_state: { pending: [] },
     },
     "received",

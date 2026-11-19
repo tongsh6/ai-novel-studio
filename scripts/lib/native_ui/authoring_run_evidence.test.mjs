@@ -6,7 +6,6 @@ import test from "node:test";
 import {
   ackRunId,
   authoringInput,
-  completedForRun,
   explorationFacts,
   firstCompletedTurn,
   lastCompletedTurn,
@@ -52,25 +51,24 @@ test("作者输入与 ack run_id 只接受真实匹配帧，缺失时失败", ()
   }
 });
 
-test("completed 结果必须同时匹配 run 与 completed 状态，首/末选择各自精确", () => {
-  const completed = (runId) => ({ agent_run: { run_id: runId, status: "completed" } });
-  assert.equal(completedForRun(completed("run-1"), "run-1"), true);
-  assert.equal(completedForRun(completed("run-2"), "run-1"), false);
-  assert.equal(completedForRun({ agent_run: { run_id: "run-1", status: "failed" } }, "run-1"), false);
-  assert.equal(completedForRun(null, "run-1"), false);
-  assert.equal(completedForRun({}, "run-1"), false);
-
-  const results = [
-    { agent_run: { run_id: "run-1", status: "failed" } },
-    completed("run-1"),
-    completed("run-2"),
-    completed("run-1"),
-    completed("run-1"),
-  ];
-  assert.equal(firstCompletedTurn(results, "run-1", "缺完成结果"), results[1]);
-  assert.equal(lastCompletedTurn(results, "run-1", "缺完成结果"), results[4]);
-  assert.throws(() => firstCompletedTurn(results, "run-9", "缺完成结果"), /缺完成结果/);
-  assert.throws(() => lastCompletedTurn(results, "run-9", "缺完成结果"), /缺完成结果/);
+test("业务结果首末选择均需同 scope 的真实运行完成；running 结果不预测终态", () => {
+  const identity = { turnId: "turn-1", runId: "run-1", topic: "workspace:ws", workId: "work-1", sessionId: "session-1" };
+  const result = (runId, suffix) => frame("turn_result", { turn_id: "turn-1:" + suffix,
+    work_id: "work-1", session_id: "session-1",
+    agent_run: { run_id: runId, parent_turn_ref: "turn-1", status: "running" } });
+  const results = [result("foreign", 0), result("run-1", 1), result("foreign", 2), result("run-1", 3), result("run-1", 4)];
+  results.forEach((record) => { record.frame[2] = identity.topic; });
+  const state = frame("agent_run_state", { run_id: "run-1", parent_turn_ref: "turn-1",
+    workspace_id: "ws", work_id: "work-1", session_id: "session-1", status: "completed" });
+  state.frame[2] = identity.topic;
+  const wire = [...results, state];
+  assert.equal(firstCompletedTurn(wire, identity, "缺完成结果"), results[1].frame[4]);
+  assert.equal(lastCompletedTurn(wire, identity, "缺完成结果"), results[4].frame[4]);
+  assert.throws(() => firstCompletedTurn(results, identity, "缺完成结果"), /缺完成结果/);
+  assert.throws(() => lastCompletedTurn(wire, { ...identity, runId: "foreign-absent" }, "缺完成结果"), /缺完成结果/);
+  const projected = structuredClone(results);
+  projected.forEach((record) => { record.frame[4].agent_run.status = "completed"; });
+  assert.throws(() => firstCompletedTurn(projected, identity, "缺完成结果"), /缺完成结果/);
 });
 
 test("探索事件只认 owning scope 的 agent_event/exploration_observed 并保留真实查询顺序", () => {

@@ -207,7 +207,8 @@ export function canonicalTranscript(turn, text) {
     call1,
     call2,
     messages: [
-      { role: "user", provenance: "author", blocks: [{ type: "text", text }] },
+      { role: "user", provenance: "author", source_refs: [{ ref: turn.turn_id }],
+        blocks: [{ type: "text", text }] },
       {
         role: "assistant",
         provenance: "model",

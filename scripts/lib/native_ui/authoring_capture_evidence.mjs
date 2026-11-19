@@ -130,17 +130,54 @@ export function splashRuntime(dir) {
 }
 
 
-// B82：实模批次冻结输入沿用 B71 已有预注册 JSON 形状（id/model/scenarios），
-// 只校验本批实际发送所需的字段，不解释预算或判据。
+// 实模批次冻结输入沿用 B71 预注册 JSON 形状；场景绑定与发送预算在此单点校验。
+// 文学判断与实际请求材料覆盖由独立 evidence owner 审计。
 const PREREGISTRATION_FILE = "preregistration.json";
 const AUTHOR_VISIBLE_TARGET_FIELDS = Object.freeze(["work_title", "chapter_title", "reading_excerpt"]);
 
 // B82 已冻结的作者可见场景：G2/G3 共享同一 author_visible_target 契约（同样 3 个
 // 字段、同一份预注册哈希与目标绑定）。这里是选择作者可见入口的唯一判定；普通 live
 // 与其它场景返回 null，保持原行为。
+const R05_BUDGET = Object.freeze({
+  batches: 1, author_sends: 1, manual_retries: 0, scenario_seconds: 900,
+  input_timeout_ms: 120000, turn_timeout_ms: 360000,
+});
+const R05_FULL_READ_TARGET = Object.freeze({
+  work_title: "灰烬手印验证作品", chapter_title: "第2章：灰烬中的手印",
+  reading_excerpt: "末页锚点：井底浮现第七枚手印",
+});
+// 四个新场景的唯一登记点；batch、prepare、readConfig 共用此表，未知 Splash ID 不放行。
+const R05_SCENARIOS = Object.freeze({
+  "b87-r05-chapter-count": {
+    mode: "read_only", goal: "count",
+    seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
+    message: "这部作品目前一共有多少章？有正文和还没写正文的各几章？只告诉我这三个数量。",
+    target: R05_FULL_READ_TARGET,
+  },
+  "b87-r05-quality": {
+    mode: "read_only", goal: "quality",
+    seed_script: "scripts/seed_au11_quality_diagnosis_message_envelope.exs",
+    message: "请先阅读第01章《灵源账单》已经保存的正文，再判断主角的胜利来得是否太容易，指出依据和可改方向。只分析，不生成修订候选，也不要保存。",
+    target: { work_title: "灵源纪元", chapter_title: "第1章：灵源账单",
+      reading_excerpt: "而妹妹的名字，正写在矿井最深处那面显示屏的最上面一行。" },
+  },
+  "b87-r05-whole-chapter": {
+    mode: "candidate", goal: "whole",
+    seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
+    message: "请先把第02章《灰烬中的手印》已保存的正文从头到尾读完，再给我一份整章修订候选，减少重复描写，保留开头和结尾的线索；先不要保存。",
+    target: R05_FULL_READ_TARGET,
+  },
+  "b87-r05-style-material": {
+    mode: "candidate", goal: "style",
+    seed_script: "scripts/seed_ca04_carry_gaps.exs",
+    message: "请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。",
+    target: { work_title: "CA04 携带缺口验收作品", chapter_title: "第1章：黑市对账夜",
+      reading_excerpt: "巡检的脚步声从巷口传来，他把账牌收进袖中。" },
+  },
+});
 const AUTHOR_VISIBLE_SCENARIO_MODES = Object.freeze({
-  "b82-g2": "candidate",
-  "b82-g3": "read_only",
+  "b82-g2": "candidate", "b82-g3": "read_only",
+  ...Object.fromEntries(Object.entries(R05_SCENARIOS).map(([id, spec]) => [id, spec.mode])),
 });
 
 export const authorVisibleScenario = (scenarioId) =>
@@ -181,7 +218,7 @@ export function validatePreregistrationFile(
   file,
   { dir, provider = "strata",
     model = provider === "splash" ? getRuntimeProfile(COMPACTION_RUNTIME_PROFILE_ID).model : DEFAULT_STRATA_MODEL,
-    requireAuthorVisibleTarget = false, scenarioId = null } = {},
+    requireAuthorVisibleTarget = false, scenarioId = null, b71Live = false } = {},
 ) {
   assert(typeof dir === "string" && dir !== "", "预注册校验缺少批次目录");
   assert(["strata", "splash"].includes(provider), `预注册未知 provider: ${provider}`);
@@ -220,7 +257,7 @@ export function validatePreregistrationFile(
   if (provider === "splash") {
     const profile = assertManifestRuntime(value);
     assert.equal(profile.id, COMPACTION_RUNTIME_PROFILE_ID, "Splash 必须使用现役 R03 runtime profile");
-    assert(typeof scenarioId === "string" && scenarioId !== "", "Splash 调用者必须显式绑定 scenarioId");
+    assert(b71Live || (typeof scenarioId === "string" && scenarioId !== ""), "Splash 调用者必须显式绑定 scenarioId");
   }
   assert(
     Array.isArray(value.scenarios) && value.scenarios.length === 1,
@@ -252,10 +289,25 @@ export function validatePreregistrationFile(
   const actualScenarioId =
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
   if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
-  // 作者可见目标只属于已冻结的 b82-g2/b82-g3；其它场景即使带同名字段也不改变入口行为。
+  if (provider === "splash" && b71Live) {
+    assert(actualScenarioId === "b82-g2" || Object.hasOwn(R05_SCENARIOS, actualScenarioId),
+      "Splash B71 live 只接受 b82-g2 或已登记的 R05 场景");
+  }
+  const r05 = Object.hasOwn(R05_SCENARIOS, actualScenarioId) ? R05_SCENARIOS[actualScenarioId] : null;
+  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
   const authorVisibleTarget = authorVisibleScenario(actualScenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
+  if (r05) {
+    assert.equal(provider, "splash", "R05 provider 必须是 splash");
+    assert.equal(scenario.slice_id, "b71-first-consumer", "R05 slice 绑定不符");
+    assert.equal(scenario.message, r05.message, "R05 作者原文与冻结场景不符");
+    assert.deepEqual(authorVisibleTarget, r05.target, "R05 作者可见目标与冻结场景不符");
+    assert.equal(scenario.seed?.script, r05.seed_script, "R05 seed 路径与冻结场景不符");
+    assert.equal(scenario.seed?.sha256, shaFile(path.join(ROOT, r05.seed_script)),
+      "R05 seed 字节与冻结 SHA 不符");
+    assert.deepEqual(value.budget, R05_BUDGET, "R05 budget 必须绑定 1 send/0 retry/900秒 owned 执行");
+  }
   return {
     id: value.id,
     sha256: sha256(text),
@@ -263,6 +315,7 @@ export function validatePreregistrationFile(
     model: value.model.model,
     scenario_id: actualScenarioId,
     author_visible_target: authorVisibleTarget,
+    ...(r05 ? { seed: scenario.seed, budget: value.budget, r05_goal: r05.goal } : {}),
   };
 }
 
@@ -283,10 +336,15 @@ function checkPreregistration(dir, config) {
     "native-b71-config.preregistration 缺少冻结模型",
   );
   const record = validatePreregistrationFile(file, { dir, provider: config.provider, model: marker.model,
-    scenarioId: config.provider === "splash" ? "b82-g2" : null });
+    b71Live: true });
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
+  if (record.r05_goal) {
+    assert.deepEqual(config.seed, record.seed, "配置 seed 与预注册不一致");
+    assert.deepEqual(config.budget, record.budget, "配置 budget 预算与预注册不一致");
+    assert.equal(config.slice_id, "b71-first-consumer", "配置 R05 slice 绑定不符");
+  }
   // B82 作者可见目标与作者输入一起封存在同一份预注册哈希里；旧批次缺字段时
   // 保持历史可读，但 G2/G3 新批次必须有冻结来源，且配置副本不得被改写或补造。
   if (authorVisibleScenario(record.scenario_id)) {
@@ -314,7 +372,7 @@ export function readConfig(dir) {
   if (sealed.provider === "splash") {
     assert(["live", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
     assert.deepEqual(sealed.runtime, splashRuntime(dir), "实际 runtime facts 与配置不符");
-    if (sealed.journey === "live") assert.equal(record?.scenario_id, "b82-g2", "Splash live 缺少冻结预注册 b82-g2");
+    if (sealed.journey === "live") assert(record, "Splash live 缺少冻结预注册 b82-g2 或 R05");
   }
   if (sealed.journey === "auto-maintenance") {
     assert.equal(sealed.provider, "splash", "R03 auto-maintenance provider 不符");
@@ -322,6 +380,8 @@ export function readConfig(dir) {
     assert.equal(sealed.message, inputs.discussions[0].text, "作者输入与冻结原文不符");
   }
   delete sealed.scenario_id;
+  delete sealed.r05_goal;
+  if (record?.r05_goal) sealed.r05_goal = record.r05_goal;
   if (authorVisibleScenario(record?.scenario_id)) {
     delete sealed.author_visible_target;
     if (record.author_visible_target) sealed.author_visible_target = record.author_visible_target;
@@ -423,7 +483,7 @@ export function prepare(dir) {
   const preregistration = hasPreregistration
     ? validatePreregistrationFile(preregistrationFile, { dir, provider: ready.provider,
       model: runtime ? runtime.observed.provider.model : DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget: true,
-      scenarioId: ready.provider === "splash" ? "b82-g2" : null })
+      b71Live: true })
     : null;
   const visibleTarget = preregistration?.author_visible_target ?? null;
   // B82 的场景目标只取封存的作者可见目标，不依赖种子日志或数据库。
@@ -450,6 +510,7 @@ export function prepare(dir) {
     provider: ready.provider,
     ...(target ? { target } : {}),
     ...(visibleTarget ? { author_visible_target: visibleTarget } : {}),
+    ...(preregistration?.r05_goal ? { seed: preregistration.seed, budget: preregistration.budget } : {}),
     ...(preregistration
       ? {
           preregistration: {
@@ -588,8 +649,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(64);
   }
   try {
-    const record = validatePreregistrationFile(file, { dir, provider, scenarioId });
-    console.log(`preregistration=${record.id} sha256=${record.sha256}`);
+    const record = validatePreregistrationFile(file, { dir, provider,
+      scenarioId: scenarioId === "b71-live" ? null : scenarioId,
+      b71Live: scenarioId === "b71-live" });
+    console.log(JSON.stringify(record));
   } catch (error) {
     console.error(`[b71-preregistration] ${error.message}`);
     process.exit(1);

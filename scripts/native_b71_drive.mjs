@@ -8,7 +8,6 @@ import {
   frameBody,
   frameEvent,
   runEvidenceMode,
-  turnIdMatches,
 } from "./lib/native_ui/scenario_driver.mjs";
 import { broadcastFrames, frameOf } from "./lib/native_ui/scenario_evidence.mjs";
 import {
@@ -19,6 +18,7 @@ import {
   revisionActionFrame,
 } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { drivePending } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 
 const dir = path.resolve(process.argv[2] ?? "");
 if (!dir) {
@@ -56,23 +56,12 @@ async function run() {
   const turnId = String(frameBody(sent)?.turn_id ?? "");
   if (!turnId) throw new Error("user_message_without_turn_id");
 
-  await harness.runStep("ack", "user_message_ack", () =>
+  const ack = await harness.runStep("ack", "user_message_ack", () =>
     harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, "b71:ack"),
   );
 
-  const result = await harness.runStep("turn", "full_chapter_reply", () =>
-    harness.pollWire(
-      (wire) =>
-        wire.find(
-          (entry) =>
-            entry.direction === "received" &&
-            frameEvent(entry) === "turn_result" &&
-            turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), turnId),
-        ) ?? null,
-      90_000,
-      "b71:turn_result",
-    ),
-  );
+  const result = await pollRecoveredResult(completionIdentity(sent, frameBody(ack)?.response?.run_id),
+    { timeoutMs: 90_000, label: "full_chapter_reply" });
 
   await harness.runStep("maintenance", "reply_visible", () =>
     harness.pollAx((text) => text.includes("井底浮现第七枚手印"), 45_000, "b71:reply"),
@@ -89,6 +78,11 @@ async function run() {
   console.log(`B71 原生驱动完成: turn=${turnId} screenshots=${harness.screenshots.length}`);
 }
 
+function completionIdentity(sent, runId, turnId = frameBody(sent)?.turn_id) {
+  return { turnId, runId, topic: frameOf(sent)?.[2], since: sent.at,
+    workId: frameBody(sent)?.work_id, sessionId: frameBody(sent)?.session_id };
+}
+
 async function sendBoundedRun(config) {
   const sent = await harness.runStep("input", "prose_draft", () =>
     harness.rawTypeAndSend(config.message, "b71"),
@@ -99,7 +93,7 @@ async function sendBoundedRun(config) {
   );
   const runId = String(frameBody(ack)?.response?.run_id ?? "");
   if (!parentTurnId || !runId) throw new Error("bounded_run_identity_missing");
-  return { parentTurnId, runId };
+  return { parentTurnId, runId, identity: completionIdentity(sent, runId) };
 }
 
 function pollWriterTimeout(runId) {
@@ -136,38 +130,12 @@ async function retryTimedOutWriter(runId) {
   await harness.runStep("input", "scoped_retry", async () => harness.safeClick(retry, "scoped-retry"));
 }
 
-function pollRecoveredResult(runId) {
-  return harness.runStep("turn", "recovered_candidate", () =>
-    harness.pollWire(
-      runWirePredicate(runId, (wire) =>
-        wire.find(
-          (entry) =>
-            entry.direction === "received" &&
-            frameEvent(entry) === "turn_result" &&
-            String(frameBody(entry)?.agent_run?.run_id ?? "") === runId &&
-            frameBody(entry)?.agent_run?.status === "completed",
-        ) ?? null),
-      120_000,
-      "b71:recovered",
-    ),
-  );
-}
-
-function pollRunCompleted(runId) {
-  return harness.runStep("turn", "run_completed", () =>
-    harness.pollWire(
-      runWirePredicate(runId, (wire) =>
-        wire.find(
-          (entry) =>
-            entry.direction === "received" &&
-            frameEvent(entry) === "agent_event" &&
-            String(frameBody(entry)?.run_ref ?? "") === runId &&
-            frameBody(entry)?.event_type === "run_completed",
-        ) ?? null),
-      30_000,
-      "b71:completed",
-    ),
-  );
+function pollRecoveredResult(identity, { timeoutMs = 120_000, label = "recovered_candidate" } = {}) {
+  return harness.runStep("turn", label, () => harness.pollWire((wire) => {
+    const terminal = wireTerminal(wire, { ...identity, requireWireTerminal: true, resultPosition: "last" });
+    if (terminal?.kind === "failed") throw new Error("b71_run_failed:" + terminal.status);
+    return terminal?.kind === "completed" ? terminal.record : null;
+  }, timeoutMs, "b71:" + label));
 }
 
 function failedRunFrame(wire, runId, scope) {
@@ -195,9 +163,8 @@ function runWirePredicate(runId, predicate, scope = null) {
   };
 }
 
-async function awaitRecoveredCandidate(runId) {
-  const result = await pollRecoveredResult(runId);
-  await pollRunCompleted(runId);
+async function awaitRecoveredCandidate(identity) {
+  const result = await pollRecoveredResult(identity);
   await harness.runStep("maintenance", "candidate_visible", () =>
     harness.pollAx(
       (text) => text.includes("正文草稿") && text.includes("保存为章节正文"),
@@ -236,7 +203,7 @@ async function driveStreamPreview(config) {
   const turnId = String(frameBody(sent)?.turn_id ?? "");
   if (!turnId) throw new Error("user_message_without_turn_id");
 
-  await harness.runStep("ack", "bounded_run_ack", () =>
+  const ack = await harness.runStep("ack", "bounded_run_ack", () =>
     harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, "b71:ack"),
   );
 
@@ -254,19 +221,8 @@ async function driveStreamPreview(config) {
   );
   harness.capture("02-prose-preview");
 
-  const result = await harness.runStep("turn", "turn_result", () =>
-    harness.pollWire(
-      (wire) =>
-        wire.find(
-          (entry) =>
-            entry.direction === "received" &&
-            frameEvent(entry) === "turn_result" &&
-            turnIdMatches(String(frameBody(entry)?.turn_id ?? ""), turnId),
-        ) ?? null,
-      120_000,
-      "b71:turn_result",
-    ),
-  );
+  const result = await pollRecoveredResult(completionIdentity(sent, frameBody(ack)?.response?.run_id),
+    { label: "turn_result" });
 
   harness.capture("03-final");
   runEvidenceMode(evidence, "capture", dir, ["final"]);
@@ -282,16 +238,15 @@ async function driveStreamPreview(config) {
 }
 
 async function driveContinuation(config) {
-  const { parentTurnId, runId } = await sendBoundedRun(config);
+  const { parentTurnId, runId, identity } = await sendBoundedRun(config);
   await retryTimedOutWriter(runId);
-  const result = await awaitRecoveredCandidate(runId);
+  const result = await awaitRecoveredCandidate(identity);
   completeContinuation(config, parentTurnId, runId, result);
 }
 
 async function driveCharacterDesign(config) {
-  const { parentTurnId, runId } = await sendBoundedRun(config);
-  const result = await pollRecoveredResult(runId);
-  await pollRunCompleted(runId);
+  const { parentTurnId, runId, identity } = await sendBoundedRun(config);
+  const result = await pollRecoveredResult(identity);
   await harness.runStep("maintenance", "character_candidate_visible", () =>
     harness.pollAx(
       (text) => text.includes("角色设定草稿") && text.includes("保存所选方案到作品档案"),
@@ -305,9 +260,8 @@ async function driveCharacterDesign(config) {
 }
 
 async function drivePlanning(config) {
-  const { parentTurnId, runId } = await sendBoundedRun(config);
-  const result = await pollRecoveredResult(runId);
-  await pollRunCompleted(runId);
+  const { parentTurnId, runId, identity } = await sendBoundedRun(config);
+  const result = await pollRecoveredResult(identity);
   await harness.runStep("maintenance", "planning_candidates_visible", () =>
     harness.pollAx((text) => ["角色设定草稿", "世界设定草稿", "保存所选方案到作品档案"].every((label) => text.includes(label)),
       45_000, "b71:planning-candidates"),
@@ -368,26 +322,15 @@ function actionResultOrNull(wire, identity) {
   }
 }
 
-function sourceQualityFrame(wire, sourceRunId, scope) {
-  return (
-    broadcastFrames(wire, {
-      topic: scope.topic,
-      at: scope.at,
-      event: "turn_result",
-      agentRunId: sourceRunId,
-    }).find((entry) => {
-      const body = frameBody(entry);
-      return (
-        body?.quality_review?.review_status === "completed" &&
-        (body?.adoption_state?.pending ?? []).some(
-          (artifact) => artifact?.artifact_type === "prose_fragment",
-        ) &&
-        (body?.available_actions ?? []).some(
-          (action) => action?.action_type === "revise_from_findings",
-        )
-      );
-    }) ?? null
-  );
+function sourceQualityFrame(wire, identity) {
+  const terminal = wireTerminal(wire, { ...identity, requireWireTerminal: true });
+  if (terminal?.kind !== "completed") return null;
+  return terminal.results.find((entry) => {
+    const body = frameBody(entry);
+    return body?.quality_review?.review_status === "completed" &&
+      (body?.adoption_state?.pending ?? []).some((artifact) => artifact?.artifact_type === "prose_fragment") &&
+      (body?.available_actions ?? []).some((action) => action?.action_type === "revise_from_findings");
+  }) ?? null;
 }
 
 async function openArchiveOutline(harness, chapterTitle) {
@@ -470,7 +413,7 @@ async function driveRevision(config) {
   if (!sourceRunId) throw new Error("revision_source_run_missing");
   const sourceResult = await harness.runStep("turn", "source_quality", () =>
     harness.pollWire(
-      (wire) => sourceQualityFrame(wire, sourceRunId, { topic, at: since }),
+      (wire) => sourceQualityFrame(wire, completionIdentity(sent, sourceRunId)),
       240_000,
       "b71:source-quality",
     ),
@@ -537,44 +480,9 @@ async function driveRevision(config) {
     ),
   );
   void actionResult;
-  const childWindow = { topic, at: actionFrame.at };
-  await harness.runStep("turn", "revision_run_completed", () =>
-    harness.pollWire(
-      runWirePredicate(
-        childRunId,
-        (wire) =>
-          broadcastFrames(wire, {
-            topic,
-            at: childWindow.at,
-            event: "agent_run_state",
-          }).find(
-            (entry) =>
-              frameBody(entry)?.run_id === childRunId &&
-              frameBody(entry)?.status === "completed",
-          ) ?? null,
-        childWindow,
-      ),
-      240_000,
-      "b71:revision-completed",
-    ),
-  );
-  const childResult = await harness.runStep("turn", "revision_turn_result", () =>
-    harness.pollWire(
-      runWirePredicate(
-        childRunId,
-        (wire) =>
-          broadcastFrames(wire, {
-            topic,
-            at: childWindow.at,
-            event: "turn_result",
-            agentRunId: childRunId,
-          }).find((entry) => frameBody(entry)?.agent_run?.status === "completed") ?? null,
-        childWindow,
-      ),
-      60_000,
-      "b71:revision-turn-result",
-    ),
-  );
+  const childResult = await pollRecoveredResult({
+    ...completionIdentity(sent, childRunId, sourceResultTurnId), since: actionFrame.at,
+  }, { timeoutMs: 240_000, label: "revision_run_completed" });
   const childTurnId = String(frameBody(childResult)?.turn_id ?? "");
   if (!childTurnId) throw new Error("revision_child_turn_missing");
 

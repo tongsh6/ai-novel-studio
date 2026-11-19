@@ -16,10 +16,11 @@ import {
 } from "./lib/native_ui/scenario_driver.mjs";
 import { textOf } from "./lib/native_ui/driver.mjs";
 import { authorVisibleOutcome, readingPageFailure } from "./lib/native_ui/authoring_g2_evidence.mjs";
-import { all, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { all, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
+import { capturePendingItemViews } from "./lib/native_ui/authoring_pending_driver.mjs";
 import {
   classifyTurnBody,
-  dbTerminal,
   summarizeModelBehavior,
   wireTerminal,
 } from "./lib/native_ui/live_run_wait.mjs";
@@ -46,6 +47,29 @@ const strataEndpoint = (() => {
 const TURN_TIMEOUT_MS = Number(process.env.B71_LIVE_TURN_TIMEOUT_MS ?? 360_000);
 const INPUT_TIMEOUT_MS = Number(process.env.B71_LIVE_INPUT_TIMEOUT_MS ?? 120_000);
 const READY_TIMEOUT_MS = Number(process.env.B71_LIVE_READY_TIMEOUT_MS ?? 180_000);
+
+// R05 已观察终局之后只读同一次发送的 pending，作为滚动定位输入，不推进模型或采纳。
+async function captureR05Candidates(config) {
+  const wire = harness.transport(), sent = sentUserMessages(wire, config.message);
+  if (sent.length !== 1) throw new Error("r05_visible_author_send_not_unique");
+  const facts = turnFacts(wire, sent[0]), author = frameBody(sent[0]);
+  const body = lastCompletedTurn(wire, {
+    turnId: facts.turnId, runId: frameBody(facts.ack)?.response?.run_id,
+    topic: frameOf(sent[0])[2], workId: author.work_id, sessionId: author.session_id, since: sent[0].at,
+  }, "R05 可见终局缺少同次完成结果");
+  const pending = Array.isArray(body.adoption_state?.pending) ? body.adoption_state.pending : [];
+  const itemsOf = (artifact) => Array.isArray(artifact.payload?.items) ? artifact.payload.items : [];
+  const knownItems = pending.flatMap(itemsOf).map((item) => ({ itemTitle: item.title, itemBody: item.body }));
+  const items = pending.filter((artifact) => artifact.artifact_type === "prose_fragment").flatMap(itemsOf);
+  if (items.length === 0) throw new Error("r05_visible_prose_candidate_missing");
+  const views = [];
+  for (const [index, item] of items.entries()) {
+    views.push(...await capturePendingItemViews(harness, {
+      itemTitle: item.title, itemBody: item.body, knownItems, prefix: `r05-candidate-${index + 1}`,
+    }));
+  }
+  return views;
+}
 
 // B82 G2/G3 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
 // 不读应用 DB、turn/run refs 或 wire 来推进；原始 wire/日志仍由外部代理采集供诊断。
@@ -180,43 +204,16 @@ const readProviderCounts = () => ({
 });
 
 function readRunRow({ turnId, runId }) {
-  return withDb(dir, (db) => {
-    const rows = runId
-      ? all(db, "SELECT id, status, parent_turn_ref, run_mode FROM agent_runs WHERE id = ?", [runId])
-      : all(
-          db,
-          "SELECT id, status, parent_turn_ref, run_mode FROM agent_runs WHERE parent_turn_ref = ? ORDER BY inserted_at DESC",
-          [turnId],
-        );
-    return rows.at(-1) ?? null;
-  });
+  return withDb(dir, (db) => all(db,
+    "SELECT id, status, parent_turn_ref, run_mode, workspace_id, work_id, session_id, goal_version " +
+      "FROM agent_runs WHERE id = ? AND parent_turn_ref = ?", [runId, turnId])[0] ?? null);
 }
 
-// 终局等待：WS 帧优先（owning turn/run 绑定），DB agent_runs 终态兜底；
-// 两者都没有就继续等，直到 turn 预算耗尽。不轮询固定回复文本。
-async function waitRunTerminal({ turnId, runId }) {
-  let observed = null;
-  const terminal = await harness.runStep("turn", "live_run_terminal", () =>
-    harness.pollWire(
-      (wire) => {
-        const fromWire = wireTerminal(wire, { turnId, runId: runId || null });
-        if (fromWire) {
-          observed = { ...fromWire, source: "wire" };
-          return observed;
-        }
-        const row = readRunRow({ turnId, runId: runId || null });
-        const fromDb = dbTerminal(row);
-        if (fromDb) {
-          observed = { ...fromDb, source: "db", row };
-          return observed;
-        }
-        return null;
-      },
-      TURN_TIMEOUT_MS,
-      "b71-live:terminal",
-    ),
-  );
-  return terminal ?? observed;
+// 持久事实和已交付运行回包须一致；不能在页面仍 active 时凭 DB 终态推进下一输入。
+async function waitRunTerminal(identity) {
+  return harness.runStep("turn", "live_run_terminal", () => harness.pollWire((wire) =>
+    wireTerminal(wire, { ...identity, runRow: readRunRow(identity), requireWireTerminal: true }),
+  TURN_TIMEOUT_MS, "b71-live:terminal"));
 }
 
 async function collectModelBehavior({ terminal, turnBody, runStatus }) {
@@ -317,7 +314,9 @@ async function run() {
   runEvidenceMode(evidence, "prepare", dir);
   const config = readConfig(dir);
   if (config.journey !== "live") throw new Error(`live driver 只接受 journey=live，实测: ${config.journey}`);
-  if (config.provider !== "strata") throw new Error(`live driver 只接受 provider=strata，实测: ${config.provider}`);
+  if (!["strata", "splash"].includes(config.provider)) throw new Error(`live driver 未注册 provider: ${config.provider}`);
+  const strata = config.provider === "strata";
+  const model = config.preregistration?.model ?? config.target?.model ?? process.env.B71_STRATA_MODEL ?? "iq3_s";
   // b82-g2/b82-g3 新批次必须有冻结的作者可见目标；旧缺 visible_target 的批次只能读旧报告。
   const visibleMode = authorVisibleScenario(config.scenario_id);
   const authorVisible = visibleMode !== null;
@@ -327,13 +326,13 @@ async function run() {
   }
   const flowLabel = authorVisible ? config.scenario_id : "b71-live";
 
-  const before = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
+  const before = strata ? await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
     ok: false,
     error: error.message,
-  }));
+  })) : null;
   // 证据文件不得覆盖：开始只落 before 观测（不同名），卸载核验后的完整记录只在
   // finally 写一次 strata-slot.json。
-  write(dir, "strata-slot-before.json", strataLifecycleRecord({ before, after: before, unload: null }));
+  if (strata) write(dir, "strata-slot-before.json", strataLifecycleRecord({ before, after: before, unload: null }));
 
   let driverLog = null;
   try {
@@ -349,15 +348,15 @@ async function run() {
       flowLabel,
     );
     harness.capture("01-workbench");
-    // B82 页面只看作者可见证据：同步 DB 快照 capture 会卡作者动作，只留给旧普通 live。
-    if (!authorVisible) runEvidenceMode(evidence, "capture", dir, ["start"]);
+    // G2/G3 保持原页面路径；R05 的未采纳零写入需同批前后 Canon 快照。
+    if (!authorVisible || config.r05_goal) runEvidenceMode(evidence, "capture", dir, ["start"]);
 
-    const afterLaunch = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
+    const afterLaunch = strata ? await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
       ok: false,
       error: error.message,
-    }));
-    const launchSlot = strataSlotCheck(afterLaunch);
-    harness.log.push({ op: "strata_after_launch", slot: launchSlot, at: harness.nowIso() });
+    })) : null;
+    const launchSlot = strata ? strataSlotCheck(afterLaunch) : null;
+    if (strata) harness.log.push({ op: "strata_after_launch", slot: launchSlot, at: harness.nowIso() });
 
     if (authorVisible) {
       await captureReadingPage("02-reading-before", visibleTarget);
@@ -367,7 +366,7 @@ async function run() {
       harness.rawWaitInputReady(flowLabel, INPUT_TIMEOUT_MS),
     );
     if (authorVisible) {
-      // 唯一一次作者原话提交：只走可见输入/点击，后续不读 wire/DB/turn/run 推进。
+      // 唯一一次作者原话提交：只走可见输入/点击，等待仍由作者可见页面推进。
       await harness.runStep("input", "author_creation_request", () =>
         harness.rawSubmitAuthorText(config.message, flowLabel),
       );
@@ -382,17 +381,17 @@ async function run() {
       harness.capture("final");
       await captureReadingPage("03-reading-after", visibleTarget);
       await closeReadingPage("after");
+      const candidateViews = config.r05_goal && visibleMode === "candidate"
+        ? await captureR05Candidates(config) : [];
+      if (config.r05_goal) runEvidenceMode(evidence, "capture", dir, ["final"]);
       driverLog = {
         slice_id: config.slice_id,
-        provider: "strata",
-        model:
-          config.preregistration?.model ??
-          config.target?.model ??
-          process.env.B71_STRATA_MODEL ??
-          "iq3_s",
+        provider: config.provider,
+        model,
         author_visible_target: visibleTarget,
         author_visible_outcome: { kind: outcome.kind, observed_at: harness.nowIso() },
-        strata: { endpoint: strataEndpoint, after_launch: launchSlot },
+        ...(config.r05_goal ? { r05_candidate_views: candidateViews } : {}),
+        ...(strata ? { strata: { endpoint: strataEndpoint, after_launch: launchSlot } } : { runtime: config.runtime }),
       };
       harness.writeDriverLog("native-b71-driver-log.json", driverLog);
       console.log(
@@ -411,7 +410,8 @@ async function run() {
     );
     const runId = String(frameBody(ack)?.response?.run_id ?? "");
 
-    const terminal = await waitRunTerminal({ turnId, runId });
+    const terminal = await waitRunTerminal({ turnId, runId, topic: frameOf(sent)[2],
+      workId: frameBody(sent).work_id, sessionId: frameBody(sent).session_id, since: sent.at });
     if (!terminal) throw new Error("live_run_terminal_missing");
     harness.capture("final");
     const turnBody = terminal.body ?? null;
@@ -427,8 +427,8 @@ async function run() {
     runEvidenceMode(evidence, "capture", dir, ["final"]);
     driverLog = {
       slice_id: config.slice_id,
-      provider: "strata",
-      model: config.target?.model ?? process.env.B71_STRATA_MODEL ?? "iq3_s",
+      provider: config.provider,
+      model,
       turn: {
         turn_id: turnId,
         run_id: runId || terminal.body?.agent_run?.run_id || null,
@@ -449,23 +449,25 @@ async function run() {
       `B71 CP3b 实模驱动完成: turn=${turnId} run=${driverLog.turn.run_id ?? "none"} terminal=${terminal.kind}/${terminal.source} provider_calls=${behavior.provider_calls} tool_calls=${behavior.tool_call_count} why=${why.opened ? "opened" : "not_observed"}`,
     );
   } finally {
-    // 批次结束/失败/中断都必须卸载并核验 loaded=null；卸载结果覆盖 strata-slot.json。
-    const unload = await unloadStrata({ endpoint: strataEndpoint }).catch((error) => ({
-      unload: { ok: false, error: error.message },
-      state: { error: error.message },
-      slot: { ok: false, loaded: null, reason: `unload_failed:${error.message}` },
-    }));
-    write(dir, "strata-slot.json", strataLifecycleRecord({ before, after: unload.state, unload: unload.unload }));
-    if (driverLog) {
-      harness.writeDriverLog("native-b71-driver-log.json", {
-        ...driverLog,
-        strata: {
-          ...driverLog.strata,
-          unload: unload.unload,
-          after: unload.state,
-          slot_after: unload.slot,
-        },
-      });
+    // Strata 保留其现役单槽责任；外部 Splash 不执行 load/unload/stop。
+    if (strata) {
+      const unload = await unloadStrata({ endpoint: strataEndpoint }).catch((error) => ({
+        unload: { ok: false, error: error.message },
+        state: { error: error.message },
+        slot: { ok: false, loaded: null, reason: `unload_failed:${error.message}` },
+      }));
+      write(dir, "strata-slot.json", strataLifecycleRecord({ before, after: unload.state, unload: unload.unload }));
+      if (driverLog) {
+        harness.writeDriverLog("native-b71-driver-log.json", {
+          ...driverLog,
+          strata: {
+            ...driverLog.strata,
+            unload: unload.unload,
+            after: unload.state,
+            slot_after: unload.slot,
+          },
+        });
+      }
     }
     harness.writeUiComplete(config.slice_id);
   }

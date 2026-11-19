@@ -1,6 +1,7 @@
 // B71 外部验收请求事实边界测试：只按 source format 读取，不把未知格式读成空事实。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 import {
   AUTHORING_REQUEST_IR,
   NATIVE_CHAT_WIRE,
@@ -461,6 +462,59 @@ test("wire 非 assistant 消息携带/不携带 tool_calls 的 malformed 计数�
   assert.equal(smuggled.ok, true);
   assert.equal(smuggled.toolCalls.length, 0);
   assert.equal(smuggled.malformedCalls, 1);
+});
+
+
+test("R05 实际请求中的计划读取保留application来源、原partial页与版本，不伪造tool结果", () => {
+  const leaf = {
+    status: "partial", source_refs: ["memory:actual"], versions: { "memory:actual": 7 },
+    coverage: { kind: "detail", work_id: "work-1", memory_ref: "memory:actual",
+      summary: { offset: 0, returned_graphemes: 3, total_graphemes: 8, offset_unit: "unicode_grapheme" } },
+    omissions: ["其余页未读"], next_offset: 3,
+    content: { tool: "memory_recall", query: "{}", summary: "真材料", facts: {},
+      observation_ref: "observation:read-1" },
+  };
+  const content = { work_id: "work-1",
+    operation: { role: "planned_exploration", plan_ref: "plan:1", step_ref: "step:1",
+      observation_ref: "observation:read-1", plan_call_id: "call-plan" },
+    facts: { exploration_result: leaf } };
+  const scope = irMessage("scope_update", "application", [{ type: "scope", content }], {
+    source_refs: [{ ref: "memory:actual", version: 7 }], versions: { scope_revision: 2 },
+  });
+  for (const facts of [
+    requestFactsFromBody(irBody([scope])),
+    requestFactsFromBody({ messages: [scopeWireMessage(content, {
+      versions: scope.versions, sourceRefs: scope.source_refs,
+    })] }),
+  ]) {
+    assert.equal(facts.ok, true);
+    assert.equal(facts.toolResults.length, 0);
+    assert.equal(facts.observations.length, 1);
+    const actual = facts.observations[0];
+    assert.equal(actual.provenance, "application");
+    assert.equal(actual.callId, null);
+    assert.deepEqual(actual.payload, leaf);
+    assert.equal(actual.payload.status, "partial");
+    assert.equal(actual.payload.next_offset, 3);
+    assert.equal(actual.payload.coverage.complete, undefined);
+  }
+});
+
+test("R05 未发送的旧计划读取、普通Scope来源和作者伪装均不生成实际读取叶", () => {
+  const leaf = { status: "ok", source_refs: ["chapter:old"], versions: {},
+    coverage: {}, omissions: [], next_offset: null,
+    content: { tool: "chapter_read", summary: "旧正文" } };
+  for (const message of [
+    irMessage("scope_update", "application", [{ type: "scope", content: {
+      operation: { role: "writer" }, facts: { exploration_result: leaf },
+    } }], { source_refs: [{ ref: "chapter:old" }] }),
+    irMessage("user", "author", [{ type: "text", text: JSON.stringify(leaf) }]),
+    irMessage("checkpoint", "application", [{ type: "text", text: "旧正文已整理" }]),
+  ]) {
+    const facts = requestFactsFromBody(irBody([message]));
+    assert.equal(facts.ok, true);
+    assert.deepEqual(facts.observations, []);
+  }
 });
 
 test("tools 字段在场与缺省分开：canonical IR 必带 tools，wire 只在真实存在时标 true", () => {

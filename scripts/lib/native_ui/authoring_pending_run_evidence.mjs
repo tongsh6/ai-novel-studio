@@ -5,6 +5,7 @@
 // 作者消息自己的 join/request 生命周期 + ACK run + 精确 run/session/turn 绑定，
 // 不按“最新 run/最新候选/时间就近”猜取。
 import assert from "node:assert/strict";
+import { wireTerminal } from "./live_run_wait.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -12,7 +13,6 @@ import {
   assertCommonEvidence,
   assertProviderAndWire,
   axText,
-  broadcastFrames,
   checkProductionFingerprint,
   evidenceBoundary,
   frameBody,
@@ -182,12 +182,11 @@ function oneUserMessage(wire, text, label) {
   return matches[0];
 }
 
-function completedForRun(results, runId, label) {
-  const matches = list(results).filter(
-    (body) => body?.agent_run?.run_id === runId && body?.agent_run?.status === "completed",
-  );
-  assert.equal(matches.length, 1, `${label}: 同一 run 完成 TurnResult 必须恰好一条，实测 ${matches.length}`);
-  return matches[0];
+function completedForRun(wire, identity, label) {
+  const terminal = wireTerminal(wire, identity);
+  assert(terminal?.kind === "completed", `${label}: 缺同运行业务结果与真实完成状态`);
+  assert.equal(terminal.results.length, 1, `${label}: 同一 run 的业务 TurnResult 必须恰好一条`);
+  return terminal.body;
 }
 
 function ackForMessage(wire, sent, label) {
@@ -206,19 +205,14 @@ function ackForMessage(wire, sent, label) {
 
 function readPhaseFacts(dir, evidence, { sent, ackBody, runId, topic, label, workId }) {
   const turnId = String(frameBody(sent)?.turn_id ?? "");
-  const results = broadcastFrames(evidence.wire, {
-    topic,
-    at: sent.at,
-    event: "turn_result",
-    agentRunId: runId,
-  }).map(frameBody);
-  const completed = completedForRun(results, runId, label);
   const scope = {
     ...authoringScope(evidence.wire, sent, { workId, parentTurnId: turnId }),
     run_id: runId,
     topic,
   };
   const history = readAuthoringHistory(dir, scope, { requireMode: "bounded" });
+  const completed = completedForRun(evidence.wire, { turnId, runId, topic, workId,
+    sessionId: scope.session_id, since: sent.at, runRow: history.record }, label);
   const calls = joinNativeCallEvidence({
     scope,
     transcript: history.transcript,
@@ -458,14 +452,12 @@ function readFollowupEvidence(followup, sourceArtifact, revisionArtifact, source
       artifact_id: sourceArtifact.artifact_id,
       status: "DISCARDED",
       title: sourceItem.title,
-      body: sourceItem.body,
       revision_of: null,
     },
     revision: {
       artifact_id: revisionArtifact.artifact_id,
       status: "ACCEPTED",
       title: revisionItem.title,
-      body: revisionItem.body,
       revision_of: sourceArtifact.artifact_id,
     },
   });

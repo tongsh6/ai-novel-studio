@@ -186,6 +186,26 @@ function assertViolation(messages, ref, label) {
   assert(result.reports[0].violations.some((violation) => violation.ref === ref), label);
 }
 
+
+test("R05 partial真实观察可被引用但仍保留partial，不声称完整全文", () => {
+  const messages = [
+    system(), author(), assistantToolCall({ callId: "call-partial" }),
+    nativeObservation({ callId: "call-partial", status: "partial",
+      sourceRefs: ["memory:page"], content: {
+        tool: "memory_recall", summary: "只读到本页",
+        observation_ref: "observation:memory-page",
+      } }),
+  ];
+  const actual = resultOf({ messages, usedRefs: ["memory:page", "observation:memory-page"] });
+  assert.equal(actual.ok, true);
+  const report = actual.reports[0];
+  assert.deepEqual(report.base_refs, []);
+  assert.deepEqual(report.observation_refs, ["memory:page", "observation:memory-page"]);
+  for (const entry of report.matched_refs) {
+    assert(entry.sources.some((source) => source.call_id === "call-partial" && source.status === "partial"));
+  }
+});
+
 test("L7 逐调用：A 的 ref 只在 B 的请求/整批事件/段头出现 → false，无 pcall/prun 或记录不唯一 → null", () => {
   const recordA = nativeRecord({
     providerCallRef: "pcall_A",
@@ -831,7 +851,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
   );
 });
 
-test("L7 planned_exploration 聚合：ok/partial 父只授信 ok 叶自己的 refs，报告记同一父 call_id", () => {
+test("L7 planned_exploration 聚合：ok叶可引用、unavailable叶拒绝，报告保留真实父call_id", () => {
   const good = observationLeaf({
     sourceRefs: ["chapter:leaf_ok"],
     observationRef: "observation:obs_leaf_ok",
@@ -870,6 +890,29 @@ test("L7 planned_exploration 聚合：ok/partial 父只授信 ok 叶自己的 re
   assert(!result.reports[0].observation_refs.includes("chapter:leaf_bad"));
   assertViolation(messages, "chapter:leaf_bad", "不可用叶来源");
   assertViolation(messages, "observation:obs_leaf_bad", "不可用叶身份");
+});
+
+test("R05 planned_exploration partial叶仅授该页引用，保留partial/范围/续读且不升级完整", () => {
+  const leaf = observationLeaf({ status: "partial", sourceRefs: ["memory:real-item"],
+    observationRef: "observation:partial-page" });
+  leaf.versions = { "memory:real-item": 9 };
+  leaf.coverage = { kind: "memory_detail", offset: 0, "complete?": false };
+  leaf.omissions = ["尚有后续正文"];
+  leaf.next_offset = 6000;
+  const messages = [system(), author(), assistantToolCall({ callId: "call_partial_parent" }),
+    nativePlannedObservation({ callId: "call_partial_parent", status: "partial", leaves: [leaf] })];
+  const result = resultOf({ messages, usedRefs: ["memory:real-item", "observation:partial-page"] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.reports[0].base_refs, []);
+  assert.deepEqual(result.reports[0].observation_refs, ["memory:real-item", "observation:partial-page"]);
+  for (const match of result.reports[0].matched_refs) {
+    assert(match.sources.every((source) =>
+      source.call_id === "call_partial_parent" && source.status === "partial"));
+  }
+  const raw = JSON.parse(messages.at(-1).content).content.observations[0];
+  assert.equal(raw.coverage["complete?"], false);
+  assert.equal(raw.next_offset, 6000);
+  assert.deepEqual(raw.versions, { "memory:real-item": 9 });
 });
 
 test("L7 planned_exploration 父不可用/重复/未绑定时不授信任何叶", () => {

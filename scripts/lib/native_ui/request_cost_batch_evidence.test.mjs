@@ -576,6 +576,47 @@ test("canonical 合法覆盖移动作者位置，原序同文历史不能取代�
   assert.equal(result.allCalls[1].analysis.cross.current_author_index, 2);
 });
 
+test("canonical 作者来源保留父输入，真实数值 step turn 不成为另一作者", () => {
+  const { records, setup } = shiftedCanonicalAuthorFixture();
+  records[1].turn_id = "turn-1:agent:7";
+  const result = runVerify(records, setup);
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.allCalls.length, 2);
+  assert.equal(result.allCalls[1].turn_id, "turn-1:agent:7");
+  assert.equal(result.allCalls[1].analysis.cross.current_author_index, 2);
+  assert.deepEqual(setup.binding.history.sessionMessages[3].source_refs, [{ ref: "turn-1" }]);
+});
+
+test("canonical step 调用拒绝伪父轮次、坏语法、错调用身份和缺失作者来源", async (t) => {
+  const cases = [
+    ["错父轮次", "other-turn:agent:7", () => {}],
+    ...["turn-1:agent:0", "turn-1:agent:01", "turn-1:agent:-1", "turn-1:agent:7:extra",
+      "turn-1:agent:7\n"].map(turnId => [JSON.stringify(turnId), turnId, () => {}]),
+    ["错 canonical run", "turn-1", ({ setup }) => {
+      setup.binding.history.sessionMessages[6].canonical_ref.run_id = "other-run";
+    }],
+    ["错 pcall", "turn-1:agent:7", ({ records }) => { records[1].provider_call_ref = "other-call"; }],
+    ["错 prun", "turn-1:agent:7", ({ records }) => { records[1].provider_run_ref = "other-provider-run"; }],
+    ["缺 source_refs", "turn-1:agent:7", ({ setup }) => {
+      delete setup.binding.history.sessionMessages[3].source_refs;
+    }, 0],
+    ["step 伪作作者来源", "turn-1:agent:7", ({ setup }) => {
+      setup.binding.history.sessionMessages[3].source_refs = [{ ref: "turn-1:agent:7" }];
+    }, 0],
+    ["重复作者来源", "turn-1:agent:7", ({ setup }) => {
+      setup.binding.history.sessionMessages[3].source_refs = [{ ref: "turn-1" }, { ref: "turn-1" }];
+    }, 0],
+  ];
+  for (const [label, turnId, mutate, expectedCalls = 1] of cases) await t.test(label, () => {
+    const value = shiftedCanonicalAuthorFixture();
+    value.records[1].turn_id = turnId;
+    mutate(value);
+    const result = runVerify(value.records, value.setup);
+    assert.ok(result.failures.includes("turn_1_call_2_author:author_message_missing_or_ambiguous"));
+    assert.equal(result.allCalls.length, expectedCalls);
+  });
+});
+
 test("canonical 作者重定位拒绝缺失/增添/改写/乱序和错误来源，不回退到相同文本", () => {
   const mutations = [
     ({ records }) => records[1].request.body.messages.splice(2, 1),

@@ -16,6 +16,7 @@
 | `b31-question-proof.mjs` | B31 浏览器驱动与原生验证器共用的纯回复证明/预算 helper；不操作页面或产品。测试在 frontend/slice-verify/b31-question-proof.test.mjs。 |
 | `b28-chapter-fixture.mjs` | B28 原浏览器与原生验收共用的原始合成正文、旧全文兼容归一及ADR-0029计划/预览字节与实际分段校验；正文仍必须通过真实UI编辑采纳。 |
 | `native_ui/` | [外部系统 UI 驱动](native_ui/README.md)：macOS AX/CGEvent 驱动真实 Tauri 窗口（原生验收 harness），含高层工作台动作与等待账；产品不读取。 |
+| `native_ui/authoring_r05_evidence.mjs` / `.test.mjs` | R05 四个新增原生目标的窄纯 oracle 与独立反例：章数、质量材料、整章范围、风格全文；只消费现 reader 的同次真实请求/已绑定来源与既有页面表面，不做 I/O、启动、成本账或另起读取链；G2/B29 保持原判据。 |
 | `quality/` | [B41 质量证据地基](quality/README.md)：标准 YAML 解析桥、manifest 语义校验/查询 CLI、反例测试；被 `scripts/quality_manifest_check.sh`、`scripts/quality_accept.sh`、e2e 聚合器消费。 |
 | `author_visible/` | 作者可见文本泄漏扫描唯一实现（`leak_scan.mjs`）：读取 `docs/design/schemas/author_visible/display_names.json` 的 forbidden tokens，按「作者可见产品文案 / 模型正文排除 / AX name-description-value 分面」扫描；被 `native_ui/author_visible_check.mjs` 与 node 单测消费。 |
 

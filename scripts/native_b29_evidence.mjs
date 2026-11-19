@@ -12,6 +12,17 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import {
+  candidateFacts, candidateChecks, rolesEqual, zeroWriteBetween, stateChecks, characterReadCandidateEvidence,
+} from "./lib/native_ui/authoring_character_candidate_evidence.mjs";
+import { splashRuntime, validatePreregistrationFile } from "./lib/native_ui/authoring_capture_evidence.mjs";
+import { bindNativeCalls, readNativeCallStarts } from "./lib/native_ui/authoring_run_evidence.mjs";
+import { readBatchAuthoringHistory } from "./lib/native_ui/authoring_history_evidence.mjs";
+import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import {
+  assertCommonEvidence as assertNativeCommonEvidence,
+  assertProviderAndWire as assertNativeProviderAndWire, writeNativeSummary,
+} from "./lib/native_ui/scenario_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -145,7 +156,7 @@ const parseAliases = (value) => {
 export function characterFacts(db, workId) {
   const characters = all(
     db,
-    "SELECT id, name, aliases, role, narrative_role, summary, status FROM characters WHERE work_id = ? ORDER BY name, id",
+    "SELECT id, name, aliases, role, narrative_role, summary, status, updated_at FROM characters WHERE work_id = ? ORDER BY name, id",
     [workId],
   );
   const memories = all(
@@ -164,6 +175,7 @@ export function characterFacts(db, workId) {
       narrative_role: row.narrative_role ?? null,
       summary: row.summary ?? null,
       status: row.status ?? null,
+      updated_at: row.updated_at,
     })),
     character_count: characters.length,
     memories: memories.map((row) => ({
@@ -293,14 +305,34 @@ async function recordModelLifecycleBefore(dir, ready, model) {
   return record;
 }
 
+export function readB29Config(dir) {
+  const config = read(dir, "b29-native-config.json");
+  if (config.scope !== "r03-candidate") return config;
+  assert.equal(config.provider, "splash");
+  assert.deepEqual(config.runtime, splashRuntime(dir), "B29 实际 runtime 与冻结配置不符");
+  assert.equal(config.model, config.runtime.observed.provider.model);
+  const frozen = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+    dir, provider: "splash", model: config.model, scenarioId: "b29-r03-candidate",
+  });
+  assert.equal(frozen.message, INPUTS.t1, "B29 作者输入必须保留原始 T1 字节");
+  assert.deepEqual(config.preregistration, frozen, "B29 预注册副本或配置被改写");
+  return config;
+}
+
 export async function prepare(dir) {
   const ready = read(dir, "native-driver-ready.json");
   assert.equal(ready.driver, "external-system-ui", "原生批次 ready 驱动标识必须是 external-system-ui");
   assert.equal(ready.browser_driver_started, false, "原生批次不得启动 Chromium 浏览器驱动");
-  assert(
-    ["slice_verify", "strata"].includes(ready.provider),
-    `B29 原生批次 provider 必须是 slice_verify 或 strata，实测: ${ready.provider}`,
-  );
+  const mode = process.env.B29_NATIVE_MODE ?? null;
+  assert(mode === null || mode === "r03-candidate", "未知 B29_NATIVE_MODE");
+  const candidateMode = mode === "r03-candidate";
+  assert(candidateMode ? ready.provider === "splash" : ["slice_verify", "strata"].includes(ready.provider),
+    "B29 provider 必须与已注册 mode 对应");
+  const runtime = candidateMode ? splashRuntime(dir) : null;
+  const preregistration = candidateMode ? validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+    dir, provider: "splash", model: runtime.observed.provider.model, scenarioId: "b29-r03-candidate",
+  }) : null;
+  if (candidateMode) assert.equal(preregistration.message, INPUTS.t1, "B29 必须发送原 T1 输入");
   const seed = seedFields(dir);
   for (const [key, value] of Object.entries(seed)) assert(value, `B29 seed 字段缺失: ${key}`);
   const model = process.env.NOVEL_STRATA_MODEL ?? "iq3_s";
@@ -309,8 +341,9 @@ export async function prepare(dir) {
     title: "B29 已有角色叙事身份修订（原生）",
     work_title: WORK_TITLE,
     provider: ready.provider,
-    scope: ready.provider === "strata" ? "scoped_real_model" : "full_deterministic_matrix",
-    model: ready.provider === "strata" ? model : "slice_verify",
+    scope: candidateMode ? "r03-candidate" : ready.provider === "strata" ? "scoped_real_model" : "full_deterministic_matrix",
+    model: candidateMode ? runtime.observed.provider.model : ready.provider === "strata" ? model : "slice_verify",
+    ...(candidateMode ? { runtime, preregistration } : {}),
     run_ref: ready.run_ref,
     ready_at: ready.ready_at,
     seed,
@@ -327,8 +360,9 @@ export async function prepare(dir) {
 }
 
 export function capture(dir, checkpoint) {
-  const config = read(dir, "b29-native-config.json");
-  const allowed = config.provider === "strata" ? STRATA_CHECKPOINTS : CHECKPOINTS;
+  const config = readB29Config(dir);
+  const allowed = config.scope === "r03-candidate" ? ["seed", "t1-before", "t1-after", "final"] :
+    config.provider === "strata" ? STRATA_CHECKPOINTS : CHECKPOINTS;
   assert(allowed.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   const facts = captureFacts(dir);
   write(dir, `${checkpoint}.json`, { at: new Date().toISOString(), checkpoint, ...facts });
@@ -595,65 +629,6 @@ function checkProductionFingerprint(dir) {
   return { unchanged: changed.length === 0, changed_files: changed.slice(0, 20), head: { before: before.head, now: now.head } };
 }
 
-// ── B29：状态链读取 ──────────────────────────────────────────────────────────
-const rolePairs = (facts) => (facts?.characters ?? []).map((row) => [row.id, row.narrative_role]);
-const rolesEqual = (a, b) => same(rolePairs(a), rolePairs(b));
-const zeroWriteBetween = (before, after) =>
-  rolesEqual(before, after) &&
-  before.character_count === after.character_count &&
-  before.memory_count === after.memory_count;
-
-function stateChecks(before, after, plan) {
-  const afterById = new Map((after?.characters ?? []).map((row) => [row.id, row]));
-  const targetId = String(plan?.character_ref ?? "").replace(/^character:/, "");
-  return {
-    target_character_id_present: afterById.has(targetId),
-    narrative_role_updated_to_new: afterById.get(targetId)?.narrative_role === plan?.new_value,
-    character_count_unchanged: before.characters.length === after.characters.length,
-    character_id_set_unchanged:
-      same(before.characters.map((row) => row.id).sort(), after.characters.map((row) => row.id).sort()),
-    other_characters_unchanged: before.characters
-      .filter((row) => row.id !== targetId)
-      .every((row) => {
-        const next = afterById.get(row.id);
-        return (
-          next &&
-          next.narrative_role === row.narrative_role &&
-          next.name === row.name &&
-          same(next.aliases, row.aliases)
-        );
-      }),
-    no_new_character: after.characters.length === before.characters.length,
-    no_new_memory: after.memories.length === before.memories.length,
-  };
-}
-
-function candidateFacts(adoption) {
-  const payload = adoption?.pending_payload ?? {};
-  const changes = payload.changes ?? [];
-  const receipt = adoption?.action_result ?? {};
-  return {
-    object_kind: payload.object_kind ?? null,
-    character_ref: payload.character_ref ?? null,
-    character_name: payload.character_name ?? null,
-    base_fingerprint: payload.base_fingerprint ?? null,
-    changes,
-    change_count: changes.length,
-    field: changes[0]?.field ?? null,
-    old_value: changes[0]?.old ?? null,
-    new_value: changes[0]?.new ?? null,
-    effects: payload.effects ?? [],
-    other_character_changes: payload.other_character_changes ?? [],
-    suggested_other_character_changes: payload.suggested_other_character_changes ?? [],
-    adoption_effect: payload.adoption_effect ?? null,
-    receipt_committed_changes: receipt.committed_changes ?? null,
-    receipt_character_ref: receipt.character_ref ?? null,
-    receipt_base_fingerprint: receipt.base_fingerprint ?? null,
-    receipt_current_fingerprint: receipt.current_fingerprint ?? null,
-    receipt_adoption_effect: receipt.adoption_effect ?? null,
-    receipt_duplicate: receipt.duplicate ?? null,
-  };
-}
 
 // ── 23 checks（1:1 对齐浏览器 driveB29ExistingCharacterRoleRevision）────────────
 function b29Checks(dir, config, wire, appRecords, production) {
@@ -708,6 +683,8 @@ function b29Checks(dir, config, wire, appRecords, production) {
 
   const t1Before = snap("t1-before");
   const t1After = snap("t1-after");
+  const target = candidateChecks(t1Plan, { character_ref: "character:" + seed.shen_character_id,
+    name: "沈砚", old: "ENSEMBLE_POV", new: "PROTAGONIST" });
   const t1State = stateChecks(t1Before, t1After, t1Plan);
   const draftHashesUnchanged = same(t1Before.drafts, t1After.drafts);
 
@@ -753,13 +730,9 @@ function b29Checks(dir, config, wire, appRecords, production) {
       (record) => record.action === "execute" && record.capability === "revise_character_profile",
     ),
     candidate_object_and_old_to_new_visible:
-      t1Plan.character_name === "沈砚" &&
-      t1Plan.field === "narrative_role" &&
-      t1Plan.old_value === "ENSEMBLE_POV" &&
-      t1Plan.new_value === "PROTAGONIST" &&
-      visibleHasOldToNew === true,
+      target.object_and_old_to_new && visibleHasOldToNew === true,
     candidate_effects_and_other_changes_empty:
-      same(t1Plan.effects, ["character_field_update"]) && (t1Plan.other_character_changes ?? []).length === 0,
+      target.effects_exact,
     adoption_applied: Boolean(t1Adoption.receipt),
     receipt_committed_changes_old_new:
       Array.isArray(t1Plan.receipt_committed_changes) &&
@@ -1018,6 +991,8 @@ function verifyStrataScoped(dir, config) {
 
   const t1Before = snap("t1-before");
   const t1After = snap("t1-after");
+  const target = candidateChecks(plan, { character_ref: "character:" + seed.shen_character_id,
+    name: "沈砚", old: "ENSEMBLE_POV", new: "PROTAGONIST" });
   const state = stateChecks(t1Before, t1After, plan);
   const draftHashesUnchanged = same(t1Before.drafts, t1After.drafts);
   const t1Judgment = judgmentsFor(appRecords, t1Turn.turnId);
@@ -1064,15 +1039,11 @@ function verifyStrataScoped(dir, config) {
       (record) => record.action === "execute" && record.capability === "revise_character_profile",
     ),
     candidate_character_ref_matches_seed:
-      String(plan.character_ref ?? "").replace(/^character:/, "") === seed.shen_character_id,
+      target.ref_matches,
     candidate_object_and_old_to_new_visible:
-      plan.character_name === "沈砚" &&
-      plan.field === "narrative_role" &&
-      plan.old_value === "ENSEMBLE_POV" &&
-      plan.new_value === "PROTAGONIST" &&
-      visibleOldToNew === true,
+      target.object_and_old_to_new && visibleOldToNew === true,
     candidate_effects_and_other_changes_empty:
-      same(plan.effects, ["character_field_update"]) && (plan.other_character_changes ?? []).length === 0,
+      target.effects_exact,
     adoption_applied_from_native_ui: Boolean(t1Adoption.receipt),
     receipt_committed_changes_old_new:
       Array.isArray(plan.receipt_committed_changes) &&
@@ -1238,8 +1209,75 @@ function verifyStrataScoped(dir, config) {
   return { checks, measured };
 }
 
+// R03：真实 Splash 一次作者输入，结束在待采纳候选；不签 B29 旧矩阵。
+function verifyR03Candidate(dir, config) {
+  const common = assertNativeCommonEvidence(dir, {
+    sliceId: SLICE_ID, minScreenshots: 3, minimumWaits: 7,
+    requiredKinds: ["maintenance", "input", "ack", "turn", "candidate"],
+  });
+  assert.equal(common.ready.provider, config.provider);
+  const { wire, llmRecords } = assertNativeProviderAndWire(dir, { expectProviders: ["splash"] });
+  const messages = wire.filter((entry) => entry.direction === "sent" && frameEvent(entry) === "user_message");
+  assert.equal(messages.length, 1, "R03 角色正例只允许一次真实作者发送");
+  assert.equal(frameBody(messages[0]).text, INPUTS.t1);
+  assert.equal(wire.filter((entry) => entry.direction === "sent" &&
+    ["adopt_artifact", "edit_adopt_artifact", "author_action"].includes(frameEvent(entry))).length,
+    0, "R03 角色正例必须结束在采纳前");
+
+  const history = readBatchAuthoringHistory(dir, { wire, messageText: INPUTS.t1, workId: config.seed.work_id });
+  const run = history.record;
+  assert.equal(run.session_id, config.seed.session_id, "运行不属于本次 seed 会话");
+  const terminal = wireTerminal(wire, { runId: run.id, turnId: run.parent_turn_ref,
+    topic: history.facts.ack.frame[2], workId: run.work_id, sessionId: run.session_id,
+    runRow: run, since: history.facts.ack.at, resultPosition: "last", requireWireTerminal: true });
+  assert.equal(terminal?.kind, "completed", "业务结果与真实完成状态必须都已交付");
+  const pending = (terminal.body.adoption_state?.pending ?? []).filter((entry) =>
+    (history.pending ?? []).includes(entry.artifact_id));
+  assert.equal(pending.length, 1, "本次 run 的待采纳候选必须唯一");
+  const calls = bindNativeCalls(dir, history.transcript.run, history, llmRecords);
+  const starts = withDb(dir, (db) => readNativeCallStarts(db, run.id));
+  const before = read(dir, "t1-before.json").characters_and_memories;
+  const after = read(dir, "t1-after.json").characters_and_memories;
+  const result = characterReadCandidateEvidence({
+    before, after, sourceCharacterId: config.seed.shen_character_id, workId: config.seed.work_id,
+    messages: history.sessionMessages, records: calls.records, starts, candidate: pending[0],
+  });
+  const production = checkProductionFingerprint(dir);
+  for (const name of ["T0-workbench", "T1-candidate", "B29-final"]) {
+    assertRecordFresh(dir, name, common.ready.ready_at);
+  }
+  const visible = axText(dir, "T1-candidate");
+  const driver = read(dir, "b29-native-driver-log.json");
+  const checks = {
+    ...calls.checks, ...result.checks,
+    real_sse_only: calls.measured.sse_decoder_tool_only_count === calls.measured.bound_request_count,
+    candidate_visible: ["叙事身份修订", "ENSEMBLE_POV", "PROTAGONIST"].every((value) => visible.includes(value)),
+    final_authority_unchanged: same(after, read(dir, "final.json").characters_and_memories),
+    driver_identity: driver.driver === common.ui.driver && driver.scope === config.scope &&
+      driver.provider === config.provider && driver.model === config.model,
+    production_unchanged: production.unchanged,
+  };
+  const failed = Object.keys(checks).filter((key) => checks[key] !== true);
+  const report = {
+    slice_id: SLICE_ID, scope: config.scope, provider: config.provider, model: config.model,
+    runtime: config.runtime, status: failed.length === 0 ? "pass" : "fail", checks, failed,
+    run_ref: run.id, turn_ref: run.parent_turn_ref, measured: result.measured,
+    not_signed: ["B29_full_matrix", "adoption", "G2_prose_reading", "visual_review"],
+  };
+  write(dir, "b29-native-checks.json", report);
+  writeNativeSummary(dir, { sliceId: SLICE_ID, driver: common.ui.driver, scope: common.ui.scope,
+    provider: config.provider, checks, measured: report.measured, status: report.status, extra: {
+      surface: "tauri-native", scenario_scope: config.scope, model: config.model, runtime: config.runtime,
+      run_ref: common.ready.run_ref, ready_at: common.ready.ready_at, screenshots: common.ui.screenshots,
+      wait_ledger: common.ledger, not_signed: report.not_signed,
+    } }, write);
+  assert.equal(failed.length, 0, "B29 R03 candidate 证据失败: " + failed.join(", "));
+  return report;
+}
+
 export function verify(dir) {
-  const config = read(dir, "b29-native-config.json");
+  const config = readB29Config(dir);
+  if (config.scope === "r03-candidate") return verifyR03Candidate(dir, config);
   if (config.provider === "strata") return verifyStrataScoped(dir, config);
   return verifyDeterministic(dir, config);
 }

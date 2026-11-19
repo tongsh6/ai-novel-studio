@@ -783,6 +783,28 @@ test("revisionWhyChecks 接受正好落在 Why 前后边界上的 replay", () =>
   }
 });
 
+test("child 业务结果可先报告 running；真实运行终态与同run交付必须共同成立", () => {
+  const childRecord = { id: "child-run", status: "completed", workspace_id: "owned",
+    work_id: "work-1", session_id: "session-1", parent_turn_ref: "source-turn" };
+  const childTurnResult = { turn_id: "child-turn", work_id: "work-1", session_id: "session-1",
+    agent_run: { run_id: "child-run", parent_turn_ref: "source-turn", status: "running" } };
+  const wire = [frame("received", AFTER, [null, null, TOPIC, "turn_result", childTurnResult])];
+  const base = { childRecord, childTurnResult, wire, childRunId: "child-run", childTurnId: "child-turn",
+    sourceTurnId: "source-turn", sourceUserTurnId: "source-user", childTurnResultsCount: 1 };
+  assert.equal(revisionRunChecks(base).one_work_turn_per_child_run, true);
+  for (const mutate of [
+    (value) => { value.childRecord.status = "running"; },
+    (value) => { delete value.childRecord.status; },
+    (value) => { value.wire = []; },
+    (value) => { value.childRecord.id = "foreign"; },
+    (value) => { value.wire[0].frame[4].agent_run.run_id = "foreign"; },
+    (value) => { value.childTurnResult.agent_run.status = "completed"; value.childRecord.status = "running"; },
+  ]) {
+    const changed = structuredClone(base); mutate(changed);
+    assert.equal(revisionRunChecks(changed).one_work_turn_per_child_run, false);
+  }
+});
+
 test("revisionRunChecks 对半缺失的 child trace 关闭", () => {
   const run = revisionRunChecks({ childInteraction: null, decisionTrace: {} });
   assert.equal(run.child_result_and_trace_are_committed, false);

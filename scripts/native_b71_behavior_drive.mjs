@@ -11,10 +11,9 @@ import {
   frameBody,
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
-import { all, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { all, frameOf, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import {
   classifyTurnBody,
-  dbTerminal,
   summarizeModelBehavior,
   wireTerminal,
 } from "./lib/native_ui/live_run_wait.mjs";
@@ -49,43 +48,16 @@ const readProviderCounts = () => ({
 });
 
 function readRunRow({ turnId, runId }) {
-  return withDb(dir, (db) => {
-    const rows = runId
-      ? all(db, "SELECT id, status, parent_turn_ref, run_mode FROM agent_runs WHERE id = ?", [runId])
-      : all(
-          db,
-          "SELECT id, status, parent_turn_ref, run_mode FROM agent_runs WHERE parent_turn_ref = ? ORDER BY inserted_at DESC",
-          [turnId],
-        );
-    return rows.at(-1) ?? null;
-  });
+  return withDb(dir, (db) => all(db,
+    "SELECT id, status, parent_turn_ref, run_mode, workspace_id, work_id, session_id, goal_version " +
+      "FROM agent_runs WHERE id = ? AND parent_turn_ref = ?", [runId, turnId])[0] ?? null);
 }
 
-// 终局等待：WS 帧优先（owning turn/run 绑定），DB agent_runs 终态兜底；
-// 两者都没有就继续等，直到 turn 预算耗尽。不轮询固定回复文本。
-async function waitRunTerminal({ turnId, runId }) {
-  let observed = null;
-  const terminal = await harness.runStep("turn", "live_run_terminal", () =>
-    harness.pollWire(
-      (wire) => {
-        const fromWire = wireTerminal(wire, { turnId, runId: runId || null });
-        if (fromWire) {
-          observed = { ...fromWire, source: "wire" };
-          return observed;
-        }
-        const row = readRunRow({ turnId, runId: runId || null });
-        const fromDb = dbTerminal(row);
-        if (fromDb) {
-          observed = { ...fromDb, source: "db", row };
-          return observed;
-        }
-        return null;
-      },
-      TURN_TIMEOUT_MS,
-      "b71-live:terminal",
-    ),
-  );
-  return terminal ?? observed;
+// 持久事实和已交付运行回包须一致；不能在页面仍 active 时凭 DB 终态推进下一输入。
+async function waitRunTerminal(identity) {
+  return harness.runStep("turn", "live_run_terminal", () => harness.pollWire((wire) =>
+    wireTerminal(wire, { ...identity, runRow: readRunRow(identity), requireWireTerminal: true }),
+  TURN_TIMEOUT_MS, "b71-live:terminal"));
 }
 
 async function collectModelBehavior({ terminal, turnBody, runStatus }) {
@@ -229,7 +201,8 @@ async function run() {
     );
     const runId = String(frameBody(ack)?.response?.run_id ?? "");
 
-    const terminal = await waitRunTerminal({ turnId, runId });
+    const terminal = await waitRunTerminal({ turnId, runId, topic: frameOf(sent)[2],
+      workId: frameBody(sent).work_id, sessionId: frameBody(sent).session_id, since: sent.at });
     if (!terminal) throw new Error("live_run_terminal_missing");
     harness.capture("final");
     const turnBody = terminal.body ?? null;

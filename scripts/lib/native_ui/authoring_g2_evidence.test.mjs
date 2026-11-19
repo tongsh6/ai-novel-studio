@@ -308,7 +308,7 @@ const turnBody = (overrides = {}) => ({
   status: "conversational",
   work_id: "work-g2",
   session_id: "session-g2",
-  agent_run: { run_id: RUN, status: "completed" },
+  agent_run: { run_id: RUN, parent_turn_ref: "turn-g2-1", status: "running" },
   adoption_state: { pending: [CANDIDATE], resolved: [] },
   ...overrides,
 });
@@ -356,6 +356,10 @@ test("候选证据只认 ACK 后本 run 的唯一 completed 终局", () => {
   assert.equal(candidateRun({ facts: { turnId: "turn-g2-1", ack: ackRecord(), results: [resultRecord(turnBody(), "2026-11-03T10:00:00.500Z")] } }).reason, "completed_result_missing");
   assert.equal(candidateRun({ facts: { turnId: "turn-g2-1", ack: ackRecord(), results: [resultRecord(turnBody()), resultRecord(turnBody(), "2026-11-03T10:00:03.000Z")] } }).reason, "completed_result_ambiguous");
   assert.equal(candidateRun({ run: runRow({ status: "running" }) }).reason, "run_not_completed");
+  assert.equal(candidateRun({ run: runRow({ status: undefined }) }).reason, "run_not_completed");
+  assert.equal(candidateRun({ run: runRow({ status: "running" }),
+    facts: { turnId: "turn-g2-1", ack: ackRecord(), results: [resultRecord(turnBody({
+      agent_run: { run_id: RUN, parent_turn_ref: "turn-g2-1", status: "completed" } }))] } }).reason, "run_not_completed");
   assert.equal(candidateRun({ facts: { turnId: "turn-g2-1", ack: ackRecord(), results: [resultRecord(turnBody({ work_id: "work-other" }))] } }).reason, "work_mismatch");
 });
 

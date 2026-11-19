@@ -631,6 +631,16 @@ function workspaceFailure(record, row) {
 
 const AGENT_STEP_TURN = /:agent:[1-9][0-9]*$/;
 
+// 仅核对日志 turn 与已绑定父输入的关系；真实 run/call/canonical 来源须由调用方另核。
+// 不改变 join 对其它日志格式的归属规则；JS $ 的末尾换行也不算精确步骤后缀。
+export function providerTurnMatchesParent(turnId, parentTurnRef) {
+  if (!nonBlank(turnId) || !nonBlank(parentTurnRef)) return false;
+  if (turnId === parentTurnRef) return true;
+  const suffix = AGENT_STEP_TURN.exec(turnId);
+  return Boolean(suffix && suffix.index + suffix[0].length === turnId.length &&
+    turnScopeFailure({ turn_id: turnId }, { parent_turn_ref: parentTurnRef }) === null);
+}
+
 function turnScopeFailure(record, scope) {
   if (!nonBlank(record.turn_id) || record.turn_id === scope.parent_turn_ref) return null;
   const suffix = AGENT_STEP_TURN.exec(record.turn_id);
@@ -704,10 +714,14 @@ function canonicalReplyForCall(record, assistants) {
   return matching[0].provenance === "model" ? matching[0] : null;
 }
 
-function canonicalPrefixForCall(record, transcript) {
+export function canonicalReplyForProviderCall(record, transcript) {
   if (!isRecord(record) || !Array.isArray(transcript?.messages)) return null;
   const assistants = transcript.messages.filter((message) => message?.role === "assistant");
-  const reply = canonicalReplyForCall(record, assistants);
+  return canonicalReplyForCall(record, assistants);
+}
+
+function canonicalPrefixForCall(record, transcript) {
+  const reply = canonicalReplyForProviderCall(record, transcript);
   return reply === null ? null : transcript.messages.slice(0, transcript.messages.indexOf(reply));
 }
 

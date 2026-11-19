@@ -343,7 +343,7 @@ test("动作前的 child turn_result 必须失败", async (t) => {
       }
     }
   });
-  await assert.rejects(() => main(["verify", dir]), /child completed turn_result 必须恰好一条，实测 0/);
+  await assert.rejects(() => main(["verify", dir]), /缺 child 业务结果与真实运行完成事实/);
 });
 
 test("source finding 非 local 时不能冒充局部修订", async (t) => {

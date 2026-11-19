@@ -3,6 +3,7 @@
 // 本模块把真实 WS、同次请求/响应、只读 DB 与 canon 快照归一为纯判据输入；
 // 不判断页面是否通过（纯判据在 authoring_revision_evidence），也不改写产品。
 import assert from "node:assert/strict";
+import { wireTerminal } from "./live_run_wait.mjs";
 import {
   assertCommonEvidence,
   assertProviderAndWire,
@@ -232,16 +233,12 @@ function collectAction(wire, source) {
 
 const childWindow = (source, action) => ({ topic: source.topic, at: action.actionFrame.at });
 
-function completedChildResult(wire, childRunId, window) {
-  const results = childTurnResults(wire, childRunId, window).filter(
-    ({ body }) => getIn(body, ["agent_run", "status"]) === "completed",
-  );
-  assert.equal(
-    results.length,
-    1,
-    `revision: child completed turn_result 必须恰好一条，实测 ${results.length}`,
-  );
-  return results[0].body;
+function completedChildResult(wire, scope, window, runRow) {
+  const terminal = wireTerminal(wire, { turnId: scope.parent_turn_ref, runId: scope.run_id, runRow,
+    topic: window.topic, workId: scope.work_id, sessionId: scope.session_id, since: window.at });
+  assert(terminal?.kind === "completed", "revision: 缺 child 业务结果与真实运行完成事实");
+  assert.equal(terminal.results.length, 1, "revision: child 业务 turn_result 必须恰好一条");
+  return terminal.body;
 }
 
 function completedChildState(wire, childRunId, window) {
@@ -265,10 +262,10 @@ function childScopeFor(source, childRunId) {
 function collectChild(dir, wire, evidence, source, action) {
   const window = childWindow(source, action);
   const state = completedChildState(wire, action.childRunId, window);
-  const result = completedChildResult(wire, action.childRunId, window);
-  const childTurnId = stringValue(get(result, "turn_id"));
   const scope = childScopeFor(source, action.childRunId);
   const history = readAuthoringHistory(dir, scope, { requireMode: "bounded" });
+  const result = completedChildResult(wire, scope, window, history.record);
+  const childTurnId = stringValue(get(result, "turn_id"));
   const calls = joinNativeCalls(dir, scope, history, evidence.llmRecords);
   const sourceRefs = new Set([
     ...source.calls.refs.provider_run_refs,
@@ -348,6 +345,7 @@ function collectRun(dir, wire, source, action, child) {
     turnId: child.childTurnId,
   });
   const runChecks = revisionRunChecks({
+    wire,
     sourceRunId: source.sourceRunId,
     childRunId: action.childRunId,
     sourceTurnId: source.sourceTurnId,
@@ -368,8 +366,6 @@ function collectRun(dir, wire, source, action, child) {
       wire,
       action.childRunId,
       childWindow(source, action),
-    ).filter(
-      ({ body }) => getIn(body, ["agent_run", "status"]) === "completed",
     ).length,
     actionEvents: revisionDecisionEvents(wire, source.topic, action.actionFrame.at),
   });

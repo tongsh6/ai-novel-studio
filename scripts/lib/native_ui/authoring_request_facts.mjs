@@ -99,6 +99,7 @@ function invalid(format, reason, extra = {}) {
     applicationBases: [],
     toolCalls: [],
     toolResults: [],
+    observations: [],
     malformedCalls: 0,
     malformedToolMessages: 0,
   };
@@ -231,6 +232,7 @@ function irClassification(messages) {
     applicationBases: applicationMessages.filter((message) => message.role === "application_base"),
     toolCalls: messages.flatMap((message) => message.toolCalls),
     toolResults: messages.flatMap((message) => message.toolResults),
+    observations: observationFacts(messages),
   };
 }
 
@@ -407,6 +409,7 @@ function wireClassification(messageFacts) {
       message.text.startsWith(APPLICATION_BASE_PREFIX)),
     toolCalls: messageFacts.flatMap((message) => message.toolCalls),
     toolResults: messageFacts.flatMap((message) => message.toolResults),
+    observations: observationFacts(messageFacts),
   };
 }
 
@@ -526,8 +529,33 @@ export function requestFactsOf(records) {
 const OBSERVATION_REF_PREFIX = "observation:";
 const PLANNED_EXPLORATION_TOOL = "planned_exploration";
 
+// 仅用于调用方已证明“单 accepted draft”的章页；不把多 draft 集合压成一个版本。
+export function singleDraftVersionReason(block, draftRef, revision) {
+  const versions = block.versions;
+  const keys = isRecord(versions) ? Object.keys(versions) : [];
+  if (keys.length === 0) return "version_missing";
+  if (keys.length !== 1) return "version_ambiguous";
+  if (keys[0] !== draftRef) return "version_mismatch";
+  return versions[draftRef] === revision ? null : "version_mismatch";
+}
+
+// 只核章页原字节；页大小、范围、时序与全文资格由各实际消费者判断。
+export function proseObservationBodyReason(block, expected) {
+  const marker = "【正文】";
+  const summary = typeof block.content?.summary === "string" ? block.content.summary : "";
+  if (summary.split(marker).length !== 2) return "prose_body_missing";
+  const after = summary.slice(summary.indexOf(marker) + marker.length);
+  const newline = after.indexOf("\n");
+  if (newline < 0) return "prose_body_missing";
+  const body = after.slice(newline + 1);
+  if (body === expected) return null;
+  return body.startsWith(expected) && body.slice(expected.length).startsWith("\n【")
+    ? null
+    : "prose_mismatch";
+}
+
 // 原生 observation 身份只在 content.observation_ref，且必须是完整 observation: token；
-// content 的其它字段与文本不参与。两个证据消费者共用这一处读取。
+// content 的其它字段与文本不参与。证据消费者共用这一处读取。
 export function observationRefOf(payload) {
   const content = isRecord(payload) && isRecord(payload.content) ? payload.content : null;
   const ref = content && typeof content.observation_ref === "string"
@@ -542,6 +570,45 @@ export function plannedExplorationLeaves(payload) {
   const content = isRecord(payload) && isRecord(payload.content) ? payload.content : null;
   if (content === null || content.tool !== PLANNED_EXPLORATION_TOOL) return null;
   return list(content.observations).filter(isRecord);
+}
+
+
+// 只归一当前实际请求内的读取叶；不扫描会话历史或累计 refs，不补调用身份。
+// 原生结果仍要求同请求在先唯一调用/唯一结果；计划执行的应用 Scope 保留独立来源。
+function observationFacts(messages) {
+  const totals = new Map();
+  for (const message of messages) {
+    for (const result of message.toolResults) {
+      if (nonBlank(result.callId)) totals.set(result.callId, (totals.get(result.callId) ?? 0) + 1);
+    }
+  }
+  const earlierCalls = new Map();
+  const observations = [];
+  for (const message of messages) {
+    const scope = message.scopeContent;
+    const leaf = scope?.facts?.exploration_result;
+    if (scope?.operation?.role === "planned_exploration" && isRecord(leaf)) {
+      observations.push({
+        messageIndex: message.index, provenance: "application", callId: null,
+        planCallId: scope.operation.plan_call_id ?? null, payload: leaf,
+      });
+    }
+    for (const result of message.toolResults) {
+      if (result.type !== "observation" || !nonBlank(result.callId) ||
+          result.callId !== result.toolCallId || earlierCalls.get(result.callId) !== 1 ||
+          totals.get(result.callId) !== 1) continue;
+      for (const payload of plannedExplorationLeaves(result.payload) ?? [result.payload]) {
+        observations.push({
+          messageIndex: message.index, provenance: "tool", callId: result.callId,
+          parentStatus: result.status, payload,
+        });
+      }
+    }
+    for (const call of message.toolCalls) {
+      if (nonBlank(call.callId)) earlierCalls.set(call.callId, (earlierCalls.get(call.callId) ?? 0) + 1);
+    }
+  }
+  return observations;
 }
 
 export { isRecord, list, nonBlank };

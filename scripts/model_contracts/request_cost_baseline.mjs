@@ -1,7 +1,7 @@
 // B87 R01 成本测量薄 CLI：只做参数解析、命令分派和退出码。
 // 历史 analyze / 完整副本 prepare/capture/verify 的 IO 与判据在
 // request_cost_capture.mjs，纯 manifest 在 request_cost_manifest.mjs，
-// 纯批次报告在 request_cost_batch_evidence.mjs。
+// 纯批次报告在 request_cost_batch_evidence.mjs；固定同输入配对由 request_cost_pairs_evidence.mjs 负责。
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +22,10 @@ import {
   restoreSnapshot,
   verifyBatch,
 } from "../lib/native_ui/request_cost_capture.mjs";
+import {
+  CONSTRUCTED_PAIRS_SCHEMA,
+  analyzeConstructedPairs,
+} from "../lib/native_ui/request_cost_pairs_evidence.mjs";
 
 function argValue(args, name) {
   const index = args.indexOf(name);
@@ -97,6 +101,16 @@ function analyzeCommand(rest) {
   return analyzeHistory({ manifestPath, outDir });
 }
 
+function analyzePairsCommand(rest) {
+  const [recipePath, ...args] = rest;
+  const beforeDir = argValue(args, "--before");
+  const afterDir = argValue(args, "--after");
+  const outDir = argValue(args, "--out");
+  assert(recipePath && beforeDir && afterDir && outDir,
+    "usage: analyze-pairs <recipe> --before <dir> --after <dir> --out <dir>");
+  return analyzeConstructedPairs({ recipePath, beforeDir, afterDir, outDir });
+}
+
 function prepareCommand(rest) {
   const [manifestPath, batchDir, ...args] = rest;
   const length = Number(argValue(args, "--length"));
@@ -118,6 +132,7 @@ function verifyCommand(rest) {
 
 const COMMANDS = Object.freeze({
   analyze: analyzeCommand,
+  "analyze-pairs": analyzePairsCommand,
   "manifest-field": manifestFieldCommand,
   "runtime-env": runtimeEnvCommand,
   "verify-runtime-facts": verifyRuntimeFactsCommand,
@@ -131,7 +146,9 @@ const COMMANDS = Object.freeze({
 
 // CLI 退出码是其公开契约的一部分（pass/partial/fail 与 history 报告），单独可测。
 export function exitCodeFor(report) {
-  if (report?.schema === BEFORE_SCHEMA) return report.status === "pass" ? 0 : 1;
+  if ([BEFORE_SCHEMA, CONSTRUCTED_PAIRS_SCHEMA].includes(report?.schema)) {
+    return report.status === "pass" ? 0 : 1;
+  }
   if (report?.schema === NATIVE_REPORT_SCHEMA) {
     return report.status === "pass" ? 0 : report.status === "partial" ? 65 : 1;
   }

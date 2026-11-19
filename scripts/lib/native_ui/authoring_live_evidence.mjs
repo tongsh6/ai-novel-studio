@@ -13,15 +13,19 @@ import {
   assertAllChecks,
   assertCommonEvidence,
   assertProviderAndWire,
+  assertRecordFresh,
   frameBody,
   frameEvent,
   read,
   withDb,
   writeNativeFrames,
+  writeNativeSummary,
 } from "./scenario_evidence.mjs";
 import { authorVisibleScenario, readConfig } from "./authoring_capture_evidence.mjs";
 import {
   bindNativeCalls,
+  fingerprintUnchanged,
+  readR05Inputs,
   g2CandidateReport,
   g2PageReport,
   g2UsageReport,
@@ -39,6 +43,8 @@ import {
 } from "./live_run_wait.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
 import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
+import { r05GoalEvidence, r05VisibleEvidence } from "./authoring_r05_evidence.mjs";
+import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
@@ -602,28 +608,32 @@ function visibleTextIfExists(dir, name) {
 
 // B82 G2/G3 新批次：页面只看作者可见文本，不跑内部 ref/版本/DB/wire 对账。
 // 截图来源、驱动与等待账仍由既有 assertCommonEvidence 核对；真实模型单槽仍由
-// strata-slot 核对。原始 wire/llm-calls/DB 保持原样，供独立诊断，不参与页面通过。
+// Strata 核槽位卸载，Splash 核同进程 runtime；原始 wire/llm-calls/DB 保持原样，供独立机制审计。
 function verifyAuthorVisibleBatch(dir, config, mode) {
   const target = config.author_visible_target;
-  assert(
-    target,
-    `${config.scenario_id} 缺少冻结的作者可见目标；旧缺 visible_target 的批次只能读取既有报告，不能重新签页面`,
-  );
+  assert(target, `${config.scenario_id} 缺少冻结的作者可见目标；旧缺 visible_target 的批次只能读取既有报告，不能重新签页面`);
   const common = assertCommonEvidence(dir, {
     sliceId: config.slice_id,
     minScreenshots: 4,
     minimumWaits: 6,
-    // B82 只走可见提交/可见阅读页：保留 input/turn/maintenance 等待，不要求 ack。
     requiredKinds: ["input", "turn", "maintenance"],
   });
-  const strataSlot = readJsonIfExists(path.join(dir, "strata-slot.json"));
-  assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
-  assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
   const driverLog = readJsonIfExists(path.join(dir, "native-b71-driver-log.json"));
-  const model = driverLog?.model ?? config.preregistration?.model ?? DEFAULT_LIVE_MODEL;
-  // 真实模型 route：复用既有单槽记录，冻结模型必须与实际单槽一致。
-  if (config.preregistration?.model) {
-    assert.equal(strataSlot.model, config.preregistration.model, "strata 单槽模型与冻结模型不一致");
+  assert(driverLog, "缺少 native-b71-driver-log.json");
+  assert.equal(common.ready.provider, config.provider, "ready provider 与冻结配置不一致");
+  assert.equal(driverLog.provider, config.provider, "driver provider 与冻结配置不一致");
+  const model = config.preregistration.model;
+  assert.equal(driverLog.model, model, "driver model 与冻结模型不一致");
+  let lifecycle;
+  if (config.provider === "strata") {
+    const strataSlot = readJsonIfExists(path.join(dir, "strata-slot.json"));
+    assert(strataSlot, "缺少 strata-slot.json（批次前后槽位/卸载核验）");
+    assert.equal(strataSlot.unloaded, true, "strata 批次结束必须核验 loaded=null");
+    assert.equal(strataSlot.model, model, "strata 单槽模型与冻结模型不一致");
+    lifecycle = { strata_slot: strataSlot };
+  } else {
+    // 外部 Splash 无本批模型生命周期；实际后端 facts 已由 readConfig 严格绑定。
+    lifecycle = { runtime: config.runtime };
   }
   const evidenceInput = {
     target,
@@ -633,9 +643,7 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
     readingBeforeText: visibleTextIfExists(dir, "02-reading-before"),
     readingAfterText: visibleTextIfExists(dir, "03-reading-after"),
   };
-  const visible = mode === "read_only"
-    ? g3VisibleEvidence(evidenceInput)
-    : g2VisibleEvidence(evidenceInput);
+  const visible = mode === "read_only" ? g3VisibleEvidence(evidenceInput) : g2VisibleEvidence(evidenceInput);
   const checks = {
     schema: LIVE_CHECKS_SCHEMA,
     scenario_id: config.scenario_id,
@@ -645,53 +653,45 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
     failed: visible.ok ? [] : ["author_visible"],
     author_visible: visible,
     measured: {
-      provider: "strata",
+      provider: config.provider,
       model,
       surface: "tauri-native",
-      driver: "ax-native-system-ui",
+      driver: common.ui.driver,
       scenario_mode: mode,
       screenshots: common.ui.screenshots,
       wait_ledger: common.ledger,
       visible_texts: ["after-input", "final", "02-reading-before", "03-reading-after"],
-      strata_slot: strataSlot,
+      ...lifecycle,
     },
-    not_signed: [
-      "mechanism",
-      "I10_literary_quality_not_signed",
-      // G3 的失败校验/紧邻请求/预算技术对账由独立工作单元接；页面判据不代签。
-      ...(mode === "read_only" ? ["g3_validation_result_not_signed"] : []),
-    ],
-  };
-  const summary = {
-    slice_id: config.slice_id,
-    scenario_id: config.scenario_id,
-    surface: "tauri-native",
-    driver: "ax-native-system-ui",
-    provider: "strata",
-    model,
-    verified_at: new Date().toISOString(),
-    checkpoints: Object.fromEntries(LIVE_CHECKPOINTS.map((name) => [
-      name,
-      readJsonIfExists(path.join(dir, `b71-${name}.json`))?.at ?? null,
-    ])),
-    author_visible_target: target,
-    author_visible: visible,
-    verdict: {
-      author_visible: visible.ok ? "pass" : "fail",
-      full_g1_g6_signed: false,
-    },
-    not_signed: checks.not_signed,
-    screenshots: common.ui.screenshots,
-    wait_ledger: common.ledger,
-    strata_slot: strataSlot,
+    not_signed: ["mechanism", "I10_literary_quality_not_signed",
+      ...(mode === "read_only" ? ["g3_validation_result_not_signed"] : [])],
   };
   fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(checks, null, 2));
-  fs.writeFileSync(path.join(dir, "summary.json"), JSON.stringify(summary, null, 2));
-  // 报告先落盘再失败，缺证原因保留在 author_visible.failures。
-  assert(
-    visible.ok,
-    `B82 ${config.scenario_id} 作者可见证据未成立: ${visible.failures.join(", ")}`,
-  );
+  const summary = writeNativeSummary(dir, {
+    sliceId: common.ready.slice_id,
+    provider: config.provider,
+    driver: common.ui.driver,
+    scope: common.ui.scope,
+    checks: { author_visible: visible.ok },
+    measured: checks.measured,
+    status: visible.ok ? "pass" : "fail",
+    extra: {
+      scenario_id: config.scenario_id,
+      surface: "tauri-native",
+      model,
+      checkpoints: Object.fromEntries(LIVE_CHECKPOINTS.map((name) => [
+        name, readJsonIfExists(path.join(dir, `b71-${name}.json`))?.at ?? null,
+      ])),
+      author_visible_target: target,
+      author_visible: visible,
+      verdict: { author_visible: visible.ok ? "pass" : "fail", full_g1_g6_signed: false },
+      not_signed: checks.not_signed,
+      screenshots: common.ui.screenshots,
+      wait_ledger: common.ledger,
+      ...lifecycle,
+    },
+  });
+  assert(visible.ok, `B82 ${config.scenario_id} 作者可见证据未成立: ${visible.failures.join(", ")}`);
   console.log(`B82 ${config.scenario_id} 作者可见判据通过`);
   return { checks, summary };
 }
@@ -699,7 +699,8 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
 export function verifyLiveBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "live", "live verifier 只接受 journey=live");
-  assert.equal(config.provider, "strata", "live verifier 只接受 provider=strata");
+  assert(["strata", "splash"].includes(config.provider), "live verifier provider 未注册");
+  if (config.r05_goal) return verifyR05Batch(dir);
   // b82-g2/b82-g3 新批次只签作者可见页面；内部对账/旧 G2 报告保留为独立诊断，不再同步卡 UI。
   const visibleMode = authorVisibleScenario(config.scenario_id);
   if (visibleMode !== null) return verifyAuthorVisibleBatch(dir, config, visibleMode);
@@ -819,18 +820,109 @@ function frozenWorkId(dir, workTitle) {
   });
 }
 
+
+function r05CandidateViews(dir, common) {
+  const log = read(dir, "native-b71-driver-log.json");
+  assert(Array.isArray(log.r05_candidate_views), "R05 缺少候选视图采集记录");
+  return log.r05_candidate_views.map((view) => {
+    assert(/^r05-candidate-\d+-(entry|action)$/u.test(view.capture), "R05 候选视图名称不属于本入口");
+    assert(Array.isArray(view.nodes), "R05 候选视图缺少实际AX节点");
+    assertRecordFresh(dir, view.capture, common.ready.ready_at);
+    const captures = log.captures.filter((entry) => entry.name === view.capture);
+    assert.equal(captures.length, 1, "R05 候选视图必须唯一绑定capture");
+    assert.equal(captures[0].nodes, view.nodes.length, "R05 AX节点数与capture不一致");
+    return { capture: view.capture, nodes: view.nodes,
+      screenshot_present: common.ui.screenshots.includes(view.capture + ".jpg") && captures[0].screenshot?.ok === true,
+      window_capture: captures[0].screenshot?.ok === true && captures[0].screenshot.fallback !== true };
+  });
+}
+
+// R05 四目标独立审计：每个判断都消费同一已绑定 run 的真实输入、终局与请求。
+export function auditR05Batch(dir) {
+  const config = readConfig(dir);
+  assert(config.r05_goal && config.journey === "live" && config.provider === "splash",
+    "audit-r05 只接受已冻结的四个 R05 Splash 场景");
+  const common = assertCommonEvidence(dir, {
+    sliceId: config.slice_id, minScreenshots: 4, minimumWaits: 6,
+    requiredKinds: ["input", "turn", "maintenance"],
+  });
+  const evidence = assertProviderAndWire(dir, {
+    minUserMessages: 1, minTurnResults: 1, minProviderStarts: 1, expectProviders: ["splash"],
+  });
+  const history = readBatchAuthoringHistory(dir, {
+    wire: evidence.wire, messageText: config.message,
+    workId: frozenWorkId(dir, config.author_visible_target.work_title),
+  });
+  const calls = reconcileNativeCalls(dir, config, history, evidence.llmRecords);
+  const input = readR05Inputs(dir, { config, history, records: calls.records, wire: evidence.wire });
+  const refs = liveRefsCheck({ llmRecords: calls.records, transcript: history.transcript,
+    sessionMessages: history.sessionMessages });
+  const start = read(dir, "b71-start.json"), final = read(dir, "b71-final.json");
+  const startCanon = canonSnapshotOf(start), finalCanon = canonSnapshotOf(final);
+  const zeroWrite = liveZeroWriteLayers({
+    startCanon, finalCanon, startCounts: start.db_production_counts,
+    finalCounts: final.db_production_counts, strataRecords: calls.records,
+    pendingArtifacts: input.candidate ? [input.candidate] : [],
+  });
+  const canon = compareAuthoringCanonSnapshots(startCanon, finalCanon);
+  const goal = r05GoalEvidence({ ...input, goal: config.r05_goal, refs,
+    zero_write: { ...zeroWrite, ok: zeroWrite.ok && Object.values(canon.checks).every((value) => value === true) } });
+  const visible = r05VisibleEvidence({
+    goal: config.r05_goal, target: config.author_visible_target, message: config.message,
+    reply: input.reply, items: input.candidate?.payload?.items ?? [],
+    candidate_views: r05CandidateViews(dir, common), known_items: input.known_items,
+    afterInputText: visibleTextIfExists(dir, "after-input"),
+    finalText: visibleTextIfExists(dir, "final"),
+    readingBeforeText: visibleTextIfExists(dir, "02-reading-before"),
+    readingAfterText: visibleTextIfExists(dir, "03-reading-after"),
+  });
+  const checks = {
+    one_author_send: evidence.userMessages.length === config.budget.author_sends &&
+      String(frameBody(evidence.userMessages[0])?.text ?? "") === config.message,
+    native_calls: Object.values(calls.checks).every((value) => value === true),
+    production_source_unchanged: fingerprintUnchanged(dir),
+    author_visible: visible.ok, target_materials_and_scope: goal.ok,
+    cost_bytes_classified: input.cost.calls.every((call) => call.analysis.ok === true),
+  };
+  return { ok: Object.values(checks).every((value) => value === true),
+    scenario_id: config.scenario_id, checks, goal, visible, refs,
+    source: { chapter_ref: input.source.chapter_ref, draft_ref: input.source.draft_ref,
+      revision: input.source.revision,
+      style: input.source.style ? { ref: input.source.style.ref, version: input.source.style.version } : null },
+    native_call: { checks: calls.checks, measured: calls.measured },
+    zero_write: zeroWrite, canon, cost: input.cost,
+    screenshots: common.ui.screenshots, wait_ledger: common.ledger,
+    semantic_review: goal.semantic_review, not_signed: goal.not_signed };
+}
+
+function verifyR05Batch(dir) {
+  const report = auditR05Batch(dir);
+  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(report, null, 2));
+  const config = readConfig(dir);
+  const summary = writeNativeSummary(dir, {
+    sliceId: config.slice_id, provider: config.provider, driver: "ax-native-system-ui",
+    scope: "b87-r05-materials", checks: report.checks, measured: { cost: report.cost.summary },
+    status: report.ok ? "pass" : "fail",
+    extra: { scenario_id: config.scenario_id, author_visible: report.visible,
+      goal: report.goal, semantic_review: report.semantic_review, not_signed: report.not_signed,
+      verdict: { mechanism: report.ok ? "pass" : "fail", model_semantics: "pending_independent_review" } },
+  });
+  assert(report.ok, `R05 独立材料/范围判据失败: ${JSON.stringify(report.checks)}`);
+  return { checks: report, summary };
+}
+
 export function auditG2Batch(dir) {
   const batchDir = path.resolve(dir);
   const config = readConfig(batchDir);
   assert.equal(config.scenario_id, "b82-g2", "audit-g2 只接受冻结的 b82-g2 批次");
   assert.equal(config.journey, "live", "audit-g2 只接受 journey=live");
-  assert.equal(config.provider, "strata", "audit-g2 只接受 provider=strata");
+  assert(["strata", "splash"].includes(config.provider), "audit-g2 provider 未注册");
   assert(isObject(config.author_visible_target), "b82-g2 缺少冻结作者可见目标");
   const evidence = assertProviderAndWire(batchDir, {
     minUserMessages: 1,
     minTurnResults: 1,
     minProviderStarts: 1,
-    expectProviders: ["strata"],
+    expectProviders: [config.provider],
   });
   // work 只由冻结可见作品名唯一解析；run 再由实际作者原文/ACK 精确定位。
   const workId = frozenWorkId(batchDir, config.author_visible_target.work_title);

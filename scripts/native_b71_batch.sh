@@ -150,7 +150,7 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
   fi
 fi
 if [[ "$B71_PROVIDER" == "splash" && "$LIVE" == "1" && -z "${B71_LIVE_PREREGISTRATION:-}" ]]; then
-  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2/runtime profile）" >&2
+  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2 或已登记 R05/runtime profile）" >&2
   exit 64
 fi
 if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
@@ -266,7 +266,7 @@ fi
 # 此后封存只链接同一快照，绝不再读源。判据只在 validatePreregistrationFile 中定义。
 preregistration_check() {
   local scenario_args=()
-  if [[ "$B71_PROVIDER" == "splash" ]]; then scenario_args=(b82-g2); fi
+  if [[ "$B71_PROVIDER" == "splash" ]]; then scenario_args=(b71-live); fi
   node "$ROOT/scripts/lib/native_ui/authoring_capture_evidence.mjs" \
     validate-preregistration "$1" "$DIR" "$B71_PROVIDER" "${scenario_args[@]}"
 }
@@ -298,6 +298,7 @@ strata_precheck_ok() {
 }
 
 LIVE_PREREGISTRATION="${B71_LIVE_PREREGISTRATION:-}"
+R05_GOAL=""
 if [[ -n "$LIVE_PREREGISTRATION" ]]; then
   if [[ "$LIVE" != "1" || "$SLICE" != "b71-first-consumer" ]]; then
     echo "B71_LIVE_PREREGISTRATION 只用于 B71_SLICE=b71-first-consumer 的真实 live 批次" >&2
@@ -314,7 +315,28 @@ if [[ -n "$LIVE_PREREGISTRATION" ]]; then
   # 批次目录尚未创建：只读这一次源，校验失败不消耗目录。
   PREREG_SNAPSHOT="$(mktemp "$STATE_DIR/prereg-$TAG.XXXXXX")" || exit 1
   cat "$LIVE_PREREGISTRATION" >"$PREREG_SNAPSHOT" || exit 1
-  preregistration_check "$PREREG_SNAPSHOT" >/dev/null || exit 1
+  PREREG_RECORD="$(preregistration_check "$PREREG_SNAPSHOT")" || exit 1
+  R05_GOAL="$(node -e 'console.log(JSON.parse(process.argv[1]).r05_goal ?? "")' "$PREREG_RECORD")"
+  if [[ -n "$R05_GOAL" ]]; then
+    # 登记表由同一 validator 解析；原路径执行，在最终源码冻结和前后 SHA 校验内运行。
+    R05_SEED="$(node -e 'console.log(JSON.parse(process.argv[1]).seed.script)' "$PREREG_RECORD")"
+    if [[ -n "${TAURI_NATIVE_SEED_SCRIPT:-}" && "$TAURI_NATIVE_SEED_SCRIPT" != "$R05_SEED" && "$TAURI_NATIVE_SEED_SCRIPT" != "$ROOT/$R05_SEED" ]]; then
+      echo "R05 实际 seed 路径与冻结场景不一致" >&2
+      exit 64
+    fi
+    export TAURI_NATIVE_SEED_SCRIPT="$R05_SEED"
+    R05_INPUT_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.input_timeout_ms)' "$PREREG_RECORD")"
+    R05_TURN_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.turn_timeout_ms)' "$PREREG_RECORD")"
+    if [[ -n "${B71_LIVE_INPUT_TIMEOUT_MS:-}" && "$B71_LIVE_INPUT_TIMEOUT_MS" != "$R05_INPUT_TIMEOUT" ]] ||
+       [[ -n "${B71_LIVE_TURN_TIMEOUT_MS:-}" && "$B71_LIVE_TURN_TIMEOUT_MS" != "$R05_TURN_TIMEOUT" ]]; then
+      echo "R05 输入/模型等待预算与冻结场景不一致" >&2
+      exit 64
+    fi
+    export B71_LIVE_INPUT_TIMEOUT_MS="$R05_INPUT_TIMEOUT"
+    export B71_LIVE_TURN_TIMEOUT_MS="$R05_TURN_TIMEOUT"
+    # 启动、AX 与 verify 同处根命令 test_env run --timeout-ms 900000 owned 边界。
+
+  fi
 fi
 
 export TAURI_NATIVE_SYSTEM_DRIVER=1

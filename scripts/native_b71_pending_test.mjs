@@ -269,14 +269,12 @@ function followupFacts() {
       {
         status: "DISCARDED",
         title: SOURCE_TITLE,
-        body_preview: SOURCE_BODY,
         artifact_ref: SOURCE_ID,
         revision_of: null,
       },
       {
         status: "ACCEPTED",
         title: REVISION_TITLE,
-        body_preview: REVISION_BODY,
         artifact_ref: REVISION_ID,
         revision_of: SOURCE_ID,
       },
@@ -288,7 +286,7 @@ function followupFacts() {
 }
 
 function followupReply() {
-  return `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。${REVISION_BODY}`;
+  return `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。`;
 }
 
 function dbExec(db, sql, params = []) {
@@ -486,7 +484,8 @@ function turnResultBody({ turnId, parentTurnId, runId, pending, resolved }) {
     turn_id: turnId,
     parent_turn_id: parentTurnId,
     status: "conversational",
-    agent_run: { run_id: runId, status: "completed", run_mode: "bounded", profile_ref: "judgment_loop_v1" },
+    work_id: WORK, session_id: SESSION,
+    agent_run: { run_id: runId, parent_turn_ref: parentTurnId ?? turnId, status: "running", run_mode: "bounded", profile_ref: "judgment_loop_v1" },
     assistant_message: { text: "" },
     adoption_state: { pending: pending ?? [], resolved: resolved ?? [] },
     available_actions: [],
@@ -1060,6 +1059,18 @@ test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请�
   const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
   assert.equal(summary.slice_id, SLICE_ID);
   assert.equal(summary.all_checks_passed, true);
+});
+
+test("pending 业务结果预测 completed 不能覆盖真实 running", (t) => {
+  const dir = batchCopy(t), db = openDb(dir);
+  try { dbExec(db, "UPDATE agent_runs SET status = ? WHERE id = ?", ["running", SOURCE_RUN]); }
+  finally { db.close(); }
+  mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) => rows.map((row) => {
+    if (row.frame?.[3] === "turn_result" && row.frame[4]?.agent_run?.run_id === SOURCE_RUN)
+      row.frame[4].agent_run.status = "completed";
+    return row;
+  }));
+  assert.throws(() => verifyPendingBatch(dir), /真实完成状态/);
 });
 
 test("缺失/多义 revision ACK 不能通过", (t) => {
