@@ -176,6 +176,111 @@ defmodule NovelCommon.RequestIRTest do
       refute Map.has_key?(leaf, :next_offset)
     end
 
+    test "计划聚合的非对象值不是观察叶，也不从外层来源补造证据" do
+      for value <- [nil, false, 17, "不是观察", []] do
+        block =
+          RequestIR.observation_block("call-non-object", %{
+            status: "ok",
+            source_refs: [%{ref: "chapter:not-read", version: 9}],
+            versions: %{"draft:not-read" => 9},
+            content: %{tool: "planned_exploration", observations: [value]}
+          })
+
+        request =
+          ir(
+            g1_messages() ++
+              [
+                message(:assistant, :model, [
+                  RequestIR.tool_call_block("agent_plan_draft", %{}, "call-non-object")
+                ]),
+                message(:tool, :tool_result, [block])
+              ]
+          )
+
+        assert :ok = RequestIR.validate(request)
+        assert RequestIR.observation_payloads(block) == []
+        assert RequestIR.visible_observations(request) == []
+
+        assert RequestIR.Compaction.evidence(request.messages, %{
+                 call_ids: ["call-non-object"]
+               }) == {[], %{}}
+      end
+    end
+
+    test "应用计划读取的非对象结果不生成默认观察或覆盖真实原生材料" do
+      for value <- [nil, false, 17, "不是观察", []] do
+        scope =
+          message(:scope_update, :application, [
+            RequestIR.scope_block(%{
+              work_id: "work-1",
+              operation: %{role: "planned_exploration"},
+              facts: %{exploration_result: value}
+            })
+          ])
+
+        request = ir(g2_messages() ++ [scope])
+
+        assert :ok = RequestIR.validate(request)
+        assert [read] = RequestIR.visible_observations(request)
+        assert read.status == "ok"
+        assert read.source_refs == [%{ref: "character:1", version: 2}]
+        assert read.content == %{"narrative_role" => "ENSEMBLE_POV"}
+        refute Map.has_key?(read, :provenance)
+      end
+    end
+
+    test "可见观察只来自实际消息，计划叶保留分页与不完整状态而引用表不生成材料" do
+      request =
+        ir(
+          g2_messages() ++
+            [
+              message(:assistant, :model, [
+                RequestIR.tool_call_block("agent_plan_draft", %{}, "call-plan")
+              ]),
+              message(:tool, :tool_result, [
+                RequestIR.observation_block("call-plan", %{
+                  status: "partial",
+                  source_refs: [%{ref: "memory:actual"}],
+                  content: %{
+                    tool: "planned_exploration",
+                    observations: [
+                      %{
+                        status: "partial",
+                        source_refs: [%{ref: "memory:actual"}],
+                        versions: %{"memory:actual" => 4},
+                        coverage: %{text: %{status: "partial", start: 0, end: 6}},
+                        omissions: ["后半段尚未读取"],
+                        next_offset: 6,
+                        content: %{summary: "逐字材料前六字"}
+                      }
+                    ]
+                  }
+                })
+              ])
+            ],
+          refs: %{
+            base_refs: base_refs(),
+            observation_refs: [%{ref: "memory:actual"}, %{ref: "memory:not-supplied"}],
+            used_refs: []
+          }
+        )
+
+      assert :ok = RequestIR.validate(request)
+      assert [character, memory] = RequestIR.visible_observations(request)
+      assert character.content == %{"narrative_role" => "ENSEMBLE_POV"}
+      assert character.source_refs == [%{ref: "character:1", version: 2}]
+
+      assert memory == %{
+               status: "partial",
+               source_refs: [%{"ref" => "memory:actual"}],
+               versions: %{"memory:actual" => 4},
+               coverage: %{"text" => %{"status" => "partial", "start" => 0, "end" => 6}},
+               omissions: ["后半段尚未读取"],
+               next_offset: 6,
+               content: %{"summary" => "逐字材料前六字"}
+             }
+    end
+
     test "canonical projection 只承载调用政策，prepare_request 不查询 Gateway" do
       ir = ir(g1_messages())
       assert ir.projection == %{usage_streaming: false}
@@ -346,6 +451,36 @@ defmodule NovelCommon.RequestIRTest do
   end
 
   describe "R02 结构化 Scope 的纯数据边界" do
+    test "已绑定作者目标只投来源，独立应用解释不依文字相等而被删除" do
+      goal = %{text: @author_text, source_ref: "author_turn:turn-1", version: 2}
+
+      request =
+        RequestIR.append_scope_update(
+          ir(g1_messages()),
+          %{work_id: "work-1", goal: goal},
+          %{"scope_revision" => 1},
+          []
+        )
+
+      assert :ok = RequestIR.validate(request)
+      [scope] = Enum.filter(request.messages, &(&1.role == "scope_update"))
+
+      assert hd(scope.blocks).content["goal"] ==
+               %{"source_input_ref" => "author_turn:turn-1", "version" => 2}
+
+      assert goal.text == @author_text
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, wire} = Projection.project(request, target)
+        assert length(String.split(Jason.encode!(wire), @author_text)) == 2
+      end
+
+      independent =
+        RequestIR.scope_block(%{goal: %{text: @author_text, provenance: "application"}})
+
+      assert independent.content["goal"]["text"] == @author_text
+    end
+
     test "来源分立：事实供应于 Base，作者来源不被提升为事实或观察" do
       author = "  作者原话\n原样保留。 "
       author_ref = %{ref: "author_turn:scope-1"}

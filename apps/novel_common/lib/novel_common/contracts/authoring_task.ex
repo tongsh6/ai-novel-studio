@@ -11,6 +11,8 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   作者原文与同一任务的作者动作来源分别保留，不以应用目标或材料来源补原文。
   """
 
+  alias NovelCommon.RequestIR.Scope
+
   @kinds [
     :first_draft,
     :continuation,
@@ -98,6 +100,7 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   @type t :: %__MODULE__{
           kind: kind(),
           author_goal: String.t() | nil,
+          goal_source_ref: String.t() | nil,
           author_words: String.t() | nil,
           scope: scope(),
           materials: [material()],
@@ -117,6 +120,7 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   defstruct [
     :kind,
     :author_goal,
+    :goal_source_ref,
     :author_words,
     :operation_effect,
     :prior_result,
@@ -182,6 +186,7 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     %{
       "kind" => task.kind,
       "author_goal" => task.author_goal,
+      "goal_source_ref" => task.goal_source_ref,
       "author_words" => task.author_words,
       "source" => map_or_nil(task.source),
       "scope" => map_or_empty(task.scope),
@@ -195,11 +200,27 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     }
   end
 
+  @doc "专业请求只引用已绑定的作者目标来源；内部目标全文保留用于授权和任务校验。"
+  @spec to_request_map(t()) :: map()
+  def to_request_map(%__MODULE__{} = task) do
+    goal =
+      case Scope.goal(%{source_ref: task.goal_source_ref}) do
+        %{"source_input_ref" => _ref} = source -> source
+        _ -> task.author_goal
+      end
+
+    task
+    |> to_map()
+    |> Map.drop(["author_words", "goal_source_ref"])
+    |> Map.put("author_goal", goal)
+  end
+
   @doc "从 JSON-safe map 恢复（atom/string 键均可）；未知/缺失字段保持安全默认，校验归 semantics。"
   def from_map(map) when is_map(map) do
     %__MODULE__{
       kind: atom_field(map, :kind),
       author_goal: optional_string(fetch(map, :author_goal)),
+      goal_source_ref: optional_string(fetch(map, :goal_source_ref)),
       author_words: optional_string(fetch(map, :author_words)),
       source: normalize_source(fetch(map, :source)),
       scope: normalize_scope(fetch(map, :scope)),

@@ -22,7 +22,11 @@ defmodule NovelDomain.AgentRun do
   @type phase :: :planning | :executing | :finalizing | :stopped
   @type interrupt_status :: :none | :pause_requested | :cancel_requested | :steer_requested
 
-  @type goal :: %{text: String.t(), version: pos_integer()}
+  @type goal :: %{
+          required(:text) => String.t(),
+          required(:version) => pos_integer(),
+          optional(:source_ref) => String.t()
+        }
   @type trigger :: %{
           required(:kind) => String.t(),
           optional(:receipt_id) => String.t(),
@@ -325,7 +329,12 @@ defmodule NovelDomain.AgentRun do
   defp normalize_phase(_), do: :planning
 
   defp normalize_goal(goal) when is_map(goal) do
-    %{text: text(goal), version: positive_int(value(goal, :version), 1)}
+    normalized = %{text: text(goal), version: positive_int(value(goal, :version), 1)}
+
+    case normalized_optional_text(value(goal, :source_ref)) do
+      nil -> normalized
+      source_ref -> Map.put(normalized, :source_ref, source_ref)
+    end
   end
 
   defp normalize_goal(text) when is_binary(text), do: %{text: String.trim(text), version: 1}

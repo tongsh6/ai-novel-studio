@@ -215,6 +215,49 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end
 
+  test "R05: 原文作为真实目标时内部 roundtrip 保留全文与受理输入来源" do
+    words = "  只规划第一卷 R05GOALSOURCE91。\r\n\n"
+
+    restored =
+      task(%{author_goal: words, author_words: words})
+      |> AuthoringTask.to_map()
+      |> Map.put("goal_source_ref", "turn-goal-source")
+      |> AuthoringTask.from_map()
+
+    assert restored.author_goal == words
+    assert restored.author_words == words
+    assert Map.get(restored, :goal_source_ref) == "turn-goal-source"
+    assert AuthoringTask.to_map(restored)["goal_source_ref"] == "turn-goal-source"
+    assert {:ok, _} = AuthoringSemantics.validate(restored)
+  end
+
+  test "R05: 专业请求的已绑定目标只投影输入来源，不复制原文或虚造版本" do
+    words = "  只规划第一卷 R05GOALSOURCE91。\r\n\n"
+
+    task =
+      task(%{author_goal: words, author_words: words})
+      |> AuthoringTask.to_map()
+      |> Map.put("goal_source_ref", "turn-goal-source")
+      |> AuthoringTask.from_map()
+
+    projected = AuthoringTask.to_request_map(task)
+
+    assert projected["author_goal"] == %{"source_input_ref" => "turn-goal-source"}
+    refute Map.has_key?(projected, "author_words")
+    refute Map.has_key?(projected, "goal_source_ref")
+    refute Jason.encode!(projected) =~ "R05GOALSOURCE91"
+    assert task.author_goal == words
+  end
+
+  test "R05: 没有输入来源的独立目标解释保留文本，不按文字相等猜来源" do
+    words = "独立应用解释即使恰好与原文相同也没有来源绑定。"
+    projected = AuthoringTask.to_request_map(task(%{author_goal: words, author_words: words}))
+
+    assert projected["author_goal"] == words
+    refute Map.has_key?(projected, "author_words")
+    refute Map.has_key?(projected, "goal_source_ref")
+  end
+
   test "JSON-safe roundtrip keeps task semantics and validates" do
     task =
       revision(%{

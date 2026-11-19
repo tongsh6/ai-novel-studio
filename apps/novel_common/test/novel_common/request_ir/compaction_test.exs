@@ -504,6 +504,12 @@ defmodule NovelCommon.RequestIR.CompactionTest do
     assert :ok = Compaction.validate(prefix ++ [checkpoint])
     assert :ok = Compaction.validate(prefix ++ [checkpoint, turn_author(8, "turn-3")])
 
+    assert Enum.map(RequestIR.visible_observations(ir(prefix)), & &1.call_id) ==
+             ["call-1", "call-2"]
+
+    assert Enum.map(RequestIR.visible_observations(ir(prefix ++ [checkpoint])), & &1.call_id) ==
+             ["call-2"]
+
     assert {:error, :checkpoint_current_turn_protected} =
              Compaction.validate(prefix ++ [turn_checkpoint(["call-2"], [], 7)])
   end

@@ -15,6 +15,7 @@ defmodule NovelCommon.RequestIR do
 
   alias NovelCommon.CapabilityProfile
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.Observation
   alias NovelCommon.RequestIR.Scope
   alias NovelCommon.RequestIR.SystemEnvelope
 
@@ -197,45 +198,15 @@ defmodule NovelCommon.RequestIR do
   end
 
   @doc "只读观察块（I-ART-4：status 必须如实）。"
-  def observation_block(call_id, payload) do
-    %{
-      type: "observation",
-      call_id: call_id,
-      status: Map.get(payload, :status, "ok"),
-      source_refs: Map.get(payload, :source_refs, []),
-      versions: json_value(Map.get(payload, :versions, %{})),
-      coverage: json_value(Map.get(payload, :coverage, %{})),
-      omissions: Map.get(payload, :omissions, []),
-      next_offset: Map.get(payload, :next_offset),
-      content: json_value(Map.get(payload, :content, %{}))
-    }
-  end
+  defdelegate observation_block(call_id, payload), to: Observation, as: :block
 
-  @observation_payload_fields ~w(status source_refs versions coverage omissions next_offset content)a
+  @doc "读取本次实际可见观察叶，保留来源与覆盖边界。"
+  @spec visible_observations(t()) :: [map()]
+  defdelegate visible_observations(request), to: Observation
 
-  @doc """
-  读取已建 canonical observation 的实际观察单元。
-
-  直接观察返回自身；仅 `content.tool == "planned_exploration"` 的计划内联聚合
-  返回一层完整叶。canonical content 经 `json_value/1` 后是字符串键，这里只把叶
-  实际存在的既有顶层字段换回原子键，供证据与身份读取统一访问；不补缺省、不递归、
-  不读摘要文本。
-  """
+  @doc "读取 canonical 观察的直接或计划聚合叶，不补造缺失材料。"
   @spec observation_payloads(map()) :: [map()]
-  def observation_payloads(%{
-        type: "observation",
-        content: %{"tool" => "planned_exploration", "observations" => leaves}
-      })
-      when is_list(leaves) do
-    Enum.map(leaves, fn leaf ->
-      for key <- @observation_payload_fields,
-          {:ok, value} <- [fetch_field(leaf, key)],
-          into: %{},
-          do: {key, value}
-    end)
-  end
-
-  def observation_payloads(observation), do: [observation]
+  defdelegate observation_payloads(observation), to: Observation
 
   @doc "校验结果块（I-ART-5：作为 tool 原生结果回流，不追加 user 纠错）。"
   def validation_result_block(call_id, status, reason_code, detail \\ %{}) do
@@ -404,7 +375,7 @@ defmodule NovelCommon.RequestIR do
       "text" -> validate_text_block(block)
       "scope" -> Scope.validate_block(block)
       "tool_call" -> validate_tool_call_block(block)
-      "observation" -> validate_observation_block(block)
+      "observation" -> Observation.validate(block)
       "validation_result" -> validate_validation_block(block)
       "tentative_artifact" -> validate_artifact_block(block)
       "author_exit" -> validate_author_exit_block(block)
@@ -448,23 +419,6 @@ defmodule NovelCommon.RequestIR do
         {:error, :invalid_provider_call_id}
     end
   end
-
-  defp validate_observation_block(%{call_id: call_id, status: status, source_refs: refs} = block)
-       when is_binary(call_id) and call_id != "" and is_list(refs) do
-    cond do
-      status not in ["ok", "partial", "truncated", "unavailable", "stale"] ->
-        {:error, {:invalid_observation_status, status}}
-
-      not is_map(Map.get(block, :versions, %{})) or
-          not Enum.all?(refs, &(is_binary(ref_key(&1)) and ref_key(&1) != "")) ->
-        {:error, :invalid_observation_block}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_observation_block(_block), do: {:error, :invalid_observation_block}
 
   defp validate_validation_block(%{call_id: call_id, status: status, reason_code: reason})
        when is_binary(call_id) and call_id != "" and is_binary(reason) and

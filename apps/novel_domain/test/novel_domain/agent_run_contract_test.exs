@@ -44,6 +44,35 @@ defmodule NovelDomain.AgentRunContractTest do
     assert plain.author_turn == nil
   end
 
+  test "目标规范化和恢复保留真实作者输入来源，内部目标文本不冒充原文字节" do
+    attrs = %{
+      run_id: "run_goal_source",
+      workspace_id: "ws_1",
+      work_id: "work_1",
+      session_id: "sess_1",
+      parent_turn_ref: "turn_original",
+      origin_frame_ref: "frame_1",
+      profile_ref: "character_design_with_context_v1",
+      authority_scope: %{production_write: false, allowed_tools: ["read_character"]},
+      goal: %{
+        "text" => "  保留当前目标边界  ",
+        "version" => 2,
+        "source_ref" => "turn_original:steer:2"
+      }
+    }
+
+    assert {:ok, run} = AgentRun.new(attrs)
+
+    assert run.goal == %{
+             text: "保留当前目标边界",
+             version: 2,
+             source_ref: "turn_original:steer:2"
+           }
+
+    assert {:ok, restored} = AgentRun.new(Map.from_struct(run))
+    assert restored.goal.source_ref == "turn_original:steer:2"
+  end
+
   test "AgentRun keeps bounded run separate from LongRunTask and tracks budget" do
     {:ok, run} =
       AgentRun.new(%{

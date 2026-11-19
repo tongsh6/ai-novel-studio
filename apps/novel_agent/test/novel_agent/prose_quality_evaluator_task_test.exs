@@ -100,7 +100,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
     assert scope["authoring_task"] ==
              task
              |> AuthoringTask.to_map()
-             |> Map.delete("author_words")
+             |> Map.drop(["author_words", "goal_source_ref"])
              |> Jason.encode!()
              |> Jason.decode!()
 

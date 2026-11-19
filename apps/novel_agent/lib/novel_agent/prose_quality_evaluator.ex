@@ -44,7 +44,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
       |> Enum.join("\n\n")
 
     scope = %{
-      authoring_task: task |> AuthoringTask.to_map() |> Map.delete("author_words"),
+      authoring_task: AuthoringTask.to_request_map(task),
       operation: %{
         role: "quality_evaluation",
         prose_text: request.prose_text,

@@ -9,8 +9,33 @@ defmodule NovelCommon.RequestIR.Scope do
   alias NovelCommon.RequestIR
 
   @doc "当前应用范围的纯结构值；事实来源校验仍由读取它们的应用 owner 负责。"
-  def block(content) when is_map(content),
-    do: %{type: "scope", content: RequestIR.json_value(content)}
+  def block(content) when is_map(content) do
+    content = RequestIR.json_value(content)
+
+    projected =
+      case Map.fetch(content, "goal") do
+        {:ok, supplied_goal} -> Map.put(content, "goal", goal(supplied_goal))
+        :error -> content
+      end
+
+    %{type: "scope", content: projected}
+  end
+
+  @doc "显式绑定作者输入的目标只投影来源；无绑定的应用解释保留原有内容。"
+  def goal(content) when is_map(content) do
+    content = RequestIR.json_value(content)
+    source_ref = Map.get(content, "source_ref")
+
+    if valid_source_id?(source_ref) do
+      content
+      |> Map.take(["version", "provenance"])
+      |> Map.put("source_input_ref", source_ref)
+    else
+      content
+    end
+  end
+
+  def goal(content), do: content
 
   def validate_owner(%{role: role, provenance: provenance, blocks: blocks}) do
     types = Enum.map(blocks, &Map.fetch!(&1, :type))

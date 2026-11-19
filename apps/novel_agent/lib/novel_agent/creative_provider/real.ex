@@ -90,7 +90,7 @@ defmodule NovelAgent.CreativeProvider.Real do
       |> Enum.join("\n\n")
 
     scope = %{
-      authoring_task: request.task |> AuthoringTask.to_map() |> Map.delete("author_words"),
+      authoring_task: AuthoringTask.to_request_map(request.task),
       operation: %{
         role: "creative_execution",
         capability: request.tool_name,

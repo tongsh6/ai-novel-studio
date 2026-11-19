@@ -40,6 +40,8 @@ novel_agent / novel_application / novel_persistence / novel_web → novel_common
 
 ### 契约规则
 
+- [Request IR 子契约索引](lib/novel_common/request_ir/README.md)：结构、Scope、观察、压缩与三 wire 投影的职责和真实消费者；R05 的 Observation owner 集中可见读叶，不另建材料实体。
+
 - [request_ir.ex](lib/novel_common/request_ir.ex)：Authoring Run Transcript / Request IR v1
   主契约（`NovelCommon.RequestIR`）：envelope、消息/工具/观察/校验/候选/checkpoint 构造、
   `validate/1` 数据边界校验、`prepare_request/2` 本次工具与 `tool_choice` 选择、执行引用
