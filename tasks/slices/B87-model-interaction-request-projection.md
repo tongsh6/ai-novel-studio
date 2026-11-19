@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-20：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05 产品实现与请求构造对照已有实际证据，真实模型页面验收 BLOCKED（§16.10）；R06–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-20：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05 产品实现与请求构造对照已有实际证据，原生权限已恢复，count 真实答复正确，终局采证与代理收尾修复已提交并通过相关验证，待已登记的真实复验（§16.15）；R06–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -1956,3 +1956,45 @@ R05 的原生缺证仍开放：新请求体系 G2 目标段和 B29 角色预注�
 随后只读系统日志 `recovery-20261120/tcc-after-authorization.json` 明确归责于 `dev.webcodex.runner`、PID 79524；当前 Runner 已为 `Authority=WebCodex Local`，Signed Time 01:19:39，进程于 01:19:49 启动，SHA256 为 `2014018d7d67e8570b79caee3f1c62c1a42dd1d918e4256d35b9516a8f293b2a`。当前 designated requirement 是 identifier `dev.webcodex.runner` 与 certificate leaf `a7e5bf5089c001040c2df55b61b890fb62138975`；TCC 却仍以原 certificate root `83a1298e17883732268e21d0c98c004bae81d5d8` 校验 Accessibility，明确 `Failed to match existing code requirement` / -67050。同路径已存条目仍为 `granted=true`、`auth_value=2`，但 verifier 仍是旧证书要求。故不能说作者没有授权、Runner 仍是 adhoc 或未重启；当前直接问题是已授权记录的旧代码身份与新签名不匹配。ScreenCapture 本次日志只报告 Unknown(None)，不从 AX 的具体原因替它作同因签收。
 
 **恢复与预算边界。** 应在 macOS 的正常授权设置中更新这个确切 Runner 的旧条目，使授权绑定当前签名，再从原通道复测；屏幕采集许可单独核对。证书签名存在不证明后续更新永远保持相同身份；本次未修改 Runner、证书或 TCC，也不通过产品代码绕过系统授权。由于全局前置仍未获准，本次未启动新的 owned target、未建立 count-02 预注册、未消耗额外批次或作者发送，也未请求模型服务。count-01 原失败及一次预算保留；未来恢复尝试仍先作前向预算裁决、再经既有 owner 与真实 target probe 执行，其余五项继续未启动。R06 不在本批。
+
+### 16.11 权限恢复后的前向受控执行（2026-11-20）
+
+**恢复依据。** 作者再次完成系统授权后，同一 Runner、同一 Tunnel 通道在 2026-11-20 01:35:57（UTC+8）实际读取到 ax_trusted=true、post_access=true、screen_capture=true；原始记录为 `recovery-20261120/global-permission-preflight-02.json`。Runner SHA256 仍为 `2014018d7d67e8570b79caee3f1c62c1a42dd1d918e4256d35b9516a8f293b2a`，签名 leaf 仍为 `a7e5bf5089c001040c2df55b61b890fb62138975`。全局前置已经恢复，但此只读 API 结果不替代本批真实 owned target 的 probe，也不证明任何页面或模型目标已达成。§16.9、§16.10 的失败与各自时点结论原样保留。
+
+**执行前预算裁决。** 依据作者既有推进授权、再次授权后的继续执行意图与 §16.9 的恢复入口，在启动前明确增加一次 count 恢复批次 `count-02`：一次 batch、一次作者发送、零手动重试、900 秒场景上限。count-01 已消耗的一次 batch 与零发送不回滚；count 累计登记为两次 batch，其中仅本次新增的一次尚待执行。本节将 `native-preregistration/count-02.json` 登记为 count-01 后的受控恢复，沿用相同场景、作者原文、seed/hash、模型、runtime、各阶段超时和独立目标，只改变预注册 id 与独立 evidence 目录；不会覆盖旧目录或重签旧失败。其余 quality/role/G2/whole/style 各自原一次批次预算与预注册保持，仍未启动。
+
+**既有执行机制。** 继续由既有 `native_b71_batch.sh` 调用 Tauri runner 创建隔离数据库与 bundle，`NativeScenarioHarness` 从本批 ready 派生目标并绑定唯一 PID；每个真实输入均经过现有 `NativeInputBoundary` 的目标事实/probe、授权判定与投递前再次校验。首个 activation 的 probe 将记录本次真实 target 权限；不新增 launcher、权限旁路或重复的预检 owner。Splash 显式限制为既有 `http://127.0.0.1:8000/v1`，仅使用已登记的合成 seed，实际请求、页面截图、输入事件、Canon 对照、退出与清理分别留证。
+
+**验收与状态。** 本次源基点为 `ea4110d3f994212c05e99c1d4575d31d82a1d243`；启动前后按原 scope 记录实际源码身份，文档推进不把旧工程证据重签为新全树。count 的独立预期仍为结构 2／有正文 1／无正文 1，首请求统计供应完整而目录与正文尚未读取，且无默认全文或完整计划；额外探索单独记录，Canon 不变。其余场景继续按 §16.3 原目标和反例验收；G2 保留独立 audit-g2。权限阻塞解除，真实模型页面验收继续进行；在六项实际证据与原 scope 工程出口完成前，R05 不签 PASS，R06 不进入本批。
+
+### 16.12 count-02 实际答复与终局采证责任修订（2026-11-20）
+
+**实测分层。** count-02 在原 scope 上以源码指纹 `dd73e46b9ab82a4d846bada5a869c3a051561d6dbcec26f5aeacc2379fe1028e` 执行；owned run 为 `498ba89524207755`，native run_ref 为 `674deb98-ddc4-4156-af08-f5eef73b4b5e`。真实目标 PID 82676 的 AX/Post 权限通过，唯一一次作者输入与 ACK 绑定 `message_374d834a-cebd-4a83-84e2-c79432c8bd75` / `run_mwnu9sah_5`。实际首请求 `pcall_mwnu9scq_7` / `prun_mwnu9scq_8` 供应正确 2/1/1 统计，目录与正文为 not_read、无默认全文；模型于 01:43:49（UTC+8）真实回复“这部作品目前共 2 章；有正文的 1 章，还没写正文的 1 章。”，作者也确认已在页面看到答复。原始 provider 记录为 HTTP 200、latency 17659ms、input 9758 / output 70 / cached 0；模型已经回答，不能把 driver 尚在等待误说成模型未答复。
+
+**采证失败不倒签为产品失败。** driver 未识别普通回复的终局，仍停在 `author_visible_outcome`；01:47:42 实测同一目标已无 onscreen window，遂以 `owned_native_surface_not_onscreen` 退出。该时点事实不推断窗口状态变化的操作者或原因。最终截图、前后完整页面及 Canon 对照未完成，summary 缺失，原 scope 的 finishExecution 拒绝生成成功绑定；`native-ui-complete` 仅为失败后的结束信号。精确 owned 应用已清理，remaining=[]，进程树 finalized=true。上述实际答复、源身份与失败材料全部保留；不抹去已消耗的 count-02 批次/一次发送，不重写旧批为 PASS，其余五项尚未执行。
+
+**先定可观察判据。** 普通回复按现 UI 46§9.5 可以不显示空过程组；作者已经获得本轮完整回复，页面恢复空闲且没有活动任务/待回答问题时，验收必须能够结束。必须归属本次新增作者消息、同一消息流与真实助手回复/交付入口；有本轮过程组时服从其最新状态。单有“无任务”、正文中的“已完成/失败”、旧回复、重复原话的旧回合、未结束流式正文、跨下一作者消息、只有后台 completed 均不能成立。候选完成和候选可见分别判定，不能把局部候选卡的专用文案当作整章或普通回复的通用完成协议。
+
+**责任层与实现计划。** 现 `authoring_g2_evidence.axTurnOutcome` 已承载上述 AX 作者边界、普通回复交付结构和活动状态判定，已有 R01 当前消费者；本次应把 B71 live 等仍依赖 `authorVisibleOutcome` 扁平文本状态的现役消费者收敛到这一 owner，移除重复终局定义及只保护错误假设的测试。原始 AX 观察及失败前最后现场复用既有采集机制，在实际截图与运行身份下记录，事后 verifier 从原始节点重算，不信 driver 自报 kind，不用 DB 或隐藏 API 替代作者页面。R05 候选入口/动作仍由既有卡片 owner 做独立有界采集；不新增产品完成徽标、关键词分流器或验收旁路。先验证普通回复及强反例、共用 consumer 接线和既有候选/问答路径，再前向登记一次 count 修复验证；不先消耗其余五项以绕过当前已知采证缺陷。产品、模型输入、seed、runtime 与目标不因此改变。
+
+### 16.13 终局采证修复后的执行预算（执行前登记，2026-11-20）
+
+**目标不变、证据关联补全。** 修复复用现 AX 终局 owner 与原始观察 writer，并要求所有普通回复和候选场景都从最终原始 AX 重算 completed；候选可见另核。现 capture 同时保存节点、可见文本和实际窗口图的内容哈希；本次 live 在发送前另采真实 `before-input`，其原始节点用于重算作者消息基线，最终 raw 与 final capture 的哈希和本批身份交叉核对。事后不能凭 driver 自报 kind、同数量异内容节点、旧基线或稍后到达的后台 completed 代签截图时仍在执行的页面；G2 候选宽限也保留最后有效原始观察。失败与缺证继续如实留档，不更改产品以迁就验收。
+
+**一次修复验证。** 完成上述职责修复及相关回归后，前向增加 `count-03` 一次 batch／一次作者发送／零手动重试／900 秒上限，用于真实普通回复终局采证验证。执行前 count 已实际消耗两次 batch、一次作者发送；count-01 与 count-02 及正确答复/采证失败各自保留，不重置、不重签。新增登记后 count 累计三次 batch，本次只执行新增的一次，不结转前批未用发送。`native-preregistration/count-03.json` 仍从 count-01 的冻结结构复制，只改变 id 和 evidence 目录；模型、作者原话、seed/hash、runtime、阶段预算与 2/1/1、最小供应和 Canon 不变目标完全相同。实际结果必须另行记录，验证前不宣布通过。
+
+quality/role/G2/whole/style 继续各自原一次批次预注册；它们尚未发送，不扩大输入或模型预算。全部真实运行串行使用既有原生 owner 与 loopback Splash；每项完成后核实际请求/可见结果/来源使用/Canon/清理，G2 另作 audit-g2。原 scope 保持不变，工程闭环采用真实受测源码；仅结果文档发布应后置于该闭环并单独核验，不改写原绑定。R06 不在本批。
+
+### 16.14 共享代理证据收尾的生命周期修订（2026-11-20）
+
+**真实工程证据。** 终局/采证修复的定向两组为 148/0 与 81/0；随后 68 个原生及模块治理测试文件统一执行，前后 Git 可见源码指纹同为 `6e7d5035dfef4ff16773baaaff3d2b99fb2fb36ca70002e1d88eff161429133d`。结果是 1409 pass、1 个文件级 fail、零 skip；module-size 与 diff-check 通过。原记录在 `recovery-20261120/ax-outcome-native-validation-01`，不能改写为全绿。失败来自既有 `native_provider_stream_proxy.test.mjs`：请求测试结束后仍有回调写 `provider-stream.jsonl`，其临时目录已经删除，产生异步 ENOENT；不属于模型调用或 count 的另一次尝试。
+
+**责任与独立判据。** 现测试已等待 `proxy.close()`，代理等待的是 ClientRequest.close；响应处理却在共享 keepalive socket 上另挂一次 end 日志回调，正常响应结束移出 live 后该回调仍可存活。请求证据的生命周期必须由请求 owner 收口：完成后的 socket 事件不能继续归给旧 request，close 返回后不得再写本批证据；活动请求的中断、gate 取消/排空、实际字节和响应语义仍应完整保留。先核该额外 socket 诊断是否有当前消费者；没有消费者则退役无职责的监听，有消费者则在现生命周期 owner 内正确解绑，不能加第二套 registry、吞掉 ENOENT 或重复跑到偶然通过。确定性验证应保留 upstream keepalive，先关闭 proxy 再结束 socket，确认封存日志不再变化，并继续覆盖真实未完成响应的中断。修复后再执行受影响的统一验证；原失败留存，count-03 仍未启动。
+
+### 16.15 采证与生命周期修复的验证及提交（2026-11-20）
+
+**机制收敛。** 提交 `e41d157725b1ebeacbeb97793a94cabd28ac3907` 只包含 16 个采证相关文件，删除平行的扁平终局定义，共用现有 AX 作者边界与终局 owner、原始观察 writer；发送前基线和最终 raw/text/window image 逐份内容绑定，候选可见仍独立核验。其精确提交树 `37f3f108e26881b3cae00e93a748937e8fa65478` 隔离导出后运行 8 组邻接测试，260 pass / 0 fail。提交 `4f734cd2cc3fcb44f779f0769258bc1c0dec10f3` 仅包含代理与邻接测试两个文件：无现役消费者的 socket-end 诊断监听退役；gate 未 arm 与 observe 两例真实保留 keepalive，关闭代理后再晚关 socket，四份证据逐字不变。独立审查通过，最终代理测试 20/0。该样本证明连接保留与晚关闭，不声称已执行第二个请求复用同一连接。
+
+**工程证据及错误保留。** `recovery-20261120/ax-outcome-native-validation-02` 中同一源码指纹 `d5f7b0a210a369a4e3053d86c0763f05f3ef300e2452266a218d2ee0ba45b04e` 的 68 个原生测试文件为 1411 pass / 0 fail / 0 skip；外层命令漏传 module-size 的 `--check`，且错误比较含 captured_at 的完整快照，故原整体退出仍为失败。实际前后只有采集时间不同，源码指纹与 entries 一致；追加 `ax-outcome-native-validation-02-completion/reconciliation.json` 记录此事实，模块检查通过但发现新测试 EOF 多空行。随后仅补新例 5 秒有界超时并删除该空行，`ax-fix-final-validation-02` 的精确树 260/0、代理 20/0、工作树与候选 index diff-check 全通过。首次隔离导出还曾因本机 Python 不支持 tarfile 的 filter 参数、在测试前失败，改用既有 git archive/tar 后完成；该原工具失败也保留，未重写为成功。模块规模 1035 文件、80 登记文件未增长、2 项原豁免未改。
+
+**提交与继续执行。** `recovery-20261120/verified-commits/result.json` 记录两个中文分组提交、精确 tree 与工作树逐文件字节不变证明；README 仅提交本次索引调整，原 47 项 WIP、空主 index 保持，未 push。上述局部证据不代签原生结果。下一步严格执行 §16.13 已登记的 count-03 一次验证及其余五项原预算；所有实际 native binding 与原 scope 工程出口使用冻结的真实全树身份，随后才发布结果文档。原 count-01/count-02 失败与正确答复记录保持；R05 仍未闭环，R06 不在本批。
