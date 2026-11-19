@@ -248,7 +248,7 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 - `canon_adopted`：经过合法作者决定或事先有效委托、真正提交并产生回执。
 这些属于不同事实来源和时间，不能用一个 `status=success` 代替。
 
-**内部标识与作者可见面（B86 缺口整体并入 B87 R06）**：`chapter:<uuid>` 等仅在结构化 ref 字段中出现，普通叙事和摘要使用作者能理解的名称；工具 narrative 字段不可夹带内部标识。遇违规**拒绝模型内容并回流有界纠错**，不把展示过滤后的文本伪装为模型原话。模型作者可见字节必须绑定实际 Provider 输出（`AgentNarrativeSource`、I1/N-NARR）；系统“本轮没有写入”等独立 `status_message` 只记录系统事实。不能把 `target_issue`、`capability_status` 先验预测塞给模型替其判断。
+**内部标识与作者可见面（B86 缺口整体并入 B87 R06，当前 R05 交付的必要依赖见 B87 §16.19）**：`chapter:<uuid>` 等仅在结构化 ref 字段中出现，普通叙事和摘要使用作者能理解的名称；工具 narrative 字段不可夹带内部标识。遇违规**拒绝模型内容并回流有界纠错**，不把展示过滤后的文本伪装为模型原话。模型作者可见字节必须绑定实际 Provider 输出（`AgentNarrativeSource`、I1/N-NARR）；系统“本轮没有写入”等事实复用 ADR-0024 现有 `ui_cards.result_card` 独立通告，明确系统来源并随同轮结果持久恢复，不覆盖模型助手正文、不新增平行状态字段。模型作者叙述须先通过接收校验，再发布到作者面；未经接受的流式片段不提前展示，原 Provider 证据仍保留。模型自然语言校验消费同一规则源的机器协议字段/引用规则，不能把固定 UI 文案用语约束泛化为对合法姓名和小说分析词语的封禁。ask_author 的唯一正文是原生 question，非空 content 作为第二正文须拒绝纠错；选项标签独立校验且原字节保留。接受事件与最终 reply_record 透传同一个 author_narrative_source，按完整来源身份确定唯一展示归属，机械步骤摘要不得借用模型来源。不能把 `target_issue`、`capability_status` 先验预测塞给模型替其判断。
 
 **引用与错误**： `alternative_operation_refs` 必须为真实 capability ID，描述去 `author_reasoning`；`used_refs ⊆ base_refs ∪ observation_refs`；不允许跨作品伪引用、未查实空列表、无 call_id 的假 Observation、tool 伪 XML、同一调用仅局部闭合。不合法必须拒绝/明确失败与必要可恢复状态，不能吞掉错误或绕过门禁。
 
