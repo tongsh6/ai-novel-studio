@@ -23,7 +23,6 @@ defmodule Mix.Tasks.Codegen.AuthorVisible do
   @module "NovelCommon.AuthorVisible.DisplayNames"
 
   @forbidden_keys [
-    "allow",
     "protocol_codes",
     "internal_terms_zh",
     "internal_identifiers",
@@ -162,9 +161,7 @@ defmodule Mix.Tasks.Codegen.AuthorVisible do
 
     Enum.each(Map.fetch!(enum, "enum"), fn value ->
       unless Map.has_key?(entries, value) do
-        Mix.raise(
-          "enum 值 #{value}（来自 #{rel}）未在 display_names.json 的 domains.#{domain} 登记"
-        )
+        Mix.raise("enum 值 #{value}（来自 #{rel}）未在 display_names.json 的 domains.#{domain} 登记")
       end
     end)
   end

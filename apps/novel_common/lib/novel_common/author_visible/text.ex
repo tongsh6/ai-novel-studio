@@ -26,6 +26,18 @@ defmodule NovelCommon.AuthorVisible.Text do
     raise ArgumentError, "author-visible text must not be empty"
   end
 
+  @doc "按共用协议字段/ref规则校验模型叙述；自然用语和姓名不套用固定UI文案规则，不改写文本。"
+  @spec validate_narrative(String.t()) :: :ok | {:error, :author_visible_narrative_invalid}
+  def validate_narrative(text) when is_binary(text) do
+    tokens = Display.forbidden_tokens()
+
+    forbidden? =
+      String.contains?(text, tokens["protocol_codes"]) or
+        Enum.any?(tokens["ref_patterns"], &Regex.match?(Regex.compile!(&1), text))
+
+    if forbidden?, do: {:error, :author_visible_narrative_invalid}, else: :ok
+  end
+
   @doc "从 display 域 code 构造（未登记 code 走作者安全兜底）。"
   @spec from_display(atom() | String.t(), term()) :: t()
   def from_display(kind, code), do: new(Display.label(kind, code))

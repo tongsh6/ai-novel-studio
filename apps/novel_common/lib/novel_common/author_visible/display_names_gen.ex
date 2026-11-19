@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "ad83c0133151f0d9a441e3af714251bc4aced2ffe2489a8fb165a208729b9fc5"
+  @source_hash "36d387de9771904dc8c376fab22ea5ba41629da37dcd117367fd34f8ea01c6a7"
 
   @domains %{
     "action" => %{
@@ -267,7 +267,6 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   }
 
   @forbidden_tokens %{
-    "allow" => [],
     "internal_identifiers" => ["slice_verify", "Stub", "Strata", "[stub]"],
     "internal_terms_zh" => ["工作过程", "确认回合", "创作执行", "任务控制", "结构化回放", "持久 trace"],
     "protocol_codes" => [
@@ -288,7 +287,10 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     ],
     "ref_patterns" => [
       "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
-      "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+      "\\b(?:as|pcall|prun|pevt|run|turn|trace)_[0-9a-z]+_[0-9a-z]+\\b",
+      "\\bmessage_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+      "\\b[0-9a-f]{64}\\b",
+      "\\b(?:seg|break)_[0-9]+_[0-9a-f]{12}\\b",
       "\\btarget_segment_ids\\b"
     ]
   }

@@ -4,7 +4,7 @@
 // 覆盖三类证据面：
 // 1. 作者可见产品文案必须命中内部 token；
 // 2. AX 提取伪泄漏（`AI AI 名称`、`会话 0`）不得因 dump 拼接而误报；
-// 3. 白名单只按 SSOT 登记生效。
+// 3. 规则没有整段豁免，外部传入例外不能跳过检查。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -57,6 +57,22 @@ test("B36 真实段 ID 与模型专用 target_segment_ids 命中，普通段号/
   assert.equal(clean.ok, true, JSON.stringify(clean.hits));
 });
 
+test("真实运行身份和指纹命中，普通带下划线姓名仍可读", () => {
+  for (const token of [
+    "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45", "as_mwnwwxoe_11",
+    "pcall_mwnwe414_s", "prun_mwnwe414_t", "pevt_mwnwe414_u",
+    "run_mwnwe414_v", "turn_mwnwe414_w", "trace_mwnwe414_x",
+    "message_e9fe5f90-c939-4f9e-abee-da235d1eaa45",
+    "c993629b64db85ef763f5ca2c4a69f85579edd898d2d4b8b2ce73d7e335ec47e",
+    "break_15_0123456789ab",
+  ]) {
+    const result = scanAuthorVisibleTexts([`核对：${token}。`]);
+    assert.equal(result.ok, false, token);
+    assert.ok(result.hits.some((hit) => hit.token === token), token);
+  }
+  assert.equal(scanAuthorVisibleTexts(["笔名 Red_Moon，人物阿鸢。"]).ok, true);
+});
+
 test("作者可读文案零命中", () => {
   const result = scanAuthorVisibleTexts([
     "已取消等待；这项操作不会执行，也没有写入作品事实。",
@@ -104,18 +120,16 @@ test("AX 提取按元素拆分 name/description/value，不做跨字段拼接", 
   assert.ok(values.includes("第一行"));
 });
 
-test("白名单只来自 SSOT allow 字段", () => {
+test("禁止规则不提供整段豁免，传入额外allow也不能掩盖同段内部ref", () => {
   const tokens = {
-    allow: ["工作过程"],
     protocol_codes: ["prose_writing"],
     internal_terms_zh: ["工作过程"],
     internal_identifiers: [],
-    ref_patterns: [],
+    ref_patterns: ["character:[0-9a-z-]+"],
+    allow: ["工作过程"],
   };
-
-  const allowed = scanAuthorVisibleTexts(["当前创作请求的工作过程"], { tokens });
-  assert.equal(allowed.ok, true);
-
-  const denied = scanAuthorVisibleTexts(["prose_writing 正在执行"], { tokens });
-  assert.equal(denied.ok, false);
+  assert.equal(Object.hasOwn(loadForbiddenTokens(), "allow"), false);
+  for (const text of ["当前创作请求的工作过程", "工作过程 character:abc123"]) {
+    assert.equal(scanAuthorVisibleTexts([text], { tokens }).ok, false);
+  }
 });

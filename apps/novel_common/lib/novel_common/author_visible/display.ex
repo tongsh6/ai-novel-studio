@@ -71,7 +71,7 @@ defmodule NovelCommon.AuthorVisible.Display do
   @spec kinds() :: [String.t()]
   def kinds, do: DisplayNames.domains() |> Map.keys() |> Enum.sort()
 
-  @doc "作者可见禁止 token（协议 code / 内部术语 / 内部标识 / ref 模式 / 白名单）。"
+  @doc "作者可见规则分类（协议 code / 内部术语 / 内部标识 / ref 模式）。"
   @spec forbidden_tokens() :: %{String.t() => [String.t()]}
   def forbidden_tokens, do: DisplayNames.forbidden_tokens()
 

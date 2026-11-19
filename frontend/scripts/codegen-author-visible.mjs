@@ -102,7 +102,6 @@ function renderFallback(name) {
 }
 
 const forbidden = ssot.forbidden_tokens ?? {};
-const allow = Array.isArray(forbidden.allow) ? forbidden.allow : [];
 const renderList = (values) =>
   values.length === 0 ? "[]" : `[\n${values.map((v) => `  ${JSON.stringify(v)},`).join("\n")}\n]`;
 
@@ -120,7 +119,6 @@ ${domainNames.map(renderFallback).join("\n")}
 } as const;
 
 export const FORBIDDEN_TOKENS = {
-  allow: ${renderList(allow)},
   protocol_codes: ${renderList(forbidden.protocol_codes ?? [])},
   internal_terms_zh: ${renderList(forbidden.internal_terms_zh ?? [])},
   internal_identifiers: ${renderList(forbidden.internal_identifiers ?? [])},

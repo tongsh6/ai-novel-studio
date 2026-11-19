@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "ad83c0133151f0d9a441e3af714251bc4aced2ffe2489a8fb165a208729b9fc5";
+export const SOURCE_HASH = "36d387de9771904dc8c376fab22ea5ba41629da37dcd117367fd34f8ea01c6a7";
 
 export const DISPLAY_NAMES = {
   "action": {
@@ -261,7 +261,6 @@ export const FALLBACKS = {
 } as const;
 
 export const FORBIDDEN_TOKENS = {
-  allow: [],
   protocol_codes: [
   "request_ir",
   "provider_session",
@@ -294,7 +293,10 @@ export const FORBIDDEN_TOKENS = {
 ],
   ref_patterns: [
   "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
-  "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+  "\\b(?:as|pcall|prun|pevt|run|turn|trace)_[0-9a-z]+_[0-9a-z]+\\b",
+  "\\bmessage_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+  "\\b[0-9a-f]{64}\\b",
+  "\\b(?:seg|break)_[0-9]+_[0-9a-f]{12}\\b",
   "\\btarget_segment_ids\\b",
 ],
 } as const;

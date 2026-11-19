@@ -264,7 +264,6 @@
     ]
   },
   "forbidden_tokens": {
-    "allow": [],
     "protocol_codes": [
       "request_ir",
       "provider_session",
@@ -297,7 +296,10 @@
     ],
     "ref_patterns": [
       "(?:character|chapter|work|artifact|trace|pcall|prun|pevt|turn|run|draft):[0-9A-Za-z_-]{6,}",
-      "\\bseg_[0-9]+_[0-9a-f]{12}\\b",
+      "\\b(?:as|pcall|prun|pevt|run|turn|trace)_[0-9a-z]+_[0-9a-z]+\\b",
+      "\\bmessage_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+      "\\b[0-9a-f]{64}\\b",
+      "\\b(?:seg|break)_[0-9]+_[0-9a-f]{12}\\b",
       "\\btarget_segment_ids\\b"
     ]
   }

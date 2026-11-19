@@ -54,7 +54,7 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
       assert "工作过程" in tokens["internal_terms_zh"]
       assert "Stub" in tokens["internal_identifiers"]
       assert "slice_verify" in tokens["internal_identifiers"]
-      assert is_list(tokens["allow"])
+      refute Map.has_key?(tokens, "allow")
       assert is_list(tokens["ref_patterns"]) and tokens["ref_patterns"] != []
     end
 
@@ -75,6 +75,40 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
   end
 
   describe "Text" do
+    test "narrative 校验拒绝内部协议与真实身份形状，不生成清洗文本" do
+      for text <- [
+            "角色 character:e9fe5f90-c939-4f9e-abee-da235d1eaa45",
+            "候选 as_mwnwwxoe_11",
+            "调用 pcall_mwnwe414_s / prun_mwnwe414_t",
+            "事件 pevt_mwnwe414_u，回合 turn_mwnwe414_v",
+            "运行 run_mwnwe414_w，追踪 trace_mwnwe414_x",
+            "来源 message_e9fe5f90-c939-4f9e-abee-da235d1eaa45",
+            "基线 c993629b64db85ef763f5ca2c4a69f85579edd898d2d4b8b2ce73d7e335ec47e",
+            "选段 seg_12_4f3a9c0b1d2e",
+            "断行 break_15_0123456789ab",
+            "字段 narrative_role",
+            "正文 prose_writing",
+            "他的工作过程缺少具体细节。character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
+          ] do
+        assert {:error, :author_visible_narrative_invalid} = Text.validate_narrative(text)
+      end
+    end
+
+    test "合法姓名、作者文字和空白逐字保留，构造器不承担模型接受校验" do
+      for text <- [
+            "  老沈目前是群像视角。\n\n拟改为主角。\n",
+            "笔名 Red_Moon，人物阿鸢。",
+            "查看第三段。",
+            "他的工作过程缺少具体细节。",
+            "Stub 与 Strata 在门口争论任务控制权。"
+          ] do
+        assert :ok = Text.validate_narrative(text)
+        assert Text.text(Text.new(text)) == text
+      end
+
+      assert Text.text(Text.new("narrative_role")) == "narrative_role"
+    end
+
     test "from_display 产出作者可见文本 struct（未登记 code 走兜底）" do
       assert %Text{text: "正文写作"} = Text.from_display(:tool, "prose_writing")
       assert %Text{text: "创作操作"} = Text.from_display(:tool, "unregistered_tool")

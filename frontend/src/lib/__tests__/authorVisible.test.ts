@@ -44,6 +44,7 @@ describe("authorVisible", () => {
 
   it("forbidden tokens 与 SSOT hash 可用（前后端同源）", () => {
     const tokens = authorVisibleForbiddenTokens();
+    expect(tokens).not.toHaveProperty("allow");
     expect(tokens.protocol_codes).toContain("prose_writing");
     expect(tokens.internal_terms_zh).toContain("工作过程");
     expect(tokens.internal_identifiers).toContain("slice_verify");

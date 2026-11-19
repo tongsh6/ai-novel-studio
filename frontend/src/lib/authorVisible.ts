@@ -45,7 +45,7 @@ export function presentAuthorVisible(
   return displayName(kind, code) as AuthorVisibleText;
 }
 
-/** 作者可见禁止 token（协议 code / 内部术语 / 内部标识 / ref 模式 / 白名单）。 */
+/** 作者可见规则分类（协议 code / 内部术语 / 内部标识 / ref 模式）。 */
 export function authorVisibleForbiddenTokens() {
   return FORBIDDEN_TOKENS;
 }

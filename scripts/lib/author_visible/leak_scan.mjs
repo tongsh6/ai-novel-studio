@@ -4,12 +4,12 @@
 // 规则来源：docs/design/schemas/author_visible/display_names.json 的 forbidden_tokens。
 // 三类证据面（防止误判）：
 //  1. 作者可见产品文案：必须零命中；
-//  2. 模型生成正文：不在本扫描范围（N-NARR 保真优先；由 prompt 治理单列）；
+//  2. 模型生成正文：不在本固定文案扫描范围；JP 接受口独立校验协议/ref，保持原文；
 //  3. AX 提取伪泄漏：AX dump 会把 name/description/value 拼成一行，扫描时必须把
 //     同一元素的 name/description/value 作为独立文本分别扫描，而不是扫描拼接串
 //     （否则 `AI AI 名称`、`会话 0` 会被误报）。
 //
-// 白名单：SSOT forbidden_tokens.allow；零隐式例外，代码内不得加开关。
+// 所有登记规则都执行；无整段豁免、例外名单或运行时跳过开关。
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,7 +24,6 @@ export function loadForbiddenTokens(ssot = ssotPath) {
   const parsed = JSON.parse(readFileSync(ssot, "utf8"));
   const tokens = parsed.forbidden_tokens ?? {};
   return {
-    allow: Array.isArray(tokens.allow) ? tokens.allow : [],
     protocol_codes: Array.isArray(tokens.protocol_codes) ? tokens.protocol_codes : [],
     internal_terms_zh: Array.isArray(tokens.internal_terms_zh) ? tokens.internal_terms_zh : [],
     internal_identifiers: Array.isArray(tokens.internal_identifiers) ? tokens.internal_identifiers : [],
@@ -61,13 +60,10 @@ function asTexts(texts) {
 export function scanAuthorVisibleTexts(texts, options = {}) {
   const tokens = options.tokens ?? loadForbiddenTokens();
   const patterns = compilePatterns(tokens);
-  const allow = tokens.allow;
   const hits = [];
 
-  const allowed = (text) => allow.some((entry) => text.includes(entry));
-
   for (const { text, source } of asTexts(texts)) {
-    if (!text || allowed(text)) continue;
+    if (!text) continue;
 
     for (const token of tokens.protocol_codes) {
       if (text.includes(token)) hits.push({ token, kind: "protocol_code", text, source });
