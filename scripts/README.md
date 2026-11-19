@@ -147,9 +147,9 @@
 | `native_b28_scope_evidence.mjs` | B28-SCOPE CP3 证据 prepare/capture/verify（strata provider、候选 scope/effect、采纳回执、目标段外字节逐字、零写入差分、对照章/章节身份不变、模型 unload 核验、summary）。 |
 | `native_au03_drive.mjs` | AU03-CONTEXT CP3 外部原生 Tauri 真实模型驱动（H3 baseline→外部注入投影表故障→H1 fault→解除→H2 recovery；故障仅外部 harness 执行 DDL，产品无感知；strata 单槽生命周期/卸载）。 |
 | `native_au03_evidence.mjs` | AU03-CONTEXT CP3 证据 prepare/capture/verify（同一 turn provider 请求可用性段、context.assemble source_status、trace unavailable_sources、零 canon 写入、投影表恢复与 unload 核验、summary）。 |
-| `native_b29_drive.mjs` | B29 原生外部系统 UI 驱动（AX/CGEvent）：确定性 T1–T5 + Strata T1/T2；R03 `r03-candidate` 复用 T1 生成步骤，真实业务结果与运行终态共同完成后展示候选，结束在采纳前；只用页面可见语义操作。 |
-| `native_b29_evidence.test.mjs` | B29/R03 纯判据独立测试：原 seed 字段与已知指纹向量、未读/目录冒充详情、同源字段/指纹篡改、紧邻请求缺观察/迟到回放、候选错目标及权威事实零采纳；不运行产品或模型。 |
-| `native_b29_evidence.mjs` | B29 原生证据 IO：确定性/Strata 原矩阵；R03 复用冻结输入/runtime、history/call/request 原事实读取与共同原生 summary，绑定真实 directory→detail→下一请求→同源候选，权威角色/正文零采纳；输出明确场景范围，不签旧全矩阵。 |
+| `native_b29_drive.mjs` | B29 原生外部系统 UI 驱动（AX/CGEvent）：确定性 T1–T5 + Strata T1/T2；R03 `r03-candidate` 复用 T1 生成步骤，在同 run 业务结果与真实运行完成后停止于采纳前。发送前捕获作者基线，复用共享 capture writer 保存原始 AX/文本/窗口图；当前作者边界内只接受真实单候选的完整标题、正文及所属可见保存按钮。T5-repeat 等待同轮无候选/动作的系统 `result_card` 与独立模型说明；只用页面可见语义操作。 |
+| `native_b29_evidence.test.mjs` | B29/R03 独立目标正反例：原 seed 字段与已知指纹、目录/详情与紧邻请求供应、完整候选及权威事实不变；另以手写 AX 与内容绑定文件覆盖旧作者/错卡/裁剪视口、raw/text/image 篡改、错运行与交付前截图。失败判断必须原样进入真实下一请求，包括未知 capability、完整 validation 和模型说明换行；no_change 核唯一无动作系统结果、独立模型原文及真实 N-NARR metadata/字节范围。只用临时证据，不运行产品、窗口或模型。 |
+| `native_b29_evidence.mjs` | B29 证据 IO：确定性/Strata 与 R03 各保留自身范围；复用 history/call/request 原事实，核目录→详情→下一请求→同源候选。`readB29NativeView` 从同批 capture 的原始节点、文本及窗口图内容绑定，独立重算作者基线、实际完成与前后作者时间边界；三个 native 模式不回退全页文字。`b29NoChangeSourceBound` 与既有 `receiptMatchesArtifact` 由 native 和 browser B29 共用，按实际来源核模型说明、系统结果与零采纳边界；明确报告范围，不重新签署旧全矩阵。 |
 | `native_p1_drive.mjs` / `native_p1_evidence.mjs` | P1 原生实模 scoped 创作旅程：创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出；模型生命周期 before/after-unload、导出文件 hash、wait-ledger 全分型。 |
 | `native_au11_drive.mjs` / `native_au11_evidence.mjs` | B61 AU11×2 原生验收（AX/CGEvent 真实 Tauri 窗口）：打开工作台→发送质量诊断/缺 WorkState 用户话术→等回复可见→点「为什么」；核验 frame_type/decision_type/reply_record 覆盖/prompt 作品事实/回复字节/provider-free why/无工具无采纳无写入。 |
 | `native_au07_drive.mjs` / `native_au07_evidence.mjs` | B61 AU07×3 原生验收：发送角色阵容请求→等 AgentRun 内部只读 character_roster 步与最终回复→按 step turn_id 回查产品持久 trace（TraceRepository.list_by_turn）+ no-provider ReplayReport 六问；核验 registry snapshot/合同 refs/grant summary/redacted I/O/无生产写入。 |
