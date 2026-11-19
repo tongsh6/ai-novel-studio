@@ -168,6 +168,33 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 验证必须先给独立正反例：无探索的新故事判断不含作品长材料与历史预览；作者原文和未完义务保真；必要对象经实际只读观察进入后继请求，来源与版本闭合；隐藏合法 ref、过期指纹、跨作品 ref 和缺页不能冒充已读。真实三轮低压及 10/20 轮整理继续使用原冻结输入/阈值；补充真实按需探索→观察回流→writer used refs/角色精确对象的证明。具体任务状态与存在性审核只在 B87 §14 记录。
 
+### 5.2.3 R05 现役材料责任细化（2026-11-18，实施前）
+
+本节按愿景 §2.4 复核当前消费者，替代尚未完成的 `chapter_counts` 初稿派生；不回写旧 Canonical，不改变 R03/R04 原始证据或采纳生命周期。
+
+- **最小统计复用当前阅读事实。** `WorkspaceContext` 在现有同次读取中保留 `ReadingProjectionRepo.toc/1` 已产生的 `audit`，经 `DialogueContext.reading_audit`（`work_id/audit`，无持久化）传递。计字、当前 accepted 草稿及阅读可见章节的选择仍只有 `ProseAudit/ReadingProjectionRepo` 一个责任方。判断只将完整可信 audit 投影为 `facts.work.chapter_statistics` 的 `structure_chapter_count/written_chapter_count/empty_chapter_count/total_word_count`；有正文数是该 audit 的章数减空章数，不再按 `has_prose` 逐项重造计数规则。来源未读、失败、partial、stale 或无真实 audit 时不供应总量；成功空作品可供应零。`coverage.chapter_statistics` 表达实际供应，目录和正文仍为 not_read，聚合只绑定 work ref。身份/作品隔离由现真实读取与唯一边界保证，下游不为人工坏夹具层层添加重复防御。
+- **作者目标贯通专业任务。** 复用 run.goal 与现 `author_goal_text/AuthoringTask.author_goal`，机械动作描述不能覆盖已绑定目标；planning mission 和 outline Writer 使用既有通用大纲范围。既有章条目与 VS-00J 卷蓝图行是同一 plot_outline 的合法输出形状，模型按作者目标选择，不由应用关键词选路，不强制卷级请求附带新章。作者原文继续只由独立 author 消息供应，应用目标和执行简述保留各自来源。
+- **材料元数据不等于内容。** `AuthoringTask.materials` 当前跨 adapter 只保留 ref/version/coverage 元数据；专业修订的有序完整 baseline 在真实请求中只有一份时必须保留。仅在独立请求证明同一原文字节确实重复后，退役对应生产者的副本；不能因为上游 map 曾包含 body 就删除唯一实际正文。整章、目标段、质量评审的必要 accepted 基线及 tentative 边界不因成本优化缩小。
+- **完整修订基线按实际供应选择载体。** 独立真实路径审查确认：同轮完整原生读页已经进入 Writer 请求时，PendingArtifactWorkflow 再拼一份 fresh 全章会重复供给。将 ChapterRevisionScope 已有且唯一的章页解析、source hash、版本合并与连续范围规则迁入纯 Application 的 ChapterReadEvidence；ChapterRevisionScope 只负责作者授权与判断编排，PendingArtifactWorkflow 负责材料载体选择和 Task 元数据。证据 owner 的 bind_target_segments 只接受当前作者输入之后的真实原生页；supplied_baseline? 消费 RequestIR.visible_observations，核对同章、fresh accepted 全版本集合、全文 hash、完整字符/UTF-8 字节范围及逐页真实正文字节。两者共享页算法但不共享观察时点，不能把旧可见正文误当本轮模型选段依据。完整供应已成立时，修订请求不再注入全章副本；材料元数据指向实际观察，保留本轮修改范围与 expected_base_versions，原生叶不额外升为 Base，应用叶保持原 provenance。证明不足、缺页、旧版、错章、隐藏页或仅元数据时仍完整供应 fresh 基线。首页的计划/摘要预览 omissions 不否定已经核实的正文范围，也不因此升级设计材料。材料复用不改变当前作者授权，完整内部基线与最终采纳校验保留；不删当前回合历史、不改 Compaction 保护、不做拼完正文后的字符串去重。实际请求新增专业 Scope 不产生 checkpoint，已核可见叶继续经三 wire 投影；该性质由真实 DPS→读页→PWF→Real 回归验证。
+- **本次可见材料只有一个派生规则。** 将判断器现有的 `Compaction.project → observation_payloads` 组合收归已有 `RequestIR.visible_observations/1`，由判断、专业消费及测试读取器共同调用。普通 source refs、目标身份、raw snapshot 与已覆盖隐藏的观察不自动取得 Base/Observation 信用；partial 只证明实际供应部分。专业计划中真实只读执行必须先完成合法材料回流，才可删除旧摘要供给；不伪造 assistant tool_call、不对已闭合 call_id 追加第二工具结果、不以任务完成自述代替真实执行。
+- **计划校验与实际读取分别留真。** `agent_plan_draft` 的校验结果按原时机闭合；计划可交错读取、使命推理与创作，不能把计划校验拖延为整个计划完成。专业读取在真实 `ExplorationStep` 执行返回处，由已有 `AuthoringSession` 追加 application Scope：`operation.role=planned_exploration`，带既有 plan/step/observation 身份；只在已有校验结果确实关联该 plan 时登记真实 plan_call_id。`facts.exploration_result` 保存本次实际读取的规范化叶，不复制整个快照、不伪造 call_id 或模型调用。规范化只由现 `ExplorationService.request_observation/1` 负责，单次原生探索、原生计划聚合和专业已执行读取共用。后者为应用真实供应材料，source refs 由该叶实际内容产生，归 Base；原生 tool_result 仍归 Observation。`RequestIR.visible_observations/1` 对两种现役来源采用同一 Compaction 可见性，显式保留 application provenance，非该操作的普通 Scope 不变成读取证据。专业任务/mission/trace 消费这个实际请求视图后退役旧 summary 副本及 raw-ref 授信；partial、版本与 omissions 保持原样。
+- **专业材料资格在唯一应用投影定义。** `AuthoringTaskBuilder.request_read_materials/1` 只消费本次 RequestIR 的可见叶，依真实内容、status、coverage、omissions 和 next_offset 产生当前专业材料元数据；无正文/事实的 ref-only 记录不授内容信用，status=ok 不等于整篇完整。Builder、使命引用与 Writer evidence 共同使用该投影，后两者不再读取 raw snapshot；来源 provenance 仅在本次组装使用，不新增持久实体。Writer 证据以真实末次请求、追加 Writer 结果之前为边界，应用实读归 Base，原生实读归 Observation，任务的任意 source_refs 不自动进入二者。
+- **候选全文通过现会话探索读取。** `session_adoptions` 继续使用可信 work/session 和 `WorkSessionRepo.adoption_state/2`，目录只供实际定位/状态/来源元数据；同工具的 `{artifact_ref, offset}` 详情复用 `TurnInteractionService.artifact_body/1`，按 6000 grapheme 分页。列表 offset 表示条目，详情 offset 表示正文字符，各自明示 coverage、omissions、next_offset。只有同列表查询或同 artifact_ref 的精确下一页可用续读额度，目录转详情、换对象、跳页均是新读取；读取不改变候选/采纳状态，不新增工具、仓库或平行读取器。
+- **记忆身份来自真实条目。** 现召回读口透传 MemoryItem 的真实 id/version 及实际供应范围，退役 `memory:<命中数>`。保留 HTTP 消费者需要的现 text/count 派生，不把其摘要当完整正文；搜索页明确为有界召回而非全部记忆，详情通过现工具 `{memory_ref, offset}` 取得全文，沿用现同作品、可召回状态与有效期选择，不使用直接 get 绕过资格。长正文分页保留真实版本，不能把不同版本的页声称为同一完整材料；无可核版本不伪造整数。档案中已存在的风格规则/作者偏好沿原通用分页供给，实际页只登记真正供应的条目来源与版本。
+- **章节设计材料也必须可取足。** 既有 `archive_read` 的 chapters facet 使用精确 chapter ref 读取完整章计划、关联的当前卷蓝图及当前 accepted 章摘要，并复用现 6000 字分页；章、摘要使用真实 row ref，无整数版本时明确缺失。现 `chapter_read` 正文分页和页内版本保持，首页附带的计划/摘要预览明确 partial/省略及完整读取入口，预览不授予全文已读资格。完整渲染归已有档案 owner，不能另复制一套计划 renderer。
+
+上述读取职责在现 owner 内收敛：记忆 selector 与有界条目 DTO 由 `MemoryManagementService.recall_selector/1、recall_preview/1` 单独定义，Exploration 的真实读取与续页检查共用；章节精确设计来源由已有 `ReadingProjectionService.chapter_design/2` 选择，首页计划预览及仅供其使用的格式投影归同 owner 的 `chapter_plan_preview/2`，档案只负责完整渲染/分页。迁移删除旧实现，不建平行 Reader。canonical 观察块、叶恢复与请求可见性属于同一纯契约，收敛到 `RequestIR.Observation`，RequestIR 保留既有公共 API 委托；它与 domain AgentObservation、应用结果组装和 Provider wire 投影职责分开，无持久实体或副本。
+
+**目标来源与单次计划构造。** 作者输入成为 run.goal 的生产者必须同时保留现已受理输入的 `source_ref`：初次创建复用 turn_id，转向/回答复用 TurnInteractionService.input_ref 的真实版本身份；AgentRun normalize/恢复透传这一来源。内部 goal.text 继续用于授权与目标判断，原文字节仍只来自真实 author_input/canonical author 消息。Scope 的既有 goal 来源投影在有明确 source_ref 时只给 source_input_ref/version，不再复印目标正文；独立应用解释没有这项原文绑定，保留自己的文本。AuthoringTask 以最小非持久 `goal_source_ref` 传递这一绑定，内部 to_map/from_map 保留语义，专业请求经唯一 to_request_map 投影：作者原话从专门消息供应，已绑定目标为来源引用，独立解释目标保留文本。创作 brief、使命和继续判断从其真实目标 owner 消费引用，不把 goal.text 再拼成另一份 brief；不通过文本相等、关键词或 fixture 标记决定去重。
+
+混合 JudgmentPlan 的实际读步复用同一 application 读叶桥接后，退役其旧 observation summary 拼接。内联计划只在 JudgmentProtocol 的既有校验边界构造一次 AgentPlan：现内部 plan_result 接收已验证 plan/meta，路由和执行直接消费该同一结果，删除 selected_judgment_plan 的第二次构造；真实 agent_plan_draft call 的校验结果绑定该 plan_ref/version，judgment_decision 的结果仍由实际完成时机闭合。没有实际 plan_run 时不得伪造已校验计划，也不得让未校验 raw 结果进入执行；原模型响应继续由 canonical/provider_result 原件保存。
+
+目标来源迁移同时覆盖现验收消费者：TestProviderPrompt的指定作者读取只按唯一明确source_ref匹配canonical author消息，不能取最近消息猜目标；SliceVerify计划与续行共用该目标reader。continuation旧goal_text经全部生产及验收调用者查全后，只是run.goal副本，连同fallback退役；无真实独立说明消费者，不建立替代guidance字段。已有偏差/观察等真实应用说明仍按各自字段保留，不因去副本而丢弃。
+
+**外部验收职责。** R05 以既有原生 AX 单次输入路径覆盖章数、质量、角色、目标段、整章、风格六类，冻结输入/种子/预算与独立判据见 B87 §16.3。场景合法性只有现 capture owner 的显式登记；batch/prepare/readConfig共用，不能各自复制白名单。现 request-facts/live-refs只从真实当前请求抽取可见材料，partial与应用来源保持，累计ref不授信；现G2页/版本/used-ref算法复用。四新场景的纯判据组合归窄 authoring_r05_evidence，现live/native evidence是真实消费者；不新建harness、reader、成本账本或产品hook。请求构造字节与实模usage分别报告，没有配对before调用不宣称Token降幅，应用供给、作者页面与文学效果分别核账。
+
+普通两轮及额外八轮分页上界保持；续页资格只来自真实上一页的同来源精确坐标。所有新增纯 DTO 字段和查询形状的存在性、首消费者、独立反例及退役对象见 B87 §16.2；本节不宣称实现或验收完成。
+
 ### 5.3 事实/意图/观察分界
 
 | 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |

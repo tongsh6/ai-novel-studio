@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-18：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-19：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05 产品实现与请求构造对照已有实际证据，真实模型页面验收 BLOCKED（§16.9）；R06–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -1767,3 +1767,182 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 **保留边界。** 原native20 FAIL、offline02报告FAIL及compaction partial、最后CP not_observed、精确分类Token not_collected、3处合法覆盖后的dynamic-prefix rewritten、旧33质量partial和旧20中断均原样保留。分类Token按R01测量口径不是附加硬门，末CP同型分支已有17个实际后继且不递归加21轮；两者不改成已测。实模只跑Splash Chat，Responses/Anthropic仅同IR机械投影，真实厂商行为仍归B82/B71。本次没有新模型能力考试或新有限模式，没有签B85、B87整体或Issue #4完成。
 
 **交接。** 实施checkpoint为50e02d8d，原109项WIP逐字保留。下一批R05必须新独立上下文，先读AGENTS、project-operating-profile、NEXT、共享README、R05卡、VS-00M与本节，再按愿景→七问/存在性审核→独立反例推进现役Judgment/Explore/专业Task Base；不因为已有代码或R04 PASS就免审R05真实消费者。R06–R09既有开放反例保留，B85继续暂停。此会话不滚动实现R05，不push。
+
+## 16. R05 最小可信 Base 与按需作品材料（2026-11-18 启动；2026-11-19 原生权限阻塞）
+
+### 16.1 独立开工、判据与存在性审计
+
+全新业务会话，基线 `develop/dialogue-based-novel-workbench` / `192a335fa37a3eef79f4a385d422403a073521a3`；109项原WIP与B85保护，不push、不读生产秘密、不管理Splash。实施前真实封存 `artifacts/slice-verify/b87-r05-minimal-base-20261118/scope.json`，`mix compile`退出0。R04应用PASS与原native FAIL、末后继unknown、分类Token未采集等分层边界原样保持。
+
+**独立作者效果**：普通章数问答可用可信计数直接回答，不把目录/正文未读说成零章；质量判断按需取得正文，整章修订必含全章，目标段修订保持范围，既有角色详情可发现/续读，作者文风材料仅按其真实来源使用。作者原文/未完义务不因去重丢失；accepted与tentative不混同。成本只报告可核实际字节/usage，不推断文风变好。
+
+| 七问 | R05边界 |
+|---|---|
+| Contract | 愿景§2.4、VS-00M§5.2/5.2.2、VS-00L§14–16与VS-00I§4.3；材料责任先修订再实现。 |
+| Invariant | 身份/统计不授予正文已读资格；Base/真实观察/作者原话分立，used refs仅绑定实际供应，专业必要基线不截断，历史不重写。 |
+| Boundary | application判断Scope及专业输入owner，必要纯DTO/契约与现役验证消费者；不改Provider传输、数据库Schema、前端协议，不新增事实仓库。 |
+| Consumer | DialoguePlanningService→JudgmentProtocol实际请求；现Writer/Revision/Quality→CreativeProvider.Real/专业Operation。 |
+| Proof | 独立已写/无正文/未知状态、空/失败/partial/跨作/重复ID统计；长角色/候选/历史不默认泄入；完整章/目标段/观察引用与作者原字节单一供给；真实请求三wire与恢复相邻验证。 |
+| Acceptance Driver | 复用现役tauri_slice_verify/native_request_cost与既有修订/求证driver，按具体应用缺口选择有限场景；不增加产品验收感知代码。真实模型需先冻结范围/成本停止条件，不能以能力题代替应用验收。 |
+| Exploration | 复用archive_read、chapter_read、prose_search、session_adoptions、memory_recall和AgentObservation；来源/分页/coverage回流后续请求，未读引用不升格为已读。 |
+
+| 候选对象 | 已有owner与消费者 | 决定及不足证据 |
+|---|---|---|
+| 章节最小统计 | WorkspaceContext同事务ReadingProjection→DialogueContext.structured_chapters→judgment_scope | reuse；当前已读取但Scope仅not_read，章数需要额外探索。只供聚合统计，不恢复全目录/摘要/章计划。 |
+| 统计字段 | 现facts.work的真实作品身份及coverage JSON | truly-new最小派生字段（非实体/持久账本）；记录总条目、已写/无正文/未知数量及来源完整性，目录与正文仍not_read。仅完整可信集合可称总量。 |
+| 角色与历史预览 | CharacterProfile/ExplorationService、InteractionLifecycle/Canonical | reuse；R03已去默认长档案/预览，本批不重复实现；继续核真实按需消费者。 |
+| 专业完整修订材料 | AdoptionWorkflow.accepted_chapter_scopes→PendingArtifactWorkflow→AuthoringTaskBuilder/Real | refactor-and-retire候选：同一次真实基线已在facts.materials与context_text重复供给，先独立请求反例再删除重复表示，完整字节及版本仍保留。 |
+| Writer作者来源 | TurnExecutionService与Real独立author消息 | refactor-and-retire候选：context_text仍拼作者原文及全DialogueContext，需要核现役消费者，不能删除真实必要材料。 |
+| 新Packet/Router/表/工具/事件/配置 | 现RequestIR/Scope/Observation足够 | reject；无新增模块、第二事实账本或关键词路由。 |
+
+本节是执行前判据，不是完成声明；真实反例、必要设计细化、验证及剩余责任继续在本节记录，完整R05尚未签收。
+
+### 16.2 独立复核后的责任裁决与接续（2026-11-18，实施前）
+
+本会话按作者再次“继续推进”接续当前 R05。初始 HEAD 同 §16.1；本会话在任何 R05 改动前真实封存 `artifacts/slice-verify/b87-r05-20261118/scope.json`，scope_id=`e065723f-8abe-400b-a769-3b3917ef616f`；109 项既有 WIP 的内容/哈希及原 patch 在 `artifacts/model-contracts/b87-r05/20261118/start-worktree`。初始隔离环境 `MIX_ENV=test mix compile --warnings-as-errors` 退出 0，owned run `9ed50f52f4b3d172`。另一 R05 会话已有的五文件统计初稿作为真实增量保留并重新审核，不将其工作冒记为本会话实现；两份开始记录不合并、不追造、不修改原件。R04 的既有应用 PASS 与历史 FAIL/unknown 继续分层保留。
+
+**审核纠正。** §16.1 的候选“完整 baseline 重复”经 adapter 边界复核未成立：AuthoringTask 的材料恢复只保留元数据，上游 materials 带 body 不等于最终模型已得到正文。因此保留唯一实际 baseline，改以独立请求字节定位真正重复的作者/观察副本。章节统计初稿重算 has_prose 且缺已有总字数，改复用同次 toc.audit；内部来源由生产者保证，不能为坏 fixture 增加层层重复判断。责任层已先修订 VS-00M §5.2.3。
+
+| 对象/责任 | 已有实体、当前消费者与不足 | 裁决 |
+|---|---|---|
+| 当前阅读统计载体 | ReadingProjectionRepo.toc / ProseAudit 已给 accepted 阅读 audit；WorkspaceContext 丢弃该结果，DialogueContext 无独立载体，snapshot 的旧文本消费者不能接嵌套 map | reuse audit；truly-new 最小非持久 reading_audit 字段；退役 chapter_counts 重算；首消费者 judgment_scope |
+| 专业目标与大纲范围 | run.goal / author_goal_text / AuthoringTask.author_goal 已存在；机械步骤、planning mission、Writer schema 固定章节目标；现 VS-00J 卷蓝图与 parser 已可零章 | refactor-and-retire 固定章节假设，复用原通用候选协议，不新增实体或关键词 Router |
+| 可见观察与使用引用 | RequestIR/Compaction/observation_payloads 已存在；Judgment 私有遍历、专业 raw observation 与 source_refs 授信不一致 | 收敛至同一 RequestIR.visible_observations 纯函数；当前判断/专业/测试读取器消费，无新模块；专业新探索先补真实合法回流，再退役旧重复供给 |
+| 候选只读详情与续页 | 现 session_adoptions 只供600字预览、目录分页未接额外额度；WorkSessionRepo/TurnInteractionService 已有真实完整源；修订写操作不能代替只读比较 | 在现工具新增最小 artifact_ref/offset 详情，接现续页门禁；无新工具/仓库 |
+| 记忆真实来源与全文 | MemoryItem id/version 已有，当前读口丢版本且使用 memory:<count>；HTTP 仍消费 text/count | 透传真实条目，现 memory_recall 增加同资格 memory_ref 详情；退役伪身份，保留真实现消费者 |
+| 章节设计材料详情 | chapter_read 计划500字/摘要400字后不可续读，archive chapters仅目录；现章节/卷/摘要读口均在 | 现档案 owner 完整渲染与分页，正文 reader 保持；不新增 packet、资产系统或 Reader |
+
+**独立反例与完整出口。** 先以真实 DB 的三个结构章（有 accepted 正文、空章、仅 tentative 正文）、旧/新草稿修订和另一作品证明统计口径；来源未知不得报零。以15个候选和超过6000字正文证明真正判断循环的两轮后续读，跨作品/会话、换目标、跳页不得冒领额度；两组各命中一条但不同记忆必须有不同真实 ref/version；长计划/章摘要后半部必须经实际探索可达。专业反例覆盖卷级目标贯通且无额外章节、真实作者原字节不重复、未供应/隐藏/source-only 引用不得获信用、partial不升级完整、整章全部有序 accepted 基线与目标段边界保留。
+
+**实施与验证分工。** 统计与 DPS 为单一文件 owner；探索/档案/记忆读口由另一 owner；专业 Goal/Task/Writer 为另一 owner。common 可见观察函数、设计/任务、所有 Mix/模型/原生执行及提交由 root 串行协调。设计先落盘，独立新增反例先执行，再实现和受影响消费者迁移。旧兼容 `AuthoringTaskBuilder.from_input/1` 已无生产消费者，查全后退役专属兼容入口与测试；`to_input` 仍有真实消费者，保留。
+
+**专业计划读取责任补充。** 查全确认 `ExplorationStep` 已产出真实 `AgentObservation`，但 Prose flow 未写 canonical；原 `agent_plan_draft` 已合法闭合，延迟其结果会阻断交错的使命/创作请求。采用现 Scope/application 来源追加真实执行结果：新增的 `facts.exploration_result` 是当前请求纯字段，无新表/账本/工具；唯一生产者是专业执行边界，唯一规范化 owner 为现 ExplorationService，真实消费者为使命、Writer、质量与引用 trace。仅根据实际 plan 校验记录关联 plan_call_id；固定计划不伪造调用。补入独立 `planned_exploration_material_test.exs`，以已闭合计划、partial 实读、隐藏旧页和普通 Scope 引用反例证明下一实际请求；既有大型测试拆出的统计、候选和分页测试分别承担其真实边界，不调整规模基线。
+
+**格式化后的职责归并。** 首次精确清单格式化后，规模检查真实报出 Exploration 1435、WorkArchive 513、RequestIR 956，以及两份扩大测试超界。保持原规模基线，记忆查询/预览分别迁回现 MemoryManagement 的 selector/preview，章设计精确读取与预览迁回现 ReadingProjectionService；原位置删除实现。RequestIR 新增 `Observation` 纯契约 owner（同目录未存在等价模块；AgentObservationAssembler 只组装步骤领域结果，Projection 只做三 wire 投影，均不是替代职责），集中原观察块/叶/可见性，原公共调用改委托；仅拆代码责任，不建第二材料实体。专业边界新增测试按真实修订/作者供给职责拆分，不压格式、不登记放宽门槛。首次自动审批拒绝动态差异批量格式化后，已只读核对并改为38项明确 R05 文件清单，执行成功 `ae36865761615a82`；开始时109项既有WIP快照不变。
+
+**专业材料与目标的进一步反例。** 新增 `professional_writer_request_test.exs` 将作者/目标及可见材料资格从会话传输测试分离，`chapter_revision_request_test.exs` 专测整章/目标段基线；不复制大 fixture 包。专业资格投影由现 AuthoringTaskBuilder.request_read_materials 统一，Writer/mission/trace 共用；旧 raw snapshot 与任意 source_refs 授信退役。进一步追查真实 DPS.run_spec 发现初始 run.goal.text 直接来自作者原文，原 nonce 分离用例不能证明真实路径单供给：后续须在目标生产者保留来源绑定，区分作者目标引用与独立应用解释，内部授权文本保持；未完成前不声称全路径原文仅一份，不按字符串匹配去重。
+
+**完整生产者审计后的实施裁决。** run.goal 共两创建口（DPS、ToolConfirmationRun）与两修改口（steer、question answer）；AgentRun.normalize_goal 当前丢弃 source_ref，持久层已整图透传，无需新表。复用现 input_ref 与 RequestIR 已允许的 source_ref，补入领域恢复与真实生产者；Scope goal 统一引用投影，AuthoringTask 新增 goal_source_ref 仅为跨 adapter 纯载体，to_request_map 是唯一专业请求投影。各真实 flow/使命/continue/quality 消费该同源绑定并退役重复 goal brief；独立应用解释仍保留。另独立审查确认混合计划漏接读叶，且内联计划虽 ID 确定仍构造两次：JP 校验和 DPS 分派。改为校验一次后沿现 plan_result 传同一 plan/meta，执行不再重造，真实校验结果直接绑定该计划；新 judgment_plan_material_test 从双原生调用、真实读取到 Writer 请求取证，补 Prose/application Scope 的恢复与可见性边界。上述设计已先写 VS-00M §5.2.3，独立反例先执行。
+
+R05 的原生缺证仍开放：新请求体系 G2 目标段和 B29 角色预注册虽存在，其目标证据目录尚未生成；旧 G2、底层分页循环、纯 Node/Elixir 或 R04讨论20轮均不代签。复用当前 driver/seed/oracle，按必要场景冻结真实运行边界；不为一般模型能力加考试，不以局部检查点缩小完整 R05 DoD。本节仅为实施裁决，R05 继续 doing。
+
+### 16.3 六类原生证据与成本边界预冻结（2026-11-18，执行前）
+
+先以作者效果冻结下表，再扩现役验收消费者。每项独立隔离数据库、独立批次目录、一次作者发送、零人工重试；六项各一次。开始前由实际原生执行 owner 绑定本任务 scope、源码/配置/锁文件、种子路径及 SHA、输入原字节和模型配置；执行结束再封存同源身份。原 20261115 G2/B29 预登记未执行，不修改或补签。
+
+| 场景 | 原样作者输入 | 既有种子与独立判据 |
+|---|---|---|
+| `b87-r05-chapter-count` | 这部作品目前一共有多少章？有正文和还没写正文的各几章？只告诉我这三个数量。 | `seed_judgment_explore_chapter_full_read.exs`：结构2、有正文1、无正文1；首请求已有真实同次 audit 统计且无默认7000字正文/完整计划；目录/正文不升 complete；作者可见数量正确、Canon 不变。是否多做探索另计，不写关键词出口。 |
+| `b87-r05-quality` | 请先阅读第01章《灵源账单》已经保存的正文，再判断主角的胜利来得是否太容易，指出依据和可改方向。只分析，不生成修订候选，也不要保存。 | `seed_au11_quality_diagnosis_message_envelope.exs`：真实 accepted 正文进入实际作判断的请求，标题/计划/统计不替代正文；现役只读消费者是终局 Judgment，按其真实调用/叙事来源绑定正文读叶。现 Reviewer 仅评审新候选，不为假想的 accepted 只读入口造正例；具体情节依据与文学判断人工分列；无修订候选、Canon 不变。 |
+| `b29-r03-candidate` | 指定老沈为主角 | `seed_b29_character_role_revision.exs`：真实目录/详情、同角色身份与八字段 before；只将老沈 ENSEMBLE_POV 改为 PROTAGONIST，其他角色/正文/记忆保持；候选卡可见，停在采纳前。不代签旧 T2–T5。 |
+| `b82-g2` | 请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。 | 原 G2 种子：准确选有正文的第二个同名章，两页0–6000/6000–7000实际回流，版本/hash/范围/相邻请求与 used refs 对齐；目标段候选，Canon 不变。原页面 verify 与独立 audit-g2 都须留下结果。 |
+| `b87-r05-whole-chapter` | 请先把第02章《灰烬中的手印》已保存的正文从头到尾读完，再给我一份整章修订候选，减少重复描写，保留开头和结尾的线索；先不要保存。 | 原 G2 种子：完整7000字 accepted 基线实际唯一必要承载、同章同版本整章候选；首尾线索来源可追溯，不能误作续写或局部补丁；章节数/ID/Canon 不变。减少重复与文学效果单列人工观察。 |
+| `b87-r05-style-material` | 请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。 | `seed_ca04_carry_gaps.exs`：已确认“多用对白推进情节，少用心理独白。”的实际正文、memory ID/version进入使用请求，非仅摘要；第一章 accepted 基线充分、候选未自动采纳，首判断无默认全量长材料；Canon 不变，文风执行另列人工观察。 |
+
+**真实预算。** 复用现 runtime recipe：splash / local/Q4-PLE4，thinking enabled、reasoning high、max_tokens=32000、provider timeout=300000ms；model context_window=262144，maintenance window=32000、ratio=0.70、auto=true、keep_recent=4、sync_summary_maintenance=false。产品已有 max_provider_calls 不变，全部实际调用/失败逐次计量。分型等待沿现 owner 的 input120s、ack30s、turn360s、candidate300s、adoption180s、maintenance300s、restore30s；B71 ready180s、render grace10s。每项900s总上界在实际 owned 执行中约束，不能只写 manifest 或旧浏览器超时变量。传输/窗口/模型失败原样留证，不循环运行直到绿色。
+
+**存在性及责任审核。** 已有 NativeScenarioHarness、B71 candidate/read_only AX流程、B29候选流程、等待账、真实call reader、成本纯投影与G2页事实全部复用，不新增harness/启动器/成本账本/产品验收hook。现 authoring_capture_evidence 的同一显式场景定义扩四项，并由 batch/prepare/readConfig共同消费；错误 provider/场景/输入/种子/目录绑定拒绝，不能简单解除Splash限制。现 live evidence继续I/O编排；request-facts/live-refs只按真实当前请求补partial/application读叶，不由累计canonical引用授信。G2已有页版本/used-ref算法不得复制；新 `authoring_r05_evidence` 仅为四新场景纯目标判据组合，当前消费者为既有native/live evidence分派，不承担I/O/启动/成本。新模块前已查重：G2只签其目标段场景，live/scenario已分别870/783行，均不应继续混入四类独立语义；窄owner与对应纯测试保持职责清楚。先取得目录代正文、跨版本拼页、仅summary、错误整章范围及冻结绑定反例，再实现。
+
+**成本边界。** 复用 joinNativeCallEvidence、analyzeRequestCost 与 nativeSummary，报告每次实际调用及失败、input/output/cached tokens、分类字节与未知字段；cached是input子集，分类Token未采集时不得用字节冒充。G2页级usage只是来源使用证据。当前没有同输入已执行before实模，R04讨论20轮不得替代。若用开始源码封存与相同输入/种子做前后请求构造测量，必须明确基线为HEAD192加开始时109项WIP，只报告实际可核请求字节；本轮实模usage独立列示，不推断Token降幅或文风改善。配对测量按下述已审查方案冻结，不修改历史原件。六个场景各取首次 Judgment 请求，另以整章场景的独立初态取一次 Writer，共七对；两臂均由各自生产 DPS→AgentRunService 构造，Splash transport 注入固定原生响应，仅捕获真实最终请求，不连接模型。首次场景各一条纯文本响应；Writer 只允许一条合法 execute 决策及一条候选提交响应，第三次调用、不可达或来源不符均保留 unpaired，不补请求。种子仅建立一次初态，沿现一致快照机制给两臂独立数据库副本；固定输入原字节、真实 turn/session/目标、版本、runtime 与同一驱动 SHA，run/call 身份由各臂生产代码独立分配并逐臂绑定。实际 transport body 与同 pcall/prun 的 LLMLog 逐值核对，session canonical 复用现 request view，作者绑定复用现成本批次 reader。只比较配对成立的 stable_json/content/envelope/分类字节，保留分类守恒；整章中段、真实版本或作者来源丢失即拒绝配对。固定响应 usage 为 not_collected，不写零值或推算 Token/缓存/时延改善。
+
+**before身份纠正。** 逐项核对封存scope的五路径SHA与HEAD/保存WIP：DialogueContext、WorkspaceContext、judgment_initial_snapshot与HEAD192完全一致；DPS/AU03等于保存原件且无统计新字段。故这份开始基线不含另一会话后叠加的五文件统计初稿，不能把接续时见到的草案追加入before。机器核对值见 `artifacts/model-contracts/b87-r05/20261118/cost-baseline-identity-01.json`；原scope、inventory和patch均不改。
+
+应用材料是否正确充分、页面是否真实可达、模型语义表现分别判断。确定性回归、六项实模、同scope全工程出口未闭合前，R05仍doing；R06不在本批。
+
+### 16.4 全量回归后的消费者收敛（2026-11-18，实施 checkpoint）
+
+真实Goal/同批计划/持久恢复121例通过（owned `4255265d43b02560`）后，首次全量Elixir编译通过，测试出现9失败（`6b31957fe1dbf64d`），xref/架构尚未执行；不把局部绿灯当全量出口。已区分三类：记忆空结果的作者反馈确实丢失，原样恢复其真实empty说明；CP3整份上下文和角色raw观察标题是已退役供给形式，改用真实成功native响应、完整角色字段/来源与三wire唯一字节、未读目录不得授信等独立判据；计划预算/等待失败来自现SliceVerify仍读取goal.text而落到错误fixture分支，原实际调用计数与等待预期保留。
+
+明确引用的作者原文读取复用现NovelTest.TestProviderPrompt：新增author_text/2只按canonical user/author的真实source_refs唯一匹配，缺失/重复/应用伪装/非IR不猜；原author_text/1是最近作者语义，不能拿它替代指定来源。现SliceVerify计划与续行是实际消费者，共用一个Scope目标reader，无新实体或产品hook。红例owned `21082b38bde8fee6` 已证明指定来源分支丢失与API缺失后再修。续行goal_text查全只有Prose及两现验收脚本复制run.goal；退役该冗余参数和fallback、对应人工专属测试，不新增只为兼容旧测试的operation.guidance；真实deviation_summary/observation_block等应用说明保留。
+
+新增计划读叶跨run压缩反例经真实AuthoringSession生产后，按持久段去派生坐标、以已完成run状态重建会话视图；合法message_refs覆盖后，旧正文保留在canonical但不再进入visible_observations和三wire，累计Base refs不得使正文复活，当前材料和作者原文仍在。3例通过 `459e252abf95067d`，没有修改Compaction规则。64项明确文件格式化通过 `a97afd63f4ab88ec`；仍需完成后续全量出口、原生与配对成本。
+
+**恢复幂等机制与完整后端出口。** CP4a 的持久恢复反例揭示实际偏差：Scope 写入时已使用规范 Goal 引用，same_scope? 却与未投影的 run.goal 比较，恢复会追加重复 Scope。比较和写入现统一消费 RequestIR.scope_block(scope).content，不增加字符串去重、额外状态或兼容分支；独立历史、三wire、版本及恢复期望保留。最终完整后端验证 owned `d01f5ec17b85d82c` 退出0：compile --warnings-as-errors、全量 **3462 tests / 0 failures**、xref compile-connected 0环及 arch_check 均通过，完整日志 `artifacts/model-contracts/b87-r05/20261118/full-elixir-gates-02/gates.log`。这是当前工作树的工程证据，不代签真实原生、成本对照或各候选提交树。
+
+**原生判据继续独立审查。** 纯 oracle 的旧高version Scope 反例真实失败（owned `95c9faa6e7b21190`，16组中1失败）：同一请求的旧正确材料不能越过后来当前 Scope。另以生产 coverage 形状、带换行的实际正文、合法 author_narrative_source 与长文滚动/所属按钮审核 reader；正文完整性由实际 Writer/候选字节绑定，作者可见性由本轮真实页面入口和截图/滚动证据承担，不能把 AX 保留离屏全文当作同屏可见。计数的语义正确性保留独立人工核对，不用数字正则自动签答案。原失败原样保存，R05尚未完成。
+
+### 16.5 验收证据类型与责任修订（2026-11-19，实施前）
+
+**Canon 快照的真实矛盾。** 现 buildAuthoringCanonSnapshot 的 v2 在 includeChapterFacts=false 时保存章内容签名，严格 parseSnapshot 却始终按完整章设计事实解析；R05 若只比较现有 keys 的空集则会把缺表误签为未写入，若为真实种子补 decided_at 则会改变事实。现 v1 明确只读，不能让新采集降版绕过矛盾。
+
+**同一 owner 的明确分型。** 存在性审查未发现已持久化的等价判别字段；采集参数本身不是证据。现 v2 新增最小 chapter_evidence 判别值 design_state / content_signatures，保持既有 chapters 承载和九张表、记忆引用签名算法。唯一 producer 按实际采集模式写入；唯一 parser 严格校验对应每章集合、数量与 hash/完整事实。只读比较消费全部九表及记忆引用核账；source/revision 设计态比较另要求 design_state，内容签名绝不授予设计态见证资格。当前消费者为 R05 严格零写入核验，以及既有 planning/revision、live/behavior/confirmation/auto-maintenance 和 restoration。restore 的 raw/business hash 仅消费 tables，不改变其身份算法。
+
+**反例与影响。** 缺 mission 日期的真实只读输入应能得到合法内容签名并比较未变化；删任一表、少一章、坏 hash、未知/缺失判别字段均拒绝，内容签名不能用于设计态变更签收。新 v2 读取契约不替旧 v2 补默认模式；旧原件/旧报告保留，不能宣称它们可直接由新 verifier 重算或补字段重签。无新快照系统、无第二 parser、无产品兼容层；该裁决先于实现。
+
+**成本快照的消费者裁决。** 查全 request_cost_snapshot 的 contentCanonSnapshot、raw/business SHA、引用核账和 restore 清单，均只需要完整表内容与引用事实；真实 source/revision 设计态消费者另经 planningCanonSnapshot，仍取完整 design_state。故成本 owner 的 contentCanon 及 reconcileSetupDelta 三处同责构造改用 content_signatures，不为 G2 作者使命补日期，不增加备份流水线或宽松 parser。旧测试专属要求成本快照包含 mission 设计字段不符合该职责，迁为完整签名与原字节/行数/引用/restore 对等判据；先以真实缺 decided_at 的 G2 形状取得 createCompleteSnapshot→restore 红，再实现。仅修改 mission 原文字节仍必须改变业务 hash 并被零写比较拒绝。
+
+### 16.6 完整读页与修订基线的真实重复（2026-11-19，实施前）
+
+**独立反证。** DPS 原生两页读取→PendingArtifactWorkflow 章修订→CreativeToolAdapter/Real 的实际请求同时包含两页正文与 operation.context_text 新增的完整正文。R04 对当前回合的保护是正确的，追加专业 Scope 不自动隐藏工具叶；现 baseline_once 仅数应用字段，不能证明整次 Writer 请求唯一。不得把目标缩成注入次数，责任层先补 VS-00M §5.2.3。
+
+**最小实施边界。** ChapterRevisionScope 已有真实章页/hash/版本/连续范围算法，是完整供给资格的唯一 owner；PWF 在绑定真实请求 IR 后据该资格选择材料载体。完整可见且与 fresh accepted 身份、全版本和逐页原字节一致时，不再追加全章；不完整/旧版/隐藏时继续供应完整 fresh 基线。保持 canonical 当前回合、授权范围、内部完整基线、expected_base_versions 和采纳事务不变；复用原生页不得从 Task 元数据制造第二 Base，应用读叶仍为 Base。先跑真实 DB 的 DPS 两页→PWF→Real→三wire 红例，并保留缺页、错章、旧版、伪 range/hash、正文缺失、合法隐藏及设计预览 omissions 的独立反例。现 chapter_revision_request_test 承担该链路，不造第二分页器或通用材料框架。
+
+**观察结构的信任边界。** 现 IR 外层校验允许合法 JSON 的非对象聚合叶及 application exploration_result；它们没有观察身份，不能转成带默认值或空字段的假观察。唯一 Observation 读取 owner 应保留 canonical 原件，仅从可见的对象形状提取观察叶，非对象既不授予已供应/完整资格，也不让正常请求因结构访问而崩溃。合法原生与应用叶的字段、状态、来源差异保持；下游不得从聚合外层引用猜补缺失叶。该判据由现 RequestIR 测试及真实 Judgment/章节材料消费者核对，不另造清洗或兼容层。
+
+**验收与成本。** 原生 whole 判据必须识别实际页的完整范围与来源，接受完整页供给且无新副本，拒绝完整两页加全章；不能只搜连续7000字字符串。七对请求构造实验保持既定数量与直接 execute→Writer 路径，其无前置探索的字节证据不能代签本条原生路径。250项读侧、112项Canon、15项成本/CLI回归已通过，仍不证明该新目标缺口已修。R05继续doing，真实模型尚未启动。
+
+### 16.7 成本构造链的独立反证与归属（2026-11-19，实施前）
+
+**目标不止选中请求。** 七对实验分别证明固定一次 Judgment 或 Judgment→Writer 的同源真实构造；相同选中 body 不足以证明此前调用来自本轮。独立审查发现现 constructedArm 对非 selected 调用只核 transport/LLM 两份互相一致，未与 canonical 全链及冻结 work/session/turn 对账；capture.run_id 未与 session view 核对；仅凭数量和 selected 也未证明顺序及真实阶段。先用外来首调用、伪 run_id、单边换序、selected 非末和相同正文但错 role/tool 的字面反例取得红，再在既有 reader 收口全部调用身份/顺序/阶段，不新增解析器或降低配对门槛。
+
+**作者身份与执行步骤的责任裁决。** 实际生产链 JudgmentPlan.frame→TurnBinding→LLMLog 会把专业调用记为父输入的 `:agent:正整数` 步骤，canonical 作者来源仍是父输入；两者类似同一业务事务下不同执行 span，不能以步骤标识替代作者来源，也不能把合法步骤改写为父输入以通过测试。现 canonicalAuthorMessage 和 constructedArm 的直接相等判断违背该生产契约。归属语法统一复用 authoring_call_evidence 既有 owner，并同时核对本轮真实 run、work/workspace/session、唯一 canonical reply 的 pcall/prun；字符串父子关系本身不授予归属。作者唯一 source_ref 与 canonical parent 始终指向冻结父输入，原文字节与完整 coverage 保留。旧 fixture 缺少真实 producer 必有的 source_refs，应按该契约修正；保留合法 child turn，并先以错父、错误步骤语法、错 run/call、缺失/重复/伪造作者来源反证。影响范围是既有成本批次和七对构造消费者；不改产品 turn 身份、不新增第二套调用解析或猜补历史来源。
+
+**执行环境的证据边界。** source identity 文件 SHA 只证明声明文件本身，实际 checkout/cwd、完整源码执行前后指纹、BEAM 构建路径及已加载文件必须由本次外层 owner 独立记录；before 只用原109项WIP和原HEAD重建的2646项一致副本，独立编译，不复制 after 产品模块。固定 eventsource 只提供结束本次构造的原生响应，非流式入口显式拒绝；RuntimeConfig 的 nil 原值也须无条件还原，同一 BEAM 外层核对调用前后配置，不能留下默认真实路由。实际作者入口以 work.id 作为 workspace_id（WorkspaceChat topic→Channel→DPS），四种子表中没有独立 Workspace 行不构成补造实体的理由。
+
+**失败路径与实际执行身份。** 异步 cancel 后立刻还原真实路由可能早于执行步骤退出；故每次独立测试 BEAM 的外层先用既有 RuntimeConfig 安装封闭 Splash 配置（封闭 endpoint、流式/非流式入口均显式拒绝），作为 driver 的进入与还原基线。固定响应结束或失败都只能回到该隔离基线；配置相等证据针对这个基线，不宣称操作过用户模型服务或恢复了真实路由。外层同时核 Repo.config 的实际数据库 realpath 精确等于本 arm/pair 新 restore 路径，冻结空 MIX_TEST_PARTITION；同 SHA 不能替代该位置证明。已加载 novel_* 应用声明模块与全部 Elixir.Novel* 模块取并集，真实 BEAM realpath 必须在该 arm 独立 build 内，防声明交集漏掉动态加载的另一源码新模块。recipe 的 work/session/accepted draft 归属来自种子库原始行，不由配置声明自证。
+
+**已取得的独立数据证据。** 成本快照真实红 owned `9d883e9f1c23cb18` 后，相关六文件97项全部通过 `e3bcd1c42beca869`。四类既有种子各执行一次，运行树收尾后经 SQLite 自身 checkpoint 封闭；复用现完整快照 owner，源/full/work 字节 SHA 一致、36表全保留、初始 provider/run 清单为空。无新种子、备份器或实际模型调用。候选提交树与最终原生/配对请求仍须独立验收，不由这些局部结果代签。
+
+### 16.8 当前职责边界复核（2026-11-19，迁移前）
+
+**章读取证据与作者授权分责。** 全量扫描的规模信号触发职责复核，而非机械减行或调整门槛。ChapterRevisionScope 现有授权/目标语义与章页来源、版本、连续范围、真实字节资格有不同变化原因。查全 RequestIR.Observation、ReadingProjectionService、LocalizedRevision、ProseFormatting、ExplorationService 和 AuthoringTaskBuilder：它们分别负责通用可见性、DB读取、分段/diff、hash、分页生产、通用Task投影，均不应新增第二套章页资格。不存在等价现 owner，故将原唯一算法整体迁入窄 ChapterReadEvidence，只有 bind_target_segments 与 supplied_baseline? 两入口；现 CRS 与 PWF 分别为真实消费者，不建持久实体、通用框架或兼容转发。原 CRS.supplied_chapter_baseline 退役，Task materials 仍由 PWF 组装。
+
+**必须保留的时点反例。** 完整、fresh、仍可见的旧页可满足修订基线，却不能在新作者输入之后冒充本轮读取来绑定模型发现的段落。目标绑定仍只读当前作者后的原生叶；完整供给仍读 Compaction 后可见的原生/应用叶并核 fresh accepted。独立交叉反例放入现 B28/章修订测试 owner，原三wire、缺页、旧版、应用来源、隐藏页及采纳守卫全部保留。迁移删除原实现，禁止把旧页公共 helper 留在 CRS 形成反向依赖。
+
+**离线配对与原生采集分责。** 固定 recipe 的两臂构造、完整调用链资格、Writer 基线核验和 delta/report 是离线证据责任，不能继续累积在原生 batch 生命周期 owner。已审 request_cost_evidence（单请求量度）、batch_evidence（原生轮次签证）、manifest（历史/预注册）、snapshot（数据库）、runtime_recipe（运行参数），没有等价配对 owner。将既有 constructed* 与 analyzeConstructedPairs 整体迁入 request_cost_pairs_evidence，现 analyze-pairs CLI 与 pairs.test 直接消费；原 capture 不留兼容转发。请求量度、canonical/call/author 绑定、正文 carrier 等仍复用既有唯一 owner，不复制领域解析；通用读写只复用当前合适入口，不为几行标准 IO 另造框架。原七对、同源、全部调用顺序/身份/阶段、缺证时 unpaired/delta:null 及不测模型质量/用量/延迟的边界逐字保留，纯职责迁移沿用现独立反例。
+
+### 16.9 本次工程结果、请求对照与原生阻塞（2026-11-19）
+
+**当前裁决：R05 BLOCKED，未签 PASS，不进入 R06。** 本节接续原 scope `e065723f-8abe-400b-a769-3b3917ef616f`，保留开工、反例和失败原件。产品调用链、确定性反例及七对请求构造已有实际证据；六类真实模型页面目标仍缺签收，当前直接阻塞是 WebCodex Runner 的代码签名不满足 macOS 已保存的辅助功能授权要求。R03/R04 的原签收及开放限制不改写，NEXT 继续指向本批。
+
+**分组提交与原 WIP 边界。** 每组先构造精确候选树、按职责验证，再正常提交；没有 push。原 109 项 WIP 通过封存 inventory/patch 与候选白名单核账，B84/B85 及无关迁移保持独立。
+
+| 提交 | 审核与验证范围 |
+|---|---|
+| `0cb5fd503189afaf861fdc79768df87e8745e30f` | Canon v2 明确证据类型与成本快照恢复；精确候选的相关 82 项通过，保留前置失败记录。 |
+| `9a01a8ba2673447858593017c3d437cc58287415` | 目标来源、可见观察及跨 app 纯契约；精确候选全后端 3392 tests / 0 failures。 |
+| `44ff7cdcd7b4b20d7b5669d39f289f3159434a07` | 89 路径产品闭包：统计、真实探索、目标来源、专业材料与现役消费者；精确候选全后端 3471 tests / 0 failures。 |
+| `a9a10a1f4168a1534a22287b0b3c07893f651d48` | 52 路径原生/成本 harness 闭包；62 份原生/成本测试加模块规模测试，1368 pass / 0 fail / 0 skip。 |
+| `59f4b6eb5a381c68c3a8ded96d14f867edbb7fb4` | 单独补入原 109 WIP 已有的 VS-00M §5.2.2，保持封存原件逐字内容，使本节前置引用可达；不是 R05 新设计，也不重签 R03。 |
+
+所有候选 patch/tree/命令/结果在 `artifacts/slice-verify/b87-r05-20261118/review/`。产品候选 `cf77a1394d04658ae81decb02da4cebb58b0d0cb` 的 `mix check`、Credo strict、I3/I1/I2、N-NARR、模块规模与 diff 检查通过，owned `2a64f3f6b5564988`。harness 最终候选 `23f98dfb43293e6094df71285e6bbcfaf5a43795` 的 Node、模块规模、batch shell 语法和 staged/unstaged diff 检查通过，owned `8cf9477ac677b34e`；初次暂存检查拒绝新测试的末尾空行，清除后才复验提交，没有改测试预期。
+
+**整合工作树的工程证据。** 全后端 `3473 tests / 0 failures`，compile warnings-as-errors、xref 0 环、arch_check、Credo 与 I3/I1/I2 均通过（`full-elixir-final-05/gates.log`，owned `5e5880dba366145b`）；全原生/成本 Node `1354 / 1354`，模块规模单测 `23 / 23`（`full-native-node-03/tests.log`，owned `a33694f6b3719f4b`）。另一次完整 `mix check` 含 codegen、枚举、ADR、I-CACHE 及全部 3473 测试通过；同一脚本随后因两处 EOF 空行以 2 退出，保留 `full-mix-check-01/check.log`（owned `771cc61020260aa0`），不能把整体退出码改写成 0。候选数与整合树不同是各组明确排除原有旁支 WIP 所致，不合并重复测试计数。最终执行 `bash scripts/ai_static_scan.sh --top 10`，本批 `full-static-scan-03/report/` 保留 report/Top10/disposition/raw，owned `4799d33e79924b3b`：21 项中 19 pass / 2 fail / 0 skip，整体 exit 1，扫描前后源码指纹相同。模块规模修复已通过；两项失败为真实 UI 完成证据缺失，以及 gitleaks 的 6 个已有历史命中（原台账 5 false_positive / 1 accepted_risk）。共 7 findings，唯一 pending/blocking 为 task-done-manifest；没有新增豁免或改写长期处置。随后 `task_done.sh --scope artifacts/slice-verify/b87-r05-20261118/scope.json --slice b71-first-consumer --ui-summary artifacts/slice-verify/b87-r05-20261118/native/count-01/summary.json --ui-binding artifacts/slice-verify/b87-r05-20261118/native-bindings/count-01-binding.json` 复核同一 scope，因真实尝试未形成 binding 而 ENOENT / exit 1；证据在 `final-task-done-01/`，owned `f36400ea217e8ac3`，没有另起原生尝试或制造完成 manifest。扫描结果与原生目标分别裁决。
+
+**七对实际请求字节。** before 为 HEAD `192a335fa37a3eef79f4a385d422403a073521a3` 加封存 109 WIP，不追入后来的统计初稿；两臂独立构建、同一初态的独立 DB 副本、相同作者输入/目标/版本/runtime/driver。recipe SHA `e1937a5c589117887da8e1ec971e37f3a46a0436493dd8e1d3f77b048a8b028c`；driver SHA `454d446fc5df7fce1520142e4f8d55b51837f7cb5d5787f50b644ffeaff5a207`。来源为本批 `cost/analysis/request-cost-pairs.json`，逐项核过 transport、LLM 与 canonical；7/7 配对成立。
+
+| 配对 | before 稳定 JSON 字节 | after 稳定 JSON 字节 | 差值 |
+|---|---:|---:|---:|
+| count-initial | 40819 | 41386 | +567 |
+| quality-initial | 40892 | 41458 | +566 |
+| role-initial | 40744 | 41309 | +565 |
+| g2-initial | 40869 | 41436 | +567 |
+| whole-initial | 40896 | 41463 | +567 |
+| style-initial | 40997 | 41563 | +566 |
+| whole-writer | 65985 | 66346 | +361 |
+
+六个首判断增加的 Base 359 字节来自目录/详情/续页说明，Scope 166–168 字节来自同次真实章节统计，JSON 包装增加 40 字节；没有默认加入目录、章摘要、角色正文或章节正文，正文仍 not_read。Writer 的差值为 `+359 +168 -205 +39 = +361`：实际完整请求中的作者原话由两份降到一份，独立执行说明仍保留；两臂都完整供应同一 accepted draft revision 2 的 7000 graphemes / 20620 UTF-8 字节正文，SHA `4d5b86962eed7e82f8c2e9d3cf5d280d2172941337bed3fefb1f3859c38a95f8`，各仅一份。该固定路径直接 Judgment→Writer，没有前置两页观察，不能代签 §16.6 原生路径的去重收益。全部配对字节均增加；没有 before 实模、Token/缓存/延迟/文学质量收益证据，raw HTTP bytes 与 usage 为 not_collected，不从这些值宣称整体成本下降。
+
+**外层来源校验的真实失败与追加核验。** 原 14 臂 driver 均退出 0，外层却把 `code.which` 为空的 10 个 MixProject 内存工程定义解析成仓库目录，逐臂拒绝。原 `cost/execution-summary.json` 的 failed 不改写。追加 `cost/execution-reconciliation.json`（SHA `1e406683d8c94b3f3afd86c55603388543ae3aba28f35a6d26ee11ea2027a68e`）只在原始路径为空、存在冻结 mix.exs 唯一定义、且不属任何 runtime .app 声明时识别这些具体工程模块；14 臂合计 2173 条真实运行模块加载记录仍须落在各自独立 build 及唯一 owning app。before 419 / after 421 个声明模块文件均存在；14 份源码前后清单、编译身份、Repo realpath、空 partition、封闭 transport 及恢复基线均核对成立。没有重跑、换样本或放行仓库根目录；追加检查明确是在执行后读取保留构建，不伪称原 BEAM 已记录额外字段。
+
+**实际原生结果。** `native-preregistration/count-01.json` 对应的唯一启动尝试落在 `native/count-01/`，owned `bf4776d39feec670`，45868ms。窗口与 app 已启动；唯一输入事件为 activate rejected，reason=`ax_trust_required`，`ax_trusted=false`、`post_access=false`。失败发生在 start Canon capture 和作者提交之前：作者发送 0，场景 completion 推理未触发。健康探活仍访问了 provider 的 `/models`，不能称完全未访问服务；Token 费用没有实测报告，不写测得 0。后续“截图 0<4”是派生失败，`native-ui-complete` 只是 finally 结束信号；实际 cleanup `remaining=[]`，运行树已收尾。原生 summary 未形成，finishExecution 的缺失输出拒绝也原样保留，不能补造 binding。
+
+**权限的直接原因已定位。** `review/native-permission-tcc-event-query.json` 封存同次启动期间 596 个匹配事件中的前 80 个选录：系统 AttributionChain 明确将本仓库 `artifacts/tools/ax_cua` 的请求归责给 PID 923、`dev.webcodex.runner`，实际路径为 `/Users/loong/.local/share/webcodex-pkg/node_modules/@yyjeqhc/webcodex/vendor/bin/webcodex-runner`。2026-11-19 10:53:45（UTC+8），TCC 对 Accessibility 明确记录 `Failed to match existing code requirement`、状态 `-67050`，并将 PostEvent 组合到 Accessibility 后判为 `Auth:Denied`。已有授权要求为证书根 `83a1298e17883732268e21d0c98c004bae81d5d8` 与 identifier `dev.webcodex.runner`；当前 Runner 的 `codesign` 为 `Signature=adhoc`，designated requirement 只有 cdhash `408fa430deb0ab66ddff0e1420bdc40646e25860`（`review/native-permission-restart-evidence.json` 的 binaries）。当前签名不匹配已有授权是系统实报，不能归咎于作者未授权，也不能只凭祖先关系猜测责任主体。
+
+重启前的 R04 `native-20-01/native-input-events.jsonl` 在 11-18 17:25–18:01 的实际调用中，两项权限均为 true；11-15 的既有 TCC attribution 已归责于同一路径 Runner。当前 Runner 文件 mtime 为 11-18 21:52:52，开机为 22:00:06，当前 Runner 启动为 22:00:50。追加 `review/native-permission-restart-supplement.json` 明确原浅层 glob 没覆盖 R04 层级，并封存已知 R04 首末事件；不把有限扫描称为全量最新历史。时间顺序与重启后启用当前身份相符，但 mtime 不独自证明签名改变时刻，具体安装/签名修改者尚未知；没有证据称重启本身清掉了权限。未重签、重装 Runner、重置 TCC 或改变系统权限。
+
+此前自动审批在执行前以敏感外发疑虑拒绝过一次；补充实际 endpoint=`127.0.0.1:8000/v1`、仓库合成种子和新隔离 DB 的证据后才获准执行。未接触实际作品库、未接管模型服务，也未放宽原生输入权限门。
+
+**恢复入口与剩余工作。** 本次已占用 count 的 1 次批次尝试，即使发送为 0 也不静默重置；其余 quality/role/G2/whole/style 五项未启动。恢复应针对系统已指认的 Runner 身份：先核清其安装/签名来源并恢复或确认稳定签名，再通过系统认可的设置流程核对、必要时更新该身份的授权；只给当前 adhoc 文件重新授权无法证明后续更新仍匹配。该处理属于工具运行环境，不在产品里添加权限兼容或旁路。助手仅经原通道复用既有只读 probe，对新受控 owned target 观察辅助功能/事件投递两项权限，截图前置另核。旧进程已经结束，不能用旧 PID 或另一终端的成功结果代签；count 恢复须先明确登记前向预算与预注册裁决，再单独记录与 count-01 关联的受控尝试；新目录和关联记录不代表原一次预算未被消耗。保留原输入/seed/runtime/判据与失败证据，不循环刷绿。随后才执行其余已冻结场景，分别核页面可见效果、实际材料/used refs、零自动采纳及人工语义；G2 还须单独 audit-g2。六项原生与原 scope 工程出口全部满足前，R05 继续 BLOCKED。
+
+成本与原生证据绑定的是当时实际源码。其后仅修正两处现役 live 索引说明、两处测试/fixture EOF 空白并补本节结果；产品实现、冻结 driver、seed 与已生成请求未改变。最终源码身份另行记录，不把旧实验快照重签为后来的全树身份。原始错误、旧契约证据及未纳入的原 WIP 均保留。
