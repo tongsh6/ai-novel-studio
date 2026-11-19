@@ -865,14 +865,15 @@ function frozenWorkId(dir, workTitle) {
 }
 
 
-function r05CandidateViews(dir, common) {
-  const log = read(dir, "native-b71-driver-log.json");
-  assert(Array.isArray(log.r05_candidate_views), "R05 缺少候选视图采集记录");
-  return log.r05_candidate_views.map((view) => {
-    assert(/^r05-candidate-\d+-(entry|action)$/u.test(view.capture), "R05 候选视图名称不属于本入口");
+export function r05CapturedViews(dir, common, kind) {
+  const log = read(dir, "native-b71-driver-log.json"), views = log[`r05_${kind}_views`];
+  assert(Array.isArray(views), `R05 缺少 ${kind} 视图采集记录`);
+  const names = kind === "candidate" ? /^r05-candidate-\d+-(entry|action)$/u : /^r05-reply-(start|end)$/u;
+  return views.map((view) => {
+    assert(names.test(view.capture), `R05 ${kind} 视图名称不属于本入口`);
     const capture = assertCapturedNodes(dir, view.capture, view.nodes, log, common);
     assertRecordFresh(dir, view.capture, common.ready.ready_at);
-    return { capture: view.capture, nodes: view.nodes,
+    return { capture: view.capture, nodes: view.nodes, ...(kind === "reply" ? { edge: view.edge } : {}),
       screenshot_present: common.ui.screenshots.includes(view.capture + ".jpg") && capture.screenshot?.ok === true,
       window_capture: capture.screenshot?.ok === true && capture.screenshot.fallback !== true };
   });
@@ -912,7 +913,8 @@ export function auditR05Batch(dir) {
     ...visibleTurnObservation(dir, config, common),
     goal: config.r05_goal, target: config.author_visible_target, message: config.message,
     reply: input.reply, items: input.candidate?.payload?.items ?? [],
-    candidate_views: r05CandidateViews(dir, common), known_items: input.known_items,
+    candidate_views: r05CapturedViews(dir, common, "candidate"), known_items: input.known_items,
+    reply_views: r05CapturedViews(dir, common, "reply"),
     afterInputText: visibleTextIfExists(dir, "after-input"),
     finalText: visibleTextIfExists(dir, "final"),
     readingBeforeText: visibleTextIfExists(dir, "02-reading-before"),

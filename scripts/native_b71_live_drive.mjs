@@ -19,7 +19,8 @@ import { authorBoundary, axTurnOutcome, countAxAuthorMessages, readingPageFailur
   withinAuthorBoundary } from "./lib/native_ui/authoring_g2_evidence.mjs";
 import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
-import { capturePendingItemViews } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { capturePendingItemViews, isScrollUnsupported } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { clippedViewport, r05ReplySurface, r05ReplyEdgeVisible } from "./lib/native_ui/authoring_r05_evidence.mjs";
 import {
   classifyTurnBody,
   summarizeModelBehavior,
@@ -163,6 +164,66 @@ async function closeReadingPage(name) {
       `b82-visible:${name}:closed`,
     );
   });
+}
+
+async function captureR05ReplyViews(config, baselineAuthorCount) {
+  const options = { message: config.message, baselineAuthorCount };
+  const views = [];
+  for (const edge of ["start", "end"]) {
+    const capture = `r05-reply-${edge}`;
+    await harness.runStep("maintenance", capture, async () => {
+      const before = harness.dumpNodes();
+      const surface = r05ReplySurface(before, options);
+      if (!surface.ok || axTurnOutcome(before, options).kind !== "completed") {
+        throw new Error(`${capture}:reply_not_delivered:${surface.reason}`);
+      }
+      const target = edge === "start" ? surface.first : surface.last;
+      if (!r05ReplyEdgeVisible(before, surface, edge)) {
+        try {
+          const scroll = harness.ensureInput().scrollTo(target.path);
+          harness.log.push({ op: "reply_scroll", edge, path: target.path, scroll, at: harness.nowIso() });
+        } catch (error) {
+          harness.log.push({ op: "reply_scroll_failed", edge, path: target.path,
+            error: error.message, at: harness.nowIso() });
+          if (!isScrollUnsupported(error)) throw error;
+          // 不支持 AX action 时仍可走现有原生滚轮；目标/权限错误已上抛。
+        }
+      }
+      // 滚动后重新按作者/助手归属选叶，不凭旧 path 或离屏 AX 内容签实际视口。
+      await harness.pollAx((_text, nodes) => {
+        const current = r05ReplySurface(nodes, options);
+        if (!current.ok || axTurnOutcome(nodes, options).kind !== "completed") {
+          throw new Error(`${capture}:reply_identity_changed`);
+        }
+        if (r05ReplyEdgeVisible(nodes, current, edge)) return true;
+        // AXScrollToVisible 不保证长单叶首/末对齐；仍在原预算内依据新鲜几何滚动。
+        const leaf = edge === "start" ? current.first : current.last;
+        const clip = clippedViewport(nodes, leaf), box = leaf.frame;
+        if (!clip || !Array.isArray(box) || box.length !== 4 || !box.every(Number.isFinite)) {
+          throw new Error(`${capture}:reply_geometry_missing`);
+        }
+        const left = Math.max(clip[0], box[0]), right = Math.min(clip[2], box[0] + box[2]);
+        if (left >= right || clip[1] >= clip[3]) throw new Error(`${capture}:reply_viewport_missing`);
+        const edgeY = edge === "start" ? box[1] : box[1] + box[3];
+        const desiredY = edge === "start" ? clip[1] + 16 : clip[3] - 16;
+        const dy = Math.sign(desiredY - edgeY) *
+          Math.min(Math.abs(desiredY - edgeY), Math.max(1, (clip[3] - clip[1]) * 0.75));
+        if (Math.abs(dy) < 1) throw new Error(`${capture}:reply_edge_unreachable`);
+        const scroll = harness.ensureInput().scrollAt((left + right) / 2, (clip[1] + clip[3]) / 2, dy);
+        harness.log.push({ op: "reply_edge_scroll", edge, path: leaf.path, frame: box, clip, dy,
+          scroll, at: harness.nowIso() });
+        return false;
+      }, 20_000, `${capture}:visible`);
+      const nodes = harness.capture(capture, { allowFullScreenFallback: false });
+      if (axTurnOutcome(nodes, options).kind !== "completed" ||
+          !r05ReplyEdgeVisible(nodes, r05ReplySurface(nodes, options), edge)) {
+        throw new Error(`${capture}:captured_edge_not_visible`);
+      }
+      assertRecordFresh(dir, capture, harness.ready.ready_at);
+      views.push({ edge, capture, nodes });
+    });
+  }
+  return views;
 }
 
 async function waitAuthorMessageVisible(message, baselineAuthorCount) {
@@ -411,6 +472,7 @@ async function run() {
         { terminal: true });
       observation.finalize({ capture: "final", terminal: true });
       assertRecordFresh(dir, "final", harness.ready.ready_at);
+      const replyViews = config.r05_goal ? await captureR05ReplyViews(config, baselineAuthorCount) : [];
       await captureReadingPage("03-reading-after", visibleTarget);
       await closeReadingPage("after");
       const candidateViews = config.r05_goal && visibleMode === "candidate"
@@ -423,7 +485,7 @@ async function run() {
         author_visible_target: visibleTarget,
         author_visible_outcome: { kind: finalOutcome.kind, waited_kind: outcome.kind,
           observed_at: harness.nowIso() },
-        ...(config.r05_goal ? { r05_candidate_views: candidateViews } : {}),
+        ...(config.r05_goal ? { r05_candidate_views: candidateViews, r05_reply_views: replyViews } : {}),
         ...(strata ? { strata: { endpoint: strataEndpoint, after_launch: launchSlot } } : { runtime: config.runtime }),
       };
       harness.writeDriverLog("native-b71-driver-log.json", driverLog);

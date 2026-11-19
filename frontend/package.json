@@ -46,6 +46,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "enhanced-resolve": "5.21.0",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -53,8 +54,11 @@
     "json-schema-to-zod": "^2.8.1",
     "playwright": "^1.59.1",
     "prettier": "^3.8.4",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
+    "unified": "11.0.5",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
   }

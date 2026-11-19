@@ -1,6 +1,8 @@
 // B87 R05 四个新增作者目标的纯审计；无文件/DB/启动/成本读取。
 // 输入是既有 reader 对同一 provider call 的事实，scope 已经 canonical 绑定。
-// 页面表面、request 观察/正文解析与 used-ref 授信仍归原 owner；本模块核同次真实材料的范围供应。
+// 页面表面、request 观察/正文解析与 used-ref 授信仍归原 owner；本模块核同次真实材料的范围供应与完整回复。
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { authorBoundary, axTurnOutcome, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
 import { observationRefOf, proseObservationBodyReason, singleDraftVersionReason } from "./authoring_request_facts.mjs";
@@ -314,11 +316,233 @@ export function r05GoalEvidence({
     not_signed: ["literary_quality", "model_semantic_correctness"] };
 }
 
+
+// 完整回复按 ADR-0036 的静态 Markdown 政策投影；AST 只解析语法，不改来源原文。
+const frontendModules = createRequire(new URL("../../../frontend/package.json", import.meta.url));
+const resolveReplyPackage = frontendModules("enhanced-resolve").create.sync({
+  conditionNames: ["import", "node", "default"], exportsFields: ["exports"],
+});
+const frontendDirectory = fileURLToPath(new URL("../../../frontend/", import.meta.url));
+const [{ unified }, { default: remarkParse }, { default: remarkGfm }, { cjk }] =
+  await Promise.all(["unified", "remark-parse", "remark-gfm", "@streamdown/cjk"]
+    .map((name) => import(pathToFileURL(resolveReplyPackage(frontendDirectory, name)).href)));
+const replyMarkdown = unified().use(remarkParse).use(cjk.remarkPluginsBefore)
+  .use(remarkGfm).use(cjk.remarkPluginsAfter);
+const REPLY_NON_CONTENT = new Set(["本轮创作过程", "创作问题记录"]);
+const replyParent = (path) => path.slice(0, path.lastIndexOf("/"));
+const replyDescendant = (path, parent) => path.startsWith(parent + "/");
+function replyPathOrder(left, right) {
+  const a = left.path.split("/").map(Number), b = right.path.split("/").map(Number);
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+function replySurfaceFailure(reason) {
+  return { ok: false, reason, leaves: [], first: null, last: null,
+    assistant_path: null, why_path: null };
+}
+export function r05ReplySurface(nodes, { message = "", baselineAuthorCount = 0 } = {}) {
+  const entries = list(nodes);
+  if (!nonBlank(message) || !Number.isInteger(baselineAuthorCount) || baselineAuthorCount < 0 ||
+    entries.some((node) => !node || typeof node.path !== "string" ||
+      !/^\d+(?:\/\d+)*$/u.test(node.path)) ||
+    new Set(entries.map((node) => node.path)).size !== entries.length) {
+    return replySurfaceFailure("reply_nodes_invalid");
+  }
+  const boundary = authorBoundary(entries, message, baselineAuthorCount);
+  if (!boundary.author || boundary.nextAuthor !== null ||
+    boundary.authors.length !== baselineAuthorCount + 1) return replySurfaceFailure("reply_author_missing");
+  const peers = entries.filter((node) => withinAuthorBoundary(node, {
+    container: boundary.container, afterPath: boundary.authorGroup, beforePath: null,
+  })).sort(replyPathOrder);
+  const names = entries.filter((node) => node.role === "AXPopUpButton" && node.desc === "助手名称");
+  if (names.length !== 1 || !nonBlank(names[0].title)) return replySurfaceFailure("reply_assistant_ambiguous");
+  const assistants = peers.filter((node) => node.role === "AXGroup" &&
+    !REPLY_NON_CONTENT.has(node.title) && entries.some((leaf) => replyParent(leaf.path) === node.path &&
+      leaf.role === "AXStaticText" && leaf.value === names[0].title));
+  if (assistants.length !== 1) return replySurfaceFailure("reply_assistant_ambiguous");
+  const assistant = assistants[0];
+  const whys = peers.filter((node) => node.role === "AXButton" &&
+    node.title === "为什么" && node.desc === "查看这轮回应的依据");
+  if (whys.length !== 1 || replyPathOrder(whys[0], assistant) <= 0) {
+    return replySurfaceFailure("reply_why_ambiguous");
+  }
+  const why = whys[0];
+  const blocks = peers.filter((node) => replyPathOrder(node, assistant) > 0 &&
+    replyPathOrder(node, why) < 0 && !(node.role === "AXGroup" && REPLY_NON_CONTENT.has(node.title)));
+  const inReply = entries.filter((node) => blocks.some((block) =>
+    node.path === block.path || replyDescendant(node.path, block.path)));
+  const texts = inReply.filter((node) => node.role === "AXStaticText");
+  if (texts.some((node) => typeof node.value !== "string")) return replySurfaceFailure("reply_text_missing");
+  // 只按父子关系去掉汇总节点；不同路径的同文段落逐份保留。
+  const leaves = texts.filter((node) => node.value !== "" &&
+    !texts.some((child) => replyDescendant(child.path, node.path))).sort(replyPathOrder);
+  const content = leaves.filter((node) => nonBlank(node.value));
+  if (content.length === 0) return replySurfaceFailure("reply_text_missing");
+  return { ok: true, reason: null, leaves, first: content[0], last: content.at(-1),
+    assistant_path: assistant.path, why_path: why.path,
+    author_path: boundary.author.path, author_count: boundary.authors.length,
+    container: boundary.container };
+}
+function replyDefinitions(tree) {
+  const definitions = new Map(), pending = [tree];
+  while (pending.length > 0) {
+    const node = pending.shift();
+    if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node);
+    pending.unshift(...list(node.children));
+  }
+  return definitions;
+}
+function safeReplyUrl(value) {
+  try { return ["http:", "https:"].includes(new URL(value).protocol) ? value : ""; }
+  catch { return ""; }
+}
+function replyInline(node, definitions) {
+  const children = () => list(node.children).flatMap((child) => replyInline(child, definitions));
+  const flow = (text) => [{ literal: false, text }];
+  switch (node.type) {
+    case "text": case "html": return flow(node.value);
+    case "inlineCode": return [{ literal: true, text: node.value }];
+    case "break": return flow("\n");
+    case "strong": case "emphasis": case "delete": return children();
+    case "image": return flow(node.alt ?? "");
+    case "imageReference":
+      if (!definitions.has(node.identifier)) throw new Error("image_reference_unresolved");
+      return flow(node.alt ?? "");
+    case "link": case "linkReference": {
+      const target = node.type === "link" ? node : definitions.get(node.identifier);
+      if (!target) throw new Error("link_reference_unresolved");
+      const url = safeReplyUrl(target.url);
+      return [...children(), ...flow(url ? " (" + url + ")" : "")];
+    }
+    default: throw new Error("unsupported_inline:" + node.type);
+  }
+}
+const replyFlowText = (value) => value.replace(/[ \t\r\n\f]+/gu, " ");
+function replyParts(parts) {
+  const merged = [];
+  for (const part of parts) {
+    const previous = merged.at(-1);
+    if (previous?.literal === part.literal) previous.text += part.text;
+    else merged.push({ ...part });
+  }
+  for (const part of merged) if (!part.literal) part.text = replyFlowText(part.text);
+  if (merged[0]?.literal === false) merged[0].text = merged[0].text.replace(/^ +/u, "");
+  if (merged.at(-1)?.literal === false) merged.at(-1).text = merged.at(-1).text.replace(/ +$/u, "");
+  return merged.filter((part) => part.text !== "");
+}
+function replyExpectedUnits(reply) {
+  const tree = replyMarkdown.runSync(replyMarkdown.parse(reply));
+  const definitions = replyDefinitions(tree), units = [];
+  const visit = (node) => {
+    switch (node.type) {
+      case "root": case "blockquote": case "list": case "table": case "tableRow":
+        node.children.forEach(visit); return;
+      case "listItem":
+        if (typeof node.checked === "boolean") throw new Error("unsupported_task_list");
+        node.children.forEach(visit); return;
+      case "paragraph": case "heading": case "tableCell": {
+        const parts = replyParts(node.children.flatMap((child) => replyInline(child, definitions)));
+        if (parts.length > 0) units.push(parts);
+        return;
+      }
+      case "code": units.push([{ literal: true, text: node.value + "\n" }]); return;
+      case "html": {
+        const parts = replyParts([{ literal: false, text: node.value }]);
+        if (parts.length > 0) units.push(parts);
+        return;
+      }
+      case "definition": case "thematicBreak": return;
+      default: throw new Error("unsupported_block:" + node.type);
+    }
+  };
+  visit(tree);
+  return units;
+}
+function replyActualUnits(nodes, surface) {
+  const groups = list(nodes).filter((node) => ["AXGroup", "AXHeading", "AXCell"].includes(node.role));
+  const units = [];
+  for (const leaf of surface.leaves) {
+    const parent = groups.filter((node) => replyDescendant(leaf.path, node.path) &&
+      replyDescendant(node.path, surface.container)).sort((a, b) => b.path.split("/").length - a.path.split("/").length)[0];
+    const path = parent?.path ?? leaf.path;
+    if (units.at(-1)?.path === path) units.at(-1).text += leaf.value;
+    else units.push({ path, text: leaf.value });
+  }
+  return units;
+}
+const replyWhitespace = (character) => character !== undefined && /[ \t\r\n\f]/u.test(character);
+function replyUnitMatches(parts, value) {
+  let actual = value;
+  if (!parts[0].literal) actual = actual.replace(/^[ \t\r\n\f]+/u, "");
+  if (!parts.at(-1).literal) actual = actual.replace(/[ \t\r\n\f]+$/u, "");
+  let positions = [0];
+  for (const part of parts) {
+    if (part.literal) {
+      positions = positions.filter((at) => actual.startsWith(part.text, at)).map((at) => at + part.text.length);
+      continue;
+    }
+    for (const character of part.text) {
+      const next = new Set();
+      for (const at of positions) {
+        if (character === " ") {
+          // 普通 CSS 空白允许折叠；保留每个边界，以免吞掉相邻 code 的字面空白。
+          for (let end = at; replyWhitespace(actual[end]); end += 1) next.add(end + 1);
+        } else if (actual.startsWith(character, at)) next.add(at + character.length);
+      }
+      positions = [...next];
+      if (positions.length === 0) return false;
+    }
+  }
+  return positions.includes(actual.length);
+}
+export function r05ReplyMatch({ reply, nodes, message, baselineAuthorCount = 0 } = {}) {
+  const surface = r05ReplySurface(nodes, { message, baselineAuthorCount });
+  if (!surface.ok) return { ok: false, reason: surface.reason, surface };
+  if (!nonBlank(reply)) return { ok: false, reason: "reply_text_missing", surface };
+  let expected;
+  try { expected = replyExpectedUnits(reply); }
+  catch (error) { return { ok: false, reason: "reply_markdown_unsupported", detail: error.message, surface }; }
+  const actual = replyActualUnits(nodes, surface);
+  const ok = expected.length > 0 && expected.length === actual.length &&
+    expected.every((parts, index) => replyUnitMatches(parts, actual[index].text));
+  return { ok, reason: ok ? null : "reply_text_mismatch", surface,
+    expected_units: expected.length, actual_units: actual.length };
+}
+export function r05ReplyEdgeVisible(nodes, surface, edge) {
+  if (!surface?.ok || !["start", "end"].includes(edge)) return false;
+  const node = edge === "start" ? surface.first : surface.last;
+  if (!list(nodes).includes(node) || !validRect(node?.frame)) return false;
+  const clip = clippedViewport(nodes, node);
+  if (!clip || clip[0] >= clip[2] || clip[1] >= clip[3]) return false;
+  const [x, y, width, height] = node.frame;
+  if (x < clip[0] || x + width > clip[2]) return false;
+  return edge === "start" ? y >= clip[1] && y < clip[3] : y + height > clip[1] && y + height <= clip[3];
+}
+function replyViewFacts(reply, views, input, finalMatch) {
+  const result = { start: null, end: null };
+  for (const edge of ["start", "end"]) {
+    const candidates = list(views).filter((view) => view.edge === edge);
+    if (candidates.length !== 1) continue;
+    const view = candidates[0];
+    if (!nonBlank(view.capture) || view.screenshot_present !== true || view.window_capture !== true) continue;
+    const works = list(view.nodes).filter((node) => node.role === "AXPopUpButton" && node.desc === "作品");
+    if (works.length !== 1 || works[0].title !== input.target?.work_title) continue;
+    const options = { message: input.message, baselineAuthorCount: input.baselineAuthorCount ?? 0 };
+    const match = r05ReplyMatch({ reply, nodes: view.nodes, ...options });
+    if (match.ok && finalMatch.ok && match.surface.author_count === finalMatch.surface.author_count &&
+      axTurnOutcome(view.nodes, options).kind === "completed" &&
+      r05ReplyEdgeVisible(view.nodes, match.surface, edge)) result[edge] = view.capture;
+  }
+  return result;
+}
+
 function validRect(value) {
   return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite) &&
     value[2] > 0 && value[3] > 0;
 }
-function clippedViewport(nodes, node) {
+export function clippedViewport(nodes, node) {
   const ancestors = list(nodes).filter((entry) =>
     ["AXWindow", "AXScrollArea", "AXWebArea"].includes(entry.role) &&
     (node.path === entry.path || node.path?.startsWith(entry.path + "/")));
@@ -380,24 +604,31 @@ function candidateViews(items, views, knownItems, context) {
   });
 }
 
-// 只复用旧 G2/G3 共享页面表面；R05 count 不要求读活动，whole 不要求局部修订卡。
-export function r05VisibleEvidence({ goal, reply, items = [], candidate_views = [], known_items = [], ...input } = {}) {
+// 只复用旧 G2/G3 共享页面表面；R05 的完整回复与首末可见视口分别取证。
+export function r05VisibleEvidence({
+  goal, reply, items = [], candidate_views = [], reply_views = [], known_items = [], ...input
+} = {}) {
   const surface = visiblePageSurface(input);
   const failures = [...surface.failures];
   const candidate = goal === "whole" || goal === "style";
-  const outcome = axTurnOutcome(input.finalNodes, {
-    message: input.message, baselineAuthorCount: input.baselineAuthorCount ?? 0,
-  });
+  const options = { message: input.message, baselineAuthorCount: input.baselineAuthorCount ?? 0 };
+  const outcome = axTurnOutcome(input.finalNodes, options);
+  const matched = r05ReplyMatch({ reply, nodes: input.finalNodes, ...options });
+  const replyViews = replyViewFacts(reply, reply_views, input, matched);
   const views = candidateViews(items, candidate_views, known_items, input);
   const entryVisible = candidate && views.length > 0 && views.every((view) => view.entry !== null);
   const actionVisible = candidate && views.length > 0 && views.every((view) => view.action !== null);
   const observed = { ...surface.observed, outcome: outcome.kind,
-    reply_visible: nonBlank(reply) && surface.currentTurn.includes(reply),
+    reply_visible: matched.ok, reply_reason: matched.reason,
+    reply_start_visible: replyViews.start !== null, reply_end_visible: replyViews.end !== null,
+    reply_views: replyViews,
     candidate_entry_visible: entryVisible, candidate_action_visible: actionVisible,
     candidate_visible: entryVisible && actionVisible, candidate_views: views,
     author_visible_clean: surface.scan.ok };
   if (!GOALS.has(goal)) failures.push("unknown_r05_goal");
   if (!observed.reply_visible) failures.push("author_reply_missing");
+  if (!observed.reply_start_visible) failures.push("author_reply_start_not_visible");
+  if (!observed.reply_end_visible) failures.push("author_reply_end_not_visible");
   if (outcome.kind !== "completed") failures.push("author_visible_outcome_not_completed");
   if (candidate && !observed.candidate_visible) failures.push("candidate_visible_missing");
   if (!surface.scan.ok) failures.push("author_visible_internal_token_leak");

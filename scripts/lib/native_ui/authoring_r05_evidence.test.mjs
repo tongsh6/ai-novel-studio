@@ -480,11 +480,12 @@ function visibleReplyNodes(message, reply, status = null) {
   const root = "0/0/0/0/0";
   const group = (index, value) => [
     { path: `${root}/${index}`, role: "AXGroup" },
-    { path: `${root}/${index}/0`, role: "AXStaticText", value },
+    { path: `${root}/${index}/0`, role: "AXStaticText", value, frame: [100, 200, 900, 35] },
   ];
   return [
     { path: "0", role: "AXWindow", frame: [0, 0, 1280, 800] },
     { path: root, role: "AXWebArea", frame: [0, 0, 1280, 800] },
+    { path: `${root}/0`, role: "AXPopUpButton", title: G2_VISIBLE_TARGET.work_title, desc: "作品" },
     { path: `${root}/1`, role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
     { path: `${root}/3`, role: "AXStaticText", value: "无任务" },
     ...group(10, "你"), ...group(11, message), ...group(12, "AI 助手"), ...group(13, reply),
@@ -499,8 +500,10 @@ function visibleInput(goal, { candidate = false } = {}) {
   const message = "请完成本次作者目标。";
   const reply = candidate ? "整章修订候选已就绪。" : "共2章，有正文1章，未写正文1章。";
   const items = candidate ? [{ title: "整章修订稿", body: SOURCE.prose }] : [];
-  return { goal, target: G2_VISIBLE_TARGET, message, reply, items,
-    finalNodes: visibleReplyNodes(message, reply, candidate ? "已完成" : null),
+  const finalNodes = visibleReplyNodes(message, reply, candidate ? "已完成" : null);
+  return { goal, target: G2_VISIBLE_TARGET, message, reply, items, finalNodes,
+    reply_views: ["start", "end"].map((edge) => ({ edge, capture: "final", nodes: finalNodes,
+      screenshot_present: true, window_capture: true })),
     ...(candidate ? candidateViews(items, message) : {}),
     afterInputText: visibleAfterInput(message), readingBeforeText: visibleReadingPage(),
     readingAfterText: visibleReadingPage(), finalText: [
@@ -694,7 +697,8 @@ test("R05 正文中的保存字样、兄弟候选按钮、disabled动作及缺�
 test("R05 页面仍拒绝旧作者回合、只剩状态徽标、错误当前候选和阅读被改写", () => {
   for (const change of [
     (input) => { input.finalText = input.finalText.replace(input.message, "上一轮原话"); },
-    (input) => { input.finalText = input.finalText.replace(input.reply, ""); },
+    (input) => { input.finalNodes = input.finalNodes.filter((node) =>
+      node.path !== "0/0/0/0/0/13" && !node.path.startsWith("0/0/0/0/0/13/")); },
     (input) => { input.items[0].body = "另一个候选的全文"; },
     (input) => { input.readingAfterText += "\n正文已被采纳改写"; },
   ]) {
