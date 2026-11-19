@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-19：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05 产品实现与请求构造对照已有实际证据，真实模型页面验收 BLOCKED（§16.9）；R06–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-20：R00 已提交 `465b1a3f`；R01 可靠测量基线及工程实现已收口，证据与限制见 §11.21；R02 已 PASS，产品跨层投影、真实 B26 选择/自由答复、三 wire 机械等价及冻结 Splash 三轮的源事实/作者原文/身份对账已闭环，最终验收见 §13.10。外部证据修复提交 `90252001`，共用 seed UTF-8 修复提交 `3c66fc91`；第二/三轮业务目标未实现、模型语义与页面状态/内部身份问题仍按既有 R06–R09 保持开放。R03 已按前向修订的应用职责契约 PASS（§14.52）；原批模型质量 partial 与旧普通20成本缺证不倒签，R04 已按分层应用证据 PASS（§15.6；修复检查点 `50e02d8d`），R05 产品实现与请求构造对照已有实际证据，真实模型页面验收 BLOCKED（§16.10）；R06–R19 未实施，远端 CI 与既有全仓质量缺口仍开放，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -1946,3 +1946,13 @@ R05 的原生缺证仍开放：新请求体系 G2 目标段和 B29 角色预注�
 **恢复入口与剩余工作。** 本次已占用 count 的 1 次批次尝试，即使发送为 0 也不静默重置；其余 quality/role/G2/whole/style 五项未启动。恢复应针对系统已指认的 Runner 身份：先核清其安装/签名来源并恢复或确认稳定签名，再通过系统认可的设置流程核对、必要时更新该身份的授权；只给当前 adhoc 文件重新授权无法证明后续更新仍匹配。该处理属于工具运行环境，不在产品里添加权限兼容或旁路。助手仅经原通道复用既有只读 probe，对新受控 owned target 观察辅助功能/事件投递两项权限，截图前置另核。旧进程已经结束，不能用旧 PID 或另一终端的成功结果代签；count 恢复须先明确登记前向预算与预注册裁决，再单独记录与 count-01 关联的受控尝试；新目录和关联记录不代表原一次预算未被消耗。保留原输入/seed/runtime/判据与失败证据，不循环刷绿。随后才执行其余已冻结场景，分别核页面可见效果、实际材料/used refs、零自动采纳及人工语义；G2 还须单独 audit-g2。六项原生与原 scope 工程出口全部满足前，R05 继续 BLOCKED。
 
 成本与原生证据绑定的是当时实际源码。其后仅修正两处现役 live 索引说明、两处测试/fixture EOF 空白并补本节结果；产品实现、冻结 driver、seed 与已生成请求未改变。最终源码身份另行记录，不把旧实验快照重签为后来的全树身份。原始错误、旧契约证据及未纳入的原 WIP 均保留。
+
+### 16.10 作者完成授权后的同通道复核（2026-11-20）
+
+**当前裁决仍为 R05 BLOCKED。** 作者反馈“已经授权”后，显式恢复同一 Tunnel Session 与原 scope。HEAD 为 `c7e2f542d526a853761495e0ada3b3cbbe2ab582`，全部 Git 可见源码指纹仍为 `a903f19794a0a7a48830de753c788cbc2fa32c69ead9e833b33c925bf64d5aab`，与上次 final-source 逐项相同，原 47 项 WIP 和空暂存区保持；不重复运行已验证且未变化的产品实现。来源记录为本批 `recovery-20261120/source-before.json`。
+
+**授权记录存在，但旧身份仍未匹配。** `recovery-20261120/global-permission-preflight.json` 封存同一 Runner 下只读系统 API 检查，2026-11-20 01:24:52（UTC+8）实际为 ax_trusted=false、post_access=false、screen_capture=false。此检查没有输入、窗口启动或权限申请；它不是 ax_cua 加本批 owned target 的原生签收，也不能替代恢复后的该项复核。
+
+随后只读系统日志 `recovery-20261120/tcc-after-authorization.json` 明确归责于 `dev.webcodex.runner`、PID 79524；当前 Runner 已为 `Authority=WebCodex Local`，Signed Time 01:19:39，进程于 01:19:49 启动，SHA256 为 `2014018d7d67e8570b79caee3f1c62c1a42dd1d918e4256d35b9516a8f293b2a`。当前 designated requirement 是 identifier `dev.webcodex.runner` 与 certificate leaf `a7e5bf5089c001040c2df55b61b890fb62138975`；TCC 却仍以原 certificate root `83a1298e17883732268e21d0c98c004bae81d5d8` 校验 Accessibility，明确 `Failed to match existing code requirement` / -67050。同路径已存条目仍为 `granted=true`、`auth_value=2`，但 verifier 仍是旧证书要求。故不能说作者没有授权、Runner 仍是 adhoc 或未重启；当前直接问题是已授权记录的旧代码身份与新签名不匹配。ScreenCapture 本次日志只报告 Unknown(None)，不从 AX 的具体原因替它作同因签收。
+
+**恢复与预算边界。** 应在 macOS 的正常授权设置中更新这个确切 Runner 的旧条目，使授权绑定当前签名，再从原通道复测；屏幕采集许可单独核对。证书签名存在不证明后续更新永远保持相同身份；本次未修改 Runner、证书或 TCC，也不通过产品代码绕过系统授权。由于全局前置仍未获准，本次未启动新的 owned target、未建立 count-02 预注册、未消耗额外批次或作者发送，也未请求模型服务。count-01 原失败及一次预算保留；未来恢复尝试仍先作前向预算裁决、再经既有 owner 与真实 target probe 执行，其余五项继续未启动。R06 不在本批。
