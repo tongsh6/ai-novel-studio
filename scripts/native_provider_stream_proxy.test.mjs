@@ -361,3 +361,32 @@ test("observe非UTF8/分字节边界及大record不触SSE解析限制", async t 
   assert.equal(snap.requests[0].delivered_sha256,digest(expected));
   assert.equal(observationEvents(f).some(e=>e.event==="stream_error"),false);
 });
+
+for (const mode of ["gate", "observe"]) {
+  test(`${mode} 请求结束后保留的上游连接晚关，proxy.close 返回后证据不再变化`, { timeout: 5000 }, async t => {
+    const f = await setup(t, { mode });
+    const client = f.send();
+    await f.wait(() => f.requests.length === 1);
+    const upstreamSocket = f.requests[0].req.socket;
+    const bytes = Buffer.concat([content, done]);
+    f.requests[0].res.end(bytes);
+    await client.response;
+    await f.wait(() => Buffer.concat(client.received).equals(bytes));
+    await f.wait(() => observationEvents(f).some(event => event.event === "upstream_close"));
+    assert.equal(observationEvents(f).find(event => event.event === "transparent_complete").response_complete, true);
+    assert.equal(upstreamSocket.destroyed, false, "响应已结束但 keep-alive 连接仍属于连接池");
+
+    await f.proxy.close();
+    assert.equal(upstreamSocket.destroyed, false, "proxy 关闭不能改为销毁共享上游连接");
+    const files = ["provider-stream.jsonl", "provider-stream-requests/request-1.bin",
+      "provider-stream-requests/request-1.received.bin", "provider-stream-requests/request-1.delivered.bin"];
+    const sealed = files.map(file => fs.readFileSync(path.join(f.dir, file)));
+    const socketClosed = once(upstreamSocket, "close");
+    upstreamSocket.end();
+    await socketClosed;
+
+    assert.deepEqual(files.map(file => fs.readFileSync(path.join(f.dir, file))), sealed,
+      "晚到连接事件不能给已关闭的代理或旧 request 追加证据");
+    assert.equal(f.requests.length, 1, "关闭不得触发重试或额外上游请求");
+  });
+}

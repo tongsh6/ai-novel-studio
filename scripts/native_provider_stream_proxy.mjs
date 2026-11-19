@@ -119,7 +119,6 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
       upstreamClosures.push(new Promise(resolve => outgoing.once("close", resolve)));
       outgoing.on("response", incoming => {
         io.incoming = incoming;
-        incoming.socket.once("end", () => log({event:"upstream_socket_end_observed",request_id:requestId}));
         res.writeHead(incoming.statusCode, incoming.headers); res.flushHeaders();
         const sse = String(incoming.headers["content-type"] ?? "").toLowerCase().includes("text/event-stream");
         entry.response_encoding = String(incoming.headers["content-encoding"] ?? "identity");
