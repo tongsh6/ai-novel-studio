@@ -15,7 +15,9 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
 
   setup do
     previous = Application.fetch_env(:novel_web, :persistence)
-    previous_facts = Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
+
+    previous_facts =
+      Application.fetch_env(:novel_application, :agent_run_fact_persistence_enabled)
 
     Application.put_env(
       :novel_web,

@@ -39,7 +39,8 @@ if is_nil(test_db_dir) do
   # 文件失败就跳过本可删除的 sidecar。
   System.at_exit(fn status ->
     failures =
-      Enum.reduce([test_db_path, test_db_path <> "-wal", test_db_path <> "-shm"], [], fn path, acc ->
+      Enum.reduce([test_db_path, test_db_path <> "-wal", test_db_path <> "-shm"], [], fn path,
+                                                                                         acc ->
         case File.rm(path) do
           :ok ->
             acc

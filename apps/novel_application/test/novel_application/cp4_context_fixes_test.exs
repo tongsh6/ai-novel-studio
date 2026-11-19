@@ -613,7 +613,9 @@ defmodule NovelApplication.CP4ContextFixesTest do
       ContextAssembler.assemble_for_input(
         work_id,
         text,
-        NovelPersistence.WorkspaceContext.context_fetcher_with_query(), session_id: session.id)
+        NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
+        session_id: session.id
+      )
 
     initial =
       DialoguePlanningService.judgment_protocol_input_for_test(%{text: text}, run, context, [])
