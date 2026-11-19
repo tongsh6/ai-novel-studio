@@ -628,6 +628,30 @@ function r05Preregistration(dir, scenario = R05_CASES[0]) {
   return value;
 }
 
+// 标题取原 seed（AU11 第15行、CA04 第11/17行）及真实阅读页，不取生产登记表。
+for (const [id, title, wrongTitle] of [
+  ["b87-r05-quality", "第01章：灵源账单", "第1章：灵源账单"],
+  ["b87-r05-style-material", "第01章：黑市对账夜", "第1章：黑市对账夜"],
+]) {
+  test(`R05 ${id} 保留真实章名第01并拒绝漏零第1`, () => {
+    const scenario = R05_CASES.find((item) => item.id === id);
+    const dir = tempDir("r05-title-");
+    try {
+      const value = r05Preregistration(dir, { ...scenario,
+        target: { ...scenario.target, chapter_title: title } });
+      const file = path.join(dir, "preregistration.json");
+      const options = { dir, provider: "splash", scenarioId: id };
+      const record = validatePreregistrationFile(file, options);
+      assert.equal(record.author_visible_target.chapter_title, title);
+      value.scenarios[0].author_visible_target.chapter_title = wrongTitle;
+      writeJson(dir, "preregistration.json", value);
+      assert.throws(() => validatePreregistrationFile(file, options),
+        /R05 作者可见目标与冻结场景不符/u);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
 test("R05 prepare/readConfig 共用冻结场景、原文、目标、seed字节和900秒owned预算", () => {
   for (const scenario of R05_CASES) {
     const dir = tempDir("r05-capture-");

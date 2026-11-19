@@ -45,7 +45,7 @@ export const R05_CASES = Object.freeze([
     id: "b87-r05-quality", mode: "read_only",
     seed_script: "scripts/seed_au11_quality_diagnosis_message_envelope.exs",
     message: "请先阅读第01章《灵源账单》已经保存的正文，再判断主角的胜利来得是否太容易，指出依据和可改方向。只分析，不生成修订候选，也不要保存。",
-    target: { work_title: "灵源纪元", chapter_title: "第1章：灵源账单",
+    target: { work_title: "灵源纪元", chapter_title: "第01章：灵源账单",
       reading_excerpt: "而妹妹的名字，正写在矿井最深处那面显示屏的最上面一行。" },
   },
   {
@@ -58,7 +58,7 @@ export const R05_CASES = Object.freeze([
     id: "b87-r05-style-material", mode: "candidate",
     seed_script: "scripts/seed_ca04_carry_gaps.exs",
     message: "请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。",
-    target: { work_title: "CA04 携带缺口验收作品", chapter_title: "第1章：黑市对账夜",
+    target: { work_title: "CA04 携带缺口验收作品", chapter_title: "第01章：黑市对账夜",
       reading_excerpt: "巡检的脚步声从巷口传来，他把账牌收进袖中。" },
   },
 ]);
