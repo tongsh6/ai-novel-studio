@@ -49,6 +49,36 @@ defmodule NovelApplication.TraceWriterTest do
       refute TraceRedactor.unsafe?(summary)
     end
 
+    test "retains the accepted author narrative source through the final reply record" do
+      text = "  要采用哪种结尾？\n"
+      hash = :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+
+      source = %{
+        source_type: "provider_output_tool_narrative",
+        provider_run_ref: "prun_narrative_1",
+        provider_call_ref: "pcall_narrative_1",
+        provider_output_ref: "prun_narrative_1",
+        tool_call_name: "ask_author",
+        tool_call_narrative_field: "question",
+        source_hash: hash,
+        source_byte_range: %{start: 0, length: byte_size(text)},
+        narrative_hash: hash
+      }
+
+      record = %{
+        provider_call_ref: "pcall_narrative_1",
+        response_kind: "structured_tool",
+        raw_content: text,
+        author_narrative_source: source
+      }
+
+      frame = %{frame() | evidence_summary: %{reply_record: record}}
+      {_trace, summary} = TraceWriter.record(frame, %{turn_id: "turn-redact"}, nil)
+
+      assert summary.reply_record == record
+      assert summary.reply_record.author_narrative_source == source
+    end
+
     test "records tool registry snapshot and redacted IO summaries without raw payload" do
       request = %ToolRequest{
         tool_request_id: "tq-redacted",

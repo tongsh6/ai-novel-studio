@@ -238,7 +238,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "普通文本完整保留，一次 auto；未提供模型判断保持未知" do
-    text = "  本章尚未兑现开篇承诺。\n\n可以继续讨论结尾。\n"
+    text = "  Strata 的工作过程缺少具体细节。\n\n可以继续讨论结尾。\n"
     result = response(text, [])
     assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
     assert judgment.action == "reply"
@@ -248,6 +248,18 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.model_interpretation_status == "not_provided"
     assert judgment.reply_record.model_interpretation == nil
     assert judgment.reply_record.supplied_context_refs == ["work:work-judgment-fixture"]
+
+    source_hash = :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+
+    assert judgment.reply_record.author_narrative_source == %{
+             source_type: "provider_output",
+             provider_run_ref: "run-call-1",
+             provider_call_ref: "call-1",
+             provider_output_ref: "run-call-1",
+             source_hash: source_hash,
+             source_byte_range: %{start: 0, length: byte_size(text)},
+             narrative_hash: source_hash
+           }
 
     assert :ok =
              AgentNarrativeSource.verify(text, judgment.narrative_source, %{
@@ -274,8 +286,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute first.messages == second.messages
   end
 
-  test "提问有选项或空选项均合法，question 原话可回退" do
-    for options <- [[], [%{"value" => "one", "label" => " 第一章 "}]] do
+  test "提问以question唯一交付，原字节与选项均绑定实际Provider字段" do
+    for options <- [
+          [],
+          [%{"value" => "one", "label" => " 第一章 "}],
+          [
+            %{
+              "value" => "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45",
+              "label" => " 老沈\n（调查员） "
+            }
+          ]
+        ] do
       question = "  要采用哪种结尾？\n"
       result = response("", [call("ask_author", %{"question" => question, "options" => options})])
 
@@ -285,7 +306,23 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert judgment.action == "await_author"
       assert judgment.question == question
       assert judgment.options == options
+      assert judgment.narrative_source.source_type == "provider_output_tool_narrative"
+      assert judgment.narrative_source.tool_call_narrative_field == "question"
       assert judgment.narrative == question
+
+      source_hash = :crypto.hash(:sha256, question) |> Base.encode16(case: :lower)
+
+      assert judgment.reply_record.author_narrative_source == %{
+               source_type: "provider_output_tool_narrative",
+               provider_run_ref: "run-call-1",
+               provider_call_ref: "call-1",
+               provider_output_ref: "run-call-1",
+               tool_call_name: "ask_author",
+               tool_call_narrative_field: "question",
+               source_hash: source_hash,
+               source_byte_range: %{start: 0, length: byte_size(question)},
+               narrative_hash: source_hash
+             }
 
       assert :ok =
                AgentNarrativeSource.verify(question, judgment.narrative_source, %{
@@ -294,10 +331,88 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
   end
 
+  test "ask_author 只以question交付，另一份非空content即使相同也需纠错" do
+    for content <- ["还有另一段说明。", "要采用哪种结尾？"] do
+      result = response(content, [call("ask_author", %{question: "要采用哪种结尾？", options: []})])
+
+      assert {:error, {:judgment_protocol_violation, :author_question_content_conflict}, state} =
+               JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+
+      assert state.provider_call_count == 2
+    end
+  end
+
+  test "ask_author 选项与原调用不同则沿原 call 回执纠错，最多两次" do
+    args = %{
+      "question" => "  要修订哪位角色？\n",
+      "options" => [%{"value" => "role-one", "label" => " 老沈\n（调查员） "}]
+    }
+
+    original = response("", [call("ask_author", args)])
+    changed_args = put_in(args, ["options", Access.at(0), "label"], "老沈\n（调查员）")
+    result = %{original | tool_calls: [call("ask_author", changed_args)]}
+
+    assert {:error, {:judgment_protocol_violation, :tool_call_not_bound_to_provider_output},
+            state} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+
+    assert state.provider_call_count == 2
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, corrected}
+
+    assert Enum.any?(List.last(corrected.messages).blocks, fn block ->
+             block.type == "validation_result" and block.status == "failed" and
+               block.call_id == "tool-ask_author" and
+               block.reason_code == "tool_call_not_bound_to_provider_output"
+           end)
+  end
+
+  test "ask_author 保留真实缺 id 来源及重复原 id 的 canonical 映射，不改变原字段值" do
+    args = %{
+      "question" => "  要修订哪位角色？\n",
+      "options" => [%{"value" => "role-one", "label" => " 老沈\n（调查员） "}]
+    }
+
+    without_id = call("ask_author", args) |> Map.delete(:id)
+    source_without_id = response("", [without_id], "missing-id")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([source_without_id]), %{}, input())
+
+    assert judgment.question == args["question"]
+    assert judgment.options == args["options"]
+    assert [%{provider_call_id: nil}] = judgment.provider_result.tool_calls
+
+    bad_args =
+      put_in(
+        args,
+        ["options", Access.at(0), "label"],
+        "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
+      )
+
+    bad = response("", [call("ask_author", bad_args)], "question-retry-first")
+    good = response("", [call("ask_author", args)], "question-retry-good")
+
+    assert {:ok, corrected} =
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+
+    assert corrected.provider_call_count == 2
+    assert corrected.question == args["question"]
+    assert corrected.options == args["options"]
+
+    assert [%{id: "tool-ask_author:2", provider_call_id: "tool-ask_author"}] =
+             corrected.provider_result.tool_calls
+
+    assert :ok =
+             AgentNarrativeSource.verify(args["question"], corrected.narrative_source, %{
+               "run-question-retry-good" => good.provider_output
+             })
+  end
+
   test "重复/带首尾空白的 option value 失败，不补虚构选项" do
     for values <- [["one", "one"], [" one"]] do
       options = Enum.map(values, &%{value: &1, label: "方向"})
-      bad = response("说明", [call("ask_author", %{question: "选哪一个？", options: options})])
+      bad = response("", [call("ask_author", %{question: "选哪一个？", options: options})])
 
       assert {:error, {:judgment_protocol_violation, :question_option_values_invalid}, _state} =
                JudgmentProtocol.request_judgment(execution([bad]), %{}, input())
@@ -419,19 +534,72 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(execution([response("", [explore])]), %{}, input())
   end
 
-  test "纠错仅一次，最终叙事只绑定纠正响应，实际计数为二" do
-    bad = response("错误说明", [call("judgment_decision", %{action: "reply"})], "bad")
-    good = response("纠正后的答复", [], "good")
+  test "非法叙述仅纠错一次，不换用干净字段，最终字节只绑定纠正响应" do
+    leak = "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
+    execute = %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"}
+    gap = %{dialogue_goal: "修改身份", missing_effect: "主档案修改", author_reasoning: leak}
+    good_text = "  已核对老沈的身份。\n\n请确认这份建议。\n"
+    good = response(good_text, [], "good")
 
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+    bad_responses = [
+      response("错误说明", [call("judgment_decision", %{action: "reply"})], "bad"),
+      response(leak, [], "bad"),
+      response("", [call("judgment_decision", Map.put(execute, :reason, leak))], "bad"),
+      response(leak, [call("judgment_decision", Map.put(execute, :reason, "安全说明"))], "bad"),
+      response("", [call("ask_author", %{question: leak, options: []})], "bad"),
+      response(
+        "",
+        [call("ask_author", %{question: "你指哪位？", options: [%{value: "first", label: leak}]})],
+        "bad"
+      ),
+      response("请确认对象。", [call("ask_author", %{question: leak, options: []})], "bad"),
+      response(
+        "请确认对象。",
+        [
+          call("ask_author", %{question: "你指哪位？", options: [%{value: "first", label: leak}]})
+        ],
+        "bad"
+      ),
+      response("", [call("report_capability_gap", gap)], "bad")
+    ]
 
-    assert judgment.provider_call_count == 2
-    assert judgment.narrative == "纠正后的答复"
-    assert judgment.narrative_source.provider_call_ref == "good"
-    assert_receive {:provider_request, _}
-    assert_receive {:provider_request, _}
-    refute_receive {:provider_request, _}, 10
+    for bad <- bad_responses do
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([bad, good]),
+                 %{},
+                 input(capabilities: ["character_design"])
+               )
+
+      assert judgment.provider_call_count == 2
+      assert judgment.narrative == good_text
+      assert judgment.narrative_source.provider_call_ref == "good"
+
+      assert :ok =
+               AgentNarrativeSource.verify(good_text, judgment.narrative_source, %{
+                 "run-good" => good.provider_output
+               })
+
+      assert_receive {:provider_request, _}
+      assert_receive {:provider_request, corrected}
+
+      if bad.tool_calls == [] do
+        assert validation_text(List.last(corrected.messages)) =~ "作者叙述"
+        refute validation_text(List.last(corrected.messages)) =~ leak
+      else
+        assert Enum.any?(List.last(corrected.messages).blocks, fn block ->
+                 block.type == "validation_result" and block.status == "failed" and
+                   block.call_id == hd(bad.tool_calls).id
+               end)
+      end
+
+      refute_receive {:provider_request, _}, 10
+    end
+
+    assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, state} =
+             JudgmentProtocol.request_judgment(execution([response(leak, [])]), %{}, input())
+
+    assert state.provider_call_count == 2
   end
 
   test "续行仅接受 continue/ask_author/缺口，不接受普通文本或旧停等枚举" do
@@ -448,6 +616,27 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, %{action: "continue", provider_call_count: 1}} =
              JudgmentProtocol.request_continuation(execution([good]), %{}, continuation_input)
+
+    bad =
+      response("", [
+        call("continuation_decision", %{
+          action: "continue",
+          guidance: "补足结尾",
+          reason: "候选 as_mwnwwxoe_11"
+        })
+      ])
+
+    assert {:ok, %{action: "continue", provider_call_count: 2, narrative: "按已指出的缺口补写。"}} =
+             JudgmentProtocol.request_continuation(
+               execution([bad, good]),
+               %{},
+               continuation_input
+             )
+
+    assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, failed} =
+             JudgmentProtocol.request_continuation(execution([bad]), %{}, continuation_input)
+
+    assert failed.provider_call_count == 2
 
     assert {:error, _, _state} =
              JudgmentProtocol.request_continuation(
@@ -947,7 +1136,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     bad = response("", [registration])
 
     good =
-      response("请先指出来源。", [
+      response("", [
         call("ask_author", %{"question" => "请指出要保存的灯油配方原文来源。", "options" => []})
       ])
 
@@ -1630,6 +1819,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.degraded_reason == "exploration_budget_exhausted"
     assert judgment.narrative == transitional
     assert judgment.provider_call_count == 3
+
+    leaked =
+      response("基线 c993629b64db85ef763f5ca2c4a69f85579edd898d2d4b8b2ce73d7e335ec47e", [explore])
+
+    assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, failed} =
+             JudgmentProtocol.request_judgment(execution([leaked]), %{}, input(explore: false))
+
+    assert failed.provider_call_count == 2
   end
 
   test "task-36：伪工具文本反复出现时有界重试（不无限循环）" do

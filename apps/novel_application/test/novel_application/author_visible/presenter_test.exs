@@ -114,6 +114,245 @@ defmodule NovelApplication.AuthorVisible.PresenterTest do
     end
   end
 
+  describe "角色档案的作者可辨认投影" do
+    test "目标及其他主角使用同批事实，中文差异和未生效状态完整可读" do
+      target = role_target("character:old-shen", "沈砚", ["老沈"], "灯楼查账人", "ENSEMBLE_POV")
+      other = role_target("character:gu", "顾青", [], "巡夜人", "PROTAGONIST")
+      same_name = role_target("character:young-shen", "沈砚", ["小沈"], "账房学徒", "MINOR")
+      payload = role_payload(target, [other])
+
+      expected = %{
+        title: "沈砚（别名：老沈；身份：灯楼查账人；当前：群像视角） · 叙事身份修订",
+        body:
+          "- 叙事身份：群像视角 → 主角\n\n候选尚未采纳，角色档案尚未修改。\n\n" <>
+            "其它角色（需作者逐项裁决，未默认应用）：\n" <>
+            "- 顾青（身份：巡夜人；当前：主角）；未自动修改"
+      }
+
+      for roster <- [[target, other, same_name], [same_name, other, target]] do
+        assert {:ok, ^expected} = Presenter.character_profile_candidate(payload, target, roster)
+      end
+
+      assert payload.character_ref == "character:old-shen"
+
+      assert payload.changes == [
+               %{field: "narrative_role", old: "ENSEMBLE_POV", new: "PROTAGONIST"}
+             ]
+
+      assert payload.other_character_changes == []
+      assert [%{character_ref: "character:gu"}] = payload.suggested_other_character_changes
+      refute expected.body =~ "character:"
+      refute expected.body =~ "narrative_role"
+      refute expected.body =~ "PROTAGONIST"
+    end
+
+    test "同名和共享别名仍用完整事实区分；无变化状态不冒充候选" do
+      target = role_target("character:elder", "沈砚", ["老沈"], "灯楼查账人", "PROTAGONIST")
+      other = role_target("character:apprentice", "沈砚", ["老沈"], "账房学徒", "PROTAGONIST")
+      facts = role_no_change(target)
+
+      assert {:ok, "沈砚（别名：老沈；身份：灯楼查账人；当前：主角） 当前已是主角，本次无需修改；角色档案未发生变更。"} =
+               Presenter.character_profile_no_change(facts, target, [other, target])
+    end
+
+    test "五种内部叙事角色仅经中文显示域投影，空旧身份明确显示未设置" do
+      for {role, label} <- [
+            {"PROTAGONIST", "主角"},
+            {"ANTAGONIST", "反派"},
+            {"SUPPORTING", "配角"},
+            {"MINOR", "次要角色"},
+            {"ENSEMBLE_POV", "群像视角"}
+          ] do
+        target = role_target("character:known", "配角书店店主", [], nil, role)
+
+        assert {:ok, message} =
+                 Presenter.character_profile_no_change(role_no_change(target), target, [target])
+
+        assert message == "配角书店店主（当前：#{label}） 当前已是#{label}，本次无需修改；角色档案未发生变更。"
+      end
+
+      target = role_target("character:unset", "沈砚", [], nil, nil)
+
+      assert {:ok, %{body: body}} =
+               Presenter.character_profile_candidate(role_payload(target), target, [target])
+
+      assert body == "- 叙事身份：未设置 → 主角\n\n候选尚未采纳，角色档案尚未修改。"
+    end
+
+    test "可见事实完全相同不能凭隐藏 ref、摘要或顺序宣称可辨认" do
+      target = role_target("character:first", "沈砚", ["老沈", "沈先生"], "查账人", "PROTAGONIST")
+
+      other = %{
+        target
+        | character_ref: "character:second",
+          aliases: ["沈先生", "老沈"],
+          summary: "另一份摘要",
+          base_fingerprint: "second-fingerprint"
+      }
+
+      for roster <- [[target, other], [other, target]] do
+        assert {:error, :display_identity_ambiguous} =
+                 Presenter.character_profile_no_change(role_no_change(target), target, roster)
+      end
+
+      candidate_target = %{target | narrative_role: "ENSEMBLE_POV"}
+      candidate_other = %{other | narrative_role: "ENSEMBLE_POV"}
+
+      assert {:error, :display_identity_ambiguous} =
+               Presenter.character_profile_candidate(
+                 role_payload(candidate_target),
+                 candidate_target,
+                 [candidate_other, candidate_target]
+               )
+    end
+
+    test "身份投影遵循页面空白折叠，别名归一后去重且不改原始事实" do
+      target =
+        role_target(
+          "character:spaced",
+          " \t沈  砚\r\n",
+          ["老  沈", "\t老 沈  ", "\n", "沈\u00a0先生"],
+          " 灯楼\t\n查账人 ",
+          "ENSEMBLE_POV"
+        )
+
+      payload = role_payload(target)
+
+      assert {:ok, %{title: title}} =
+               Presenter.character_profile_candidate(payload, target, [target])
+
+      assert title == "沈 砚（别名：沈\u00a0先生、老 沈；身份：灯楼 查账人；当前：群像视角） · 叙事身份修订"
+      assert payload.character_name == " \t沈  砚\r\n"
+      assert target.aliases == ["老  沈", "\t老 沈  ", "\n", "沈\u00a0先生"]
+      assert target.role == " 灯楼\t\n查账人 "
+      assert payload.other_character_changes == []
+    end
+
+    test "空白排版和重复别名不能使页面上相同身份变为可辨认" do
+      target = role_target("character:first", "沈 砚", ["老 沈"], "灯楼 查账人", "PROTAGONIST")
+
+      other =
+        role_target(
+          "character:second",
+          " \t沈  砚\n",
+          [" 老\t沈 ", "老 沈", " \r\n"],
+          "\r灯楼  查账人\t",
+          "PROTAGONIST"
+        )
+
+      for roster <- [[target, other], [other, target]] do
+        assert {:error, :display_identity_ambiguous} =
+                 Presenter.character_profile_no_change(role_no_change(target), target, roster)
+      end
+
+      candidate_target = %{target | narrative_role: "ENSEMBLE_POV"}
+      candidate_other = %{other | narrative_role: "ENSEMBLE_POV"}
+
+      assert {:error, :display_identity_ambiguous} =
+               Presenter.character_profile_candidate(
+                 role_payload(candidate_target),
+                 candidate_target,
+                 [candidate_other, candidate_target]
+               )
+    end
+
+    test "两次读取即使投影相同也必须保持全部原始事实一致" do
+      target = role_target("character:actual", "沈 砚", ["老 沈"], "灯楼 查账人", "ENSEMBLE_POV")
+
+      for changed <- [
+            %{target | name: "沈  砚"},
+            %{target | aliases: [" 老 沈 "]},
+            %{target | role: "灯楼\t查账人"},
+            %{target | summary: "读取期间变更的隐藏摘要"},
+            %{target | updated_at: "2026-11-21"},
+            %{target | base_fingerprint: "changed-fingerprint"}
+          ] do
+        assert {:error, :stale_base} =
+                 Presenter.character_profile_candidate(role_payload(target), target, [changed])
+      end
+    end
+
+    test "精确 ref 缺失或多次出现拒绝绑定，不能以同名同别名替代" do
+      target = role_target("character:actual", "沈砚", ["老沈"], "查账人", "ENSEMBLE_POV")
+      impostor = %{target | character_ref: "character:other"}
+
+      assert {:error, :display_target_missing} =
+               Presenter.character_profile_candidate(role_payload(target), target, [impostor])
+
+      assert {:error, :display_identity_ambiguous} =
+               Presenter.character_profile_candidate(role_payload(target), target, [
+                 target,
+                 target
+               ])
+
+      changed = %{target | role: "作者刚改过的身份", base_fingerprint: "new-fingerprint"}
+
+      assert {:error, :stale_base} =
+               Presenter.character_profile_candidate(role_payload(target), target, [changed])
+    end
+
+    test "其他角色建议也逐项按 ref 绑定并核对旧身份，不能借相同姓名补材料" do
+      target = role_target("character:target", "沈砚", ["老沈"], "查账人", "ENSEMBLE_POV")
+      other = role_target("character:other", "顾青", [], "巡夜人", "PROTAGONIST")
+      payload = role_payload(target, [other])
+      impostor = %{other | character_ref: "character:impostor"}
+
+      assert {:error, :display_target_missing} =
+               Presenter.character_profile_candidate(payload, target, [target, impostor])
+
+      changed = %{other | narrative_role: "SUPPORTING"}
+
+      assert {:error, :stale_base} =
+               Presenter.character_profile_candidate(payload, target, [target, changed])
+
+      duplicate = %{other | character_ref: "character:duplicate"}
+
+      assert {:error, :display_identity_ambiguous} =
+               Presenter.character_profile_candidate(payload, target, [target, other, duplicate])
+    end
+  end
+
+  defp role_target(ref, name, aliases, role, narrative_role) do
+    %{
+      character_ref: ref,
+      name: name,
+      aliases: aliases,
+      role: role,
+      narrative_role: narrative_role,
+      summary: "隐藏摘要",
+      base_fingerprint: "original-fingerprint",
+      status: "ACCEPTED",
+      updated_at: "2026-11-20"
+    }
+  end
+
+  defp role_payload(target, others \\ []) do
+    %{
+      character_ref: target.character_ref,
+      character_name: target.name,
+      base_fingerprint: target.base_fingerprint,
+      changes: [%{field: "narrative_role", old: target.narrative_role, new: "PROTAGONIST"}],
+      other_character_changes: [],
+      suggested_other_character_changes:
+        Enum.map(others, fn other ->
+          %{
+            character_ref: other.character_ref,
+            character_name: other.name,
+            current_narrative_role: other.narrative_role
+          }
+        end)
+    }
+  end
+
+  defp role_no_change(target) do
+    %{
+      character_ref: target.character_ref,
+      character_name: target.name,
+      old_role: target.narrative_role,
+      desired_role: target.narrative_role
+    }
+  end
+
   describe "Registry（完整性诊断，只读）" do
     test "判断协议全部工具 code 均已登记作者显示名" do
       codes = Registry.judgment_tool_codes()

@@ -3,6 +3,7 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.InferenceParams
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.RequestIR
 
   alias NovelApplication.{
@@ -46,11 +47,11 @@ defmodule NovelApplication.JudgmentProtocol do
     result_fn =
       provider
       |> Execution.with_purpose(:planner)
-      |> Execution.with_content_visibility(:author)
+      |> Execution.with_content_visibility(:developer)
       |> Execution.with_params(InferenceParams.new(temperature: 0.2))
       |> ProviderActivityProjector.with_stage_sink(snapshot,
         purpose: :planner,
-        content_visibility: :author
+        content_visibility: :developer
       )
       |> Execution.result_fn()
 
@@ -375,7 +376,8 @@ defmodule NovelApplication.JudgmentProtocol do
              RequestIR.visible_observations(request)
            ),
          {:ok, judgment} <-
-           ChapterRevisionScope.bind_observed_targets(judgment, request) do
+           ChapterRevisionScope.bind_observed_targets(judgment, request),
+         :ok <- validate_pending_clarification(judgment, input) do
       {:ok,
        judgment
        |> Map.put(:provider_call_count, attempt)
@@ -383,12 +385,33 @@ defmodule NovelApplication.JudgmentProtocol do
     else
       {:error, reason} ->
         log_output_validation(attempt, reason)
+
+        input =
+          if reason == {:character_profile_invalid, :display_identity_ambiguous},
+            do: Map.put(input, :unresolved_character_display, true),
+            else: input
+
         retry_or_degrade(fun, transcript, input, profile, attempt, provider_result, reason)
     end
   end
 
+  # 只约束本次有界纠错；角色决定必须先通过上面的真实身份/展示绑定。
+  defp validate_pending_clarification(%{action: "await_author"}, _input), do: :ok
+
+  defp validate_pending_clarification(
+         %{action: "execute", capability: "revise_character_profile"},
+         _input
+       ),
+       do: :ok
+
+  defp validate_pending_clarification(_judgment, %{unresolved_character_display: true}),
+    do: {:error, {:character_profile_invalid, :display_identity_ambiguous}}
+
+  defp validate_pending_clarification(_judgment, _input), do: :ok
+
   defp retry_or_degrade(fun, transcript, input, profile, attempt, provider_result, reason) do
-    if reason == :exploration_not_available and attempt >= @max_attempts + 1 do
+    if reason == :exploration_not_available and attempt >= @max_attempts + 1 and
+         not Map.has_key?(input, :unresolved_character_display) do
       case degrade_to_reply(provider_result, input, attempt) do
         {:ok, judgment} ->
           {:ok, Map.put(judgment, :transcript, correction_transcript(transcript, reason))}
@@ -449,13 +472,17 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
-  defp correction_content(:invalid_tool_arguments) do
-    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
-      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
-      "ask_author 只填 question、options（optional reason_codes）；judgment_decision 按 action 填对应字段。" <>
-      "保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  defp correction_content(:author_question_content_conflict),
+    do: JudgmentToolContract.question_response_guidance()
+
+  defp correction_content(:author_visible_narrative_invalid) do
+    "作者叙述包含内部协议字段、对象/调用标识或基线指纹。请用作者能理解的名称和自然语言重新说明，" <>
+      "结构化引用仍留在对应参数；不要复述非法叙述，不改变任务、来源、目标、范围或权限。"
   end
+
+  # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
+  defp correction_content(:invalid_tool_arguments),
+    do: JudgmentToolContract.invalid_arguments_guidance()
 
   # M06：上一轮请求作者选择后，纠错重试不得改成推进具体候选/版本。
   defp correction_content(:await_author_unanswered) do
@@ -470,6 +497,7 @@ defmodule NovelApplication.JudgmentProtocol do
       "用 archive_read 的 characters 目录发现对象，再按真实 ref 读取详情；目录只供定位，不授予详情已读资格。" <>
       "not_observed/incomplete_observation/stale_base 需要当前实际供应的详情包含必要身份字段、当前叙事身份、采纳状态和当前指纹；" <>
       "已供应且指纹未变的历史详情可复用，未读或已被整理隐藏的材料不能冒充基线。" <>
+      "display_identity_ambiguous 表示姓名、别名和身份仍无法让作者辨认对象；用 ask_author 具体澄清，或重新绑定确有可辨认事实的角色。" <>
       "对象不存在、越界或仍有歧义时具体澄清，不新建角色或以演化记忆冒充主档案修订。"
   end
 
@@ -557,48 +585,8 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content({:invalid_tool_combination, _detail}),
     do: correction_content(:invalid_tool_combination)
 
-  defp correction_content({:invalid_tool_arguments, detail}) do
-    disallowed =
-      case Map.get(detail, :disallowed, []) do
-        [] -> "无"
-        fields -> Enum.join(fields, "、")
-      end
-
-    missing =
-      case Map.get(detail, :missing, []) do
-        [] -> "无"
-        fields -> Enum.join(fields, "、")
-      end
-
-    revision? =
-      Map.get(detail, :tool) == "judgment_decision" and
-        (Map.get(detail, :capability) == "revise_adopted_content" or
-           Enum.any?(
-             ["target_chapter_ref", "modification_scope"],
-             &(&1 in Map.get(detail, :disallowed, []))
-           ))
-
-    example =
-      if revision? do
-        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","reason":"..."})
-      else
-        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","reason":"..."})
-      end
-
-    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
-      "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；judgment_decision 允许字段：#{Enum.join(Map.get(detail, :allowed, []), "、")}。" <>
-      if revision? do
-        "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
-          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。" <>
-          "target_segment_ids 仅在作者要求按本轮读取发现选段时填写，且只能从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
-      else
-        ""
-      end <>
-      "合法最小示例：#{example}。" <>
-      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
-      "ask_author 只填 question、options（optional reason_codes）；" <>
-      "judgment_decision 按 action 填对应字段。保留原任务、目标、来源与范围，只纠正工具参数结构。"
-  end
+  defp correction_content({:invalid_tool_arguments, detail}),
+    do: JudgmentToolContract.invalid_arguments_guidance(detail)
 
   # B82 G2：绑定原因已进 native validation_result；这里只给一段可操作的共用纠错，
   # 不为每个 reason 复制整套规则。
@@ -614,22 +602,12 @@ defmodule NovelApplication.JudgmentProtocol do
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
   end
 
-  # 探索预算用尽/伪工具文本：多给一次有界重试，避免直接终局（M03/M17 key-set）。
+  # 原探索收束/空叙述特例不扩张叙述违规或未决角色歧义的普通纠错预算。
   defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
-       when reason in [:exploration_not_available, :judgment_narrative_required] and
-              attempt < @max_attempts + 1 do
-    invoke(
-      fun,
-      correction_transcript(transcript, reason),
-      input,
-      profile,
-      attempt + 1,
-      previous_tools
-    )
-  end
-
-  defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
-       when attempt < @max_attempts do
+       when attempt < @max_attempts or
+              (reason in [:exploration_not_available, :judgment_narrative_required] and
+                 attempt < @max_attempts + 1 and
+                 not is_map_key(input, :unresolved_character_display)) do
     invoke(
       fun,
       correction_transcript(transcript, reason),
@@ -869,7 +847,7 @@ defmodule NovelApplication.JudgmentProtocol do
     范围写在 dialogue_goal；不要填 target_chapter_ref/modification_scope 等候选 payload 字段（judgment_decision schema 不允许）。
     模型工具调用不代表执行授权。
     用户可见动作必须有可见文本：纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
-    使用工具时 content 可为空，但 question/reason/author_reasoning 必须提供作者可见原话。
+    使用工具时 content 可为空，但 question/reason/author_reasoning 必须提供作者可见原话；#{JudgmentToolContract.question_response_guidance()}
     覆盖事实约束：若本轮观测明确显示章节正文未覆盖末页（覆盖事实显示“未读>0”），
     不得声称已读全章或全章无矛盾；必须继续读取，或在结论中明确已覆盖范围与未读缺口。
     最终答复收束：content 必须是作者可直接读到的最终结论本身，不得只写内部推理、计划或过渡语
@@ -926,7 +904,7 @@ defmodule NovelApplication.JudgmentProtocol do
     可以按已有事实修正时用 continuation_decision，action=continue 并给具体 guidance。
     只有需要作者决定时用 ask_author；真正缺少能力效果用 report_capability_gap。
     一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。
-    content 可同时自然说明；空 content 时 reason/question/author_reasoning 保留作者可见原话。
+    除 ask_author 外，content 可自然说明；空 content 时 reason/author_reasoning 保留作者可见原话。#{JudgmentToolContract.question_response_guidance()}
     """
   end
 
@@ -970,8 +948,8 @@ defmodule NovelApplication.JudgmentProtocol do
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
-         :ok <- validate_operation(operation, args, options),
-         {:ok, text, source} <- narrative(result, call, args) do
+         {:ok, text, source} <- narrative(result, call, args),
+         :ok <- validate_operation(operation, args, options) do
       judgment = normalized(operation, args, call, result, text, source, input)
       validate_inline_plan(judgment, input)
     end
@@ -1167,6 +1145,9 @@ defmodule NovelApplication.JudgmentProtocol do
     values = Enum.map(field(args, :options), &field(&1, :value))
 
     cond do
+      Enum.any?(field(args, :options), &(Text.validate_narrative(field(&1, :label)) != :ok)) ->
+        {:error, :author_visible_narrative_invalid}
+
       not (values == Enum.uniq(values) and Enum.all?(values, &(&1 == String.trim(&1)))) ->
         {:error, :question_option_values_invalid}
 
@@ -1273,9 +1254,20 @@ defmodule NovelApplication.JudgmentProtocol do
   defp narrative(result, call, args) do
     content = field(result, :content)
 
-    if nonblank?(content),
-      do: content_narrative(result, content),
-      else: tool_narrative(result, call, args)
+    cond do
+      field(call, :name) == "ask_author" and content not in [nil, ""] ->
+        {:error, :author_question_content_conflict}
+
+      field(call, :name) == "ask_author" ->
+        with :ok <- AgentNarrativeSource.verify_tool_call(result, call),
+             do: tool_narrative(result, call, args)
+
+      nonblank?(content) ->
+        content_narrative(result, content)
+
+      true ->
+        tool_narrative(result, call, args)
+    end
   end
 
   defp content_narrative(result, text) do
@@ -1284,7 +1276,8 @@ defmodule NovelApplication.JudgmentProtocol do
         {:error, :judgment_narrative_required}
 
       visible ->
-        with {:ok, source} <- AgentNarrativeSource.from_provider_result(result, visible),
+        with :ok <- Text.validate_narrative(visible),
+             {:ok, source} <- AgentNarrativeSource.from_provider_result(result, visible),
              do: {:ok, visible, source}
     end
   end
@@ -1353,7 +1346,8 @@ defmodule NovelApplication.JudgmentProtocol do
     text = field(args, key)
 
     if nonblank?(text) do
-      with {:ok, source} <-
+      with :ok <- Text.validate_narrative(text),
+           {:ok, source} <-
              AgentNarrativeSource.from_tool_call_narrative(result, field(call, :name), text, key),
            do: {:ok, text, source}
     else
@@ -1405,6 +1399,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
     %{
       provider_call_ref: source.provider_call_ref,
+      author_narrative_source: source,
       task_policy_version: AuthoringTaskPolicy.version(),
       protocol_version: JudgmentToolContract.version(),
       source_input_ref: input[:source_input_ref],

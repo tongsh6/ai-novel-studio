@@ -131,6 +131,71 @@ defmodule NovelApplication.AgentNarrativeSourceTest do
              })
   end
 
+  test "同名原生调用多义时不能借用第一段相同文字建立来源" do
+    text = "要采用哪种结尾？"
+    call = %{id: "native-question", name: "ask_author", arguments: %{question: text, options: []}}
+    output = %{provider_output("") | content: %{text: "", tool_calls: [call, call]}}
+
+    assert {:error, :ambiguous_tool_call_in_provider_output} =
+             AgentNarrativeSource.from_tool_call_narrative(
+               %{provider_output: output},
+               "ask_author",
+               text,
+               :question
+             )
+  end
+
+  test "完整参数、原调用 id/name 和唯一调用数共同决定来源，不能借用同一 question" do
+    args = %{
+      "question" => "  要修订哪位角色？\n",
+      "options" => [
+        %{"value" => "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45", "label" => " 老沈\n（调查员） "}
+      ]
+    }
+
+    original = %{id: "native-question", name: "ask_author", arguments: args}
+
+    changed_args = [
+      put_in(args, ["options", Access.at(0), "label"], "老沈\n（调查员）"),
+      put_in(args, ["options", Access.at(0), "value"], "another-character"),
+      Map.put(args, "question", "要修订哪位角色？"),
+      Map.put(args, "reason_codes", ["another_reason"])
+    ]
+
+    mismatches =
+      Enum.map(changed_args, &{%{original | arguments: &1}, [original]}) ++
+        [
+          {%{original | id: "another-native-call"}, [original]},
+          {Map.delete(original, :id), [original]},
+          {%{original | name: "other_tool"}, [original]},
+          {original, [original, original]},
+          {original, [original, %{original | id: "hidden-call", name: "other_tool"}]},
+          {original, [Map.put(original, :raw_arguments, Jason.encode!(hd(changed_args)))]}
+        ]
+
+    for {call, source_calls} <- mismatches do
+      output = %{provider_output("") | content: %{text: "", tool_calls: source_calls}}
+
+      assert {:error, :tool_call_not_bound_to_provider_output} =
+               AgentNarrativeSource.verify_tool_call(%{provider_output: output}, call)
+    end
+
+    source_call = Map.put(original, :raw_arguments, Jason.encode!(args))
+    output = %{provider_output("") | content: %{text: "", tool_calls: [source_call]}}
+    result = %{provider_output: output}
+    assert :ok = AgentNarrativeSource.verify_tool_call(result, original)
+
+    assert {:ok, source} =
+             AgentNarrativeSource.from_tool_call_narrative(
+               result,
+               "ask_author",
+               args["question"],
+               :question
+             )
+
+    assert :ok = AgentNarrativeSource.verify(args["question"], source, %{"prun-test" => output})
+  end
+
   defp provider_output(content) do
     {:ok, output} =
       ProviderOutput.new(%{

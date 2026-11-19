@@ -8,7 +8,9 @@ defmodule NovelApplication.AgentNarrativeSource do
   sources.
   """
 
+  alias NovelAgent.Provider
   alias NovelCommon.Contracts.ProviderOutput
+  alias NovelCommon.RequestIR
 
   @type source :: %{
           required(:source_type) => String.t(),
@@ -87,6 +89,34 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   def from_tool_call_narrative(_provider_result, _tool_name, _narrative, _field),
     do: {:error, :invalid_provider_result}
+
+  @doc """
+  Verify a schema-accepted single call against the original ProviderOutput.
+
+  Canonical call IDs may differ from provider IDs; an explicit nil mapping retains
+  the provider’s missing ID. Argument keys share the IR JSON boundary while every
+  string value remains byte-for-byte unchanged.
+  """
+  @spec verify_tool_call(map(), map()) :: :ok | {:error, term()}
+  def verify_tool_call(provider_result, call) when is_map(call) do
+    original_id =
+      Map.get(call, :provider_call_id, Map.get(call, "provider_call_id", map_get(call, :id)))
+
+    with {:ok, output} <- provider_output(provider_result),
+         [original] <- provider_tool_calls(output),
+         {:ok, ^original} <- provider_tool_call(output, map_get(call, :name)),
+         true <- original_id == map_get(original, :id),
+         true <-
+           RequestIR.json_value(Provider.decode_tool_arguments(map_get(call, :arguments))) ==
+             RequestIR.json_value(source_tool_arguments(original)) do
+      :ok
+    else
+      _ -> {:error, :tool_call_not_bound_to_provider_output}
+    end
+  end
+
+  def verify_tool_call(_provider_result, _call),
+    do: {:error, :tool_call_not_bound_to_provider_output}
 
   @source_types ["provider_output", "provider_output_tool_narrative"]
 
@@ -193,7 +223,7 @@ defmodule NovelApplication.AgentNarrativeSource do
     end
   end
 
-  defp tool_narrative_text(%ProviderOutput{content: content}, tool_name, narrative_field)
+  defp tool_narrative_text(%ProviderOutput{content: content} = output, tool_name, narrative_field)
        when is_map(content) and
               narrative_field in [
                 :author_reasoning,
@@ -205,18 +235,28 @@ defmodule NovelApplication.AgentNarrativeSource do
                 :reason,
                 "reason"
               ] do
-    content
-    |> map_get(:tool_calls)
-    |> List.wrap()
-    |> Enum.find(fn call -> is_map(call) and map_get(call, :name) == tool_name end)
-    |> case do
-      nil -> {:error, :tool_call_not_in_provider_output}
-      call -> tool_call_narrative(map_get(call, :arguments), narrative_field)
-    end
+    with {:ok, call} <- provider_tool_call(output, tool_name),
+         do: tool_call_narrative(source_tool_arguments(call), narrative_field)
   end
 
   defp tool_narrative_text(_output, _tool_name, _field),
     do: {:error, :tool_narrative_text_required}
+
+  defp provider_tool_call(output, tool_name) do
+    case Enum.filter(provider_tool_calls(output), &(map_get(&1, :name) == tool_name)) do
+      [call] -> {:ok, call}
+      [] -> {:error, :tool_call_not_in_provider_output}
+      _ -> {:error, :ambiguous_tool_call_in_provider_output}
+    end
+  end
+
+  defp provider_tool_calls(%ProviderOutput{content: content}) when is_map(content),
+    do: List.wrap(map_get(content, :tool_calls))
+
+  defp provider_tool_calls(_output), do: []
+
+  defp source_tool_arguments(call),
+    do: Provider.decode_tool_arguments(map_get(call, :raw_arguments) || map_get(call, :arguments))
 
   defp tool_call_narrative(args, field) when is_map(args) do
     key =

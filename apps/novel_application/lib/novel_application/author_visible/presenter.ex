@@ -156,6 +156,150 @@ defmodule NovelApplication.AuthorVisible.Presenter do
   @spec frame_label(term()) :: String.t()
   def frame_label(frame_type), do: Text.text(Text.from_display(:frame_type, frame_type))
 
+  @doc "同批已绑定角色事实 → 候选卡标题与中文差异；不改写采纳 payload。"
+  @spec character_profile_candidate(map(), map(), [map()]) ::
+          {:ok, %{title: String.t(), body: String.t()}} | {:error, atom()}
+  def character_profile_candidate(
+        %{
+          character_ref: ref,
+          character_name: name,
+          base_fingerprint: fingerprint,
+          changes: [%{field: "narrative_role", old: old, new: new}],
+          other_character_changes: [],
+          suggested_other_character_changes: suggestions
+        },
+        %{character_ref: ref, name: name, base_fingerprint: fingerprint, narrative_role: old} =
+          target,
+        roster
+      )
+      when is_list(roster) and is_list(suggestions) do
+    with {:ok, label} <- character_label(target, roster),
+         {:ok, old_label} <- narrative_role_label(old),
+         {:ok, new_label} <- narrative_role_label(new),
+         {:ok, others} <- other_character_labels(suggestions, roster) do
+      body = "- 叙事身份：#{old_label} → #{new_label}\n\n候选尚未采纳，角色档案尚未修改。"
+
+      body =
+        if others == [],
+          do: body,
+          else: body <> "\n\n其它角色（需作者逐项裁决，未默认应用）：\n" <> Enum.join(others, "\n")
+
+      {:ok, %{title: "#{label} · 叙事身份修订", body: body}}
+    end
+  end
+
+  def character_profile_candidate(_payload, _target, _roster), do: {:error, :stale_base}
+
+  @doc "已绑定的无变化事实 → 独立系统通告；模型说明由原调用方保留。"
+  @spec character_profile_no_change(map(), map(), [map()]) ::
+          {:ok, String.t()} | {:error, atom()}
+  def character_profile_no_change(
+        %{character_ref: ref, character_name: name, old_role: role, desired_role: role},
+        %{character_ref: ref, name: name, narrative_role: role} = target,
+        roster
+      )
+      when is_list(roster) do
+    with {:ok, label} <- character_label(target, roster),
+         {:ok, role_label} <- narrative_role_label(role) do
+      {:ok, "#{label} 当前已是#{role_label}，本次无需修改；角色档案未发生变更。"}
+    end
+  end
+
+  def character_profile_no_change(_facts, _target, _roster), do: {:error, :stale_base}
+
+  defp character_label(target, roster) do
+    with {:ok, ^target} <- roster_target(target.character_ref, roster),
+         {:ok, label} <- character_identity(target) do
+      if Enum.count(roster, &(character_identity(&1) == {:ok, label})) == 1,
+        do: {:ok, label},
+        else: {:error, :display_identity_ambiguous}
+    else
+      {:ok, _changed_target} -> {:error, :stale_base}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp roster_target(ref, roster) do
+    case Enum.filter(roster, &(Map.get(&1, :character_ref) == ref)) do
+      [target] -> {:ok, target}
+      [] -> {:error, :display_target_missing}
+      _ -> {:error, :display_identity_ambiguous}
+    end
+  end
+
+  defp character_identity(%{
+         name: name,
+         aliases: aliases,
+         role: role,
+         narrative_role: narrative_role
+       })
+       when is_binary(name) and name != "" and is_list(aliases) do
+    with true <- Enum.all?(aliases, &is_binary/1),
+         name when name != "" <- character_identity_text(name),
+         {:ok, role_label} <- narrative_role_label(narrative_role) do
+      aliases =
+        aliases
+        |> Enum.map(&character_identity_text/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+        |> Enum.sort()
+        |> Enum.join("、")
+
+      details =
+        optional_character_detail("别名", aliases) ++
+          optional_character_detail("身份", role) ++ ["当前：#{role_label}"]
+
+      {:ok, "#{name}（#{Enum.join(details, "；")}）"}
+    else
+      invalid when invalid in [false, ""] -> {:error, :display_target_missing}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp character_identity(_target), do: {:error, :display_target_missing}
+
+  # 身份在卡片中按 HTML normal 显示；资格判定必须比较同一可见投影。
+  # 仅折叠 ASCII 可折叠空白，不改写事实或不换行空格等可见身份材料。
+  defp character_identity_text(text) do
+    text |> String.replace(~r/[ \t\n\r\f]+/, " ") |> String.trim(" ")
+  end
+
+  defp optional_character_detail(_title, nil), do: []
+
+  defp optional_character_detail(title, value) when is_binary(value) do
+    case character_identity_text(value) do
+      "" -> []
+      text -> ["#{title}：#{text}"]
+    end
+  end
+
+  defp narrative_role_label(nil), do: {:ok, "未设置"}
+
+  defp narrative_role_label(role) do
+    if Display.known?(:narrative_role, role),
+      do: {:ok, Display.label(:narrative_role, role)},
+      else: {:error, :invalid_character_role}
+  end
+
+  defp other_character_labels(suggestions, roster) do
+    Enum.reduce_while(suggestions, {:ok, []}, fn suggestion, {:ok, labels} ->
+      with {:ok, character} <- roster_target(suggestion.character_ref, roster),
+           true <-
+             character.name == suggestion.character_name and
+               character.narrative_role == suggestion.current_narrative_role,
+           {:ok, label} <- character_label(character, roster) do
+        {:cont, {:ok, ["- #{label}；未自动修改" | labels]}}
+      else
+        false -> {:halt, {:error, :stale_base}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, labels} -> {:ok, Enum.reverse(labels)}
+      {:error, _} = error -> error
+    end
+  end
+
   # 未登记/缺失模型名返回 nil：作者面由前端决定显示一次中性的「当前模型」，
   # 避免「当前模型：当前模型」这类拼接重复。
   defp model_display_name(model) do

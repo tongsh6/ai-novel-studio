@@ -24,6 +24,8 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   alias NovelDomain.DialogueFrame
   alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, WorkSessionRepo}
 
+  @role_narrative "灯笺731：我已核对老沈的身份。\n保留这段说明的原始换行。"
+
   setup do
     {:ok, work} = WorkService.create(%{title: "B71 修订接线"})
     {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
@@ -60,9 +62,24 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     assert state.run.pending_artifact_refs == []
     refute Map.get(state.final_turn_result, :adoption_state)
     assert state.final_turn_result.available_actions == []
+    assert state.final_turn_result.assistant_message.text == @role_narrative
+    assert [card] = state.final_turn_result.ui_cards
+    assert card.card_type == "result_card"
+    assert card.title == "系统核对结果"
+    assert card.body =~ "沈砚"
+    assert card.body =~ "老沈"
+    assert card.body =~ "主角"
+    refute card.body =~ "PROTAGONIST"
+    refute card.body =~ "character:"
 
-    assert {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
-    assert shown.pending_adoptions == []
+    for _delivery <- 1..2 do
+      assert {:ok, shown} = NovelApplication.WorkSessionService.resume(c.work.id)
+      assert shown.pending_adoptions == []
+      assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
+      assert restored.turn_result["assistant_message"]["text"] == @role_narrative
+      assert restored.turn_result["ui_cards"] == [Jason.decode!(Jason.encode!(card))]
+    end
+
     assert NovelPersistence.Repo.all(NovelPersistence.Schemas.Character) == before
     refute state.final_turn_result.truthfulness.production_write_performed
   end
@@ -611,7 +628,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
           end
 
         args =
-          Map.merge(args, %{dialogue_goal: "按作者要求处理老沈的叙事身份", reason: "已核对老沈的档案，按作者要求处理叙事身份。"})
+          Map.merge(args, %{dialogue_goal: "按作者要求处理老沈的叙事身份", reason: @role_narrative})
 
         {:ok,
          %NovelAgent.Provider.Result{

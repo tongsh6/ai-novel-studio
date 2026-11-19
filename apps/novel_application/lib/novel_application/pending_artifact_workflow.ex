@@ -6,6 +6,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   alias NovelAgent.AuthorizedToolExecutor
 
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AuthorVisible.Presenter
 
   alias NovelApplication.{
     ActionValidator,
@@ -17,6 +18,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     CapabilityRegistry,
     ChapterReadEvidence,
     ChapterRevisionScope,
+    CharacterProfile,
     DialogueGateway,
     ExecutionOrchestrator,
     TraceWriter,
@@ -408,47 +410,55 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     Enum.join(lines ++ warnings, "\n")
   end
 
-  # B29 CP1：角色主档案字段修订候选（零写库、零 provider）。
+  # B29：绑定已观察的角色身份后，展示与真实候选共同使用同一份当前角色事实。
   defp revise_character_profile(judgment, input, run, context) do
     author_text = to_string(run.goal.text || judgment.dialogue_goal || "")
-    desired_role = NovelApplication.CharacterProfile.narrative_role_from_text(author_text)
+    desired_role = CharacterProfile.narrative_role_from_text(author_text)
 
-    with {:ok, target, _source} <-
-           NovelApplication.CharacterProfile.observed_target(
-             run.work_id,
-             field(judgment, :character_ref),
-             List.wrap(field(judgment, :character_observation))
-           ),
-         {:ok, roster} <- NovelApplication.CharacterProfile.targets(run.work_id),
-         {:ok, payload} <-
-           NovelApplication.CharacterProfile.build_candidate(
-             target,
-             desired_role,
-             author_text,
-             roster
-           ),
-         :ok <- NovelApplication.CharacterProfile.validate_changes(payload),
-         {:ok, result} <-
-           build_character_profile_candidate(judgment, payload, input, run, context) do
-      {:ok, result}
-    else
-      # B48 CP1（C04=A）：old==new 的合法无变化出口——普通说明、零候选、零写入。
-      {:no_change, facts} ->
-        build_character_profile_no_change(judgment, facts, input, run, context)
+    outcome =
+      with {:ok, target, _source} <-
+             CharacterProfile.observed_target(
+               run.work_id,
+               field(judgment, :character_ref),
+               List.wrap(field(judgment, :character_observation))
+             ),
+           {:ok, roster} <- CharacterProfile.targets(run.work_id),
+           :ok <-
+             CharacterProfile.validate_presentation(target, desired_role, author_text, roster) do
+        case CharacterProfile.build_candidate(target, desired_role, author_text, roster) do
+          {:ok, payload} ->
+            with :ok <- CharacterProfile.validate_changes(payload),
+                 {:ok, presentation} <-
+                   Presenter.character_profile_candidate(payload, target, roster) do
+              build_character_profile_candidate(
+                judgment,
+                payload,
+                presentation,
+                input,
+                run,
+                context
+              )
+            end
 
-      # 未读、跨作品、字段缺失或过期基线均拒绝派发，不以重读的新指纹替换观察。
-      {:error, reason} ->
-        {:error, {:character_profile_invalid, reason}}
+          {:no_change, facts} ->
+            with {:ok, message} <- Presenter.character_profile_no_change(facts, target, roster) do
+              build_character_profile_no_change(judgment, message, target, input, run, context)
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end
+
+    case outcome do
+      {:ok, _result} = result -> result
+      {:error, reason} -> {:error, {:character_profile_invalid, reason}}
     end
   end
 
-  # B48 CP1（C04=A）：身份核对后的合法无变化出口。普通说明、无 pending 候选、
-  # 无 production write；真实发生的身份核对保留在 trace 事件里（不把“没改作品”
-  # 写成“完全没执行”）。
-  defp build_character_profile_no_change(judgment, facts, input, run, context) do
+  # 无变化也是已完成的身份核对：模型说明保持原文，系统事实独立随结果持久化。
+  defp build_character_profile_no_change(judgment, message, target, input, run, context) do
     frame = frame(judgment, input, run, :reply_only, nil)
-    message = NovelApplication.CharacterProfile.no_change_message(facts)
-    frame = %{frame | author_visible_draft: %{message: message}}
 
     decision =
       OrchestratorDecision.reply_only(frame.turn_id, frame.frame_id, [
@@ -476,31 +486,37 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
     result =
       TurnResultBuilder.build(frame, %{}, [], decision)
-      |> Map.merge(%{
-        workspace_id: run.workspace_id,
-        work_id: run.work_id,
-        session_id: run.session_id
-      })
+      |> Map.put(:ui_cards, [
+        %{
+          card_type: "result_card",
+          priority: "normal",
+          visibility: "always",
+          title: "系统核对结果",
+          body: message
+        }
+      ])
 
-    DialogueGateway.persist_turn_trace(
-      {:ok, result, trace, [], context},
-      run.workspace_id,
-      run.session_id,
-      field(input, :trace_persister)
+    finish(
+      result,
+      trace,
+      context,
+      input,
+      run,
+      "revise_character_profile",
+      target.character_ref,
+      %{}
     )
-
-    {:ok, %{turn_result: result, artifact_refs: [], tool_call_count: 0, provider_call_count: 0}}
   end
 
-  defp build_character_profile_candidate(judgment, payload, input, run, context) do
+  defp build_character_profile_candidate(judgment, payload, presentation, input, run, context) do
     frame = frame(judgment, %{}, run, :execution_candidate, payload.character_ref)
-    title = NovelApplication.CharacterProfile.candidate_title(payload)
+    title = presentation.title
 
     item = %{
       item_id:
         "character_profile_revision_#{:erlang.phash2({payload.character_ref, payload.changes, frame.turn_id})}",
       title: title,
-      body: NovelApplication.CharacterProfile.candidate_body(payload),
+      body: presentation.body,
       rationale: "只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆。"
     }
 
@@ -514,17 +530,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       target_chapter_ref: nil
     }
 
-    pending_payload = Map.put(payload, :title, title)
-
     result =
       TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
         candidate_title: title,
-        pending_payload: pending_payload
-      })
-      |> Map.merge(%{
-        workspace_id: run.workspace_id,
-        work_id: run.work_id,
-        session_id: run.session_id
+        pending_payload: Map.put(payload, :title, title)
       })
 
     # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
@@ -542,16 +551,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         ]
     }
 
-    DialogueGateway.persist_turn_trace(
-      {:ok, result, trace, [], context},
-      run.workspace_id,
-      run.session_id,
-      field(input, :trace_persister)
+    finish(
+      result,
+      trace,
+      context,
+      input,
+      run,
+      "revise_character_profile",
+      payload.character_ref,
+      %{}
     )
-
-    refs = Enum.map(get_in(result, [:adoption_state, :pending]) || [], &field(&1, :artifact_id))
-
-    {:ok, %{turn_result: result, artifact_refs: refs, tool_call_count: 0, provider_call_count: 0}}
   end
 
   defp chapter_revision_target?(judgment) do

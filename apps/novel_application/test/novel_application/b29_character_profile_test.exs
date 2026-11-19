@@ -213,8 +213,13 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
              ["character:#{previous.id}"]
 
     assert [item] = pending.payload.items
-    assert item.body =~ "ENSEMBLE_POV → PROTAGONIST"
+    assert item.body =~ "叙事身份：群像视角 → 主角"
+    assert item.body =~ "候选尚未采纳，角色档案尚未修改。"
     assert item.body =~ "其它角色（需作者逐项裁决"
+    assert item.body =~ "顾青（当前：主角）；未自动修改"
+    refute item.body =~ "character:"
+    refute item.body =~ "narrative_role"
+    refute item.body =~ "PROTAGONIST"
     assert pending.payload.title =~ "林澈"
     assert Repo.get!(Character, previous.id).narrative_role == "PROTAGONIST"
 
@@ -282,7 +287,13 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
       refute Map.get(result.turn_result, :adoption_state)
       assert result.turn_result.frame_summary.frame_type == :reply_only
       assert result.turn_result.available_actions == []
-      assert result.turn_result.assistant_message.text =~ "无需修改"
+      assert result.turn_result.assistant_message.text == "按已读档案提出叙事身份候选。"
+      assert [card] = result.turn_result.ui_cards
+      assert card.card_type == "result_card"
+      assert card.title == "系统核对结果"
+      assert card.body =~ "林澈（别名：老林；身份：调查员；当前：主角）"
+      assert card.body =~ "本次无需修改"
+      refute card.body =~ "PROTAGONIST"
       assert result.turn_result.truthfulness.production_write_performed == false
       trace_ref = result.turn_result.orchestrator_decision.decision_trace_ref
       assert_receive {:trace, attrs}
@@ -291,6 +302,251 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
     end
 
     assert Repo.get!(Character, ctx.character.id).narrative_role == "PROTAGONIST"
+  end
+
+  test "判断接收在作者可辨认性缺失时拒绝，隐藏身份和摘要不能代替可见区别", ctx do
+    duplicate_role(ctx)
+    observed = source_observation(ctx)
+
+    judgment = %{
+      action: "execute",
+      capability: "revise_character_profile",
+      character_ref: ctx.ref,
+      author_input: "把老林设为主角"
+    }
+
+    assert {:error, {:character_profile_invalid, :display_identity_ambiguous}} =
+             NovelApplication.CharacterProfile.bind_judgment(judgment, ctx.work.id, [observed])
+
+    assert {:error, {:character_profile_invalid, :display_identity_ambiguous}} =
+             dispatch(ctx, observed)
+
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  test "JP 的未决显示歧义不能被普通回复、无关执行或再次无效执行当作已解决", ctx do
+    duplicate_role(ctx)
+    input = role_judgment_input(ctx, [source_observation(ctx)])
+    initial = role_decision(ctx.ref, "role-initial")
+
+    unrelated = %{
+      id: "role-unrelated",
+      name: "judgment_decision",
+      arguments: %{
+        action: "execute",
+        capability: "character_design",
+        dialogue_goal: "另建角色",
+        reason: "我会另建一个角色。"
+      }
+    }
+
+    for {text, calls} <- [
+          {"已经处理好了。", []},
+          {"", [unrelated]},
+          {"", [role_decision(ctx.ref, "role-invalid-again")]}
+        ] do
+      provider =
+        role_execution([
+          role_response("", [initial], "first"),
+          role_response(text, calls, "second")
+        ])
+
+      assert {:error,
+              {:judgment_protocol_violation,
+               {:character_profile_invalid, :display_identity_ambiguous}}, state} =
+               NovelApplication.JudgmentProtocol.request_judgment(provider, %{}, input)
+
+      assert state.provider_call_count == 2
+
+      assert Enum.any?(state.judgment_transcript.messages, fn message ->
+               Enum.any?(message.blocks, fn block ->
+                 block[:type] == "validation_result" and block[:call_id] == "role-initial" and
+                   block[:status] == "failed"
+               end)
+             end)
+    end
+
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  test "JP 真实 ask_author 才能把不可辨认角色交给作者决定，保留原失败回执", ctx do
+    duplicate_role(ctx)
+    question = "两份林澈档案的姓名、别名和身份相同，请先补充能区分他们的信息。"
+    ask = %{id: "role-ask", name: "ask_author", arguments: %{question: question, options: []}}
+
+    provider =
+      role_execution([
+        role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
+        role_response("", [ask], "second")
+      ])
+
+    assert {:ok, judgment} =
+             NovelApplication.JudgmentProtocol.request_judgment(
+               provider,
+               %{},
+               role_judgment_input(ctx, [source_observation(ctx)])
+             )
+
+    assert judgment.action == "await_author"
+    assert judgment.question == question
+    assert judgment.narrative == question
+    assert judgment.provider_call_count == 2
+    refute Map.has_key?(judgment, :character_observation)
+
+    assert Enum.any?(judgment.transcript.messages, fn message ->
+             Enum.any?(
+               message.blocks,
+               &(&1[:call_id] == "role-initial" and &1[:status] == "failed")
+             )
+           end)
+  end
+
+  test "JP 可接受重新绑定到作者指明且已读、可辨认的实际角色", ctx do
+    duplicate_role(ctx)
+
+    intended =
+      Repo.insert!(%Character{
+        work_id: ctx.work.id,
+        name: "林澈",
+        aliases: ["老林"],
+        role: "调查主管",
+        summary: "作者明确指定的主管",
+        narrative_role: "SUPPORTING",
+        status: "ACCEPTED"
+      })
+
+    ref = "character:#{intended.id}"
+    {:ok, fact} = AdoptionRepository.character_profile_context(ctx.work.id, ref)
+    intended_ctx = %{ctx | character: intended, ref: ref, fact: fact}
+
+    input =
+      role_judgment_input(
+        ctx,
+        [source_observation(ctx), source_observation(intended_ctx)],
+        "把调查主管老林设为主角"
+      )
+
+    provider =
+      role_execution([
+        role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
+        role_response("", [role_decision(ref, "role-corrected")], "second")
+      ])
+
+    assert {:ok, judgment} =
+             NovelApplication.JudgmentProtocol.request_judgment(provider, %{}, input)
+
+    assert judgment.action == "execute"
+    assert judgment.capability == "revise_character_profile"
+    assert judgment.character_ref == ref
+    assert judgment.character_observation.coverage["ref"] == ref
+    assert judgment.provider_call_count == 2
+    assert Repo.get!(Character, intended.id).narrative_role == "SUPPORTING"
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  defp duplicate_role(ctx) do
+    Repo.insert!(%Character{
+      work_id: ctx.work.id,
+      name: ctx.character.name,
+      aliases: ctx.character.aliases,
+      role: ctx.character.role,
+      narrative_role: ctx.character.narrative_role,
+      status: "ACCEPTED",
+      summary: "另一份隐藏摘要，不能当成可见区分"
+    })
+  end
+
+  defp role_judgment_input(ctx, observations, author_text \\ "把老林设为主角") do
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-role-display",
+        work_id: ctx.work.id,
+        workspace_id: ctx.work.id,
+        session_id: "session-role-display",
+        parent_turn_ref: "role-author-turn",
+        origin_frame_ref: "frame-role-display",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: author_text, version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["revise_character_profile"]}
+      })
+
+    input = %{
+      author_text: author_text,
+      source_input_ref: "role-author-turn",
+      scope: %{
+        work_id: ctx.work.id,
+        facts: %{work: %{ref: "work:#{ctx.work.id}", work_id: ctx.work.id, title: "角色可辨认性"}},
+        context: %{},
+        coverage: %{}
+      },
+      supplied_context_refs: ["work:#{ctx.work.id}"],
+      options: [plan_run: run, capabilities: ["revise_character_profile", "character_design"]]
+    }
+
+    {:ok, transcript} = NovelApplication.JudgmentProtocol.transcript_for_production(input)
+
+    transcript =
+      Enum.reduce(Enum.with_index(observations), transcript, fn {observation, index}, acc ->
+        call_id = "role-read-#{index}"
+
+        call =
+          NovelCommon.RequestIR.tool_call_block(
+            "judgment_decision",
+            %{
+              action: "explore",
+              dialogue_goal: "读取角色档案",
+              reason: "核对角色身份。",
+              explore_request: %{tool: "archive_read", query: "characters"}
+            },
+            call_id
+          )
+
+        acc
+        |> NovelApplication.AuthoringTranscript.append_assistant("", [call])
+        |> NovelApplication.AuthoringTranscript.append_observation(call_id, observation)
+      end)
+
+    Map.put(input, :transcript, transcript)
+  end
+
+  defp role_decision(ref, id) do
+    %{
+      id: id,
+      name: "judgment_decision",
+      arguments: %{
+        action: "execute",
+        capability: "revise_character_profile",
+        character_ref: ref,
+        dialogue_goal: "指定老林为主角",
+        reason: "根据已读档案提出角色修订。"
+      }
+    }
+  end
+
+  defp role_response(text, calls, ref) do
+    %{
+      content: text,
+      tool_calls: calls,
+      provider_output: %NovelCommon.Contracts.ProviderOutput{
+        provider_run_ref: "run-role-#{ref}",
+        provider_call_ref: "call-role-#{ref}",
+        status: :ok,
+        content: %{text: text, tool_calls: calls}
+      }
+    }
+  end
+
+  defp role_execution(responses) do
+    key = make_ref()
+    Process.put(key, responses)
+
+    %Execution{
+      result_fn: fn _request ->
+        [response | rest] = Process.get(key)
+        Process.put(key, rest)
+        {:ok, response}
+      end
+    }
   end
 
   defp dispatch(ctx, observation, opts \\ []) do

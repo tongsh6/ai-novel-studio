@@ -9,6 +9,7 @@ defmodule NovelApplication.CharacterProfile do
     other_character_changes 供作者裁决，不默认清空/改写其它角色。
   """
 
+  alias NovelApplication.AuthorVisible.Presenter
   alias NovelFoundation.Enums.{AdoptionStatus, NarrativeRole}
   alias NovelPersistence.AdoptionRepository
 
@@ -146,15 +147,24 @@ defmodule NovelApplication.CharacterProfile do
         work_id,
         visible_payloads
       ) do
-    if is_nil(narrative_role_from_text(judgment.author_input)) do
+    desired_role = narrative_role_from_text(judgment.author_input)
+
+    if is_nil(desired_role) do
       {:error, :invalid_character_role}
     else
-      case observed_target(work_id, judgment.character_ref, visible_payloads) do
-        {:ok, _target, observation} ->
-          {:ok, Map.put(judgment, :character_observation, observation)}
-
-        {:error, reason} ->
-          {:error, {:character_profile_invalid, reason}}
+      with {:ok, target, observation} <-
+             observed_target(work_id, judgment.character_ref, visible_payloads),
+           {:ok, roster} <- targets(work_id),
+           :ok <-
+             validate_presentation(
+               target,
+               desired_role,
+               judgment.author_input,
+               roster
+             ) do
+        {:ok, Map.put(judgment, :character_observation, observation)}
+      else
+        {:error, reason} -> {:error, {:character_profile_invalid, reason}}
       end
     end
   end
@@ -252,37 +262,25 @@ defmodule NovelApplication.CharacterProfile do
 
   def validate_changes(_payload), do: {:error, :unsupported_field}
 
-  @doc """
-  B48（C04=A）：合法无变化出口的作者可见说明。
+  @doc "用实际投影验证本次目标及建议对象可辨认；判断接收与派发共用，不持久化展示身份。"
+  @spec validate_presentation(map(), String.t(), String.t(), [map()]) :: :ok | {:error, term()}
+  def validate_presentation(target, desired_role, author_text, roster) do
+    result =
+      case build_candidate(target, desired_role, author_text, roster) do
+        {:ok, payload} ->
+          Presenter.character_profile_candidate(payload, target, roster)
 
-  只陈述真实事实（角色当前叙事身份），不生成待采纳候选、不冒充模型过程叙事。
-  """
-  def no_change_message(%{character_name: name, old_role: role}) do
-    "#{name || "该角色"} 当前已是 #{role}，本次修订无需修改。"
-  end
+        {:no_change, facts} ->
+          Presenter.character_profile_no_change(facts, target, roster)
 
-  @doc "展示标题与差异正文（候选卡复用既有卡，不新增卡片类型）。"
-  def candidate_title(payload), do: "#{payload.character_name} · 叙事身份修订"
-
-  def candidate_body(payload) do
-    change =
-      Enum.map_join(payload.changes, "\n", fn change ->
-        "- #{change.field}：#{change.old || "（未设置）"} → #{change.new}"
-      end)
-
-    other =
-      case Map.get(payload, :suggested_other_character_changes, []) do
-        [] ->
-          []
-
-        changes ->
-          ["", "其它角色（需作者逐项裁决，未默认应用）："] ++
-            Enum.map(changes, fn c ->
-              "- #{c.character_name}（#{c.character_ref}）：当前 #{c.current_narrative_role || "未设置"}；未自动修改"
-            end)
+        {:error, _} = error ->
+          error
       end
 
-    Enum.join([change | other], "\n")
+    case result do
+      {:ok, _presentation} -> :ok
+      {:error, _} = error -> error
+    end
   end
 
   defp normalize_target(

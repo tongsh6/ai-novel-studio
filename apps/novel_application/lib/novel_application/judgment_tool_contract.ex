@@ -10,6 +10,8 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @plan_tool_description_suffix "必须与 judgment_decision(action=plan) 同一响应同批返回；单独返回非法。"
 
+  @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。"
+
   @text %{type: "string", minLength: 1}
   @strings %{type: "array", items: %{type: "string"}}
   @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
@@ -36,6 +38,60 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @doc "判断调用合法工具组合的唯一文案真源（prompt 与纠错回执共用）。"
   def legal_combination_guidance, do: @legal_combination_guidance
+
+  @doc "提问正文契约的唯一文案真源，供工具描述、prompt 和纠错回执共用。"
+  def question_response_guidance, do: @question_response_guidance
+
+  @doc "工具 schema 参数纠错与对应字段约束同属固定工具契约。"
+  def invalid_arguments_guidance do
+    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
+      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
+      "ask_author 只填 question、options（optional reason_codes）；judgment_decision 按 action 填对应字段。" <>
+      "保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
+
+  def invalid_arguments_guidance(detail) do
+    disallowed =
+      case Map.get(detail, :disallowed, []) do
+        [] -> "无"
+        fields -> Enum.join(fields, "、")
+      end
+
+    missing =
+      case Map.get(detail, :missing, []) do
+        [] -> "无"
+        fields -> Enum.join(fields, "、")
+      end
+
+    revision? =
+      Map.get(detail, :tool) == "judgment_decision" and
+        (Map.get(detail, :capability) == "revise_adopted_content" or
+           Enum.any?(
+             ["target_chapter_ref", "modification_scope"],
+             &(&1 in Map.get(detail, :disallowed, []))
+           ))
+
+    example =
+      if revision? do
+        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","reason":"..."})
+      else
+        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","reason":"..."})
+      end
+
+    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
+      "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；judgment_decision 允许字段：#{Enum.join(Map.get(detail, :allowed, []), "、")}。" <>
+      if revision? do
+        "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
+          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。" <>
+          "target_segment_ids 仅在作者要求按本轮读取发现选段时填写，且只能从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
+      else
+        ""
+      end <>
+      "合法最小示例：#{example}。" <>
+      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
+      "ask_author 只填 question、options（optional reason_codes）；" <>
+      "judgment_decision 按 action 填对应字段。保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
 
   defp decision do
     tool(
@@ -99,7 +155,7 @@ defmodule NovelApplication.JudgmentToolContract do
 
     tool(
       "ask_author",
-      "只用于需要作者裁决方向/对象/范围且材料无法消歧；能力缺口必须用 report_capability_gap，不能用本工具代替或封装。",
+      "只用于需要作者裁决方向/对象/范围且材料无法消歧；#{@question_response_guidance}能力缺口必须用 report_capability_gap，不能用本工具代替或封装。",
       %{
         question: @text,
         options: %{type: "array", items: option},
