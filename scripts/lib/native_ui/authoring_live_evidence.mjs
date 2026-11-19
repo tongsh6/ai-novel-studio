@@ -17,6 +17,8 @@ import {
   frameBody,
   frameEvent,
   read,
+  sha256,
+  shaFile,
   withDb,
   writeNativeFrames,
   writeNativeSummary,
@@ -30,7 +32,7 @@ import {
   g2PageReport,
   g2UsageReport,
 } from "./authoring_run_evidence.mjs";
-import { g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
+import { countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -601,12 +603,53 @@ function reconcileNativeCalls(dir, config, history, records) {
   return calls;
 }
 
+function assertCapturedNodes(dir, name, nodes, log, common) {
+  assert(Array.isArray(nodes), "AX 观察缺少原始节点");
+  const captures = log.captures.filter((entry) => entry.name === name);
+  assert.equal(captures.length, 1, "AX 观察必须唯一绑定 capture");
+  const capture = captures[0], shot = capture.screenshot;
+  assert.equal(capture.nodes, nodes.length, "AX 节点数与 capture 不一致");
+  assert.equal(capture.ax_sha256, sha256(JSON.stringify(nodes)), "AX 原始节点与 capture 内容不一致");
+  assert(common.ui.screenshots.includes(name + ".jpg") && shot?.ok === true &&
+    shot.fallback !== true, "截图必须来自本批窗口");
+  assert.equal(shot.sha256, shaFile(path.join(dir, name + ".jpg")), "截图与 capture 内容不一致");
+  const textFile = path.join(dir, name + ".text.txt");
+  // 缺 final 可见文本由页面判据保留缺证报告；已存在的文本必须属于同一 capture。
+  if (fs.existsSync(textFile)) assert.equal(capture.text_sha256, shaFile(textFile),
+    "可见文本与 capture 内容不一致");
+  assert(Date.parse(capture.at) >= Date.parse(common.ready.ready_at), "AX capture 早于本批窗口");
+  return capture;
+}
+
+function visibleTurnObservation(dir, config, common) {
+  const observation = read(dir, "native-b71-turn-observation.json");
+  assert.equal(observation.schema, "native-turn-observation/v1", "缺少真实 AX 回合观察");
+  assert.equal(observation.harness_run_ref, common.ready.run_ref, "AX 观察不属于本批目标");
+  assert.equal(observation.author_message, config.message, "AX 观察作者原话不一致");
+  assert(Number.isInteger(observation.baseline_author_count) && observation.baseline_author_count >= 0,
+    "AX 观察缺少发送前作者节点基线");
+  assert.equal(observation.baseline_capture, "before-input", "AX 观察未绑定发送前截图");
+  assert.equal(observation.capture, "final", "AX 观察未与最终截图绑定");
+  assert.equal(observation.terminal, true, "AX 观察未完成最终采集");
+  const log = read(dir, "native-b71-driver-log.json"), nodes = observation.last?.nodes;
+  for (const [name, raw] of [["before-input", observation.baseline_nodes], ["final", nodes]]) {
+    assertCapturedNodes(dir, name, raw, log, common);
+    const works = raw.filter((node) => node.role === "AXPopUpButton" && node.desc === "作品");
+    assert(works.length === 1 && works[0].title === config.author_visible_target.work_title,
+      "AX 观察作品不一致");
+  }
+  assert.equal(observation.last.signature, sha256(JSON.stringify(nodes)), "AX 原始节点签名不一致");
+  assert(Date.parse(observation.last.at) >= Date.parse(common.ready.ready_at), "最终 AX 观察早于本批窗口");
+  assert.equal(observation.baseline_author_count,
+    countAxAuthorMessages(observation.baseline_nodes, config.message), "AX 作者基线与发送前观察不一致");
+  return { finalNodes: nodes, baselineAuthorCount: observation.baseline_author_count };
+}
 function visibleTextIfExists(dir, name) {
   const file = path.join(dir, `${name}.text.txt`);
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
 
-// B82 G2/G3 新批次：页面只看作者可见文本，不跑内部 ref/版本/DB/wire 对账。
+// B82 G2/G3 页面消费真实 AX 归属与作者可见文本，不以内部 ref/版本/DB/wire 代签终局。
 // 截图来源、驱动与等待账仍由既有 assertCommonEvidence 核对；真实模型单槽仍由
 // Strata 核槽位卸载，Splash 核同进程 runtime；原始 wire/llm-calls/DB 保持原样，供独立机制审计。
 function verifyAuthorVisibleBatch(dir, config, mode) {
@@ -636,6 +679,7 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
     lifecycle = { runtime: config.runtime };
   }
   const evidenceInput = {
+    ...visibleTurnObservation(dir, config, common),
     target,
     message: config.message,
     afterInputText: visibleTextIfExists(dir, "after-input"),
@@ -826,14 +870,11 @@ function r05CandidateViews(dir, common) {
   assert(Array.isArray(log.r05_candidate_views), "R05 缺少候选视图采集记录");
   return log.r05_candidate_views.map((view) => {
     assert(/^r05-candidate-\d+-(entry|action)$/u.test(view.capture), "R05 候选视图名称不属于本入口");
-    assert(Array.isArray(view.nodes), "R05 候选视图缺少实际AX节点");
+    const capture = assertCapturedNodes(dir, view.capture, view.nodes, log, common);
     assertRecordFresh(dir, view.capture, common.ready.ready_at);
-    const captures = log.captures.filter((entry) => entry.name === view.capture);
-    assert.equal(captures.length, 1, "R05 候选视图必须唯一绑定capture");
-    assert.equal(captures[0].nodes, view.nodes.length, "R05 AX节点数与capture不一致");
     return { capture: view.capture, nodes: view.nodes,
-      screenshot_present: common.ui.screenshots.includes(view.capture + ".jpg") && captures[0].screenshot?.ok === true,
-      window_capture: captures[0].screenshot?.ok === true && captures[0].screenshot.fallback !== true };
+      screenshot_present: common.ui.screenshots.includes(view.capture + ".jpg") && capture.screenshot?.ok === true,
+      window_capture: capture.screenshot?.ok === true && capture.screenshot.fallback !== true };
   });
 }
 
@@ -868,6 +909,7 @@ export function auditR05Batch(dir) {
   const goal = r05GoalEvidence({ ...input, goal: config.r05_goal, refs,
     zero_write: { ...zeroWrite, ok: zeroWrite.ok && Object.values(canon.checks).every((value) => value === true) } });
   const visible = r05VisibleEvidence({
+    ...visibleTurnObservation(dir, config, common),
     goal: config.r05_goal, target: config.author_visible_target, message: config.message,
     reply: input.reply, items: input.candidate?.payload?.items ?? [],
     candidate_views: r05CandidateViews(dir, common), known_items: input.known_items,

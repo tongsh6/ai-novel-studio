@@ -30,6 +30,7 @@ import {
   targetResolution,
 } from "./driver.mjs";
 import { cleanupNativeApp } from "../native_app_ownership.mjs";
+import { sha256, shaFile } from "./scenario_evidence.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -363,7 +364,9 @@ export class NativeScenarioHarness {
     fs.writeFileSync(path.join(this.dir, `${name}.text.txt`), text);
     const shot = this.screenshotSafe(path.join(this.dir, `${name}.jpg`), options);
     if (shot.ok) this.screenshots.push(`${name}.jpg`);
-    this.captures.push({ name, at: this.nowIso(), nodes: nodes.length, screenshot: shot });
+    this.captures.push({ name, at: this.nowIso(), nodes: nodes.length,
+      ax_sha256: sha256(JSON.stringify(nodes)), text_sha256: sha256(text),
+      screenshot: shot.ok ? { ...shot, sha256: shaFile(path.join(this.dir, `${name}.jpg`)) } : shot });
     this.log.push({ op: "capture", name, at: this.nowIso() });
     return nodes;
   }

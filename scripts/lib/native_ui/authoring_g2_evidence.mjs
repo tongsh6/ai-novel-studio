@@ -386,28 +386,6 @@ function statusLineKind(line) {
   return valueMatch ? statusTokenKind(valueMatch[1], true) : statusTokenKind(line, false);
 }
 
-// 只按本次作者消息之后的页面文本判断终局：旧回合、标题栏「无任务」和作者原话里的
-// 失败/等待词都不会被当成这次 run 的终局。作者消息本身不参与状态词匹配。
-// 找不到本次作者消息时返回 unknown，绝不用整页兜底。
-export function authorVisibleOutcome(value, { message = "" } = {}) {
-  const source = text(value);
-  const messageIndex = nonBlank(message) ? source.lastIndexOf(message) : -1;
-  if (messageIndex < 0) return { kind: "unknown" };
-  const tail = source.slice(messageIndex + message.length);
-  if (
-    tail.includes(LOCAL_REVISION_SUFFIX) &&
-    tail.includes(LOCAL_REVISION_TITLE) &&
-    PENDING_REVISION_ACTIONS.some((label) => tail.includes(label))
-  ) {
-    return { kind: "pending_candidate" };
-  }
-  let kind = "unknown";
-  for (const line of tail.split(/\r?\n/u)) {
-    const status = statusLineKind(line);
-    if (status) kind = status;
-  }
-  return { kind };
-}
 
 // ── 按 AX 树归属的本轮终态（R01 外部驱动）────────────────────────────────────
 // 页底 flat tail 会把旧任务 dock 的「等待你回复」当成新回合终态。这里只接受
@@ -854,6 +832,8 @@ export function g2VisibleEvidence({
   message,
   afterInputText,
   finalText,
+  finalNodes,
+  baselineAuthorCount = 0,
   readingBeforeText,
   readingAfterText,
   tokens,
@@ -869,8 +849,12 @@ export function g2VisibleEvidence({
   });
   const failures = surface.failures;
   const scan = surface.scan;
+  const outcome = axTurnOutcome(finalNodes, { message, baselineAuthorCount });
+  if (outcome.kind !== "completed") failures.push("author_visible_outcome_not_completed");
   const observed = {
     ...surface.observed,
+    outcome: outcome.kind,
+    completed: outcome.kind === "completed",
     reading_complete: false,
     pending_candidate: false,
     candidate_same_chapter: false,
@@ -928,6 +912,8 @@ export function g3VisibleEvidence({
   message,
   afterInputText,
   finalText,
+  finalNodes,
+  baselineAuthorCount = 0,
   readingBeforeText,
   readingAfterText,
   tokens,
@@ -944,7 +930,7 @@ export function g3VisibleEvidence({
   const failures = surface.failures;
   const scan = surface.scan;
   const currentTurn = surface.currentTurn;
-  const outcome = authorVisibleOutcome(surface.final, { message });
+  const outcome = axTurnOutcome(finalNodes, { message, baselineAuthorCount });
   const observed = {
     ...surface.observed,
     outcome: outcome.kind,

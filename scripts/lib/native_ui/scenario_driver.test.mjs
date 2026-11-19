@@ -2,6 +2,7 @@
 // 不调用 activate/key/click/type，也不因观测失败覆盖原 error。
 // 正常交互需要恢复前台/焦点时，由命名明确的 interaction 方法承担。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -62,26 +63,58 @@ test("tryPollAx 只读当前控件事实，不借观察激活或输入", async (
   assert.deepEqual(harness.input.calls, []);
 });
 
-test("capture 透传窗口截图选项并保留默认采集契约", (t) => {
-  const { dir, harness } = makeHarness({ dump: () => [] });
+test("capture 绑定 raw、文本和截图内容，同数量页面不混用且原样透传选项", (t) => {
+  const samples = [
+    { name: "ordinary", value: "第一次页面回复", text: "创作窗口\n(value=第一次页面回复)" },
+    { name: "window-only", value: "第二次页面回复", text: "创作窗口\n(value=第二次页面回复)" },
+  ].map((sample) => ({
+    ...sample,
+    nodes: [
+      { path: "0", depth: 0, role: "AXWindow", title: "创作窗口" },
+      { path: "0/0", depth: 1, role: "AXStaticText", value: sample.value },
+    ],
+  }));
+  const screenshotBytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  let current = samples[0];
+  const { dir, harness } = makeHarness({ dump: () => current.nodes });
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const seen = [];
   harness.screenshotSafe = (file, options) => {
     seen.push(options);
-    fs.writeFileSync(file, Buffer.from("89504e470d0a1a0a", "hex"));
-    return { ok: true };
+    fs.writeFileSync(file, screenshotBytes);
+    return { ok: true, fallback: false };
   };
   const windowOnly = { allowFullScreenFallback: false };
 
-  harness.capture("ordinary");
-  harness.capture("window-only", windowOnly);
+  assert.deepEqual(harness.capture("ordinary"), samples[0].nodes);
+  current = samples[1];
+  assert.deepEqual(harness.capture("window-only", windowOnly), samples[1].nodes);
 
   assert.deepEqual(seen, [{}, windowOnly]);
   assert.equal(seen[1], windowOnly, "已有 screenshotSafe options 应原样透传");
   assert.deepEqual(harness.screenshots, ["ordinary.jpg", "window-only.jpg"]);
-  for (const name of ["ordinary", "window-only"]) {
-    assertRecordFresh(dir, name, "1970-01-01T00:00:00.000Z");
+  for (const [index, sample] of samples.entries()) {
+    const capture = harness.captures[index];
+    assert.equal(capture.name, sample.name);
+    assert.equal(capture.nodes, 2);
+    // 期望来自独立给定的输入节点、文字和图片字节，不从 capture 输出反推。
+    assert.equal(capture.ax_sha256,
+      createHash("sha256").update(JSON.stringify(sample.nodes)).digest("hex"));
+    assert.equal(capture.text_sha256,
+      createHash("sha256").update(sample.text).digest("hex"));
+    assert.equal(capture.screenshot.sha256,
+      createHash("sha256").update(screenshotBytes).digest("hex"));
+    assert.equal(capture.screenshot.ok, true);
+    assert.equal(capture.screenshot.fallback, false);
+    assert.equal(fs.readFileSync(path.join(dir, sample.name + ".text.txt"), "utf8"), sample.text);
+    assert.deepEqual(fs.readFileSync(path.join(dir, sample.name + ".jpg")), screenshotBytes);
+    assertRecordFresh(dir, sample.name, "1970-01-01T00:00:00.000Z");
   }
+  assert.notEqual(harness.captures[0].ax_sha256, harness.captures[1].ax_sha256);
+  assert.notEqual(harness.captures[0].text_sha256, harness.captures[1].text_sha256);
 });
 
 test("必需窗口截图失败由既有 freshness 断言拒绝，后续输入为零", (t) => {
@@ -107,10 +140,28 @@ test("必需窗口截图失败由既有 freshness 断言拒绝，后续输入为
   assert.deepEqual(harness.screenshots, []);
   assert.equal(harness.captures[0].screenshot.ok, false);
   assert.equal(harness.captures[0].screenshot.reason, "window_capture_denied");
+  assert.equal(Object.hasOwn(harness.captures[0].screenshot, "sha256"), false);
   assert.equal(harness.log.some((entry) => entry.op === "screenshot_fallback"), false);
   assert.equal(fs.existsSync(path.join(dir, "required.ax.txt")), true);
   assert.equal(fs.existsSync(path.join(dir, "required.text.txt")), true);
   assert.equal(fs.existsSync(path.join(dir, "required.jpg")), false);
+});
+
+test("capture 截图失败即使留下部分字节也不签图片身份", (t) => {
+  const { dir, harness } = makeHarness({ dump: () => [] });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  harness.screenshotSafe = (file) => {
+    fs.writeFileSync(file, Buffer.from("89504e470d0a1a0a", "hex"));
+    return { ok: false, reason: "partial_window_capture" };
+  };
+
+  assert.deepEqual(harness.capture("partial", { allowFullScreenFallback: false }), []);
+
+  assert.equal(fs.existsSync(path.join(dir, "partial.jpg")), true);
+  assert.deepEqual(harness.screenshots, []);
+  assert.deepEqual(harness.captures[0].screenshot,
+    { ok: false, reason: "partial_window_capture" });
+  assert.equal(Object.hasOwn(harness.captures[0].screenshot, "sha256"), false);
 });
 
 function readFailure(dir) {

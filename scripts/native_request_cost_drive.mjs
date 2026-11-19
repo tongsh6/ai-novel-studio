@@ -14,6 +14,7 @@ import {
   ensureWorkSelected,
   frameBody,
 } from "./lib/native_ui/scenario_driver.mjs";
+import { createAxObservation } from "./lib/native_ui/scenario_evidence.mjs";
 import {
   captureBatch,
   captureSubjectWindow,
@@ -44,67 +45,6 @@ export function freshnessFacts({
     terminal_kind: outcomeKind,
     terminal_after_new_echo:
       outcomeKind === null ? null : newAuthorEcho && TERMINAL_OUTCOMES.has(outcomeKind),
-  };
-}
-
-function turnObservationSignature(nodes) {
-  return createHash("sha256").update(JSON.stringify(nodes)).digest("hex");
-}
-
-function persistAxObservation(harness, { file, meta, last, changes, extra = {} }) {
-  if (typeof harness.writeJson !== "function") return;
-  try {
-    harness.writeJson(file, {
-      schema: meta.schema,
-      ...meta,
-      updated_at:
-        typeof harness.nowIso === "function" ? harness.nowIso() : new Date().toISOString(),
-      last,
-      changes,
-      ...extra,
-    });
-  } catch {}
-}
-
-function buildAxObservation(harness, nodes, { signature, terminal, data }) {
-  return {
-    at: typeof harness.nowIso === "function" ? harness.nowIso() : new Date().toISOString(),
-    signature,
-    node_count: Array.isArray(nodes) ? nodes.length : 0,
-    terminal,
-    ...data,
-    nodes: Array.isArray(nodes) ? nodes : [],
-  };
-}
-
-// 单一 AX 观察落盘 owner：每次内容变化写 latest raw nodes + 事实，历史只留小摘要；
-// 失败时同步 finalize，保证 supervisor 清理后仍可复算。
-export function createAxObservation(harness, { file, meta = {} }) {
-  const changes = [];
-  let last = null;
-  let lastSignature = null;
-  const persist = (extra = {}) =>
-    persistAxObservation(harness, { file, meta, last, changes, extra });
-  return {
-    record(nodes, { data = {}, change = {} } = {}, { terminal = false } = {}) {
-      const signature = turnObservationSignature(nodes);
-      if (signature === lastSignature) {
-        if (terminal) {
-          last = { ...last, terminal: true };
-          // 首次 record 已 push；同签名分支只会在至少一条变化之后发生。
-          changes[changes.length - 1].terminal = true;
-          persist();
-        }
-        return last;
-      }
-      lastSignature = signature;
-      last = buildAxObservation(harness, nodes, { signature, terminal, data });
-      changes.push({ at: last.at, signature, terminal, ...change });
-      if (changes.length > 240) changes.shift();
-      persist();
-      return last;
-    },
-    finalize: persist,
   };
 }
 

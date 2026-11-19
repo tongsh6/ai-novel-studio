@@ -3,7 +3,7 @@
 // 并在 source→revision→Why→accept→discard→restore→followup 顺序推进。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { drivePending, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
+import { capturePendingItemViews, drivePending, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -179,7 +179,7 @@ function fakeHarness(fixture) {
       throw new Error("fake_ax_timeout");
     },
     async tryPollAx() { return null; },
-    capture(name) { this.captures.push(name); },
+    capture(name) { this.captures.push(name); return this.dumpNodes(); },
     dumpNodes() {
       if (restored) return [node("0/9", "AXStaticText", { value: REVISION_BODY })];
       return [
@@ -363,4 +363,58 @@ test("drivePending 在发送帧错 work 或 ACK 缺 run_id 时拒绝", async () 
     frame: ["join-a", "req-source", TOPIC, "phx_reply", { status: "ok", response: { turn_id: SOURCE_TURN } }],
   });
   await assert.rejects(() => drivePending(noRun, config, { capture() {} }), /ACK 缺 run_id/);
+});
+test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存动作而不点击", async () => {
+  const harness = fakeHarness(buildWire());
+  const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+    item.title === "保存到作品档案" ? { ...item, title: "保存修订稿" } : item);
+  let current = [];
+  const decisions = [], scrolled = [], captures = [];
+  harness.dumpNodes = () => current;
+  harness.pollAx = async (predicate, timeout, label) => {
+    assert.equal(timeout, 10_000);
+    assert.equal(label, "r05-candidate-1:item_rendered");
+    decisions.push(predicate("", current));
+    current = shown;
+    decisions.push(predicate("", current));
+    return { text: "", nodes: current };
+  };
+  harness.ensureInput = () => ({ scrollTo: (path) => scrolled.push(path) });
+  harness.capture = (name, options) => {
+    assert.deepEqual(options, { allowFullScreenFallback: false });
+    captures.push(name);
+    return current;
+  };
+  const views = await capturePendingItemViews(harness, {
+    itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
+    knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+  });
+  assert.deepEqual(decisions, [false, true]);
+  assert.deepEqual(scrolled, ["0/2/0", "0/2/0/0", "0/2/0/2"]);
+  assert.deepEqual(captures, ["r05-candidate-1-entry", "r05-candidate-1-action"]);
+  assert.deepEqual(views.map((view) => view.capture), captures);
+  assert(views.every((view) => view.nodes === shown));
+  assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+});
+
+test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它们当晚到卡片", async () => {
+  const duplicate = [
+    ...itemTree("0/1/0", REVISION_TITLE, REVISION_BODY),
+    ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY),
+  ];
+  for (const [title, expected] of [
+    [REVISION_TITLE, /pending_view_target:item_ambiguous:entry/u],
+    ["", /pending_view_target:item_input_missing:entry/u],
+  ]) {
+    const harness = fakeHarness(buildWire());
+    let reads = 0;
+    harness.pollAx = async (predicate) => { reads += 1; return predicate("", duplicate); };
+    await assert.rejects(() => capturePendingItemViews(harness, {
+      itemTitle: title, itemBody: REVISION_BODY,
+      knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+    }), expected);
+    assert.equal(reads, 1);
+    assert.deepEqual(harness.captures, []);
+    assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+  }
 });

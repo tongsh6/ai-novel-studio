@@ -1,6 +1,6 @@
-// B61：AU11/AU07 原生验收证据核验的共用部分（只读）。
+// B61：AU11/AU07 原生外部证据采集、读取与核验的共用部分。
 //
-// 本模块只消费隔离批次的既有证据：native-driver-ready.json / native-ui-complete.json /
+// 本模块只记录或消费隔离批次事实：native-driver-ready.json / native-ui-complete.json /
 // native-driver-commands.jsonl / wait-events.jsonl / heartbeat.jsonl / native-transport.jsonl /
 // app-log / llm-calls / 只读 SQLite / AX 文本与截图。不操作产品、不读取产品验收开关。
 // 判据对齐 frontend/slice-verify/external-ui-driver.mjs 的浏览器 canonical driver，
@@ -25,6 +25,67 @@ export const write = (dir, file, value) => {
 // 可重算的派生证据允许重写（同一批次重复核验时不扩展事实）。
 export const rewrite = (dir, file, value) =>
   fs.writeFileSync(path.join(dir, file), JSON.stringify(value, null, 2));
+function turnObservationSignature(nodes) {
+  return createHash("sha256").update(JSON.stringify(nodes)).digest("hex");
+}
+
+function persistAxObservation(harness, { file, meta, last, changes, extra = {} }) {
+  if (typeof harness.writeJson !== "function") return;
+  try {
+    harness.writeJson(file, {
+      schema: meta.schema,
+      ...meta,
+      updated_at:
+        typeof harness.nowIso === "function" ? harness.nowIso() : new Date().toISOString(),
+      last,
+      changes,
+      ...extra,
+    });
+  } catch {}
+}
+
+function buildAxObservation(harness, nodes, { signature, terminal, data }) {
+  return {
+    at: typeof harness.nowIso === "function" ? harness.nowIso() : new Date().toISOString(),
+    signature,
+    node_count: Array.isArray(nodes) ? nodes.length : 0,
+    terminal,
+    ...data,
+    nodes: Array.isArray(nodes) ? nodes : [],
+  };
+}
+
+// 单一 AX 观察落盘 owner：每次内容变化写 latest raw nodes + 事实，历史只留小摘要；
+// 失败时同步 finalize，保证 supervisor 清理后仍可复算。
+export function createAxObservation(harness, { file, meta = {} }) {
+  const changes = [];
+  let last = null;
+  let lastSignature = null;
+  const persist = (extra = {}) =>
+    persistAxObservation(harness, { file, meta, last, changes, extra });
+  return {
+    record(nodes, { data = {}, change = {} } = {}, { terminal = false } = {}) {
+      const signature = turnObservationSignature(nodes);
+      if (signature === lastSignature) {
+        if (terminal) {
+          last = { ...last, terminal: true };
+          // 首次 record 已 push；同签名分支只会在至少一条变化之后发生。
+          changes[changes.length - 1].terminal = true;
+          persist();
+        }
+        return last;
+      }
+      lastSignature = signature;
+      last = buildAxObservation(harness, nodes, { signature, terminal, data });
+      changes.push({ at: last.at, signature, terminal, ...change });
+      if (changes.length > 240) changes.shift();
+      persist();
+      return last;
+    },
+    finalize: persist,
+  };
+}
+
 // 成本原生批次与固定同输入配对共用：派生报告保留先前产物，不覆盖原件。
 function derivedFile(file) {
   if (!fs.existsSync(file)) return file;

@@ -9,6 +9,7 @@
 // strata-slot 或写 summary 的 case 经 `withWorkingCopy` 取隔离副本。预注册不在模板
 // 内：它把 evidence.dir 绑定到批次绝对路径，由 case 在工作副本上按本批目录重写。
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import {
   AUTHOR,
@@ -57,7 +58,7 @@ const SCHEMA_SQL = `
 `;
 
 const SHOT_NAMES = ["01-workbench.png", "after-input.png", "final.png"];
-const VISIBLE_SHOT_NAMES = ["01-workbench.png", "02-reading-before.png", "after-input.png", "final.png", "03-reading-after.png"];
+const VISIBLE_SHOT_NAMES = ["01-workbench.png", "02-reading-before.png", "before-input.jpg", "after-input.png", "final.jpg", "03-reading-after.png"];
 const LIVE_WAIT_KINDS = ["input", "ack", "turn", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance"];
 const VISIBLE_WAIT_KINDS = ["maintenance", "maintenance", "maintenance", "input", "turn", "turn", "maintenance", "maintenance"];
 const WAIT_BASE_MS = Date.parse(READY_AT);
@@ -291,6 +292,63 @@ function writeLiveFiles(staging, { usedRefs, nativeCall }) {
   ];
 }
 
+// 独立 AX 事实：发送前无本句作者节点；完成后当前作者、回复与过程处于同一消息流。
+function visibleTurnNodes(message, readOnly) {
+  const container = "0/0/0/0/0";
+  const node = (suffix, role, fields = {}) => ({ path: `${container}/${suffix}`, role, ...fields });
+  const baselineNodes = [
+    { path: "0", role: "AXWindow", frame: [0, 0, 1200, 800] },
+    { path: container, role: "AXWebArea" },
+    node("0", "AXPopUpButton", { desc: "作品", title: G2_VISIBLE_TARGET.work_title }),
+    node("1", "AXPopUpButton", { desc: "助手名称", title: "AI 助手" }),
+    node("3", "AXStaticText", { value: "无任务" }),
+  ];
+  const reply = readOnly
+    ? "我按你的要求只读了现有正文，没有改动，也没有生成候选或保存。"
+    : "指定段落修订稿 他把第七枚手印按进灰里。";
+  const nodes = [
+    ...baselineNodes,
+    node("10", "AXGroup"), node("10/0", "AXStaticText", { value: "你" }),
+    node("11", "AXGroup"), node("11/0", "AXStaticText", { value: message }),
+    node("12", "AXGroup"), node("12/0", "AXStaticText", { value: "AI 助手" }),
+    node("13", "AXGroup"), node("13/0", "AXStaticText", { value: reply }),
+    node("14", "AXGroup", { title: "本轮创作过程" }),
+    node("14/0", "AXStaticText", { value: "已完成" }),
+    node("15", "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
+    ...(readOnly ? [] : [
+      node("16", "AXGroup"),
+      node("16/0", "AXStaticText", { value: "第02章：灰烬中的手印（指定段落修订稿）" }),
+      node("16/1", "AXStaticText", { value: reply }),
+      node("16/2", "AXButton", { title: "保存修订稿" }),
+    ]),
+  ];
+  return { baselineNodes, nodes };
+}
+
+const contentHash = (value) => createHash("sha256").update(value).digest("hex");
+
+// 语义用例重新物化一致的合成 capture；篡改用例不调用它，保留原 capture 收据。
+export function sealAuthorVisibleCaptures(dir) {
+  const observationFile = `${dir}/native-b71-turn-observation.json`;
+  const logFile = `${dir}/native-b71-driver-log.json`;
+  const observation = JSON.parse(fs.readFileSync(observationFile, "utf8"));
+  const log = JSON.parse(fs.readFileSync(logFile, "utf8"));
+  for (const [name, nodes] of [["before-input", observation.baseline_nodes], ["final", observation.last.nodes]]) {
+    const capture = log.captures.find((entry) => entry.name === name);
+    capture.nodes = nodes.length;
+    capture.ax_sha256 = contentHash(JSON.stringify(nodes));
+    const textFile = `${dir}/${name}.text.txt`;
+    if (fs.existsSync(textFile)) capture.text_sha256 = contentHash(fs.readFileSync(textFile));
+    capture.screenshot.sha256 = contentHash(fs.readFileSync(`${dir}/${name}.jpg`));
+    if (name === "final") {
+      observation.last.signature = capture.ax_sha256;
+      observation.last.node_count = nodes.length;
+    }
+  }
+  writeJson(observationFile, observation);
+  writeJson(logFile, log);
+}
+
 function writeVisibleFiles(staging, { mode }) {
   const readOnly = mode === "read_only";
   const message = readOnly ? G3_MESSAGE : G2_MESSAGE;
@@ -298,6 +356,7 @@ function writeVisibleFiles(staging, { mode }) {
   for (const name of VISIBLE_SHOT_NAMES) fs.writeFileSync(`${staging}/${name}`, png());
   fs.writeFileSync(`${staging}/01-workbench.text.txt`, `${G2_VISIBLE_TARGET.work_title}\n等待创作请求\n`);
   fs.writeFileSync(`${staging}/02-reading-before.text.txt`, visibleReadingPage());
+  fs.writeFileSync(`${staging}/before-input.text.txt`, `${G2_VISIBLE_TARGET.work_title}\n无任务\n`);
   fs.writeFileSync(`${staging}/after-input.text.txt`, visibleAfterInput(message));
   fs.writeFileSync(
     `${staging}/final.text.txt`,
@@ -319,7 +378,22 @@ function writeVisibleFiles(staging, { mode }) {
     target: { work_title: G2_VISIBLE_TARGET.work_title },
     message,
   });
-  writeJson(`${staging}/native-b71-driver-log.json`, authorVisibleDriverLog({ readOnly }));
+  const { baselineNodes, nodes } = visibleTurnNodes(message, readOnly);
+  writeJson(`${staging}/native-b71-turn-observation.json`, {
+    schema: "native-turn-observation/v1", harness_run_ref: "run-ref-live",
+    author_message: message, baseline_capture: "before-input", baseline_nodes: baselineNodes,
+    baseline_author_count: 0, capture: "final", terminal: true,
+    last: { at: FINISHED_AT, nodes, terminal: true, outcome: { kind: "completed" } },
+    changes: [],
+  });
+  writeJson(`${staging}/native-b71-driver-log.json`, {
+    ...authorVisibleDriverLog({ readOnly }),
+    captures: ["before-input", "final"].map((name) => ({
+      name, at: name === "before-input" ? "2026-11-03T09:00:01.000Z" : FINISHED_AT,
+      screenshot: { ok: true },
+    })),
+  });
+  sealAuthorVisibleCaptures(staging);
   writeJson(`${staging}/strata-slot.json`, {
     schema: "b71-strata-slot/v1",
     model: "iq3_s",
@@ -332,6 +406,8 @@ function writeVisibleFiles(staging, { mode }) {
   return [
     "native-driver-ready.json",
     ...VISIBLE_SHOT_NAMES,
+    "native-b71-turn-observation.json",
+    "before-input.text.txt",
     "01-workbench.text.txt",
     "02-reading-before.text.txt",
     "after-input.text.txt",

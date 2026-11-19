@@ -7,7 +7,6 @@ import {
   axAuthorMessages,
   axTurnOutcome,
   countAxAuthorMessages,
-  authorVisibleOutcome,
   g2CandidateEvidence,
   g2PageEvidence,
   g2PageUsageEvidence,
@@ -623,6 +622,36 @@ test("g2UsageReport：页未成立时按缺证拒绝，不越过页证据", () =
   assert.equal(report.reason, "pages_not_ok");
 });
 
+// AX 树归属判据：只构造与本机真实工作台同结构的最小节点（无小说正文）。
+const axNode = (path, role, title = "", value = "") => ({ path, role, title, value });
+
+function axMessageGroup(path, text) {
+  return [axNode(path, "AXGroup"), axNode(`${path}/0`, "AXStaticText", "", text)];
+}
+
+function axProcessGroup(path, statuses = []) {
+  return [
+    axNode(path, "AXGroup", "本轮创作过程"),
+    ...statuses.map((value, index) => axNode(`${path}/${index}`, "AXStaticText", "", value)),
+  ];
+}
+
+const AX_CONTAINER = "0/0/0/0/0";
+
+function visibleTurnNodes({ author, reply, status = "已完成" }) {
+  return [
+    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
+    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
+    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/11`, author),
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "AI 助手"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, reply),
+    ...axProcessGroup(`${AX_CONTAINER}/14`, [status]),
+    { ...axNode(`${AX_CONTAINER}/16`, "AXButton", "为什么"), desc: "查看这轮回应的依据" },
+  ];
+}
+
 // ── B82 G2 作者可见判据：只构造实际可达的页面文本形状 ──────────────────────────
 const VISIBLE_TARGET = Object.freeze({
   work_title: "灰烬手印验证作品",
@@ -672,6 +701,8 @@ function visibleEvidence(overrides = {}) {
     target: VISIBLE_TARGET,
     message: VISIBLE_MESSAGE,
     afterInputText: AFTER_INPUT,
+    finalNodes: visibleTurnNodes({ author: VISIBLE_MESSAGE,
+      reply: "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：按作者要求保留原稿其余字句。" }),
     finalText: FINAL_PAGE,
     readingBeforeText: READING_PAGE,
     readingAfterText: READING_PAGE,
@@ -679,105 +710,7 @@ function visibleEvidence(overrides = {}) {
   });
 }
 
-test("可见终局只认本次作者消息之后的状态：缺 marker/旧回合/无任务/作者等待词都不算终局", () => {
-  assert.equal(
-    authorVisibleOutcome(`旧回合\n(value=已完成)\n你\n${VISIBLE_MESSAGE}\nAI 助手\n(value=进行中 · 创作)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "running",
-  );
-  assert.equal(
-    authorVisibleOutcome("(value=已完成)", { message: VISIBLE_MESSAGE }).kind,
-    "unknown",
-    "当前作者原话不在 AX 文本时不得用整页状态",
-  );
-  assert.equal(
-    authorVisibleOutcome(FINAL_PAGE.replace(`${VISIBLE_MESSAGE}\n`, ""), {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "unknown",
-    "缺当前作者消息时即使页面有候选/完成状态也不得当终局",
-  );
-  assert.equal(
-    authorVisibleOutcome(`灰烬手印验证作品\n(value=无任务)\n你\n${VISIBLE_MESSAGE}\nAI 助手\n`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "unknown",
-    "顶部「无任务」不是这次 run 的终局",
-  );
-  const authorWaitWords = "请等待我确认，失败也不要停。";
-  assert.equal(
-    authorVisibleOutcome(`你\n${authorWaitWords}\nAI 助手\n(value=进行中 · 创作)`, {
-      message: authorWaitWords,
-    }).kind,
-    "running",
-    "作者原话里的等待/失败词不能被当成终局",
-  );
-  assert.equal(
-    authorVisibleOutcome(`你\n${authorWaitWords}\n`, { message: authorWaitWords }).kind,
-    "unknown",
-  );
-});
 
-test("可见终局只认状态行：prose 里的失败/错误不算，实际 value 状态才认", () => {
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n这次候选处理失败，请核对后重试。`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "unknown",
-    "正文任意出现「失败」不能当终局",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=失败)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "failed",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=已完成)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "completed",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=等待你回复)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "waiting",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=进行中 · 创作)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "running",
-  );
-  // 运行详情抽屉标题是「状态 · 创作」；b71 归档的真实等待就是
-  // `(value=等待你回复 · 创作)`，不认它会把页面等待误判成超时。
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n(value=等待你回复 · 创作)`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "waiting",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n这轮我先等待你回复 · 创作说明后再继续。`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "unknown",
-    "正文里的近似状态词不能当 waiting",
-  );
-  assert.equal(
-    authorVisibleOutcome(`${VISIBLE_MESSAGE}\nAI 助手\n等待你回复`, {
-      message: VISIBLE_MESSAGE,
-    }).kind,
-    "waiting",
-  );
-  assert.equal(
-    authorVisibleOutcome(FINAL_PAGE, { message: VISIBLE_MESSAGE }).kind,
-    "pending_candidate",
-    "候选卡片优先于状态行",
-  );
-});
 
 test("G2 作者可见正例：真实原话、完整阅读、末页原文前后不变、同章局部修订候选", () => {
   const result = visibleEvidence();
@@ -790,10 +723,38 @@ test("G2 作者可见正例：真实原话、完整阅读、末页原文前后�
   assert.equal(result.observed.reading_complete, true);
   assert.equal(result.observed.pending_candidate, true);
   assert.equal(result.observed.candidate_same_chapter, true);
+  assert.equal(result.observed.outcome, "completed");
+  assert.equal(result.observed.completed, true);
   assert.equal(result.observed.author_visible_clean, true);
   assert.deepEqual(result.leak.hits, []);
 });
 
+test("G2 候选和完整读证已出现，缺终态或仍在运行/等待/失败/维护都不能签", () => {
+  const nodesFor = (status) => visibleTurnNodes({ author: VISIBLE_MESSAGE,
+    reply: "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：按作者要求保留原稿其余字句。", status });
+  const maintenance = nodesFor("进行中");
+  maintenance.find((node) => node.path === `${AX_CONTAINER}/3`).value = "1 个任务进行中";
+  maintenance.push(...axDock(`${AX_CONTAINER}/20`, "进行中"));
+  for (const [label, finalNodes, kind] of [
+    ["missing", undefined, "unknown"],
+    ["running", nodesFor("进行中"), "running"],
+    ["waiting", nodesFor("等待你回复"), "waiting"],
+    ["failed", nodesFor("失败"), "failed"],
+    ["maintenance_after_delivery", maintenance, "running"],
+  ]) {
+    const result = visibleEvidence({ finalNodes });
+    assert.equal(result.observed.pending_candidate, true, label);
+    assert.equal(result.observed.reading_complete, true, label);
+    assert.equal(result.observed.outcome, kind, label);
+    assert.equal(result.observed.completed, false, label);
+    assert.equal(result.ok, false, label);
+    assert(result.failures.includes("author_visible_outcome_not_completed"), label);
+  }
+  const old = visibleEvidence({ baselineAuthorCount: 1 });
+  assert.equal(old.observed.pending_candidate, true);
+  assert.equal(old.observed.completed, false);
+  assert.equal(old.ok, false);
+});
 test("G2 未显示完整阅读：只有手工阅读页摘要/末页一行时缺证", () => {
   const noActivity = visibleEvidence({
     finalText: FINAL_PAGE
@@ -908,6 +869,8 @@ test("G2 阅读页作品名/章序不可辨时缺证", () => {
 
 test("G2 旧失败批次：只有失败状态而没有候选时按缺证拒绝", () => {
   const result = visibleEvidence({
+    finalNodes: visibleTurnNodes({ author: VISIBLE_MESSAGE,
+      reply: "这次候选处理未完成，目标可能已被处理或修订未成功。没有据此采纳或写入作品事实，请核对当前候选后继续。", status: "失败" }),
     finalText: [
       "灰烬手印验证作品",
       "你",
@@ -924,6 +887,7 @@ test("G2 旧失败批次：只有失败状态而没有候选时按缺证拒绝",
 
 test("G2 等待状态：可见等待但不自动作答，也不因此签页面", () => {
   const result = visibleEvidence({
+    finalNodes: visibleTurnNodes({ author: VISIBLE_MESSAGE, reply: "我需要你补充要修订的段落。", status: "等待你回复" }),
     finalText: [
       "灰烬手印验证作品",
       "你",
@@ -972,6 +936,7 @@ test("G2 真实作者消息缺失时不签，且不用整页里的旧候选", ()
   const result = visibleEvidence({
     afterInputText: "灰烬手印验证作品\nAI 助手\n(value=进行中 · 创作)",
     finalText: FINAL_PAGE.split(`${VISIBLE_MESSAGE}\n`).join(""),
+    finalNodes: visibleTurnNodes({ author: "上一轮原话", reply: "上一轮的候选。" }),
   });
   assert.equal(result.ok, false);
   assert(result.failures.includes("author_message_visible_missing"));
@@ -981,6 +946,7 @@ test("G2 真实作者消息缺失时不签，且不用整页里的旧候选", ()
 
 test("G2 旧回合候选不能签本次作者消息之后的空终局", () => {
   const result = visibleEvidence({
+    finalNodes: visibleTurnNodes({ author: VISIBLE_MESSAGE, reply: "", status: "失败" }),
     finalText: [
       "第02章：灰烬中的手印（指定段落修订稿）",
       "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。预览：指定段落修订稿",
@@ -997,6 +963,8 @@ test("G2 旧回合候选不能签本次作者消息之后的空终局", () => {
   assert(result.failures.includes("pending_candidate_missing"));
   assert.equal(result.observed.pending_candidate, false);
 });
+
+
 
 // ── B82 G3 只读作者可见判据：自然只读原话、真实已读范围、完成态与无新候选 ────────
 const G3_MESSAGE = "我想先安静读一遍第02章已经保存的正文，只核对，不改也不保存。";
@@ -1019,11 +987,14 @@ const G3_AFTER_INPUT = [
   "(value=进行中 · 创作)",
 ].join("\n");
 
+
+
 function g3Evidence(overrides = {}) {
   return g3VisibleEvidence({
     target: VISIBLE_TARGET,
     message: G3_MESSAGE,
     afterInputText: G3_AFTER_INPUT,
+    finalNodes: visibleTurnNodes({ author: G3_MESSAGE, reply: G3_REPLY }),
     finalText: G3_FINAL_PAGE,
     readingBeforeText: READING_PAGE,
     readingAfterText: READING_PAGE,
@@ -1046,6 +1017,18 @@ test("G3 作者可见正例：自然只读原话后有真实回复并完成，�
   assert.equal(result.observed.save_action, false);
   assert.equal(result.observed.author_visible_clean, true);
   assert.deepEqual(result.leak.hits, []);
+});
+
+test("G3 缺最终AX或只有旧作者副本时，完成文字不能替代本轮终态", () => {
+  for (const finalNodes of [undefined, [], visibleTurnNodes({ author: "上一轮只读请求", reply: G3_REPLY })]) {
+    const result = g3Evidence({ finalNodes });
+    assert.equal(result.ok, false);
+    assert.equal(result.observed.completed, false);
+    assert(result.failures.includes("author_visible_outcome_not_completed"));
+  }
+  const old = g3Evidence({ baselineAuthorCount: 1 });
+  assert.equal(old.ok, false);
+  assert.equal(old.observed.completed, false);
 });
 
 test("G3 只要求至少一个真实范围页，不要求读完整个目标章", () => {
@@ -1080,6 +1063,7 @@ test("G3 本次失败或等待终局只留证不签", () => {
   for (const [status, kind] of [["失败", "failed"], ["等待你回复", "waiting"]]) {
     const result = g3Evidence({
       finalText: G3_FINAL_PAGE.replace("(value=已完成)", `(value=${status})`),
+      finalNodes: visibleTurnNodes({ author: G3_MESSAGE, reply: G3_REPLY, status }),
     });
     assert.equal(result.ok, false, status);
     assert.equal(result.observed.outcome, kind);
@@ -1090,6 +1074,7 @@ test("G3 本次失败或等待终局只留证不签", () => {
 
 test("G3 只有完成状态或只有读活动、没有真实回复时不签", () => {
   const result = g3Evidence({
+    finalNodes: visibleTurnNodes({ author: G3_MESSAGE, reply: "" }),
     finalText: [
       VISIBLE_TARGET.work_title,
       "你",
@@ -1154,6 +1139,7 @@ test("G3 旧回合候选不在本回合，不影响只读完成判定", () => {
 test("G3 缺当前作者原话时不用整页旧状态或旧候选", () => {
   const result = g3Evidence({
     finalText: G3_FINAL_PAGE.split(`${G3_MESSAGE}\n`).join(""),
+    finalNodes: visibleTurnNodes({ author: "上一轮只读请求", reply: G3_REPLY }),
   });
   assert.equal(result.ok, false);
   assert(result.failures.includes("author_message_visible_missing"));
@@ -1179,19 +1165,7 @@ test("G3 阅读内容改变或泄漏内部词时不签", () => {
   assert(leaked.leak.hits.some((hit) => hit.token === "call_id"));
 });
 
-// AX 树归属判据：只构造与本机真实工作台同结构的最小节点（无小说正文）。
-const axNode = (path, role, title = "", value = "") => ({ path, role, title, value });
 
-function axMessageGroup(path, text) {
-  return [axNode(path, "AXGroup"), axNode(`${path}/0`, "AXStaticText", "", text)];
-}
-
-function axProcessGroup(path, statuses = []) {
-  return [
-    axNode(path, "AXGroup", "本轮创作过程"),
-    ...statuses.map((value, index) => axNode(`${path}/${index}`, "AXStaticText", "", value)),
-  ];
-}
 
 function axQuestionGroup(path, status = "等待你的回答") {
   return [
@@ -1211,7 +1185,6 @@ function axDock(path, label = "等待你回复 · 创作") {
   ];
 }
 
-const AX_CONTAINER = "0/0/0/0/0";
 
 test("普通 Markdown 回复：交付入口与空闲同时成立，不能借旧轮或在途状态", () => {
   const message = "本轮只讨论";
@@ -1372,11 +1345,7 @@ test("AX 本轮终态：旧过程组内正文的状态词不参与，只有精�
   assert.equal(axTurnOutcome(nodes, { message }).kind, "unknown");
 });
 
-test("纯文本「等待你回复 · 创作」不再被当成状态行；AX value 仍可剥徽标", () => {
-  assert.equal(
-    authorVisibleOutcome("作者原话\n等待你回复 · 创作", { message: "作者原话" }).kind,
-    "unknown",
-  );
+test("本轮过程组的真实AX状态值可剥离创作徽标", () => {
   const message = "作者原话";
   const nodes = [
     axNode("0", "AXWindow"),
@@ -1509,21 +1478,7 @@ test("capability_gap 不借旧回合；重复作者只取新增；过程 complet
   assert.equal(axTurnOutcome(withProcess, { message: second }).kind, "completed");
 });
 
-test("状态行边界：作者原话紧贴状态词仍按作者消息后文本判定", () => {
-  assert.equal(authorVisibleOutcome("作者已完成", { message: "作者" }).kind, "completed");
-  assert.equal(authorVisibleOutcome("作者失败", { message: "作者" }).kind, "failed");
-  assert.equal(authorVisibleOutcome("作者等待你回复", { message: "作者" }).kind, "waiting");
-});
 
-test("待确认候选必须同时出现本地修订后缀、标题和动作，缺一不判 pending", () => {
-  const message = "作者原话";
-  const titleOnly = "作者原话\n指定段落修订稿";
-  const titleAndAction = "作者原话\n指定段落修订稿\n保存修订稿";
-  assert.equal(authorVisibleOutcome(titleOnly, { message }).kind, "unknown");
-  assert.equal(authorVisibleOutcome(titleAndAction, { message }).kind, "unknown");
-  const full = "作者原话\n（指定段落修订稿）\n指定段落修订稿\n保存修订稿";
-  assert.equal(authorVisibleOutcome(full, { message }).kind, "pending_candidate");
-});
 
 test("AX 终态只取本消息流容器内、本条作者之后的组；页底旧组不覆盖已完成", () => {
   const message = "第四条";

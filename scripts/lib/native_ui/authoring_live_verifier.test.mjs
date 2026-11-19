@@ -34,6 +34,7 @@ import {
   authorVisibleFixtureSpec,
   insertCanonicalRun,
   liveBatchFixtureSpec,
+  sealAuthorVisibleCaptures,
 } from "./fixtures/authoring_live_io_fixture.mjs";
 
 let runScope;
@@ -52,6 +53,18 @@ function writeJson(file, value) {
 
 function writeJsonl(file, rows) {
   fs.writeFileSync(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+}
+
+function rewriteVisibleObservation(dir, update) {
+  const file = path.join(dir, "native-b71-turn-observation.json");
+  const observation = JSON.parse(fs.readFileSync(file, "utf8"));
+  update(observation);
+  writeJson(file, observation);
+}
+
+function verifyVisiblePage(dir) {
+  sealAuthorVisibleCaptures(dir);
+  return verifyLiveBatch(dir);
 }
 
 function liveTemplate(options = {}) {
@@ -216,12 +229,51 @@ test("B82 冻结 live：真实 SSE 逐调用对账写入 measured.native_call �
   });
 });
 
+test("B82 页面拒绝缺失、错批、旧时点、伪基线与未绑定的原始 capture", () => {
+  const cases = [
+    [(dir) => fs.rmSync(path.join(dir, "native-b71-turn-observation.json")), /native-b71-turn-observation/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => { o.harness_run_ref = "other-batch"; }), /本批目标/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => { delete o.last.at; }), /早于本批窗口/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => { o.last.at = "2026-11-03T08:59:59.000Z"; }), /早于本批窗口/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => { o.baseline_author_count = 1; }), /AX 作者基线与发送前观察不一致/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => {
+      o.last.nodes.find((n) => n.value === "已完成").value = "进行中";
+      o.last.signature = sha256(JSON.stringify(o.last.nodes));
+    }), /AX 原始节点与 capture 内容不一致/u],
+    [(dir) => rewriteVisibleObservation(dir, (o) => { o.baseline_nodes[4].value = "伪造的发送前页面"; }), /AX 原始节点与 capture 内容不一致/u],
+    [(dir) => fs.appendFileSync(path.join(dir, "final.jpg"), "another-window"), /截图与 capture 内容不一致/u],
+  ];
+  for (const mode of ["candidate", "read_only"]) for (const [tamper, reason] of cases) {
+    withWorkingCopy(visibleTemplate(mode), (copy) => {
+      assertVisiblePreregistration(copy, mode);
+      tamper(copy.dir); // 不重封存 capture；必须依据原始收据拒绝。
+      assert.throws(() => verifyLiveBatch(copy.dir), reason);
+    });
+  }
+});
+
+test("G2/G3 不用伪 completed 签运行中页面，已有候选也不能代替终态", () => {
+  for (const mode of ["candidate", "read_only"]) withWorkingCopy(visibleTemplate(mode), (copy) => {
+    assertVisiblePreregistration(copy, mode);
+    rewriteVisibleObservation(copy.dir, (o) => {
+      o.last.outcome = { kind: "completed" };
+      o.last.nodes.find((n) => n.value === "已完成").value = "进行中";
+    });
+    const textFile = path.join(copy.dir, "final.text.txt");
+    fs.writeFileSync(textFile, fs.readFileSync(textFile, "utf8").replace("(value=已完成)", "(value=进行中)"));
+    assert.throws(() => verifyVisiblePage(copy.dir), /author_visible_outcome_not_completed/u);
+    const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
+    assert.equal(summary.author_visible.observed.outcome, "running");
+    if (mode === "candidate") assert.equal(summary.author_visible.observed.pending_candidate, true);
+  });
+});
+
 // B82 G2 新批次只签作者可见页面：真实原话、末页阅读原文前后不变、同章局部
 // 「指定段落修订稿」待采纳候选。旧内部页/候选对账保留在纯 helper 测试中诊断。
 test("B82 冻结 live：b82-g2 只按作者可见消息/末页阅读/同章修订候选签页面", () => {
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     assertVisiblePreregistration(copy, "candidate");
-    const { checks, summary } = verifyLiveBatch(copy.dir);
+    const { checks, summary } = verifyVisiblePage(copy.dir);
     assert.equal(checks.author_visible.ok, true, checks.author_visible.failures.join(","));
     assert.equal(checks.author_visible.observed.author_message, true);
     assert.equal(checks.author_visible.observed.reading_unchanged, true);
@@ -232,7 +284,7 @@ test("B82 冻结 live：b82-g2 只按作者可见消息/末页阅读/同章修�
     assert.equal(summary.verdict.full_g1_g6_signed, false);
     assert.equal(summary.scenario_id, "b82-g2");
     assert.equal(summary.surface, "tauri-native");
-    assert.equal(summary.screenshots.length, 5);
+    assert.equal(summary.screenshots.length, 6);
     assert.equal(summary.wait_ledger.kinds.includes("ack"), false, "B82 不要求 ack 分型");
     assert.equal(summary.author_visible_target.chapter_title, G2_VISIBLE_TARGET.chapter_title);
   });
@@ -245,7 +297,7 @@ test("B82 冻结 live：b82-g2 页面判据不生成也不读取 DB/wire", () =>
     for (const entry of ["database", "seed.log", "llm-calls", "app-log", "native-transport.jsonl", "b71-start.json", "b71-final.json"]) {
       assert.equal(fs.existsSync(path.join(copy.dir, entry)), false, `作者可见批次不应生成 ${entry}`);
     }
-    const { summary } = verifyLiveBatch(copy.dir);
+    const { summary } = verifyVisiblePage(copy.dir);
     assert.equal(summary.verdict.author_visible, "pass");
     assert.equal(summary.author_visible.observed.reading_complete, true);
     assert.equal(summary.author_visible.observed.pending_candidate, true);
@@ -256,7 +308,7 @@ test("B82 冻结 live：b82-g2 页面判据不生成也不读取 DB/wire", () =>
 test("B82 冻结 live：b82-g3 按自然只读原话/真实已读范围/完成态签页面", () => {
   withWorkingCopy(visibleTemplate("read_only"), (copy) => {
     assertVisiblePreregistration(copy, "read_only");
-    const { checks, summary } = verifyLiveBatch(copy.dir);
+    const { checks, summary } = verifyVisiblePage(copy.dir);
     assert.equal(checks.author_visible.ok, true, checks.author_visible.failures.join(","));
     assert.equal(checks.author_visible.observed.author_message, true);
     assert.equal(checks.author_visible.observed.completed, true);
@@ -288,7 +340,8 @@ test("B82 冻结 live：b82-g3 模型失败或等待时留证不签", () => {
         path.join(copy.dir, "final.text.txt"),
         visibleReadOnlyFinal().replace("(value=已完成)", `(value=${status})`),
       );
-      assert.throws(() => verifyLiveBatch(copy.dir), /author_visible_outcome_not_completed/u);
+      rewriteVisibleObservation(copy.dir, (o) => { o.last.nodes.find((n) => n.value === "已完成").value = status; });
+      assert.throws(() => verifyVisiblePage(copy.dir), /author_visible_outcome_not_completed/u);
       const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
       assert.equal(summary.verdict.author_visible, "fail");
       assert.equal(summary.author_visible.observed.completed, false);
@@ -312,7 +365,7 @@ test("B82 冻结 live：b82-g3 本次出现新候选或保存操作时拒绝", (
         ].join("\n"),
       ),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /unexpected_pending_candidate/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /unexpected_pending_candidate/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.pending_candidate, true);
     assert.equal(summary.author_visible.observed.save_action, true);
@@ -329,7 +382,7 @@ test("B82 冻结 live：b82-g3 没有真实范围页时缺证并保留报告", (
         "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
       ),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_range_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_range_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_activity, true);
     assert.equal(summary.author_visible.observed.reading_range, null);
@@ -348,7 +401,7 @@ test("B82 冻结 live：b82-g3 旧回合候选不能代签本次只读完成", (
         visibleReadOnlyFinal(),
       ].join("\n"),
     );
-    const { summary } = verifyLiveBatch(copy.dir);
+    const { summary } = verifyVisiblePage(copy.dir);
     assert.equal(summary.verdict.author_visible, "pass");
     assert.equal(summary.author_visible.observed.pending_candidate, false);
     assert.equal(summary.author_visible.observed.save_action, false);
@@ -388,7 +441,7 @@ function bindSplashVisible(copy) {
 test("G2 Splash 页面证据消费实际 runtime，不要求或伪造外部模型卸载", () => {
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     const config = bindSplashVisible(copy);
-    const { checks, summary } = verifyLiveBatch(copy.dir);
+    const { checks, summary } = verifyVisiblePage(copy.dir);
     assert.equal(summary.provider, "splash");
     assert.equal(summary.model, "local/Q4-PLE4");
     assert.equal(summary.verdict.author_visible, "pass");
@@ -414,7 +467,7 @@ test("G2 Splash 页面不能以真实 runtime 掩盖错 provider/模型的 drive
       bindSplashVisible(copy);
       const target = path.join(copy.dir, file);
       writeJson(target, { ...JSON.parse(fs.readFileSync(target, "utf8")), [field]: value });
-      assert.throws(() => verifyLiveBatch(copy.dir), /provider|模型|model/);
+      assert.throws(() => verifyVisiblePage(copy.dir), /provider|模型|model/);
       assert.equal(fs.existsSync(path.join(copy.dir, "summary.json")), false);
     });
   }
@@ -424,7 +477,7 @@ test("G2 Splash 可见失败保留失败报告，runtime 合法不能代签候�
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     bindSplashVisible(copy);
     fs.writeFileSync(path.join(copy.dir, "final.text.txt"), [G2_MESSAGE, "这次处理失败，未产生候选。"].join("\n"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /作者可见证据未成立/);
+    assert.throws(() => verifyVisiblePage(copy.dir), /作者可见证据未成立/);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.status, "fail");
     assert.equal(summary.all_checks_passed, false);
@@ -439,7 +492,7 @@ test("B82 冻结 live：b82-g2 单槽模型与冻结模型不一致时拒绝", (
     const slotPath = path.join(copy.dir, "strata-slot.json");
     const slot = JSON.parse(fs.readFileSync(slotPath, "utf8"));
     fs.writeFileSync(slotPath, JSON.stringify({ ...slot, model: "other-model" }, null, 2));
-    assert.throws(() => verifyLiveBatch(copy.dir), /单槽模型与冻结模型不一致/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /单槽模型与冻结模型不一致/u);
   });
 });
 
@@ -455,7 +508,8 @@ test("B82 冻结 live：b82-g2 旧失败批次只有失败/未完成时缺证拒
       "(value=失败)",
       "(value=第 3/3 步)",
     ].join("\n"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /pending_candidate_missing/u);
+    rewriteVisibleObservation(copy.dir, (o) => { o.last.nodes.find((n) => n.value === "已完成").value = "失败"; });
+    assert.throws(() => verifyVisiblePage(copy.dir), /pending_candidate_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.verdict.author_visible, "fail");
     assert(summary.author_visible.failures.includes("pending_candidate_missing"));
@@ -476,7 +530,8 @@ test("B82 冻结 live：b82-g2 历史同章候选不能代签本次失败终局"
       "AI 助手",
       "(value=失败)",
     ].join("\n"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /pending_candidate_missing/u);
+    rewriteVisibleObservation(copy.dir, (o) => { o.last.nodes.find((n) => n.value === "已完成").value = "失败"; });
+    assert.throws(() => verifyVisiblePage(copy.dir), /pending_candidate_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.pending_candidate, false);
   });
@@ -493,7 +548,8 @@ test("B82 冻结 live：b82-g2 可见等待不自动作答，也不因此签页�
       "我需要你补充要修订的段落。",
       "(value=等待你回复)",
     ].join("\n"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /pending_candidate_missing/u);
+    rewriteVisibleObservation(copy.dir, (o) => { o.last.nodes.find((n) => n.value === "已完成").value = "等待你回复"; });
+    assert.throws(() => verifyVisiblePage(copy.dir), /pending_candidate_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.pending_candidate, false);
     assert(summary.author_visible.failures.includes("pending_candidate_missing"));
@@ -504,7 +560,7 @@ test("B82 冻结 live：b82-g2 缺 final 页时缺证失败并保留报告", () 
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     assertVisiblePreregistration(copy, "candidate");
     fs.rmSync(path.join(copy.dir, "final.text.txt"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /final_visible_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /final_visible_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.verdict.author_visible, "fail");
     assert(summary.author_visible.failures.includes("final_visible_missing"));
@@ -515,7 +571,7 @@ test("B82 冻结 live：b82-g2 缺阅读后页时缺证失败并保留报告", (
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     assertVisiblePreregistration(copy, "candidate");
     fs.rmSync(path.join(copy.dir, "03-reading-after.text.txt"));
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_after_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_after_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.verdict.author_visible, "fail");
     assert(summary.author_visible.failures.includes("reading_after_missing"));
@@ -529,7 +585,7 @@ test("B82 冻结 live：b82-g2 阅读页仍显示旧投影状态时拒绝", () =
       path.join(copy.dir, "02-reading-before.text.txt"),
       `${visibleReadingPage()}\n投影状态：重建中\n正在读取最新章节，请稍候。`,
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_before_projection_not_fresh/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_before_projection_not_fresh/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_unchanged, false);
   });
@@ -545,7 +601,7 @@ test("B82 冻结 live：b82-g2 首页读活动无可见范围时不补缺口", (
         "(value=已阅读章节正文「灰烬中的手印」（第 2 章）（有效字数 6244）。)",
       ),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_not_complete/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_not_complete/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_complete, false);
   });
@@ -561,7 +617,7 @@ test("B82 冻结 live：b82-g2 只改非摘录正文也必须拒绝（完整同�
         "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线。（正文其它位置被改）",
       ),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_changed/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_changed/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_unchanged, false);
   });
@@ -574,7 +630,7 @@ test("B82 冻结 live：b82-g2 目标章缺少章序完整标签时缺证", () =
       authorVisibleTarget: { ...G2_VISIBLE_TARGET, chapter_title: "灰烬中的手印" },
       message: G2_MESSAGE,
     });
-    assert.throws(() => verifyLiveBatch(copy.dir), /chapter_label_incomplete/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /chapter_label_incomplete/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert(summary.author_visible.failures.includes("chapter_label_incomplete"));
   });
@@ -590,7 +646,7 @@ test("B82 冻结 live：b82-g2 另一章候选不能签同章页面", () => {
         "第01章：夜潮（指定段落修订稿）",
       ),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /pending_candidate_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /pending_candidate_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.candidate_same_chapter, false);
   });
@@ -603,7 +659,7 @@ test("B82 冻结 live：b82-g2 未显示完整阅读时缺证（手工阅读页�
       path.join(copy.dir, "final.text.txt"),
       visibleFinal().split(`${G2_FIRST_READ}\n`).join("").split(`${G2_LAST_READ}\n`).join(""),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_activity_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_activity_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_complete, false);
   });
@@ -616,7 +672,7 @@ test("B82 冻结 live：b82-g2 只显示末页读活动时不算读完整章", (
       path.join(copy.dir, "final.text.txt"),
       visibleFinal().split(`${G2_FIRST_READ}\n`).join(""),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /reading_not_complete/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /reading_not_complete/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.reading_complete, false);
   });
@@ -630,7 +686,7 @@ test("B82 冻结 live：b82-g2 缺当前作者消息时不用整页旧候选", (
       path.join(copy.dir, "final.text.txt"),
       visibleFinal().split(`${G2_MESSAGE}\n`).join(""),
     );
-    assert.throws(() => verifyLiveBatch(copy.dir), /author_message_visible_missing/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /author_message_visible_missing/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.after_input_has_message, true);
     assert.equal(summary.author_visible.observed.pending_candidate, false);
@@ -642,7 +698,7 @@ test("B82 冻结 live：b82-g2 候选/澄清泄漏技术术语时拒绝", () => 
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     assertVisiblePreregistration(copy, "candidate");
     fs.appendFileSync(path.join(copy.dir, "final.text.txt"), "\n本轮候选由 call_id 关联。\n");
-    assert.throws(() => verifyLiveBatch(copy.dir), /author_visible_internal_token_leak/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /author_visible_internal_token_leak/u);
     const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
     assert.equal(summary.author_visible.observed.author_visible_clean, false);
     assert(summary.author_visible.leak.hits.some((hit) => hit.token === "call_id"));
@@ -657,7 +713,7 @@ test("B82 冻结 live：旧缺 author_visible_target 的 b82-g2 不能重签页�
       message: G2_MESSAGE,
     });
     assert.equal(fs.existsSync(path.join(copy.dir, "summary.json")), false);
-    assert.throws(() => verifyLiveBatch(copy.dir), /缺少冻结的作者可见目标/u);
+    assert.throws(() => verifyVisiblePage(copy.dir), /缺少冻结的作者可见目标/u);
     assert.equal(fs.existsSync(path.join(copy.dir, "summary.json")), false, "缺目标时不得改写旧报告");
   });
 });

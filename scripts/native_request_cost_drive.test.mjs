@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { NativeScenarioHarness } from "./lib/native_ui/scenario_driver.mjs";
+import { createAxObservation } from "./lib/native_ui/scenario_evidence.mjs";
 import {
   buildTurnPlan,
-  createAxObservation,
   captureFailureEvidence,
   freshnessFacts,
   inputModeFacts,

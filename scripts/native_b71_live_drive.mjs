@@ -15,8 +15,9 @@ import {
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 import { textOf } from "./lib/native_ui/driver.mjs";
-import { authorVisibleOutcome, readingPageFailure } from "./lib/native_ui/authoring_g2_evidence.mjs";
-import { all, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { authorBoundary, axTurnOutcome, countAxAuthorMessages, readingPageFailure,
+  withinAuthorBoundary } from "./lib/native_ui/authoring_g2_evidence.mjs";
+import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
 import { capturePendingItemViews } from "./lib/native_ui/authoring_pending_driver.mjs";
 import {
@@ -164,40 +165,56 @@ async function closeReadingPage(name) {
   });
 }
 
-async function waitAuthorMessageVisible(message) {
+async function waitAuthorMessageVisible(message, baselineAuthorCount) {
   return harness.pollAx(
     (text, nodes) => {
       const composer = harness.findComposer(nodes);
-      return text.includes(message) && String(composer?.value ?? "").trim() === "";
+      return countAxAuthorMessages(nodes, message) > baselineAuthorCount &&
+        String(composer?.value ?? "").trim() === "";
     },
     45_000,
     "b82-visible:author_message",
   );
 }
 
-async function waitVisibleOutcome(message, { candidateGrace = true } = {}) {
-  const terminal = new Set(["pending_candidate", "waiting", "failed", "completed"]);
-  const polled = await harness.tryPollAx(
-    (text) => terminal.has(authorVisibleOutcome(text, { message }).kind),
-    TURN_TIMEOUT_MS,
-    "b82-visible:outcome",
-  );
-  if (!polled) return { kind: "timeout", text: "" };
-  const outcome = { ...authorVisibleOutcome(polled.text, { message }), text: polled.text };
-  if (outcome.kind !== "completed") return outcome;
-  // 完成状态可能先于候选卡片渲染：G2 只给可见页面一个有界候选等待，不引入 Why 耗时。
-  // G3 是只读场景，完成即终局，不能等 G2 专用候选 grace。
-  if (!candidateGrace) return outcome;
-  const candidate = await harness.tryPollAx(
-    (text) => authorVisibleOutcome(text, { message }).kind === "pending_candidate",
-    10_000,
-    "b82-visible:candidate_grace",
-  );
-  return candidate
-    ? { ...authorVisibleOutcome(candidate.text, { message }), text: candidate.text }
-    : outcome;
+async function waitVisibleOutcome(message, { baselineAuthorCount, observation, candidateGrace = true }) {
+  const terminal = new Set(["waiting", "failed", "completed", "capability_gap"]);
+  const observe = (nodes, completed = false) => {
+    const outcome = axTurnOutcome(nodes, { message, baselineAuthorCount });
+    observation.record(nodes, { data: { outcome }, change: { kind: outcome.kind } },
+      { terminal: completed });
+    return outcome;
+  };
+  try {
+    const polled = await harness.tryPollAx(
+      (_text, nodes) => terminal.has(observe(nodes).kind),
+      TURN_TIMEOUT_MS,
+      "b71-visible:outcome",
+    );
+    if (!polled) {
+      observation.finalize({ wait_error: "author_visible_outcome_timeout" });
+      return { kind: "timeout" };
+    }
+    const outcome = observe(polled.nodes, true);
+    if (outcome.kind !== "completed" || !candidateGrace) return outcome;
+    // G2 的卡片渲染宽限只等本轮可见动作；不再把卡片文案当作第二套终局协议。
+    // R05 的整章/风格候选由既有 capturePendingItemViews 独立有界定位。
+    await harness.tryPollAx((_text, nodes) => {
+      observe(nodes, true);
+      const boundary = authorBoundary(nodes, message, baselineAuthorCount);
+      return boundary.author && nodes.some((node) =>
+        node.role === "AXButton" && node.title === "保存修订稿" &&
+        node.enabled !== false && isVisibleNode(node) && withinAuthorBoundary(node, {
+          container: boundary.container, afterPath: boundary.authorGroup,
+          beforePath: boundary.nextAuthor?.path ?? null,
+        }));
+    }, 10_000, "b71-visible:candidate_grace");
+    return outcome;
+  } catch (error) {
+    observation.finalize({ wait_error: error.message });
+    throw error;
+  }
 }
-
 const readProviderCounts = () => ({
   llm_records: logs(path.join(dir, "llm-calls")).length,
   provider_runs: withDb(dir, (db) => Number(all(db, "SELECT COUNT(*) AS c FROM provider_runs")[0].c)),
@@ -366,19 +383,34 @@ async function run() {
       harness.rawWaitInputReady(flowLabel, INPUT_TIMEOUT_MS),
     );
     if (authorVisible) {
+      const baselineNodes = harness.capture("before-input", { allowFullScreenFallback: false });
+      assertRecordFresh(dir, "before-input", harness.ready.ready_at);
+      const baselineAuthorCount = countAxAuthorMessages(baselineNodes, config.message);
+      const observation = createAxObservation(harness, {
+        file: "native-b71-turn-observation.json",
+        meta: { schema: "native-turn-observation/v1", harness_run_ref: harness.target.run_ref,
+          author_message: config.message, baseline_author_count: baselineAuthorCount,
+          baseline_capture: "before-input", baseline_nodes: baselineNodes },
+      });
       // 唯一一次作者原话提交：只走可见输入/点击，等待仍由作者可见页面推进。
       await harness.runStep("input", "author_creation_request", () =>
         harness.rawSubmitAuthorText(config.message, flowLabel),
       );
       harness.capture("after-input");
       await harness.runStep("turn", "author_message_visible", () =>
-        waitAuthorMessageVisible(config.message),
+        waitAuthorMessageVisible(config.message, baselineAuthorCount),
       );
       const outcome = await harness.runStep("turn", "author_visible_outcome", () =>
-        waitVisibleOutcome(config.message, { candidateGrace: visibleMode !== "read_only" }),
+        waitVisibleOutcome(config.message, { baselineAuthorCount, observation,
+          candidateGrace: visibleMode === "candidate" && !config.r05_goal }),
       );
       // 先保留本次终局现场，再回阅读页核对已采纳正文未变；等待/失败也照实截证。
-      harness.capture("final");
+      const finalNodes = harness.capture("final", { allowFullScreenFallback: false });
+      const finalOutcome = axTurnOutcome(finalNodes, { message: config.message, baselineAuthorCount });
+      observation.record(finalNodes, { data: { outcome: finalOutcome }, change: { kind: finalOutcome.kind } },
+        { terminal: true });
+      observation.finalize({ capture: "final", terminal: true });
+      assertRecordFresh(dir, "final", harness.ready.ready_at);
       await captureReadingPage("03-reading-after", visibleTarget);
       await closeReadingPage("after");
       const candidateViews = config.r05_goal && visibleMode === "candidate"
@@ -389,7 +421,8 @@ async function run() {
         provider: config.provider,
         model,
         author_visible_target: visibleTarget,
-        author_visible_outcome: { kind: outcome.kind, observed_at: harness.nowIso() },
+        author_visible_outcome: { kind: finalOutcome.kind, waited_kind: outcome.kind,
+          observed_at: harness.nowIso() },
         ...(config.r05_goal ? { r05_candidate_views: candidateViews } : {}),
         ...(strata ? { strata: { endpoint: strataEndpoint, after_launch: launchSlot } } : { runtime: config.runtime }),
       };

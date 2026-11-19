@@ -144,6 +144,12 @@ export async function revealItem(harness, itemTitle, itemBody) {
 
 // 只观察未采纳候选：入口与所属动作分屏采集，不点击保存。
 export async function capturePendingItemViews(harness, { itemTitle, itemBody, knownItems, prefix }) {
+  await harness.pollAx((_text, nodes) => {
+    const located = locatePendingItem(nodes, { itemTitle, itemBody });
+    if (located.ok) return true;
+    if (located.reason !== "item_missing") throw new Error(`pending_view_target:${located.reason}:entry`);
+    return false;
+  }, 10_000, `${prefix}:item_rendered`);
   await revealItem(harness, itemTitle, itemBody);
   const views = [];
   for (const kind of ["entry", "action"]) {

@@ -476,19 +476,107 @@ function candidateViews(items, message) {
     { capture: "r05-candidate-1-action", nodes: nodesFor(false), screenshot_present: true, window_capture: true },
   ] };
 }
+function visibleReplyNodes(message, reply, status = null) {
+  const root = "0/0/0/0/0";
+  const group = (index, value) => [
+    { path: `${root}/${index}`, role: "AXGroup" },
+    { path: `${root}/${index}/0`, role: "AXStaticText", value },
+  ];
+  return [
+    { path: "0", role: "AXWindow", frame: [0, 0, 1280, 800] },
+    { path: root, role: "AXWebArea", frame: [0, 0, 1280, 800] },
+    { path: `${root}/1`, role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
+    { path: `${root}/3`, role: "AXStaticText", value: "无任务" },
+    ...group(10, "你"), ...group(11, message), ...group(12, "AI 助手"), ...group(13, reply),
+    ...(status === null ? [] : [
+      { path: `${root}/14`, role: "AXGroup", title: "本轮创作过程" },
+      { path: `${root}/14/0`, role: "AXStaticText", value: status },
+    ]),
+    { path: `${root}/16`, role: "AXButton", title: "为什么", desc: "查看这轮回应的依据" },
+  ];
+}
 function visibleInput(goal, { candidate = false } = {}) {
   const message = "请完成本次作者目标。";
   const reply = candidate ? "整章修订候选已就绪。" : "共2章，有正文1章，未写正文1章。";
   const items = candidate ? [{ title: "整章修订稿", body: SOURCE.prose }] : [];
   return { goal, target: G2_VISIBLE_TARGET, message, reply, items,
+    finalNodes: visibleReplyNodes(message, reply, candidate ? "已完成" : null),
     ...(candidate ? candidateViews(items, message) : {}),
     afterInputText: visibleAfterInput(message), readingBeforeText: visibleReadingPage(),
     readingAfterText: visibleReadingPage(), finalText: [
       G2_VISIBLE_TARGET.work_title, "你", message, "AI 助手", reply,
       ...items.flatMap((item) => [item.title, item.body]),
-      ...(candidate ? ["保存修订稿", "放弃修订稿"] : []), "(value=已完成)",
+      ...(candidate ? ["保存修订稿", "放弃修订稿", "(value=已完成)"] : []),
     ].join("\n") };
 }
+test("R05 无过程组的普通reply凭本轮交付结构完成，不要求完成徽标", () => {
+  const input = visibleInput("count");
+  assert.equal(input.finalText.includes("已完成"), false);
+  assert.equal(input.finalNodes.some((node) => node.title === "本轮创作过程"), false);
+  const report = r05VisibleEvidence(input);
+  assert.equal(report.ok, true, JSON.stringify(report));
+  assert.equal(report.observed.outcome, "completed");
+  assert.equal(report.observed.reply_visible, true);
+});
+test("R05 缺AX、只有无任务、尚无交付入口或仍有任务dock均不能借文字签完成", () => {
+  const cases = [
+    ["missing", (input) => { input.finalNodes = undefined; }],
+    ["idle_only", (input) => { input.finalNodes = input.finalNodes.filter((node) =>
+      !["12", "13", "16"].some((part) => node.path === `0/0/0/0/0/${part}` ||
+        node.path.startsWith(`0/0/0/0/0/${part}/`))); }],
+    ["streaming", (input) => { input.finalNodes = input.finalNodes.filter((node) => node.title !== "为什么"); }],
+    ["active_dock", (input) => { input.finalNodes.push(
+      { path: "0/0/0/0/0/20", role: "AXGroup", title: "当前创作任务操作" },
+      { path: "0/0/0/0/0/20/0", role: "AXStaticText", value: "进行中" }); }],
+  ];
+  for (const [label, change] of cases) {
+    const input = visibleInput("count"); change(input);
+    input.finalText += "\n(value=已完成)";
+    const report = r05VisibleEvidence(input);
+    assert.equal(report.ok, false, label);
+    assert.equal(report.observed.outcome, "unknown", label);
+    assert(report.failures.includes("author_visible_outcome_not_completed"), label);
+  }
+});
+test("R05 旧原话副本和另一轮回复不能代签，新同文作者消息仍有独立边界", () => {
+  for (const change of [
+    (input) => { input.baselineAuthorCount = 1; },
+    (input) => { input.finalNodes.find((node) => node.path === "0/0/0/0/0/11/0").value = "上一轮原话"; },
+    (input) => { input.finalNodes.push(
+      { path: "0/0/0/0/0/17", role: "AXGroup" },
+      { path: "0/0/0/0/0/17/0", role: "AXStaticText", value: "你" },
+      { path: "0/0/0/0/0/18", role: "AXGroup" },
+      { path: "0/0/0/0/0/18/0", role: "AXStaticText", value: "下一轮问题" }); },
+  ]) {
+    const input = visibleInput("count"); change(input);
+    const report = r05VisibleEvidence(input);
+    assert.equal(report.ok, false);
+    assert.equal(report.observed.outcome, "unknown");
+  }
+  const current = visibleInput("count");
+  current.baselineAuthorCount = 1;
+  current.finalNodes.push(
+    { path: "0/0/0/0/0/4", role: "AXGroup" },
+    { path: "0/0/0/0/0/4/0", role: "AXStaticText", value: "你" },
+    { path: "0/0/0/0/0/5", role: "AXGroup" },
+    { path: "0/0/0/0/0/5/0", role: "AXStaticText", value: current.message });
+  assert.equal(r05VisibleEvidence(current).ok, true);
+});
+test("R05 正文状态词不改变本轮终态，实际running/failed/waiting过程仍不签", () => {
+  const input = visibleInput("quality");
+  const reply = "正文中的失败是一项伏笔；等待你回复是人物台词。";
+  input.finalText = input.finalText.replace(input.reply, reply);
+  input.reply = reply;
+  input.finalNodes = visibleReplyNodes(input.message, reply);
+  assert.equal(r05VisibleEvidence(input).observed.outcome, "completed");
+  for (const [status, kind] of [["进行中 · 创作", "running"], ["失败", "failed"], ["等待你回复", "waiting"]]) {
+    input.finalNodes = visibleReplyNodes(input.message, reply, status);
+    const report = r05VisibleEvidence(input);
+    assert.equal(report.ok, false, status);
+    assert.equal(report.observed.outcome, kind, status);
+    assert(report.failures.includes("author_visible_outcome_not_completed"), status);
+  }
+});
 test("R05 count 页面不强迫 chapter_read，原 G3 的读活动规则仍独立拒绝", () => {
   const input = visibleInput("count");
   assert.equal(r05VisibleEvidence(input).ok, true);
@@ -503,6 +591,60 @@ test("R05 whole 长候选入口和所属保存按钮分屏可见，旧G2目标�
   assert.equal(report.observed.candidate_entry_visible, true);
   assert.equal(report.observed.candidate_action_visible, true);
   assert.equal(g2VisibleEvidence(input).ok, false);
+});
+test("R05 whole/style 候选分屏齐全也必须等同轮AX完成，后续wire终态不能代签", () => {
+  for (const goal of ["whole", "style"]) {
+    const ready = visibleInput(goal, { candidate: true });
+    assert.equal(r05VisibleEvidence(ready).ok, true, goal);
+    const maintenance = visibleReplyNodes(ready.message, ready.reply, "进行中");
+    maintenance.find((node) => node.path === "0/0/0/0/0/3").value = "1 个任务进行中";
+    maintenance.push(
+      { path: "0/0/0/0/0/20", role: "AXGroup", title: "当前创作任务操作" },
+      { path: "0/0/0/0/0/20/0", role: "AXStaticText", value: "进行中" });
+    for (const [label, finalNodes, kind] of [
+      ["missing", undefined, "unknown"],
+      ["running", visibleReplyNodes(ready.message, ready.reply, "进行中"), "running"],
+      ["waiting", visibleReplyNodes(ready.message, ready.reply, "等待你回复"), "waiting"],
+      ["failed", visibleReplyNodes(ready.message, ready.reply, "失败"), "failed"],
+      ["maintenance_after_delivery", maintenance, "running"],
+    ]) {
+      const input = { ...ready, finalNodes };
+      const report = r05VisibleEvidence(input);
+      assert.equal(report.observed.candidate_entry_visible, true, `${goal}:${label}`);
+      assert.equal(report.observed.candidate_action_visible, true, `${goal}:${label}`);
+      assert.equal(report.observed.outcome, kind, `${goal}:${label}`);
+      assert.equal(report.ok, false, `${goal}:${label}`);
+      assert(report.failures.includes("author_visible_outcome_not_completed"), `${goal}:${label}`);
+    }
+  }
+});
+test("R05 新同文回合已完成时，候选仍须属于新增作者边界", () => {
+  const input = visibleInput("whole", { candidate: true });
+  input.baselineAuthorCount = 1;
+  input.finalNodes.push(
+    { path: "0/0/0/0/0/4", role: "AXGroup" },
+    { path: "0/0/0/0/0/4/0", role: "AXStaticText", value: "你" },
+    { path: "0/0/0/0/0/5", role: "AXGroup" },
+    { path: "0/0/0/0/0/5/0", role: "AXStaticText", value: input.message });
+  const stale = r05VisibleEvidence(input);
+  assert.equal(stale.observed.outcome, "completed");
+  assert.equal(stale.observed.candidate_entry_visible, false);
+  assert.equal(stale.observed.candidate_action_visible, false);
+  assert.equal(stale.ok, false);
+  assert.deepEqual(stale.failures, ["candidate_visible_missing"]);
+
+  // 真实双候选AX里的首条作者在13/0；第二条在25/0，目标候选在33。
+  // 两份视图都保留第一轮同文消息后，目标卡才属于新增的第二轮。
+  for (const view of input.candidate_views) {
+    const firstAuthor = view.nodes.find((node) => node.path === "0/0/0/0/0/13/0");
+    assert(firstAuthor);
+    firstAuthor.value = input.message;
+  }
+  const fresh = r05VisibleEvidence(input);
+  assert.equal(fresh.observed.outcome, "completed");
+  assert.equal(fresh.observed.candidate_entry_visible, true);
+  assert.equal(fresh.observed.candidate_action_visible, true);
+  assert.equal(fresh.ok, true, JSON.stringify(fresh));
 });
 test("R05 候选截图不能借另一作品或缺当前作者原话的旧回合AX", () => {
   for (const change of [

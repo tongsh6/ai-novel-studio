@@ -2,7 +2,7 @@
 // 输入是既有 reader 对同一 provider call 的事实，scope 已经 canonical 绑定。
 // 页面表面、request 观察/正文解析与 used-ref 授信仍归原 owner；本模块核同次真实材料的范围供应。
 import { isDeepStrictEqual } from "node:util";
-import { authorBoundary, authorVisibleOutcome, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
+import { authorBoundary, axTurnOutcome, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
 import { observationRefOf, proseObservationBodyReason, singleDraftVersionReason } from "./authoring_request_facts.mjs";
 import { sha256Hex } from "./request_cost_evidence.mjs";
 import { locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
@@ -339,8 +339,8 @@ function withinViewport(nodes, node, { bodyStart = false } = {}) {
   return x >= clip[0] && x + width <= clip[2] && y >= clip[1] &&
     (bodyStart ? y < clip[3] : y + height <= clip[3]);
 }
-function currentAuthorItem(nodes, itemPath, message) {
-  const boundary = authorBoundary(nodes, message, 0);
+function currentAuthorItem(nodes, itemPath, message, baselineAuthorCount) {
+  const boundary = authorBoundary(nodes, message, baselineAuthorCount);
   if (!boundary.author || !itemPath?.startsWith(boundary.container + "/")) return false;
   const depth = boundary.container.split("/").length + 1;
   const peerPath = itemPath.split("/").slice(0, depth).join("/");
@@ -363,7 +363,7 @@ function candidateViews(items, views, knownItems, context) {
     const entry = captures.find((view) => {
       if (!/^r05-candidate-\d+-entry$/u.test(view.capture)) return false;
       const located = locatePendingItem(view.nodes, target);
-      if (!located.ok || !currentAuthorItem(view.nodes, located.scope.path, context.message)) return false;
+      if (!located.ok || !currentAuthorItem(view.nodes, located.scope.path, context.message, context.baselineAuthorCount ?? 0)) return false;
       const inItem = (node) => node.path?.startsWith(located.scope.path + "/");
       return view.nodes.some((node) => inItem(node) && node.role === "AXStaticText" &&
         node.value === item.title && withinViewport(view.nodes, node)) &&
@@ -373,7 +373,7 @@ function candidateViews(items, views, knownItems, context) {
     const action = captures.find((view) => {
       if (!/^r05-candidate-\d+-action$/u.test(view.capture)) return false;
       const located = locateScopedButton(view.nodes, { ...target, label: "保存修订稿" });
-      return located.ok && currentAuthorItem(view.nodes, located.item_path, context.message) &&
+      return located.ok && currentAuthorItem(view.nodes, located.item_path, context.message, context.baselineAuthorCount ?? 0) &&
         withinViewport(view.nodes, located.button);
     });
     return { title: item.title, entry: entry?.capture ?? null, action: action?.capture ?? null };
@@ -385,7 +385,9 @@ export function r05VisibleEvidence({ goal, reply, items = [], candidate_views = 
   const surface = visiblePageSurface(input);
   const failures = [...surface.failures];
   const candidate = goal === "whole" || goal === "style";
-  const outcome = authorVisibleOutcome(surface.final, { message: input.message });
+  const outcome = axTurnOutcome(input.finalNodes, {
+    message: input.message, baselineAuthorCount: input.baselineAuthorCount ?? 0,
+  });
   const views = candidateViews(items, candidate_views, known_items, input);
   const entryVisible = candidate && views.length > 0 && views.every((view) => view.entry !== null);
   const actionVisible = candidate && views.length > 0 && views.every((view) => view.action !== null);
@@ -396,9 +398,8 @@ export function r05VisibleEvidence({ goal, reply, items = [], candidate_views = 
     author_visible_clean: surface.scan.ok };
   if (!GOALS.has(goal)) failures.push("unknown_r05_goal");
   if (!observed.reply_visible) failures.push("author_reply_missing");
-  if (candidate ? !observed.candidate_visible : outcome.kind !== "completed") {
-    failures.push(candidate ? "candidate_visible_missing" : "author_visible_outcome_not_completed");
-  }
+  if (outcome.kind !== "completed") failures.push("author_visible_outcome_not_completed");
+  if (candidate && !observed.candidate_visible) failures.push("candidate_visible_missing");
   if (!surface.scan.ok) failures.push("author_visible_internal_token_leak");
   return { ok: failures.length === 0, reason: failures[0] ?? null, failures, observed,
     leak: { ok: surface.scan.ok, hits: surface.scan.hits.map(({ token, kind }) => ({ token, kind })) } };
