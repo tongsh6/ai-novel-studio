@@ -2722,6 +2722,7 @@ defmodule NovelWeb.WorkspaceChannel do
   defp agent_run_runtime_opts(%{} = spec) do
     [
       next_step_planner: Map.get(spec, :next_step_planner),
+      provider_execution: Map.get(spec, :provider_execution),
       interaction_store: Map.get(spec, :interaction_store),
       interaction_input: Map.get(spec, :interaction_input, %{})
     ]

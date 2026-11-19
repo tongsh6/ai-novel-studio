@@ -59,7 +59,7 @@ defmodule NovelApplication.AuthoringTaskBuilderTest do
     refute Map.has_key?(material, :omission_note)
   end
 
-  test "to_input/from_input roundtrip via JSON-safe map and re-validates" do
+  test "to_input roundtrip through the common contract re-validates" do
     {:ok, task} = AuthoringTaskBuilder.new(:first_draft, first_draft_attrs())
     input = AuthoringTaskBuilder.to_input(task)
 
@@ -67,22 +67,18 @@ defmodule NovelApplication.AuthoringTaskBuilderTest do
     # ToolRequest.input 会经过 JSON 编码/持久化
     decoded = Jason.decode!(Jason.encode!(input))
 
-    assert {:ok, %AuthoringTask{kind: :first_draft} = restored} =
-             AuthoringTaskBuilder.from_input(decoded)
+    assert %AuthoringTask{kind: :first_draft} =
+             restored =
+             AuthoringTask.from_map(decoded["authoring_task"])
 
     assert restored.author_words == "把第一章写出来"
     assert restored.scope.coverage == :chapter
     assert {:ok, _} = AuthoringSemantics.validate(restored)
   end
 
-  test "from_input returns nil for legacy calls without task (migration compatibility)" do
-    assert {:ok, nil} = AuthoringTaskBuilder.from_input(%{"text" => "旧调用"})
-    assert {:ok, nil} = AuthoringTaskBuilder.from_input(nil)
-  end
-
-  test "from_input rejects malformed task instead of silently dropping it" do
-    assert {:error, {:authoring_task_invalid, _}} =
-             AuthoringTaskBuilder.from_input(%{"authoring_task" => %{"kind" => :first_draft}})
+  test "common semantics rejects malformed task instead of silently dropping it" do
+    task = AuthoringTask.from_map(%{"kind" => :first_draft})
+    assert {:error, {:authoring_task_invalid, _}} = AuthoringSemantics.validate(task)
   end
 end
 
@@ -100,7 +96,6 @@ defmodule NovelApplication.AuthoringTaskBuilderProseTest do
         creative_facts: "## 作品事实",
         style_guide: "## 写作风格",
         progress_state: "## 账面",
-        dialogue_context: "## 当前作者输入",
         execution_brief: "## 场级执行简述"
       },
       overrides
@@ -274,8 +269,7 @@ defmodule NovelApplication.AuthoringTaskBuilderCreativeRolesTest do
         creative_facts: "## 作品事实",
         style_guide: "## 写作风格",
         work_skeleton: "## 全书进度",
-        planning_mission: "## 本轮规划使命",
-        dialogue_context: "## 当前作者输入"
+        planning_mission: "## 本轮规划使命"
       },
       overrides
     )
@@ -395,6 +389,7 @@ defmodule NovelApplication.AuthoringTaskBuilderChapterRevisionTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.AuthoringTaskBuilder
+  alias NovelCommon.Contracts.AuthoringTask
 
   defp attrs(overrides \\ %{}) do
     Map.merge(
@@ -495,11 +490,12 @@ defmodule NovelApplication.AuthoringTaskBuilderChapterRevisionTest do
              )
   end
 
-  test "chapter revision task round-trips to_input/from_input and passes semantics" do
+  test "chapter revision task round-trips through the common contract and passes semantics" do
     {:ok, task} = AuthoringTaskBuilder.for_chapter_revision(attrs())
 
     input = AuthoringTaskBuilder.to_input(task)
-    assert {:ok, restored} = AuthoringTaskBuilder.from_input(input)
+    restored = AuthoringTask.from_map(input["authoring_task"])
+    assert {:ok, _} = NovelCommon.AuthoringSemantics.validate(restored)
     assert restored.scope.modification_scope == :format_only
     assert restored.scope.target_chapter_ref == "chapter:ch01"
 

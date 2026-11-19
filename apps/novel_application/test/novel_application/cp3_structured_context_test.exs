@@ -8,17 +8,20 @@ defmodule NovelApplication.CP3StructuredContextTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.TestAgenticLoopFixtures
   alias NovelApplication.TurnExecutionService
+  alias NovelCommon.RequestIR
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTest.TestProviderPrompt
 
   @work "work-cp3"
 
   test "写第 N 章首稿时 prompt 含目标章计划摘要与卷内位置" do
-    {_turn_result, prompt} =
+    {turn_result, request} =
       run(
         action: %{
           authoring_intent: nil,
@@ -56,6 +59,9 @@ defmodule NovelApplication.CP3StructuredContextTest do
         }
       )
 
+    assert turn_result.tool_result.status == :succeeded
+    prompt = TestAgenticLoopFixtures.prompt_text(request)
+
     assert prompt =~ "## 目标章结构（写前设计态）"
     assert prompt =~ "目标章：第二章：旧服务器里的残诀（seq=2）"
     assert prompt =~ "计划摘要：主角进入旧服务器，找到残缺功法，并第一次尝试突破。"
@@ -64,28 +70,49 @@ defmodule NovelApplication.CP3StructuredContextTest do
     assert prompt =~ "正文状态：尚无已采纳正文"
   end
 
-  test "缺 structured_chapters 时不新增 L2 结构段，保持旧行为" do
-    {_turn_result, prompt} =
+  test "未供应章计划时保留目标身份，不把标题目录当成计划材料" do
+    words = "  写第二章首稿 R05TARGETONLY91\r\n"
+
+    {turn_result, request} =
       run(
         action: %{
           authoring_intent: nil,
           requested_chapter_raw: nil,
           target_chapter: "第二章"
         },
+        author_text: words,
         context: %DialogueContext{
           work_id: @work,
-          current_chapters: ["第一章", "第二章"],
+          current_chapters: ["第一章 R05UNREADINDEX91", "第二章"],
           assembly_policy: AssemblyPolicy.for_tier(:floor)
         }
       )
 
-    refute prompt =~ "## 目标章结构"
-    assert prompt =~ "## 已采纳章节"
-    assert prompt =~ "- 第二章"
+    assert turn_result.tool_result.status == :succeeded
+    assert :ok = RequestIR.validate(request)
+    assert TestProviderPrompt.author_text(request) == words
+    scope = TestProviderPrompt.scope_content(request)
+    task = scope["authoring_task"]
+    assert task["kind"] == "first_draft"
+    assert task["scope"]["refs"] == ["chapter_title:第二章"]
+
+    refute Enum.any?(task["materials"], fn material ->
+             material["kind"] in ["target_structure", "dialogue_context", "prior_prose"]
+           end)
+
+    refute Enum.any?(request.refs.base_refs, &(&1.ref == "chapter_title:第二章"))
+    refute Jason.encode!(scope) =~ "R05TARGETONLY91"
+
+    for wire <- ~w(chat_completions responses_api anthropic_messages) do
+      assert {:ok, body} = RequestIR.Projection.project(request, wire)
+      encoded = Jason.encode!(body)
+      assert length(String.split(encoded, "R05TARGETONLY91")) == 2
+      refute encoded =~ "R05UNREADINDEX91"
+    end
   end
 
   test "planner 漏给 target_chapter 时从作者输入命中现有章并注入结构段" do
-    {_turn_result, prompt} =
+    {turn_result, request} =
       run(
         action: %{
           authoring_intent: nil,
@@ -124,6 +151,9 @@ defmodule NovelApplication.CP3StructuredContextTest do
         }
       )
 
+    assert turn_result.tool_result.status == :succeeded
+    prompt = TestAgenticLoopFixtures.prompt_text(request)
+
     assert prompt =~ "## 目标章结构（写前设计态）"
     assert prompt =~ "目标章：第02章：旧服务器里的残诀（seq=2）"
     assert prompt =~ "计划摘要：主角进入旧服务器，找到残缺功法，并第一次尝试突破。"
@@ -139,12 +169,9 @@ defmodule NovelApplication.CP3StructuredContextTest do
       Agent.update(agent, &[prompt | &1])
 
       {:ok,
-       %{
-         content:
-           Jason.encode!([
-             %{"item_id" => "cp3-item", "title" => "正文草稿", "body" => "正文", "rationale" => nil}
-           ])
-       }}
+       TestAgenticLoopFixtures.native_artifact_result([
+         %{item_id: "cp3-item", title: "正文草稿", body: "正文", rationale: nil}
+       ])}
     end
 
     {turn_result, _trace, _transcript} =
@@ -157,10 +184,8 @@ defmodule NovelApplication.CP3StructuredContextTest do
         provider_execution: %Execution{result_fn: complete}
       })
 
-    {turn_result,
-     agent
-     |> Agent.get(& &1)
-     |> Enum.map_join("\n\n", &NovelApplication.TestAgenticLoopFixtures.prompt_text/1)}
+    assert [request] = Agent.get(agent, & &1)
+    {turn_result, request}
   end
 
   defp frame do

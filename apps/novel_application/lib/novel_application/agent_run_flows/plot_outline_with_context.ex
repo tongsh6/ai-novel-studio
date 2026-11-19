@@ -79,7 +79,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         %{
           step_id: "mech_context",
           target_tool_ref: @context_step_target,
-          description: "先读取章节大纲规划上下文。",
+          description: "先读取当前目标所需的大纲规划上下文。",
           write_intent: :none
         },
         %{
@@ -91,7 +91,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         %{
           step_id: "mech_outline",
           target_tool_ref: "plot_outline",
-          description: "基于已读取的章节上下文生成章节大纲草稿。",
+          description: "基于已读取的上下文，按当前目标的规划层级生成大纲草稿。",
           write_intent: :tentative
         }
       ]
@@ -188,7 +188,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       run_ref: run.run_id,
       sequence: sequence,
       decision_type: :goal_satisfied,
-      summary: "计划步骤已完成，章节大纲候选已生成。",
+      summary: "计划步骤已完成，大纲候选已生成。",
       target_tool_ref: nil,
       write_intent: :none,
       risk_hint: :low,
@@ -283,7 +283,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     emit_stage(
       snapshot,
       :goal_understood,
-      "已组装章节大纲规划上下文。",
+      "已组装大纲规划上下文。",
       ["outline_context_assembled"],
       ["context:#{turn_id}"],
       %{
@@ -648,7 +648,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   defp planning_mission_observation_id(run, sequence),
     do: "obs_#{run.run_id}_#{sequence}_planning_mission"
 
-  defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+  defp execute_tool_decision_step(run, sequence, spec, decision, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
@@ -669,7 +669,6 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           frame,
           plan,
           decision_result,
-          observations,
           snapshot
         )
       else
@@ -688,13 +687,13 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     end
   end
 
-  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
+  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, snapshot) do
     execution_context = Map.get(stage_state(snapshot), :context) || Map.get(spec, :context)
 
     emit_stage(
       snapshot,
       :tool_started,
-      "正在调用章节大纲规划能力。",
+      "正在调用大纲规划能力。",
       ["plot_outline_started"],
       [plan.plan_id, Map.get(decision, :decision_id)],
       %{
@@ -719,9 +718,10 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         author_input: %{
           text: author_input && author_input.text,
           turn_id: author_input && author_input.turn_id,
-          author_goal_text: run.goal.text
+          author_goal_text: run.goal.text,
+          author_goal_source_ref: Map.get(run.goal, :source_ref)
         },
-        creative_brief: creative_brief_text(run, plan, observations),
+        creative_brief: creative_brief_text(plan),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         planning_mission: Map.get(stage_state(snapshot), :planning_mission),
@@ -745,7 +745,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       emit_stage(
         snapshot,
         :tool_completed,
-        "章节大纲草稿已生成。",
+        "大纲草稿已生成。",
         ["plot_outline_completed"],
         tool_refs(turn_result),
         %{
@@ -801,24 +801,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     )
   end
 
-  defp creative_brief_text(run, plan, observations) do
-    observation_text =
-      observations
-      |> Enum.map(& &1.summary)
-      |> Enum.reject(&blank?/1)
-      |> Enum.join("\n")
-
-    [
-      run.goal.text,
-      "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text)
-    ]
-    |> Enum.reject(&blank?/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp observation_section(""), do: nil
-  defp observation_section(text), do: "已完成观察：\n#{text}"
+  defp creative_brief_text(plan), do: "当前 AgentStep：#{plan.plan_goal.summary}"
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{
@@ -848,7 +831,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         run_ref: run.run_id,
         sequence: sequence,
         status: :completed,
-        goal: "组装章节大纲规划上下文",
+        goal: "组装大纲规划上下文",
         observation_refs: [context_observation_id(run, sequence)],
         state_snapshot_ref: state_snapshot_ref(run, sequence, "outline_context"),
         idempotency_key: "#{run.run_id}:#{sequence}:outline_context:goal_v#{run.goal.version}"
@@ -891,7 +874,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         step_ref: current_step_ref(run, sequence),
         observation_type: :custom,
         source_ref: "context:#{turn_id}",
-        summary: "已组装章节大纲规划上下文，可用于后续大纲策略与执行。",
+        summary: "已组装大纲规划上下文，可用于后续大纲策略与执行。",
         structured_payload: %{
           current_chapter_count: length(context.current_chapters || []),
           structured_chapter_count: length(context.structured_chapters || []),
@@ -1019,7 +1002,6 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
          sequence,
          spec,
          decision,
-         Map.get(snapshot, :observations, []),
          snapshot
        )
      end, decision}

@@ -234,7 +234,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
     assert {:ok, ack} = AuthorQuestionService.reply(scope.work, scope.session, request)
     assert ack.goal_version == 2
     assert ack.status == "accepted"
-    assert_receive {:continued, %{text: ^text, version: 2}, _}, 2000
+    assert_receive {:continued, %{text: ^text, version: 2} = continued_goal, _}, 2000
     assert {:ok, duplicate} = AuthorQuestionService.reply(scope.work, scope.session, request)
     assert duplicate.duplicate
 
@@ -247,6 +247,7 @@ defmodule NovelApplication.AuthorQuestionRoundtripTest do
     refute_receive {:continued, _, _}
     stored = InteractionLifecycle.submission_input(scope.work, scope.session, "submission_1")
     assert stored.content["text"] == text
+    assert Map.get(continued_goal, :source_ref) == stored.turn_id
     assert stored.content["author_question_ref"] == source["author_question"]["question_ref"]
     assert {:ok, %{run: %{goal: %{version: 2}}}} = AgentRunService.state(id)
     assert AuthorQuestionService.open_results(scope.work, scope.session) == []

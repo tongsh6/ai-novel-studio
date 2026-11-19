@@ -125,7 +125,6 @@ defmodule ICachePrefixDriver do
     run = agent_run("run_icache_continuation", "写第一章", 1)
 
     a = %{
-      goal_text: "写第一章",
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
       options: [plan_run: run]
@@ -133,8 +132,7 @@ defmodule ICachePrefixDriver do
 
     b = %{
       a
-      | goal_text: "写第二章",
-        observation_block: "新观察",
+      | observation_block: "新观察",
         options: [plan_run: %{run | goal: %{text: "写第二章", version: 2}}]
     }
 
@@ -240,7 +238,7 @@ defmodule ICachePrefixDriver do
     input_a = %{
       author_text: author_a,
       source_input_ref: "author-icache-judgment-one",
-      scope: DialoguePlanningService.judgment_scope(context_a, author_a),
+      scope: DialoguePlanningService.judgment_scope(context_a),
       supplied_context_refs: dialogue_refs(context_a),
       options: [
         plan_run:
@@ -254,7 +252,7 @@ defmodule ICachePrefixDriver do
     input_b = %{
       author_text: author_b,
       source_input_ref: "author-icache-judgment-two",
-      scope: DialoguePlanningService.judgment_scope(context_b, author_b),
+      scope: DialoguePlanningService.judgment_scope(context_b),
       supplied_context_refs: dialogue_refs(context_b),
       options: [
         plan_run:
@@ -266,7 +264,31 @@ defmodule ICachePrefixDriver do
     }
 
     # 两个输入各自走真实生产入口；连续轮语义来自调用序列，不在此伪造前一轮 transcript。
-    {judgment_ir(input_a), judgment_ir(input_b)}
+    irs = {judgment_ir(input_a), judgment_ir(input_b)}
+    Enum.each(Tuple.to_list(irs), &assert_minimal_judgment_supply!/1)
+    irs
+  end
+
+  # VS-00I §4.3：独立的实际供给判据，不从 projector 的结果反推所需材料。
+  defp assert_minimal_judgment_supply!(ir) do
+    [%{blocks: [%{type: "scope", content: scope}]}] =
+      Enum.filter(ir.messages, &(&1.role == "scope_update"))
+
+    expected_work = %{
+      "ref" => "work:work_icache_prefix",
+      "work_id" => "work_icache_prefix",
+      "title" => "前缀度量样书",
+      "version" => 1
+    }
+
+    unless scope["facts"] == %{"work" => expected_work} and
+             scope["coverage"]["chapters"] == %{"status" => "not_read"} do
+      raise "I-CACHE judgment minimal supplied work facts differ from the declared fixture"
+    end
+
+    unless Enum.map(ir.refs.base_refs, & &1.ref) == ["work:work_icache_prefix"] do
+      raise "I-CACHE judgment Base must not claim unread chapter references"
+    end
   end
 
   defp cp_c_rows do
@@ -281,9 +303,10 @@ defmodule ICachePrefixDriver do
         "前缀度量样书",
         [
           "所有动作均须经系统门禁放行。",
-          List.last(@chapter_titles)
+          "前缀度量样书",
+          "work_icache_prefix"
         ],
-        # CP-C 重排完成：连续两轮共享前缀必须覆盖 L0–L2（能力目录 L1 + 稳定章节 L2）。
+        # L0–L2：静态能力/规则与实际供应的完整作品身份、标题（VS-00I §4.3）。
         true
       )
     ]
@@ -312,7 +335,8 @@ defmodule ICachePrefixDriver do
         Enum.map(
           [
             "所有动作均须经系统门禁放行。",
-            List.last(@chapter_titles)
+            "前缀度量样书",
+            "work_icache_prefix"
           ],
           fn tail -> marker_offset!(first, tail, call_site) + byte_size(tail) end
         )
@@ -870,10 +894,7 @@ defmodule ICachePrefixDriver do
     end)
   end
 
-  defp dialogue_refs(context),
-    do: [
-      "work:#{context.work_id}" | Enum.map(context.structured_chapters, &("chapter:" <> &1.id))
-    ]
+  defp dialogue_refs(context), do: ["work:#{context.work_id}"]
 
   # ── 捕获与序列化 ───────────────────────────────────────
 

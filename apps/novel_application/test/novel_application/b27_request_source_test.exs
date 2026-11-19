@@ -112,12 +112,22 @@ defmodule NovelApplication.B27RequestSourceTest do
     |> NovelApplication.TestAgenticLoopFixtures.prompt_text()
   end
 
+  defp reply_record(input) do
+    execution =
+      NovelApplication.TestAgenticLoopFixtures.scripted_judgment_execution(fn _request ->
+        {:narrative, "仅说明本次实际提供的材料。"}
+      end)
+
+    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution, %{}, input)
+    judgment.reply_record
+  end
+
   test "普通 profile：supplied=实际渲染的 work/behavior；conversation/memory available-not-supplied（CP6 会话材料退役）" do
     context = context_with_all_sources()
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
 
-    assert length(input.supplied_context_refs) == 4
+    assert length(input.supplied_context_refs) == 3
     assert length(input.available_context_refs) == 2
 
     by_id = Map.new(context.context_refs, &{&1.context_ref, &1.source_type})
@@ -154,7 +164,7 @@ defmodule NovelApplication.B27RequestSourceTest do
     by_id = Map.new(context.context_refs, &{&1.context_ref, &1.source_type})
     assert Enum.filter(Enum.map(input.supplied_context_refs, &by_id[&1]), & &1) == [:current_work]
     assert "work:ws-b27-cp1" in input.supplied_context_refs
-    assert "chapter:fixture-chapter-1" in input.supplied_context_refs
+    refute "chapter:fixture-chapter-1" in input.supplied_context_refs
 
     assert Enum.sort(Enum.map(input.available_context_refs, &by_id[&1])) == [
              :behavior,
@@ -168,7 +178,7 @@ defmodule NovelApplication.B27RequestSourceTest do
     refute prompt =~ "相关记忆：作者确认主角动机是查清灯楼旧账"
 
     assert "work" in input.rendered_context_sections
-    assert "chapters" in input.rendered_context_sections
+    refute "chapters" in input.rendered_context_sections
     assert input.scope.context == %{}
   end
 
@@ -186,7 +196,7 @@ defmodule NovelApplication.B27RequestSourceTest do
 
     default_input = protocol_input(context, "judgment_loop_v1", observations)
     default_prompt = prompt_text(default_input)
-    assert default_input.supplied_observation_refs == ["obs:memory:1"]
+    assert reply_record(default_input).supplied_observation_refs == ["obs:memory:1"]
 
     assert Enum.any?(
              JudgmentProtocol.request_for_production(default_input).messages,
@@ -199,8 +209,13 @@ defmodule NovelApplication.B27RequestSourceTest do
 
     write_input = protocol_input(context, ProseDraftingWithQuality.profile_ref(), observations)
     write_prompt = prompt_text(write_input)
-    assert write_input.supplied_observation_refs == []
+    assert reply_record(write_input).supplied_observation_refs == []
     refute write_prompt =~ "观察正文：主角动机=查清灯楼旧账。"
+
+    # 已经写入 canonical 的观察仍实际可见，不能仅凭 profile 隐去供给声明。
+    visible_write_input = Map.put(write_input, :transcript, default_input.transcript)
+    assert prompt_text(visible_write_input) =~ "观察正文：主角动机=查清灯楼旧账。"
+    assert reply_record(visible_write_input).supplied_observation_refs == ["obs:memory:1"]
   end
 
   test "AU03 部分失败：work 仍渲染并可 supplied，失败来源只进 unavailable，不伪造 supplied" do
@@ -240,7 +255,7 @@ defmodule NovelApplication.B27RequestSourceTest do
     assert length(input.supplied_context_refs) == 2
     assert input.available_context_refs == []
     assert "chapters" in input.unavailable_sources
-    assert input.scope.coverage.chapters == %{status: "unavailable"}
+    assert input.scope.coverage.chapters == %{status: "not_read"}
     refute Map.has_key?(input.scope.facts, :chapters)
     assert prompt =~ "B27 故障作品"
   end
@@ -276,15 +291,15 @@ defmodule NovelApplication.B27RequestSourceTest do
     assert judgment.reply_record.observation_refs == ["obs:1"]
   end
 
-  test "章节事实携带现有对象 ref，不依赖另外制造 ContextSourceRef" do
+  test "内部章节 DTO 的关联 ref 不冒充默认判断已供应材料" do
     context = context_with_all_sources()
     input = protocol_input(context, "judgment_loop_v1")
     prompt = prompt_text(input)
 
-    assert "chapters" in input.rendered_context_sections
-    assert prompt =~ "第01章：灯楼夜话"
-    assert "chapter:fixture-chapter-1" in input.supplied_context_refs
-    assert input.scope.facts.chapters |> Enum.map(& &1.ref) == ["chapter:fixture-chapter-1"]
+    refute "chapters" in input.rendered_context_sections
+    refute prompt =~ "第01章：灯楼夜话"
+    refute "chapter:fixture-chapter-1" in input.supplied_context_refs
+    refute Map.has_key?(input.scope.facts, :chapters)
   end
 
   test "CP2：重复/重试的观察 refs 去重；未渲染的观察不计入" do
@@ -296,7 +311,7 @@ defmodule NovelApplication.B27RequestSourceTest do
     ]
 
     input = protocol_input(context, "judgment_loop_v1", observations)
-    assert input.supplied_observation_refs == ["obs:1"]
+    assert reply_record(input).supplied_observation_refs == ["obs:1"]
   end
 
   test "未读取的来源不补造供给与可用性声明" do

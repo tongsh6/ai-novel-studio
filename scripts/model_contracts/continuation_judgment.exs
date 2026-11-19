@@ -165,7 +165,6 @@ defmodule ModelContracts.ContinuationJudgment do
       })
 
     input = %{
-      goal_text: battery_case.goal_text,
       deviation_summary: battery_case.deviation_summary,
       observation_block: battery_case.observation_block,
       options: [plan_run: run]

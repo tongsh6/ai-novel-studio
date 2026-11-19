@@ -51,18 +51,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
       scope: %{
         work_id: run.work_id,
         facts: %{
-          characters:
-            Enum.map(Keyword.get(opts, :character_targets, []), fn target ->
-              target |> Map.put(:ref, target.character_ref) |> Map.delete(:character_ref)
-            end)
+          work: %{ref: "work:#{run.work_id}", work_id: run.work_id, title: "协议测试作品"}
         },
         context: %{},
         coverage: %{}
       },
       source_input_ref: "author-turn",
-      supplied_context_refs: [
-        "chapter:one" | Enum.map(Keyword.get(opts, :character_targets, []), & &1.character_ref)
-      ],
+      supplied_context_refs: ["work:#{run.work_id}"],
       options: Keyword.put_new(opts, :plan_run, run)
     }
   end
@@ -252,7 +247,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.candidate_directions == []
     assert judgment.model_interpretation_status == "not_provided"
     assert judgment.reply_record.model_interpretation == nil
-    assert judgment.reply_record.supplied_context_refs == ["chapter:one"]
+    assert judgment.reply_record.supplied_context_refs == ["work:work-judgment-fixture"]
 
     assert :ok =
              AgentNarrativeSource.verify(text, judgment.narrative_source, %{
@@ -441,7 +436,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "续行仅接受 continue/ask_author/缺口，不接受普通文本或旧停等枚举" do
     continuation_input = %{
-      goal_text: "写本章",
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
       options: input().options
@@ -546,9 +540,15 @@ defmodule NovelApplication.JudgmentProtocolTest do
       prompt =
         JudgmentProtocol.request_for_production(
           %{
-            goal_text: goal,
+            author_text: goal,
+            source_input_ref: "continuation-author",
             deviation_summary: "工具 prose_writing 执行失败",
-            options: [plan_run: %{run_id: "run-continuation-fixture"}]
+            options: [
+              plan_run: %{
+                run_id: "run-continuation-fixture",
+                goal: %{text: goal, source_ref: "continuation-author", version: 1}
+              }
+            ]
           },
           :continuation
         )
@@ -596,9 +596,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "没有作者输入的内部续行可用真实 run 建新段，但不能制造运行或作者身份" do
     input = %{
-      goal_text: "应用归纳的续行目标",
       deviation_summary: "待补充创作结果",
-      options: [plan_run: %{run_id: "run-authorless-continuation"}]
+      options: [
+        plan_run: %{
+          run_id: "run-authorless-continuation",
+          goal: %{text: "应用归纳的续行目标", version: 1}
+        }
+      ]
     }
 
     assert {:ok, transcript} = JudgmentProtocol.transcript_for_production(input, :continuation)
@@ -620,7 +624,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
       author_text: raw,
       source_input_ref: "author-turn:steer:2",
       author_turn: %{origin: "author_choice", question_ref: "question:retry"},
-      goal_text: "应用归纳的续行目标",
       deviation_summary: "正文执行失败",
       options: [
         plan_run: %{
@@ -794,7 +797,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     continuation_input = %{
       transcript: first.transcript,
-      goal_text: "写本章",
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
       options: input().options
@@ -1298,13 +1300,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "演化/记忆候选"
     assert content =~ "不能说“新建档案后他就是主角/就实现了修改”"
 
-    # M02：系统已有信息不得向作者索取
-    assert content =~ "系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取"
+    assert content =~ "系统可读的章节目录、章状态、统计、正文/档案材料不得转向作者索取"
+    assert content =~ "未提供的目录/统计先 archive_read"
+    assert content =~ "不能将未提供材料说成空或不存在"
 
-    # M01：完成/质量判断先读正文与章计划
-    assert content =~ "问“某章写完了吗/有无矛盾/质量如何”必须先读正文与章计划"
-    assert content =~ "不得仅凭章状态或“已保存/无待采纳候选”断言完成"
-
+    # M01：统计只能证明状态，叙事完成与质量结论必须取得相应正文/计划证据。
+    assert content =~ "统计只证明进度与可核对状态"
+    assert content =~ "这些判断需要相应正文与章计划证据，不得编造未读情节"
     # M03：继续读取不是最终答复
     assert content =~ "继续读取不是最终答复"
     assert content =~ "不得只回“已继续读取/再给结论”"
@@ -1313,8 +1315,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "也不能用“你的请求属于创作方向讨论”这类"
 
     # 唯一性（关键规则只出现一次）
-    assert String.split(content, "系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取")
-           |> length() == 2
+    assert String.split(content, "系统可读的章节目录、章状态、统计、正文/档案材料不得转向作者索取") |> length() == 2
 
     assert String.split(content, "修改已有对象的主档案/权威字段") |> length() == 2
   end
@@ -1467,8 +1468,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "task-28 补充：直接回答/唯一候选直接执行/参数 schema 指引在 prompt 中明确" do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
-    assert content =~ "统计/章节索引已经足够回答的问题"
-    assert content =~ "直接 reply，不要为形式先 explore"
+    assert content =~ "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply"
+    assert content =~ "不为形式重复读取"
     assert content =~ "待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact"
     assert content =~ "探索确认对象后必须继续执行修订"
   end
@@ -1509,8 +1510,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "task-34 prompt：M02 质量边界/M03 占位收束/M06 未答不推进/M16 多意图/M18 探索优先" do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
-    assert content =~ "统计/索引类问题只回答进度与可核对事实"
-    assert content =~ "不得凭统计给质量/完成度结论"
+    assert content =~ "统计只证明进度与可核对状态"
+    assert content =~ "不能单凭章状态或“已保存/无待采纳候选”断言叙事完成、质量或无矛盾"
     assert content =~ "禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复"
     assert content =~ "上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本"
     assert content =~ "不得把未回答当默认选择"
@@ -1521,7 +1522,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert String.split(content, "上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本")
            |> length() == 2
 
-    assert String.split(content, "统计/索引类问题只回答进度与可核对事实") |> length() == 2
+    assert String.split(content, "统计只证明进度与可核对状态") |> length() == 2
   end
 
   test "M03：仅 '-'/标点占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do
@@ -1697,12 +1698,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "task-36 prompt：M02 索引直答/M10 只聊零物化/M03 探索预算/M17 禁止伪工具文本" do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
-    assert content =~ "只问进度/章数/字数/是否已写/章状态"
-    assert content =~ "直接按索引/统计 reply，不要 chapter_read"
+    assert content =~ "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply"
+    assert content =~ "未提供的目录/统计先 archive_read"
     assert content =~ "属于分析任务：不得调用"
     assert content =~ "探索预算已用尽/不可用时不得再请求 explore"
     assert content =~ "工具调用必须使用原生 tool_calls"
-    assert String.split(content, "只问进度/章数/字数/是否已写/章状态") |> length() == 2
+
+    assert String.split(content, "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply")
+           |> length() == 2
   end
 
   test "task-36 收口：分析型已有充分事实时直接 reply；质量判断才允许 explore" do
@@ -1831,79 +1834,39 @@ defmodule NovelApplication.JudgmentProtocolTest do
     })
   end
 
-  test "B29 CP1：判断 prompt 含角色索引/修订能力/绑定规则（与 design/evolution 区分）" do
-    targets = [
-      %{
-        character_ref: "character:11111111-1111-1111-1111-111111111111",
-        name: "沈砚",
-        aliases: ["老沈"],
-        narrative_role: "ENSEMBLE_POV",
-        summary: "灯楼查账人"
-      },
-      %{
-        character_ref: "character:22222222-2222-2222-2222-222222222222",
-        name: "顾青",
-        aliases: [],
-        narrative_role: "PROTAGONIST",
-        summary: "巡夜人"
-      }
-    ]
-
+  test "B29 CP1：角色修订定义与真实详情绑定规则固定，默认不供应角色目录或正文" do
     request =
-      input(
-        capabilities: ["revise_character_profile", "character_design"],
-        character_targets: targets
-      )
+      input(capabilities: ["revise_character_profile", "character_design"])
       |> JudgmentProtocol.request_for_production()
 
     content = first_text(request)
+    scope = NovelTest.TestProviderPrompt.scope_content(request)
 
-    assert [
-             %{
-               "ref" => "character:11111111-1111-1111-1111-111111111111",
-               "narrative_role" => "ENSEMBLE_POV"
-             }
-             | _
-           ] =
-             get_in(NovelTest.TestProviderPrompt.scope_content(request), ["facts", "characters"])
+    refute Map.has_key?(scope["facts"], "characters")
 
-    assert content =~ "character:11111111-1111-1111-1111-111111111111"
-    assert content =~ "老沈"
+    assert scope["operation"]["available_operations"] == [
+             "revise_character_profile",
+             "character_design"
+           ]
+
+    refute content =~ "character:11111111-1111-1111-1111-111111111111"
+    refute content =~ "灯楼查账人"
     assert content =~ "revise_character_profile"
+    assert content =~ "目录只供发现与消歧"
+    assert content =~ "不授予未读详情的修改资格"
     assert content =~ "不新建角色、不写正文、不冒充角色演化记忆"
-    assert content =~ "灯楼查账人"
     assert content =~ "不得回退 reply/character_evolution/character_design"
     assert content =~ "设计/创建新主角"
   end
 
-  test "B33 §CP1 反例3：讨论角色主角设定的 reply 不再被词法强制修订能力；明确修订仍校验目标" do
-    targets = [
-      %{
-        character_ref: "character:11111111-1111-1111-1111-111111111111",
-        name: "陆晨",
-        aliases: [],
-        narrative_role: "SUPPORTING",
-        summary: "现役配角"
-      },
-      %{
-        character_ref: "character:22222222-2222-2222-2222-222222222222",
-        name: "顾青",
-        aliases: [],
-        narrative_role: "PROTAGONIST",
-        summary: "当前主角"
-      }
-    ]
-
+  test "B33 §CP1 反例3：讨论角色主角设定的 reply 不被词法强制为修订能力" do
     author = "讨论一下把陆晨指定为主角是否合理，先不要生成候选。"
 
     prompt_input =
-      input(
-        capabilities: ["revise_character_profile", "character_evolution", "character_design"],
-        character_targets: targets
-      )
+      input(capabilities: ["revise_character_profile", "character_evolution", "character_design"])
       |> Map.put(:author_text, author)
 
-    reply = "从现有弧光看，陆晨的动机线还偏薄；是否设为主角取决于后续主线。本轮先不改主档案，也不生成候选。"
+    reply = "是否设陆晨为主角取决于你希望承载的主线；可以先讨论他的动机与代价，本轮不改主档案，也不生成候选。"
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
@@ -1926,29 +1889,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     refute_receive {:provider_request, _}, 10
 
-    # 明确修订正例仍绑定真实 character_ref（客观身份检查保留）。
-    positive_input = Map.put(prompt_input, :author_text, "把陆晨指定为主角")
-
-    assert {:ok, positive} =
-             JudgmentProtocol.request_judgment(
-               execution([
-                 response("", [
-                   call("judgment_decision", %{
-                     "action" => "execute",
-                     "capability" => "revise_character_profile",
-                     "character_ref" => "character:11111111-1111-1111-1111-111111111111",
-                     "dialogue_goal" => "把陆晨指定为主角",
-                     "reason" => "角色主档案修订"
-                   })
-                 ])
-               ]),
-               %{},
-               positive_input
-             )
-
-    assert positive.action == "execute"
-    assert positive.capability == "revise_character_profile"
-    assert positive.character_ref == "character:11111111-1111-1111-1111-111111111111"
+    # 真实可见详情、当前指纹与隐藏观察的修订资格在 B33CP1ContextHygieneTest 独立验证。
   end
 
   test "B29 守卫允许无身份变更的跨能力计划，不把主角状态误当叙事身份" do
@@ -1977,30 +1918,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "B29 CP1：同名歧义不猜 → 纠错为 ask_author；设计新主角仍走 character_design" do
-    author = "把沈砚指定为主角"
-
-    targets = [
-      %{
-        character_ref: "character:11111111-1111-1111-1111-111111111111",
-        name: "沈砚",
-        aliases: ["老沈"],
-        narrative_role: "ENSEMBLE_POV",
-        summary: "查账人"
-      },
-      %{
-        character_ref: "character:33333333-3333-3333-3333-333333333333",
-        name: "沈砚",
-        aliases: ["小沈"],
-        narrative_role: "MINOR",
-        summary: "学徒"
-      }
-    ]
+    author = "有两个沈砚，一个是查账人老沈，一个是学徒小沈。把沈砚指定为主角。"
 
     prompt_input =
-      input(
-        capabilities: ["revise_character_profile", "character_design"],
-        character_targets: targets
-      )
+      input(capabilities: ["revise_character_profile", "character_design"])
       |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
@@ -2021,11 +1942,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "options" => [
                        %{
                          "label" => "老沈（查账人）",
-                         "value" => "character:11111111-1111-1111-1111-111111111111"
+                         "value" => "老沈（查账人）"
                        },
                        %{
                          "label" => "小沈（学徒）",
-                         "value" => "character:33333333-3333-3333-3333-333333333333"
+                         "value" => "小沈（学徒）"
                        }
                      ]
                    })
@@ -2042,10 +1963,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     design_author = "帮我设计一个新主角"
 
     design_input =
-      input(
-        capabilities: ["revise_character_profile", "character_design"],
-        character_targets: targets
-      )
+      input(capabilities: ["revise_character_profile", "character_design"])
       |> Map.put(:author_text, design_author)
 
     assert {:ok, design} =

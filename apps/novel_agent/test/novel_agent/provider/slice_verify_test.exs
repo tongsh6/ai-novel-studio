@@ -663,16 +663,47 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
           }
         ]
 
+    directory =
+      Enum.map(targets, fn target ->
+        %{ref: target.chapter_ref, title: target.chapter_title, seq: target.seq, has_prose: true}
+      end)
+
+    allowed = Map.new(targets, &{&1.chapter_ref, ["revise_adopted_content"]})
+
+    observation =
+      NovelCommon.RequestIR.observation_block("directory-revision", %{
+        status: "ok",
+        content: %{
+          tool: "archive_read",
+          query: "chapters",
+          summary: Enum.map_join(directory, "\n", &Jason.encode!/1)
+        },
+        coverage: %{
+          kind: "directory",
+          facet: "chapters",
+          returned_items: length(directory),
+          total_items: length(directory)
+        }
+      })
+
     NovelTest.TestRequestIR.ir(
       [
         NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
         NovelTest.TestRequestIR.author(author_text),
         NovelTest.TestRequestIR.scope(%{
           operation: %{
-            chapter_revision_targets: targets,
-            adopted_content_targets: %{"as_q1c_setting" => ["revise_adopted_content"]}
+            adopted_content_targets:
+              Map.put(allowed, "as_q1c_setting", ["revise_adopted_content"])
           }
-        })
+        }),
+        NovelCommon.RequestIR.message(:assistant, :model, [
+          NovelCommon.RequestIR.tool_call_block(
+            "archive_read",
+            %{query: "chapters"},
+            "directory-revision"
+          )
+        ]),
+        NovelCommon.RequestIR.message(:tool, :tool_result, [observation])
       ],
       tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
     )
@@ -925,6 +956,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
   alias NovelAgent.Test.Provider.SliceVerify
 
   defp judgment_prompt(author_text, opts) do
+    alias NovelTest.TestRequestIR, as: IR
     planned = Keyword.get(opts, :planned_volumes)
 
     chapters =
@@ -936,22 +968,79 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
         ],
         else: []
 
-    NovelTest.TestRequestIR.ir(
+    directory =
+      {"chapters",
+       %{
+         kind: "directory",
+         facet: "chapters",
+         returned_items: length(chapters),
+         total_items: length(chapters)
+       }, Enum.map_join(chapters, "\n", &Jason.encode!/1), Enum.map(chapters, & &1.ref)}
+
+    profile =
+      if Keyword.get(opts, :profile, true),
+        do: [
+          {"profile", %{kind: "facet", facet: "profile"},
+           "书名：B30" <> if(is_integer(planned), do: "\n预计卷数：#{planned}", else: ""),
+           ["archive:profile"]}
+        ],
+        else: []
+
+    observations =
+      Enum.flat_map([directory] ++ profile, fn {query, coverage, summary, refs} ->
+        [
+          IR.assistant("", [
+            IR.tool_call(
+              "judgment_decision",
+              %{action: "explore", explore_request: %{tool: "archive_read", query: query}},
+              query
+            )
+          ]),
+          IR.observation(query, %{
+            status: "ok",
+            source_refs: refs,
+            coverage: coverage,
+            content: %{tool: "archive_read", query: query, summary: summary}
+          })
+        ]
+      end)
+
+    IR.ir(
       [
-        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
-        NovelTest.TestRequestIR.author(author_text),
-        NovelTest.TestRequestIR.scope(%{
-          facts: %{work: %{ref: "work:test", planned_volumes: planned}, chapters: chapters},
-          operation: %{}
-        })
-      ],
-      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+        IR.base("本次你承担创作判断器的角色。"),
+        IR.scope(%{
+          facts: %{work: %{id: "work:test", title: "B30"}},
+          operation: %{exploration: %{allowed: true, tools: ["archive_read"]}}
+        }),
+        IR.author(author_text)
+      ] ++ observations,
+      tools: [IR.tool("judgment_decision")]
     )
   end
 
   defp arguments_of(result) do
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
     args
+  end
+
+  test "未读 profile 先探索；实际 profile 缺卷数时保留未知，不猜多卷" do
+    author = "把第2卷章节编号理顺，内容不要动"
+    unread = judgment_prompt(author, planned_volumes: 2, profile: false)
+
+    assert %{mode: :explore, explore_request: %{"tool" => "archive_read", "query" => "profile"}} =
+             SliceVerify.chapter_structure_arguments(unread)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, unread, %InferenceParams{})
+    assert arguments_of(result)["action"] == "explore"
+    assert arguments_of(result)["explore_request"]["query"] == "profile"
+
+    unknown = judgment_prompt("把章节编号理顺，内容不要动", planned_volumes: nil)
+
+    assert %{mode: :clarify, question: question} =
+             SliceVerify.chapter_structure_arguments(unknown)
+
+    assert question =~ "无法从当前作品信息确认卷范围"
+    refute question =~ "多卷"
   end
 
   test "B30 维护正例：第2卷编号理顺 → execute maintain_chapter_structure" do
@@ -1157,17 +1246,47 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
   alias NovelAgent.Test.Provider.SliceVerify
 
   defp prompt(author_text, characters) do
-    NovelTest.TestRequestIR.ir(
+    alias NovelTest.TestRequestIR, as: IR
+
+    observations =
+      if is_list(characters) do
+        entries = Enum.map(characters, &Map.take(&1, [:ref, :name, :aliases, :narrative_role]))
+
+        [
+          IR.assistant("", [
+            IR.tool_call(
+              "judgment_decision",
+              %{action: "explore", explore_request: %{tool: "archive_read", query: "characters"}},
+              "role-directory"
+            )
+          ]),
+          IR.observation("role-directory", %{
+            status: "ok",
+            source_refs: Enum.map(entries, & &1.ref),
+            coverage: %{
+              kind: "directory",
+              facet: "characters",
+              returned_items: length(entries),
+              total_items: length(entries)
+            },
+            content: %{
+              tool: "archive_read",
+              query: "characters",
+              summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+            }
+          })
+        ]
+      else
+        []
+      end
+
+    IR.ir(
       [
-        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
-        NovelTest.TestRequestIR.author(author_text),
-        NovelTest.TestRequestIR.scope(%{
-          facts: %{characters: characters},
-          coverage: %{characters: %{status: "complete"}},
-          operation: %{}
-        })
-      ],
-      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+        IR.base("本次你承担创作判断器的角色。"),
+        IR.scope(%{operation: %{exploration: %{allowed: true, tools: ["archive_read"]}}}),
+        IR.author(author_text)
+      ] ++ observations,
+      tools: [IR.tool("judgment_decision")]
     )
   end
 
@@ -1207,7 +1326,7 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
     assert String.contains?(SliceVerify.character_role_answer(prompt("谁是主角", index)), "沈砚")
   end
 
-  test "AU09 回归：作品上下文存在但 roster 为空（无角色索引段）→ 诚实缺主角，不误报无法核对" do
+  test "实际读取的空目录可以确认没有主角，不把未读取当空目录" do
     empty_roster = prompt("现在谁是主角？", [])
 
     answer = SliceVerify.character_role_answer(empty_roster)
@@ -1255,19 +1374,40 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
     assert SliceVerify.character_role_answer(prompt("有没有主角？", no_protagonist)) =~
              "目前还没有谁被标记为主角"
 
-    no_index =
-      NovelTest.TestRequestIR.ir(
-        [
-          NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
-          NovelTest.TestRequestIR.author("现在谁是主角？"),
-          NovelTest.TestRequestIR.scope(%{operation: %{}})
-        ],
-        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
-      )
-
+    no_index = prompt("现在谁是主角？", nil)
     answer = SliceVerify.character_role_answer(no_index)
     assert answer =~ "没有可核对的角色索引"
     refute answer =~ "沈砚"
+
+    assert {:ok, unread} = SliceVerify.complete(nil, nil, no_index, %InferenceParams{})
+
+    assert [
+             %{
+               "arguments" => %{
+                 "action" => "explore",
+                 "explore_request" => %{"tool" => "archive_read", "query" => "characters"}
+               }
+             }
+           ] = unread.tool_calls
+
+    # 旧 Scope 目录不授予已读资格，空覆盖声明也不能假称真实无主角。
+    poisoned = %{
+      no_index
+      | messages:
+          List.insert_at(
+            no_index.messages,
+            2,
+            NovelTest.TestRequestIR.scope(%{
+              facts: %{characters: one},
+              coverage: %{characters: %{status: "complete"}},
+              operation: %{exploration: %{allowed: true, tools: ["archive_read"]}}
+            })
+          )
+    }
+
+    assert SliceVerify.character_role_answer(poisoned) =~ "没有可核对的角色索引"
+    assert {:ok, same} = SliceVerify.complete(nil, nil, poisoned, %InferenceParams{})
+    assert same.tool_calls == unread.tool_calls
   end
 end
 
@@ -1311,18 +1451,92 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     ]
   end
 
-  defp prompt(author_text, characters) do
-    NovelTest.TestRequestIR.ir(
+  defp prompt(author_text, characters, detail_refs \\ []) do
+    alias NovelTest.TestRequestIR, as: IR
+
+    directory =
+      if is_list(characters) do
+        entries = Enum.map(characters, &Map.take(&1, [:ref, :name, :aliases, :narrative_role]))
+
+        [
+          IR.assistant("", [
+            IR.tool_call(
+              "judgment_decision",
+              %{action: "explore", explore_request: %{tool: "archive_read", query: "characters"}},
+              "profile-directory"
+            )
+          ]),
+          IR.observation("profile-directory", %{
+            status: "ok",
+            source_refs: Enum.map(entries, & &1.ref),
+            coverage: %{
+              kind: "directory",
+              facet: "characters",
+              returned_items: length(entries),
+              total_items: length(entries)
+            },
+            content: %{
+              tool: "archive_read",
+              query: "characters",
+              summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+            }
+          })
+        ]
+      else
+        []
+      end
+
+    details =
+      Enum.flat_map(detail_refs, fn ref ->
+        entry = Enum.find(characters, &(&1.ref == ref))
+        fingerprint = String.duplicate("a", 64)
+        query = Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
+
+        baseline =
+          entry
+          |> Map.delete(:ref)
+          |> Map.merge(%{
+            character_ref: ref,
+            status: "ACCEPTED",
+            base_fingerprint: fingerprint,
+            updated_at: "2026-11-15T00:00:00.000000Z"
+          })
+
+        [
+          IR.assistant("", [
+            IR.tool_call(
+              "judgment_decision",
+              %{action: "explore", explore_request: %{tool: "archive_read", query: query}},
+              ref
+            )
+          ]),
+          IR.observation(ref, %{
+            status: "ok",
+            source_refs: [ref],
+            versions: %{ref => fingerprint},
+            coverage: %{
+              kind: "detail",
+              facet: "characters",
+              ref: ref,
+              complete_fields: Enum.map(Map.keys(baseline), &Atom.to_string/1)
+            },
+            content: %{
+              tool: "archive_read",
+              query: query,
+              summary: "实际详情页",
+              facts: %{character: baseline}
+            }
+          })
+        ]
+      end)
+
+    IR.ir(
       [
-        NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
-        NovelTest.TestRequestIR.author(author_text),
-        NovelTest.TestRequestIR.scope(%{
-          facts: %{characters: characters},
-          coverage: %{characters: %{status: "complete"}},
-          operation: %{}
-        })
-      ],
-      tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+        IR.base("本次你承担创作判断器的角色。"),
+        IR.scope(%{operation: %{exploration: %{allowed: true, tools: ["archive_read"]}}}),
+        IR.author(author_text)
+      ] ++ directory ++ details,
+      tools: [IR.tool("judgment_decision")]
     )
   end
 
@@ -1332,8 +1546,19 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     arguments
   end
 
-  test "唯一别名/唯一角色名 → execute revise_character_profile + 索引 ref（无 changes 等字段）" do
-    alias_args = args(prompt("指定老沈为主角", index()))
+  test "真实目录再详情后才 execute；唯一别名/角色名精确绑定且无 changes 字段" do
+    initial = args(prompt("指定老沈为主角", nil))
+    assert initial["action"] == "explore"
+    assert initial["explore_request"] == %{"tool" => "archive_read", "query" => "characters"}
+
+    directory_only = args(prompt("指定老沈为主角", index()))
+    assert directory_only["action"] == "explore"
+    assert directory_only["explore_request"]["tool"] == "archive_read"
+
+    assert Jason.decode!(directory_only["explore_request"]["query"]) ==
+             %{"facet" => "characters", "ref" => @shen, "offset" => 0}
+
+    alias_args = args(prompt("指定老沈为主角", index(), [@shen]))
     assert alias_args["action"] == "execute"
     assert alias_args["capability"] == "revise_character_profile"
     assert alias_args["character_ref"] == @shen
@@ -1343,7 +1568,7 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     refute Map.has_key?(alias_args, "new")
     refute Map.has_key?(alias_args, "adopted_content_ref")
 
-    name_args = args(prompt("把顾青改判为反派", index()))
+    name_args = args(prompt("把顾青改判为反派", index(), [@gu]))
     assert name_args["capability"] == "revise_character_profile"
     assert name_args["character_ref"] == @gu
   end
@@ -1353,12 +1578,13 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
       input = "先读完第01章正文#{separator}再调整章节大纲#{separator}最后更新主角当前状态"
       full = prompt(input, index())
       assert SliceVerify.character_profile_arguments(full) == nil
-      assert args(full)["action"] == "plan"
+      assert args(full)["action"] == "explore"
+      assert args(full)["explore_request"] == %{"tool" => "archive_read", "query" => "chapters"}
     end
   end
 
   test "同一分句明确调整角色叙事身份仍绑定已有角色" do
-    result = args(prompt("调整顾青的叙事身份为主角", index()))
+    result = args(prompt("调整顾青的叙事身份为主角", index(), [@gu]))
     assert result["capability"] == "revise_character_profile"
     assert result["character_ref"] == @gu
   end
@@ -1402,9 +1628,9 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
            )
   end
 
-  test "不存在角色 → ask_author 不猜；无角色索引 → 诚实澄清（不新建）" do
+  test "不存在角色仍澄清；未读取目录则探索，目录不能代替详情" do
     # 唯一角色名（阿鸢）可绑定；候选不存在才澄清
-    unique = prompt("指定阿鸢为主角", index())
+    unique = prompt("指定阿鸢为主角", index(), [@ayuan])
 
     assert %{mode: :execute, character_ref: @ayuan} =
              SliceVerify.character_profile_arguments(unique)
@@ -1413,22 +1639,24 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     assert %{mode: :clarify, question: q} = SliceVerify.character_profile_arguments(no_match)
     assert q =~ "没有找到"
 
-    no_index =
-      NovelTest.TestRequestIR.ir(
-        [
-          NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
-          NovelTest.TestRequestIR.author("指定沈砚为主角"),
-          NovelTest.TestRequestIR.scope(%{operation: %{}})
-        ],
-        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
-      )
+    no_index = prompt("指定沈砚为主角", nil)
 
-    assert %{mode: :clarify, question: no_index_question} =
+    assert %{mode: :explore, explore_request: %{"query" => "characters"}} =
              SliceVerify.character_profile_arguments(no_index)
 
-    assert no_index_question =~ "没有可核对的角色索引"
-    assert {:ok, no_index_result} = SliceVerify.complete(nil, nil, no_index, %InferenceParams{})
-    assert [%{"name" => "ask_author"}] = no_index_result.tool_calls
+    assert args(no_index)["action"] == "explore"
+
+    unread_target = prompt("指定沈砚为主角", index(), [@gu])
+
+    assert %{mode: :explore, explore_request: request} =
+             SliceVerify.character_profile_arguments(unread_target)
+
+    assert Jason.decode!(request["query"])["ref"] == @shen
+
+    assert %{mode: :clarify, question: empty_question} =
+             SliceVerify.character_profile_arguments(prompt("指定沈砚为主角", []))
+
+    assert empty_question =~ "已读取的角色目录没有已有角色"
   end
 
   test "旧 B28/Q1c 分支不被角色档案 fixture 抢" do
@@ -1464,24 +1692,13 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterDesignJudgmentTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
 
-  @shen "character:11111111-1111-1111-1111-111111111111"
-
-  defp prompt(author_text, opts \\ []) do
-    characters =
-      if Keyword.get(opts, :roster),
-        do: [
-          %{ref: @shen, name: "沈砚", aliases: ["老沈"], narrative_role: "ENSEMBLE_POV", role: "查账人"}
-        ],
-        else: []
-
+  defp prompt(author_text) do
     NovelTest.TestRequestIR.ir(
       [
         NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
         NovelTest.TestRequestIR.author(author_text),
         NovelTest.TestRequestIR.scope(%{
-          facts: %{characters: characters},
-          coverage: %{characters: %{status: "complete"}},
-          operation: %{}
+          operation: %{exploration: %{allowed: true, tools: ["archive_read"]}}
         })
       ],
       tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
@@ -1500,25 +1717,36 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterDesignJudgmentTest do
     refute args["capability"] == "revise_character_profile"
   end
 
-  test "设计新角色不抢已有角色修订；指定已有先走 revise_character_profile" do
-    design = prompt("设计一个新主角", roster: true)
+  test "设计新角色不抢已有角色修订；指定已有先显式读取目录" do
+    design = prompt("设计一个新主角")
     assert {:ok, design_result} = SliceVerify.complete(nil, nil, design, %InferenceParams{})
     [design_call] = design_result.tool_calls
     assert design_call["arguments"]["capability"] == "character_design"
 
-    revise = prompt("指定老沈为主角", roster: true)
+    revise = prompt("指定老沈为主角")
     assert {:ok, revise_result} = SliceVerify.complete(nil, nil, revise, %InferenceParams{})
     [revise_call] = revise_result.tool_calls
-    assert revise_call["arguments"]["capability"] == "revise_character_profile"
-    assert revise_call["arguments"]["character_ref"] == @shen
+    assert revise_call["arguments"]["action"] == "explore"
+
+    assert revise_call["arguments"]["explore_request"] ==
+             %{"tool" => "archive_read", "query" => "characters"}
   end
 
-  test "主角查询仍不触发设计/修订（诚实回答）" do
+  test "主角查询先探索，不触发设计或修订也不假称角色为空" do
     query = prompt("现在谁是主角？")
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, query, %InferenceParams{})
-    assert result.tool_calls == []
-    assert result.content =~ "目前还没有谁被标记为主角"
+
+    assert [
+             %{
+               "arguments" => %{
+                 "action" => "explore",
+                 "explore_request" => %{"tool" => "archive_read", "query" => "characters"}
+               }
+             }
+           ] = result.tool_calls
+
+    refute result.content =~ "目前还没有谁被标记为主角"
   end
 end
 
@@ -1631,182 +1859,12 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
   end
 end
 
-defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
-  use ExUnit.Case, async: false
-
-  alias NovelAgent.Provider.InferenceParams
-  alias NovelAgent.Test.Provider.SliceVerify
-
-  @retry_env "SLICE_VERIFY_QUALITY_REVISION_RETRY"
-  @body "他猛地侧身。\n他一刀劈下。\n他反手格挡。\n他迈步逼近。\n他咬住暗号ABC123继续逼近。"
-
-  setup do
-    old = System.get_env(@retry_env)
-    System.delete_env(@retry_env)
-
-    on_exit(fn ->
-      if old, do: System.put_env(@retry_env, old), else: System.delete_env(@retry_env)
-    end)
-
-    :ok
-  end
-
-  test "local quality revision rewrites only the finding sentence range and preserves bytes outside" do
-    assert {:ok, result} = complete(quality_prompt())
-
-    assert [%{name: "submit_tentative_artifact"} = call] = result.tool_calls
-    assert call.id == "native-submit_tentative_artifact"
-    assert [item] = call.arguments["items"]
-    assert [first, second, third | _tail] = String.split(@body, "\n")
-    assert [first, second, third] == ["他猛地侧身。", "他一刀劈下。", "他反手格挡。"]
-    outside = @body |> String.split("\n") |> Enum.drop(3) |> Enum.join("\n")
-    assert String.ends_with?(item["body"], "\n" <> outside)
-    assert String.contains?(item["body"], "他咬住暗号ABC123继续逼近。")
-    refute item["body"] == @body
-  end
-
-  test "retry env only injects current quality revision after its own failed validation" do
-    System.put_env(@retry_env, "1")
-
-    for _attempt <- 1..2 do
-      assert {:ok, invalid} = complete(quality_prompt())
-      assert [%{id: "native-submit_tentative_artifact", arguments: %{}}] = invalid.tool_calls
-    end
-
-    assert {:ok, valid} = complete(retry_prompt())
-    assert [%{id: "native-submit_tentative_artifact"} = call] = valid.tool_calls
-    assert is_list(call.arguments["items"])
-    assert hd(call.arguments["items"])["body"] != @body
-  end
-
-  test "retry env ignores a failed validation from an earlier operation scope" do
-    System.put_env(@retry_env, "1")
-
-    assert {:ok, invalid} = complete(quality_prompt_with_earlier_failure())
-    assert [%{arguments: %{}}] = invalid.tool_calls
-  end
-
-  test "retry env does not alter source writer or other operations" do
-    System.put_env(@retry_env, "1")
-
-    assert {:ok, source} = complete(source_writer_prompt())
-    assert [%{name: "submit_tentative_artifact"} = call] = source.tool_calls
-    assert is_list(call.arguments["items"])
-    assert hd(call.arguments["items"])["body"] =~ "他猛地侧身。"
-  end
-
-  defp complete(prompt) do
-    SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
-  end
-
-  defp quality_prompt(history \\ []) do
-    prompt(quality_scope(), history)
-  end
-
-  defp retry_prompt do
-    quality_prompt(retry_history())
-  end
-
-  defp retry_history do
-    failed =
-      NovelTest.TestRequestIR.validation(
-        "native-submit_tentative_artifact",
-        "failed",
-        "invalid_items"
-      )
-
-    call =
-      NovelTest.TestRequestIR.assistant("", [
-        NovelTest.TestRequestIR.tool_call(
-          "submit_tentative_artifact",
-          %{},
-          "native-submit_tentative_artifact"
-        )
-      ])
-
-    [call, failed]
-  end
-
-  defp quality_prompt_with_earlier_failure do
-    earlier = prompt(source_writer_scope())
-    [system, base, _earlier_scope] = earlier.messages
-    [call, failed] = retry_history()
-
-    %{
-      earlier
-      | messages:
-          [system, base] ++
-            [scope_message(source_writer_scope()), call, failed, scope_message(quality_scope())]
-    }
-  end
-
-  defp scope_message(scope), do: NovelTest.TestRequestIR.scope(scope)
-
-  defp source_writer_prompt do
-    source_writer_scope() |> prompt()
-  end
-
-  defp source_writer_scope do
-    %{
-      operation: %{
-        capability: "prose_writing",
-        artifact_type: "prose_fragment",
-        creative_brief: "写第02章：矿区追击战正文草稿，短促动作追击",
-        context_text: "## 目标章结构\n- 计划摘要：主角在废弃矿区遭遇巡检傀儡，短促的动作追击中且战且退。"
-      }
-    }
-  end
-
-  defp quality_scope do
-    %{
-      operation: %{
-        capability: "prose_writing",
-        artifact_type: "prose_fragment",
-        creative_brief: "请基于下文给出的原正文进行局部修订：保留原有情节走向、人物状态与作品设定，只修改证据位置命中的句段。",
-        context_text: "原正文（第02章：矿区追击战正文草稿，短促动作追击）：\n" <> @body,
-        revision: """
-        [质量修订要求]
-        本次修订范围：局部修订。
-        只修改证据位置命中的句段，命中范围外的文字应尽量逐字保持不变。
-        请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
-        1. 连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。
-           位置：第 1–3 句
-           原句：他猛地侧身。他一刀劈下。他反手格挡。
-           判断理由：这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。
-           修订策略：只改命中句段，让动作在风险、后果或视角上形成递进。
-        修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
-
-        """
-      }
-    }
-  end
-
-  defp prompt(scope, history \\ []) do
-    NovelTest.TestRequestIR.ir(
-      [
-        NovelTest.TestRequestIR.system("identity_ref: identity:authoring/v1"),
-        NovelTest.TestRequestIR.base("【应用数据 · application_base · 非作者原话】\n输出契约。"),
-        NovelTest.TestRequestIR.scope(scope)
-      ] ++ history,
-      tools: [
-        NovelTest.TestRequestIR.tool("submit_tentative_artifact", %{
-          type: "object",
-          properties: %{items: %{type: "array"}}
-        })
-      ],
-      projection: %{tool_choice: "submit_tentative_artifact"}
-    )
-  end
-end
-
 defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelAgent.Test.Support.PendingDialogueInput
-  alias NovelCommon.RequestIR
-  alias NovelCommon.SystemIdentity
 
   @source_text "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
   @revision_text "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
@@ -1822,8 +1880,6 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       "status" => "TENTATIVE",
       "title" => "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
       "available_operations" => ["revise_pending_artifact", "discard_pending_artifact"],
-      # 真实判断目录的 body_preview 可能截断，不能只靠它找目标。
-      "body_preview" => "把这份大纲直接存档为作品设定：主角",
       "revision_of" => nil
     }
   end
@@ -2015,14 +2071,13 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   @discarded_body "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
   @accepted_body "把这份大纲直接存档为作品设定：主角林渡经营旧书铺。校验标识c0e885d9a7c04aaa。"
 
-  defp material_resolved(status, title, body, ref, extra \\ %{}) do
+  defp material_resolved(status, title, ref, extra \\ %{}) do
     Map.merge(
       %{
         "artifact_ref" => ref,
         "artifact_type" => "world_setting",
         "status" => status,
         "title" => title,
-        "body_preview" => body,
         "available_operations" => [],
         "revision_of" => nil
       },
@@ -2068,20 +2123,18 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
       material_resolved(
         "DISCARDED",
         "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺",
-        @discarded_body,
         "as_source"
       ),
       material_resolved(
         "ACCEPTED",
         "旧书铺修订稿",
-        @accepted_body,
         "as_revision",
         %{"revision_of" => "as_source", "available_operations" => ["revise_adopted_content"]}
       )
     ]
   end
 
-  test "资料进度读取本轮 scope 的 ACCEPTED/DISCARDED 事实与完整 body_preview" do
+  test "资料进度读取本轮 Scope 的真实处置身份与状态，不重复候选正文" do
     current = material_scope([], resolved_g5_facts(), chapter_context(0, 0, 0))
     prompt = ir_judgment_prompt("资料处理进度怎么样？", current)
 
@@ -2095,10 +2148,10 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     assert result.content =~ "已采纳"
     assert result.content =~ "已放弃"
     assert result.content =~ "没有待采纳"
-    assert result.content =~ @accepted_body
-    assert result.content =~ @discarded_body
-    assert length(String.split(result.content, @accepted_body)) == 2
-    assert length(String.split(result.content, @discarded_body)) == 2
+    assert result.content =~ "旧书铺修订稿"
+    assert result.content =~ "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺"
+    refute result.content =~ @accepted_body
+    refute result.content =~ @discarded_body
     refute result.content =~ "其他处置"
     refute result.content =~ "当前共 0 章"
   end
@@ -2213,7 +2266,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     refute tool_call(result, "register_author_content")
   end
 
-  test "修订目标用真实目录 title 唯一匹配，preview 截断不影响唯一 target" do
+  test "修订目标用当前真实 title 唯一匹配，不依赖正文预装" do
     prompt = native_judgment_prompt(@revision_text, [source_candidate()])
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
@@ -2260,11 +2313,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
   end
 
   test "单一候选但作者点名对象不匹配时仍诚实 ask_author" do
-    candidate = %{
-      source_candidate()
-      | "title" => "另一份候选",
-        "body_preview" => "第一段文字。"
-    }
+    candidate = %{source_candidate() | "title" => "另一份候选"}
 
     prompt = native_judgment_prompt(@revision_text, [candidate])
 
@@ -2292,140 +2341,6 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
     assert decision = tool_call(result, "judgment_decision")
     assert decision["arguments"]["pending_artifact_ref"] == "as_source::world_setting"
-  end
-
-  test "记录边界只写实际 IR，并裁剪 message private 字段" do
-    old = Application.get_env(:novel_telemetry, :llm_log_dir)
-
-    dir =
-      Path.join(System.tmp_dir!(), "slice-verify-capture-#{System.unique_integer([:positive])}")
-
-    Application.put_env(:novel_telemetry, :llm_log_dir, dir)
-
-    on_exit(fn ->
-      restore_env(:llm_log_dir, old)
-      File.rm_rf!(dir)
-    end)
-
-    private_state = %{reasoning_content: "private-capture"}
-    private_session = %{handle: "private-session"}
-
-    ir =
-      NovelTest.TestRequestIR.ir(
-        [
-          NovelTest.TestRequestIR.base("记录边界 Base"),
-          NovelTest.TestRequestIR.author("记录边界作者原话")
-        ],
-        tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
-        projection: %{tool_choice: "auto"}
-      )
-
-    assistant =
-      NovelTest.TestRequestIR.assistant("")
-      |> Map.put(:provider_state, private_state)
-      |> Map.put(:provider_session, private_session)
-
-    ir = %{ir | messages: ir.messages ++ [assistant]}
-
-    assert {:ok, _result} = SliceVerify.complete(nil, nil, ir, %InferenceParams{})
-
-    record =
-      Enum.find(read_capture_records(dir), fn record ->
-        record["request_body"]
-        |> Map.get("messages", [])
-        |> Enum.any?(fn message ->
-          message["role"] == "user" and message["provenance"] == "author" and
-            Enum.any?(message["blocks"], &(&1["text"] == "记录边界作者原话"))
-        end)
-      end)
-
-    assert record
-    assert record["request_format"] == RequestIR.ir_version()
-    assert record["prompt"] == nil
-    refute Map.has_key?(record["request_body"], "text")
-    assert record["request_body"]["ir_version"] == RequestIR.ir_version()
-
-    assert [%{"role" => "application_base"} | _] = record["request_body"]["messages"]
-
-    refute Enum.any?(record["request_body"]["messages"], fn message ->
-             Map.has_key?(message, "provider_state") or
-               Map.has_key?(message, "provider_session")
-           end)
-
-    recorded_assistant =
-      Enum.find(record["request_body"]["messages"], &(&1["role"] == "assistant"))
-
-    refute Map.has_key?(recorded_assistant, "provider_state")
-    refute Map.has_key?(recorded_assistant, "provider_session")
-
-    # 裁剪只发生在记录边界，原请求仍保留私有字段供真实恢复。
-    original_assistant = Enum.find(ir.messages, &(&1.role == "assistant"))
-    assert original_assistant.provider_state == private_state
-    assert original_assistant.provider_session == private_session
-  end
-
-  test "请求材料读取区分 canonical IR 与真实非 IR system/user 文本，不互相合成" do
-    author =
-      RequestIR.message(:user, :author, [
-        RequestIR.text_block("  第一段\n"),
-        RequestIR.text_block("第二段")
-      ])
-
-    ir =
-      NovelTest.TestRequestIR.ir([
-        NovelTest.TestRequestIR.base("Base"),
-        author,
-        NovelTest.TestRequestIR.scope(%{operation: %{summary: "当前 scope"}}),
-        NovelTest.TestRequestIR.assistant("已响应"),
-        NovelTest.TestRequestIR.notice("通知")
-      ])
-
-    assert NovelTest.TestProviderPrompt.author_text(ir) == "  第一段\n第二段"
-
-    assert NovelTest.TestProviderPrompt.scope_content(ir) == %{
-             "operation" => %{"summary" => "当前 scope"}
-           }
-
-    assert Jason.decode!(NovelTest.TestProviderPrompt.latest_scope(ir)) ==
-             NovelTest.TestProviderPrompt.scope_content(ir)
-
-    history = NovelTest.TestProviderPrompt.current_operation_messages(ir)
-    assert Enum.map(history, & &1.role) == ["assistant", "application_notice"]
-    assert Enum.all?(history, &is_list(&1.blocks))
-
-    wire = [
-      %{role: "system", content: "系统约束"},
-      %{role: "user", content: "作者原话"}
-    ]
-
-    assert NovelTest.TestProviderPrompt.text(wire) == "system: 系统约束\nuser: 作者原话"
-
-    assert NovelTest.TestProviderPrompt.operation_text(wire) ==
-             NovelTest.TestProviderPrompt.text(wire)
-
-    assert NovelTest.TestProviderPrompt.author_text(wire) == ""
-    assert NovelTest.TestProviderPrompt.latest_scope(wire) == nil
-    assert NovelTest.TestProviderPrompt.current_operation_messages(wire) == []
-    refute Enum.any?(wire, &Map.has_key?(&1, :blocks))
-    refute Enum.any?(wire, &Map.has_key?(&1, :provenance))
-
-    # 生产身份注入已退役：真实非 IR 请求的身份前缀就是 wire system 消息，
-    # 读取侧只按身份真源原文过滤，不合成 provenance/blocks。
-    injected = [
-      %{role: "system", content: SystemIdentity.content()},
-      %{role: "user", content: "普通请求"}
-    ]
-
-    assert NovelTest.TestProviderPrompt.text(injected) == "user: 普通请求"
-  end
-
-  defp read_capture_records(dir) do
-    file = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
-
-    file
-    |> File.read!()
-    |> String.split("\n", trim: true)
-    |> Enum.map(&Jason.decode!/1)
   end
 
   defp restore_env(name, nil), do: System.delete_env(to_string(name))

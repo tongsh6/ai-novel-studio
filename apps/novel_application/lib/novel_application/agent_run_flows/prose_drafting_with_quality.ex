@@ -270,7 +270,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       transcript: Map.get(stage_state(snapshot), :judgment_transcript),
       author_text: author_input && author_input.text,
       author_turn: Map.get(run, :author_turn),
-      goal_text: run.goal.text,
       deviation_summary: AgenticDeviationSignal.revision_reason(deviation),
       observation_block: continuation_observation_block(snapshot),
       source_input_ref: author_input && author_input.turn_id,
@@ -867,7 +866,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         mission_author_success(run, sequence, turn_id, chapter, mission)
 
       nil ->
-        inputs = mission_inputs(run, spec, context, chapter, Map.get(snapshot, :observations, []))
+        inputs = mission_inputs(run, spec, context, chapter)
 
         provider_execution =
           spec
@@ -980,7 +979,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       Execution.dependency(purpose: :planner)
   end
 
-  defp mission_inputs(run, spec, context, chapter, observations) do
+  defp mission_inputs(run, spec, context, chapter) do
     work_id = run.work_id
 
     ChapterMissionInputs.build(%{
@@ -1008,8 +1007,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
           work_id,
           []
-        ),
-      observations: observation_input_items(observations)
+        )
     })
   end
 
@@ -1258,7 +1256,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp step_preconditions(%{budget: %{max_steps: 1}}), do: %{}
   defp step_preconditions(_run), do: %{"prose_writing" => [:chapter_mission]}
 
-  defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+  defp execute_tool_decision_step(run, sequence, spec, decision, snapshot) do
     emit_preparation_decision(snapshot, decision)
 
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
@@ -1281,7 +1279,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
             spec,
             plan,
             decision_result,
-            observations,
             snapshot,
             continuation_guidance(decision)
           )
@@ -1382,7 +1379,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          spec,
          plan,
          decision,
-         observations,
          snapshot,
          guidance
        ) do
@@ -1418,10 +1414,10 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         author_input: %{
           text: author_input && author_input.text,
           turn_id: author_input && author_input.turn_id,
-          author_goal_text: run.goal.text
+          author_goal_text: run.goal.text,
+          author_goal_source_ref: Map.get(run.goal, :source_ref)
         },
-        creative_brief: creative_brief_text(run, plan, observations, guidance),
-        observations: observations,
+        creative_brief: creative_brief_text(plan, guidance),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),
@@ -1704,19 +1700,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     )
   end
 
-  defp creative_brief_text(run, plan, observations, guidance) do
-    observation_text =
-      observations
-      |> Enum.map(&observation_line/1)
-      |> Enum.reject(&blank?/1)
-      |> Enum.join("\n")
-
-    [
-      run.goal.text,
-      "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text),
-      guidance_section(guidance)
-    ]
+  defp creative_brief_text(plan, guidance) do
+    ["当前 AgentStep：#{plan.plan_goal.summary}", guidance_section(guidance)]
     |> Enum.reject(&blank?/1)
     |> Enum.join("\n\n")
   end
@@ -1725,61 +1710,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     do: "续行修正指引：\n#{guidance}"
 
   defp guidance_section(_guidance), do: nil
-
-  defp observation_section(""), do: nil
-  defp observation_section(text), do: "已完成观察：\n#{text}"
-
-  # B39 CP1b/D7：观察内容 + 可核验来源同批进入后续请求；refs 用 observation:<id>
-  # 作为材料 ref，底层来源 refs 以只读文本列出，供模型区分来源/覆盖。
-  defp observation_line(%AgentObservation{} = observation) do
-    ref = "observation:#{observation.observation_id}"
-    source_refs = Map.get(observation.structured_payload, :source_refs, [])
-
-    case {blank?(observation.summary), List.wrap(source_refs)} do
-      {true, _} ->
-        nil
-
-      {false, []} ->
-        "[#{ref}] #{observation.summary}"
-
-      {false, refs} ->
-        "[#{ref}] #{observation.summary}（来源 refs：#{Enum.join(refs, ", ")}）"
-    end
-  end
-
-  defp observation_line(_observation), do: nil
-
-  defp observation_input_items(observations) do
-    observations
-    |> List.wrap()
-    |> Enum.flat_map(&observation_mission_item/1)
-  end
-
-  defp observation_mission_item(%AgentObservation{} = observation) do
-    if map_get(observation.structured_payload, :stage) == :exploration_observed do
-      [observation_mission_item_map(observation)]
-    else
-      []
-    end
-  end
-
-  defp observation_mission_item(_observation), do: []
-
-  defp observation_mission_item_map(observation) do
-    source_refs = List.wrap(Map.get(observation.structured_payload, :source_refs, []))
-
-    text =
-      case source_refs do
-        [] -> observation.summary
-        refs -> "#{observation.summary}（来源 refs：#{Enum.join(refs, ", ")}）"
-      end
-
-    %{
-      ref: "observation:#{observation.observation_id}",
-      group: :observation,
-      text: text
-    }
-  end
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{
@@ -1988,6 +1918,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          namespace: "prose_explore",
          observation_suffix: "prose_explore"
        )
+       |> AuthoringSession.record_exploration_result(run, snapshot)
      end, decision}
   end
 
@@ -2002,7 +1933,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          sequence,
          spec,
          decision,
-         Map.get(snapshot, :observations, []),
          snapshot
        )
      end, decision}

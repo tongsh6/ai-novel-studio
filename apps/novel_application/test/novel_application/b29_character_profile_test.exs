@@ -1,9 +1,7 @@
 defmodule NovelApplication.B29CharacterProfileTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
-  alias NovelApplication.{CapabilityRegistry, CharacterProfile, PendingArtifactWorkflow}
-  alias NovelDomain.DialogueContext
+  alias NovelApplication.{CapabilityRegistry, CharacterProfile}
 
   @shen_ref "character:11111111-1111-1111-1111-111111111111"
   @gu_ref "character:22222222-2222-2222-2222-222222222222"
@@ -46,26 +44,6 @@ defmodule NovelApplication.B29CharacterProfileTest do
 
     refute entry == CapabilityRegistry.get("character_design")
     refute entry == CapabilityRegistry.get("character_evolution")
-  end
-
-  test "角色绑定：唯一别名/name/ref 命中；同名歧义/不存在不猜" do
-    assert {:ok, %{character_ref: @shen_ref}} =
-             CharacterProfile.resolve_target("指定老沈为主角", roster())
-
-    assert {:ok, %{character_ref: @shen_ref}} =
-             CharacterProfile.resolve_target("把老沈确立为主角", roster(), nil)
-
-    # 名字「沈砚」命中两个同名 → 歧义（不按 name 猜）
-    assert {:error, :target_ambiguous} = CharacterProfile.resolve_target("指定沈砚为主角", roster())
-
-    # 模型提供 ref 时以 ref 为准（同名字也能精确绑定）
-    assert {:ok, %{character_ref: @shen2_ref}} =
-             CharacterProfile.resolve_target("指定沈砚为主角", roster(), @shen2_ref)
-
-    assert {:ok, %{character_ref: @gu_ref}} =
-             CharacterProfile.resolve_target("指定顾青为主角", roster())
-
-    assert {:error, :target_missing} = CharacterProfile.resolve_target("指定阿鸢为主角", roster())
   end
 
   test "narrative_role 白名单从原话映射（修订意图路由已移交 B33 判断链）" do
@@ -130,114 +108,6 @@ defmodule NovelApplication.B29CharacterProfileTest do
              CharacterProfile.build_candidate(shen, "VILLAIN", "把沈砚设为主角", roster())
   end
 
-  defp desired_judgment(overrides \\ %{}) do
-    Map.merge(
-      %{
-        action: "execute",
-        capability: "revise_character_profile",
-        character_ref: @shen_ref,
-        narrative: "已找到沈砚（老沈），我会先给出叙事身份修订候选，待你确认后再改。",
-        dialogue_goal: "把沈砚定为主角",
-        reason: "character_profile_revision",
-        frame_type: "execution_candidate",
-        candidate_directions: [],
-        pending_artifact_ref: nil,
-        adopted_content_ref: nil,
-        question: nil,
-        options: [],
-        reason_codes: [],
-        guidance: nil,
-        missing_effect: nil,
-        author_content_source_ref: nil,
-        explore_request: nil,
-        plan_result: nil,
-        tool_call_id: nil,
-        model_interpretation_status: "provided"
-      },
-      overrides
-    )
-  end
-
-  defp run(author_text) do
-    %{
-      run_id: "run-b29-character",
-      run_mode: :bounded,
-      profile_ref: "judgment_loop_v1",
-      budget: %{max_tool_calls: 2, max_provider_calls: 2},
-      consumed_budget: %{},
-      authority_scope: %{production_write: false, allowed_tools: ["judgment"]},
-      workspace_id: "work-b29",
-      work_id: "work-b29",
-      session_id: "session-b29",
-      parent_turn_ref: "turn-b29",
-      goal: %{text: author_text, version: 1}
-    }
-  end
-
-  defp context do
-    %DialogueContext{work_id: "work-b29", interaction_state: %{}}
-  end
-
-  test "未采纳零写入：执行修订产出候选（无 provider、无 DB 写入），字段/对象可见" do
-    judgment = desired_judgment()
-    provider = %Execution{result_fn: fn _ -> flunk("角色档案修订不得调用 provider") end}
-
-    assert {:ok, result} =
-             PendingArtifactWorkflow.run(
-               judgment,
-               %{"character_profile_context" => %{roster: roster()}},
-               run("把沈砚定为唯一主角，替换原主角"),
-               context(),
-               provider
-             )
-
-    assert result.provider_call_count == 0
-    [pending] = result.turn_result.adoption_state.pending
-    assert pending.artifact_type == :character_profile_revision
-    assert pending.adoption_status == NovelDomain.AdoptionStatus.initial()
-
-    payload = pending.payload
-    assert payload.object_kind == "character_profile_revision"
-    assert payload.character_ref == @shen_ref
-    assert payload.character_name == "沈砚"
-    assert payload.base_fingerprint == "fp-#{@shen_ref}"
-    assert payload.effects == ["character_field_update"]
-
-    assert payload.changes == [
-             %{field: "narrative_role", old: "ENSEMBLE_POV", new: "PROTAGONIST"}
-           ]
-
-    assert payload.adoption_effect == %{mode: "character_field_update", character_ref: @shen_ref}
-    assert payload.other_character_changes == []
-    assert Enum.map(payload.suggested_other_character_changes, & &1.character_ref) == [@gu_ref]
-
-    [item] = payload.items
-    assert item.body =~ "narrative_role"
-    assert item.body =~ "ENSEMBLE_POV → PROTAGONIST"
-    assert item.body =~ "其它角色（需作者逐项裁决"
-
-    # 候选 title 可见对象，不新建角色（runtime 只产 pending，无 production_write）
-    assert payload.title =~ "沈砚"
-
-    refute Enum.any?(
-             result.turn_result.truthfulness |> Map.get(:evidence_refs, []),
-             &(&1 == :none)
-           )
-  end
-
-  test "同名歧义：绑定失败给可解释错误，不产候选" do
-    judgment = desired_judgment(%{character_ref: nil})
-
-    assert {:error, {:character_profile_invalid, :target_ambiguous}} =
-             PendingArtifactWorkflow.run(
-               judgment,
-               %{"character_profile_context" => %{roster: roster()}},
-               run("指定沈砚为主角"),
-               context(),
-               %Execution{result_fn: fn _ -> flunk("不得调用 provider") end}
-             )
-  end
-
   # B48 CP1（C04=A）：old==new 不产生候选；合法无变化出口用普通说明，保留真实检查事实。
   test "B48 no-op：old==new 返回 no_change 事实，不生成候选变化" do
     protagonist = target(@gu_ref, "顾青", [], "PROTAGONIST")
@@ -262,103 +132,270 @@ defmodule NovelApplication.B29CharacterProfileTest do
                roster()
              )
   end
+end
 
-  test "B48 no-op：普通说明、无 pending 候选、零写入，不把无变化当错误路由" do
-    noop_roster = [
-      target(@gu_ref, "顾青", [], "PROTAGONIST"),
-      target(@shen_ref, "沈砚", ["老沈"], "ENSEMBLE_POV")
-    ]
+defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
+  use ExUnit.Case, async: false
 
-    judgment = desired_judgment(%{character_ref: @gu_ref})
-    provider = %Execution{result_fn: fn _ -> flunk("角色档案 no-op 不得调用 provider") end}
+  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelAgent.Provider.Execution
+  alias NovelApplication.{ExplorationService, PendingArtifactWorkflow, WorkService}
+  alias NovelDomain.DialogueContext
+  alias NovelPersistence.{AdoptionRepository, Repo}
+  alias NovelPersistence.Schemas.Character
+
+  setup do
+    :ok = Sandbox.checkout(Repo)
+    {:ok, work} = WorkService.create(%{"title" => "角色求证派发"})
+
+    character =
+      Repo.insert!(%Character{
+        work_id: work.id,
+        name: "林澈",
+        aliases: ["老林"],
+        role: "调查员",
+        summary: "作者确认的基线",
+        narrative_role: "ENSEMBLE_POV",
+        status: "ACCEPTED"
+      })
+
+    ref = "character:#{character.id}"
+    {:ok, fact} = AdoptionRepository.character_profile_context(work.id, ref)
+    %{work: work, character: character, ref: ref, fact: fact}
+  end
+
+  @tag :scope_archive
+  test "实际派发拒绝猜中的未读角色与仅目录观察", ctx do
+    assert {:error, {:character_profile_invalid, :not_observed}} = dispatch(ctx, nil)
+    assert {:ok, directory} = ExplorationService.run(ctx.work.id, "archive_read", "characters")
+
+    assert {:error, {:character_profile_invalid, :not_observed}} =
+             dispatch(ctx, canonical_observation(directory))
+  end
+
+  @tag :scope_archive
+  test "协议后作者改写基线，派发不能悄悄采用重新读取的新指纹", ctx do
+    observed = source_observation(ctx)
+    ctx.character |> Ecto.Changeset.change(summary: "作者刚写入的新事实") |> Repo.update!()
+    {:ok, latest} = AdoptionRepository.character_profile_context(ctx.work.id, ctx.ref)
+    refute latest.base_fingerprint == ctx.fact.base_fingerprint
+
+    assert {:error, {:character_profile_invalid, :stale_base}} = dispatch(ctx, observed)
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  @tag :scope_archive
+  test "实际派发只用同一次详情观察基线生成候选，零模型调用且未采纳零作品写入", ctx do
+    previous =
+      Repo.insert!(%Character{
+        work_id: ctx.work.id,
+        name: "顾青",
+        narrative_role: "PROTAGONIST",
+        status: "ACCEPTED"
+      })
+
+    assert {:ok, result} = dispatch(ctx, source_observation(ctx), author_text: "把林澈定为唯一主角，替换原主角")
+    assert result.provider_call_count == 0
+    assert [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.base_fingerprint == ctx.fact.base_fingerprint
+    assert pending.payload.character_ref == ctx.ref
+    assert pending.adoption_status == NovelDomain.AdoptionStatus.initial()
+    assert pending.payload.effects == ["character_field_update"]
+
+    assert pending.payload.adoption_effect == %{
+             mode: "character_field_update",
+             character_ref: ctx.ref
+           }
+
+    assert pending.payload.other_character_changes == []
+
+    assert Enum.map(pending.payload.suggested_other_character_changes, & &1.character_ref) ==
+             ["character:#{previous.id}"]
+
+    assert [item] = pending.payload.items
+    assert item.body =~ "ENSEMBLE_POV → PROTAGONIST"
+    assert item.body =~ "其它角色（需作者逐项裁决"
+    assert pending.payload.title =~ "林澈"
+    assert Repo.get!(Character, previous.id).narrative_role == "PROTAGONIST"
+
+    assert pending.payload.changes == [
+             %{field: "narrative_role", old: "ENSEMBLE_POV", new: "PROTAGONIST"}
+           ]
+
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  test "同名对象只绑定已读详情的精确 ref；缺 ref 不再按作者名字猜测", ctx do
+    duplicate =
+      Repo.insert!(%Character{
+        work_id: ctx.work.id,
+        name: "林澈",
+        aliases: ["小林"],
+        narrative_role: "MINOR",
+        status: "ACCEPTED"
+      })
+
+    duplicate_ref = "character:#{duplicate.id}"
+    observed = source_observation(ctx)
+
+    assert {:error, {:character_profile_invalid, :not_observed}} =
+             dispatch(ctx, observed, character_ref: duplicate_ref)
+
+    assert {:error, {:character_profile_invalid, :target_missing}} =
+             dispatch(ctx, observed, character_ref: nil)
+
+    assert {:error, {:character_profile_invalid, :target_missing}} =
+             dispatch(ctx, observed, character_ref: "character:#{Ecto.UUID.generate()}")
+
+    query = Jason.encode!(%{facet: "characters", ref: duplicate_ref, offset: 0})
+    assert {:ok, detail} = ExplorationService.run(ctx.work.id, "archive_read", query)
 
     assert {:ok, result} =
-             PendingArtifactWorkflow.run(
-               judgment,
-               %{"character_profile_context" => %{roster: noop_roster}},
-               run("指定顾青为主角"),
-               context(),
-               provider
+             dispatch(ctx, canonical_observation(detail),
+               character_ref: duplicate_ref,
+               author_text: "把小林改为配角"
              )
 
-    assert result.provider_call_count == 0
-    assert result.artifact_refs == []
-    refute Map.get(result.turn_result, :adoption_state)
-    assert result.turn_result.frame_summary.frame_type == :reply_only
-    assert result.turn_result.available_actions == []
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.character_ref == duplicate_ref
 
-    message = result.turn_result.assistant_message.text
-    assert message =~ "顾青"
-    assert message =~ "PROTAGONIST"
-    assert message =~ "无需修改"
-    refute message =~ "候选"
-
-    assert result.turn_result.truthfulness.production_write_performed == false
+    assert pending.payload.changes == [
+             %{field: "narrative_role", old: "MINOR", new: "SUPPORTING"}
+           ]
   end
 
-  # B48 CP2：边界矩阵——缺目标/错误身份/同名歧义/跨轮失效都不得被当成 no-op。
-  test "B48 CP2 边界：缺目标/错误身份/同名歧义给可解释错误，不产普通说明" do
-    provider = %Execution{result_fn: fn _ -> flunk("角色身份核对失败不得调用 provider") end}
-    ctx = %{"character_profile_context" => %{roster: roster()}}
-
-    # 缺目标：作者没给出可定位角色（无 ref、名字不在 roster）
-    assert {:error, {:character_profile_invalid, :target_missing}} =
-             PendingArtifactWorkflow.run(
-               desired_judgment(%{character_ref: nil}),
-               ctx,
-               run("指定阿鸢为主角"),
-               context(),
-               provider
-             )
-
-    # 错误身份：模型 ref 不在当前 roster（跨轮对象失效/错误绑定）
-    assert {:error, {:character_profile_invalid, :target_missing}} =
-             PendingArtifactWorkflow.run(
-               desired_judgment(%{character_ref: "character:deadbeef"}),
-               ctx,
-               run("指定沈砚为主角"),
-               context(),
-               provider
-             )
-
-    # 同名未消歧：两个「沈砚」且无 ref/上下文唯一依据
-    assert {:error, {:character_profile_invalid, :target_ambiguous}} =
-             PendingArtifactWorkflow.run(
-               desired_judgment(%{character_ref: nil}),
-               ctx,
-               run("指定沈砚为主角"),
-               context(),
-               provider
-             )
-  end
-
-  # B48 CP2：统一裁决/trace 闭合；重复 no-op 请求仍是普通说明、零候选、零写入。
-  test "B48 CP2 no-op trace 闭合：TurnResult 引用本轮 DecisionTrace，重复请求不产候选" do
+  test "已读同值修订仍是普通说明且每次留下实际裁决 trace，零候选零作品写入", ctx do
+    ctx.character |> Ecto.Changeset.change(narrative_role: "PROTAGONIST") |> Repo.update!()
+    {:ok, current} = AdoptionRepository.character_profile_context(ctx.work.id, ctx.ref)
+    ctx = %{ctx | fact: current}
     parent = self()
-    noop_roster = [target(@gu_ref, "顾青", [], "PROTAGONIST")]
 
-    input = %{
-      "character_profile_context" => %{roster: noop_roster},
-      trace_persister: fn _work, attrs ->
-        send(parent, {:trace, attrs})
-        :ok
-      end
-    }
-
-    judgment = desired_judgment(%{character_ref: @gu_ref})
-    provider = %Execution{result_fn: fn _ -> flunk("no-op 不得调用 provider") end}
+    persist = fn _work, attrs ->
+      send(parent, {:trace, attrs})
+      :ok
+    end
 
     for _attempt <- 1..2 do
-      assert {:ok, result} =
-               PendingArtifactWorkflow.run(judgment, input, run("指定顾青为主角"), context(), provider)
-
+      assert {:ok, result} = dispatch(ctx, source_observation(ctx), trace_persister: persist)
+      assert result.provider_call_count == 0
+      assert result.artifact_refs == []
       refute Map.get(result.turn_result, :adoption_state)
+      assert result.turn_result.frame_summary.frame_type == :reply_only
+      assert result.turn_result.available_actions == []
+      assert result.turn_result.assistant_message.text =~ "无需修改"
+      assert result.turn_result.truthfulness.production_write_performed == false
       trace_ref = result.turn_result.orchestrator_decision.decision_trace_ref
-      assert is_binary(trace_ref)
-
       assert_receive {:trace, attrs}
       assert attrs.trace_id == trace_ref
       assert to_string(attrs.decision_type) == "character_profile_revision"
     end
+
+    assert Repo.get!(Character, ctx.character.id).narrative_role == "PROTAGONIST"
+  end
+
+  defp dispatch(ctx, observation, opts \\ []) do
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-observed-role",
+        run_mode: :bounded,
+        profile_ref: "judgment_loop_v1",
+        origin_frame_ref: "frame-observed-role",
+        status: :running,
+        phase: :executing,
+        workspace_id: ctx.work.id,
+        work_id: ctx.work.id,
+        session_id: "session-observed-role",
+        parent_turn_ref: "turn-observed-role",
+        goal: %{text: Keyword.get(opts, :author_text, "把林澈改为主角"), version: 1},
+        budget: %{
+          max_steps: 5,
+          max_tool_calls: 2,
+          max_provider_calls: 2,
+          max_replans: 1,
+          max_pending_artifacts: 3
+        },
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: 0,
+          replans: 0
+        },
+        authority_scope: %{production_write: false, allowed_tools: ["judgment"]}
+      })
+
+    judgment = %{
+      action: "execute",
+      capability: "revise_character_profile",
+      character_ref: Keyword.get(opts, :character_ref, ctx.ref),
+      dialogue_goal: run.goal.text,
+      narrative: "按已读档案提出叙事身份候选。",
+      reason: "character_profile_revision",
+      frame_type: "execution_candidate",
+      candidate_directions: [],
+      options: [],
+      question: nil,
+      reason_codes: [],
+      pending_artifact_ref: nil,
+      adopted_content_ref: nil,
+      character_observation: observation
+    }
+
+    input = %{
+      trace_persister: Keyword.get(opts, :trace_persister, fn _work, _attrs -> :ok end)
+    }
+
+    context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
+    provider = %Execution{result_fn: fn _ -> flunk("角色字段候选不得调用模型") end}
+    PendingArtifactWorkflow.run(judgment, input, run, context, provider)
+  end
+
+  # 独立使用持久读端口取得的已读事实；不从被测派发或新 reader 反推预期。
+  defp source_observation(ctx) do
+    %{
+      tool: "archive_read",
+      query: Jason.encode!(%{facet: "characters", ref: ctx.ref, offset: 0}),
+      outcome: :observed,
+      summary: ctx.fact.summary,
+      refs: [ctx.ref],
+      versions: %{ctx.ref => ctx.fact.base_fingerprint},
+      facts: %{character: Map.delete(ctx.fact, :summary)},
+      coverage: %{
+        kind: "detail",
+        facet: "characters",
+        work_id: ctx.work.id,
+        ref: ctx.ref,
+        complete_fields: [
+          "character_ref",
+          "name",
+          "aliases",
+          "role",
+          "narrative_role",
+          "status",
+          "updated_at",
+          "base_fingerprint"
+        ],
+        summary: %{
+          offset: 0,
+          returned_graphemes: String.length(ctx.fact.summary),
+          total_graphemes: String.length(ctx.fact.summary),
+          offset_unit: "unicode_grapheme"
+        }
+      },
+      omissions: [],
+      next_offset: nil
+    }
+    |> canonical_observation()
+  end
+
+  defp canonical_observation(raw) do
+    %{messages: [%{blocks: [leaf]}]} =
+      NovelApplication.JudgmentProtocol.observation_transcript(
+        %{messages: [], observation_refs: []},
+        %{tool_call_id: "observed-role-read"},
+        raw
+      )
+
+    leaf
   end
 end

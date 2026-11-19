@@ -14,8 +14,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
         artifact_ref: ref,
         artifact_type: "world_setting",
         status: "TENTATIVE",
-        title: "沈砚旧书铺设定",
-        body_preview: "  沈砚经营旧书铺。\n"
+        title: "沈砚旧书铺设定"
       },
       fields
     )
@@ -41,7 +40,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     )
   end
 
-  test "当前原生状态与同次操作目录绑定，原始预览和作者字节不变" do
+  test "当前原生状态与同次操作目录绑定，仅投影元数据并保持作者字节" do
     normalized = PendingDialogueInput.normalize(ir_prompt(scope([candidate("as_current")])))
 
     assert normalized.request_scope == :native
@@ -50,7 +49,7 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert normalized.author_text == @author
     assert [entry] = normalized.candidates
     assert entry.ref == "as_current"
-    assert entry.body_preview == "  沈砚经营旧书铺。\n"
+    refute Map.has_key?(entry, :body_preview)
     assert entry.operations == @operations
     assert entry.revision_of == nil
   end
@@ -123,10 +122,10 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert normalized.candidates == []
   end
 
-  test "material_state 使用当前可见 pending/resolved 原文和独立总数" do
+  test "material_state 使用当前可见 pending/resolved 身份关系和独立总数" do
     resolved = [
       candidate("as_source", %{status: "DISCARDED", title: "原稿"}),
-      candidate("as_revision", %{status: "ACCEPTED", title: "修订稿", body_preview: "林渡经营旧书铺。"})
+      candidate("as_revision", %{status: "ACCEPTED", title: "修订稿", revision_of: "as_source"})
     ]
 
     current =
@@ -145,8 +144,13 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert state.resolved_count == 3
     assert state.omitted_count == 1
 
-    assert Enum.map(state.resolved, &{&1.status, &1.body_preview}) ==
-             [{"DISCARDED", "  沈砚经营旧书铺。\n"}, {"ACCEPTED", "林渡经营旧书铺。"}]
+    assert Enum.map(state.resolved, &{&1.ref, &1.status, &1.title, &1.revision_of}) ==
+             [
+               {"as_source", "DISCARDED", "原稿", nil},
+               {"as_revision", "ACCEPTED", "修订稿", "as_source"}
+             ]
+
+    refute Enum.any?(state.resolved, &Map.has_key?(&1, :body_preview))
   end
 
   test "material_state 不用历史 Scope 补当前缺失状态" do
@@ -157,12 +161,12 @@ defmodule NovelAgent.Provider.PendingDialogueInputTest do
     assert state.resolved_count == 0
   end
 
-  test "material_state 保留当前待采纳项的可见预览" do
+  test "material_state 保留当前待采纳项的身份元数据" do
     state = PendingDialogueInput.material_state(ir_prompt(scope([candidate("as_current")])))
     assert state.supplied?
     assert state.pending_count == 1
 
-    assert [%{ref: "as_current", status: "TENTATIVE", body_preview: "  沈砚经营旧书铺。\n"}] =
-             state.pending
+    assert [%{ref: "as_current", status: "TENTATIVE", title: "沈砚旧书铺设定"}] = state.pending
+    refute Map.has_key?(hd(state.pending), :body_preview)
   end
 end

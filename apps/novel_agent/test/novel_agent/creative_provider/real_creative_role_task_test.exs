@@ -8,6 +8,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelTest.TestProviderPrompt
 
   defp captured_prompt(request) do
@@ -60,6 +61,34 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     refute Map.has_key?(TestProviderPrompt.scope_content(ir)["authoring_task"], "author_words")
   end
 
+  test "R05: 只有 observation 元数据与来源引用时不能升为 Base 材料" do
+    task =
+      AuthoringTaskFixtures.task(:outline, %{
+        materials: [%{kind: :observation, ref: "chapter:metadata-only", complete?: true}],
+        source_refs: ["scope:lineage-only"]
+      })
+
+    ir = captured_prompt(request("plot_outline", :outline_draft, task))
+    refute Enum.any?(ir.refs.base_refs, &(&1.ref == "chapter:metadata-only"))
+    refute Enum.any?(ir.refs.base_refs, &(&1.ref == "scope:lineage-only"))
+    assert ir.refs.observation_refs == []
+  end
+
+  test "R05: 卷级目标使用通用大纲规则，卷蓝图与章计划均有独立合法形状" do
+    goal = "只规划第一卷的目标冲突和人物弧光，不新建章节。"
+    task = AuthoringTaskFixtures.task(:outline, %{author_goal: goal})
+    ir = captured_prompt(request("plot_outline", :outline_draft, task))
+    rules = Projection.system_text(ir.system)
+
+    assert TestProviderPrompt.scope_content(ir)["authoring_task"]["author_goal"] == goal
+    assert rules =~ "卷蓝图"
+    assert rules =~ "序号"
+    assert rules =~ "章功能定位："
+    refute rules =~ "本次你承担章计划助手的角色"
+    refute rules =~ ~s(- "title"：章节标题)
+    refute rules =~ ~s(- "body"：该章的结构化方向，必须)
+  end
+
   test "plot_outline creation prompt keeps outline domain schema and shared semantics" do
     task = AuthoringTaskFixtures.task(:outline)
     ir = captured_prompt(request("plot_outline", :outline_draft, task))
@@ -68,7 +97,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert_task_prompt(ir, task, "本轮为结构规划")
     assert prompt =~ "章功能定位："
     assert prompt =~ "场次：场名｜目标："
-    assert prompt =~ "本次你承担章计划助手的角色"
+    assert prompt =~ "本次你承担小说大纲规划助手的角色"
     assert prompt =~ ~s("chapter_ref"（可选）)
     assert prompt =~ "逐字复制"
     assert prompt =~ "新规划的章不填/留空"
@@ -91,7 +120,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert TestProviderPrompt.scope_content(ir)["authoring_task"]["preserve"] ==
              ["未要求修改的内容逐字保留"]
 
-    assert prompt =~ "本次你承担章计划修订助手的角色"
+    assert prompt =~ "本次你承担小说大纲修订助手的角色"
   end
 
   test "character_design creation prompt keeps narrative_role/domain schema" do

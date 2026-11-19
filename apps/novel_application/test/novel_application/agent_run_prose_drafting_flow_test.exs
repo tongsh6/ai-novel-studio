@@ -1635,6 +1635,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   test "B39 CP1：正文 run 开放只读探索步，观察进后续 writer prompt 且 0 provider/tool 消耗被正确计账" do
     parent = self()
+    read_ref = "archive:stats"
+    read_text = "已采纳正文总字数 0；卷数 0；章节数 0；已采纳角色 0；确认记忆 0。"
+    {:ok, work} = NovelApplication.WorkService.create(%{title: "R05 专业计划读取"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.ensure_active_for_work(work.id)
+    work_id = work.id
 
     evaluator = fn _prompt ->
       {:ok,
@@ -1661,20 +1666,16 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         mission_prompt?(prompt) ->
           send(parent, {:mission_prompt, prompt})
 
-          %{"ref" => observation_ref} =
-            TestProviderPrompt.scope_content(prompt)["operation"]["mission_inputs"]["items"]
-            |> Enum.find(&(&1["group"] == "observation"))
-
           {:ok,
            with_provider_call(
              TestAgenticLoopFixtures.mission_tool_call_result(
-               "我核对了本轮观察：本章先让主角找到压力来源，不提前揭示旧公司实验。",
-               "本章必须让主角从被动观察转向主动寻找出口。",
+               "我已核对作品统计，当前还没有已采纳正文；本章先完成首稿候选。",
+               "本章先完成首稿候选，交由作者审阅。",
                must_advance: [
-                 %{"text" => "让主角进入异常房间并找到压力来源", "basis_ref" => observation_ref}
+                 %{"text" => "生成本章首稿候选，等待作者采纳", "basis_ref" => read_ref}
                ],
                must_avoid: [
-                 %{"text" => "不直接点破旧公司实验", "basis_ref" => observation_ref}
+                 %{"text" => "不宣称已有已采纳正文", "basis_ref" => read_ref}
                ]
              ),
              "pc-b39-cp1-mission"
@@ -1682,17 +1683,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
         true ->
           send(parent, {:writer_prompt, prompt})
-
-          mission_observation_refs =
-            for %{role: "scope_update", blocks: [%{type: "scope", content: content}]} <-
-                  prompt.messages,
-                %{"group" => "observation", "ref" => ref} <-
-                  get_in(content, ["operation", "mission_inputs", "items"]) || [],
-                do: ref
-
-          %{"ref" => observation_ref} =
-            TestProviderPrompt.scope_content(prompt)["authoring_task"]["materials"]
-            |> Enum.find(&(&1["kind"] == "observation" and &1["ref"] in mission_observation_refs))
 
           {:ok,
            with_provider_call(
@@ -1714,7 +1704,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                      self_report: %{
                        assumptions: [],
                        intended_reader_effect: "克制",
-                       used_context_refs: [observation_ref, "chapter:b39-invented"],
+                       used_context_refs: [read_ref, "chapter:b39-invented"],
                        risk_flags: []
                      }
                    }
@@ -1729,7 +1719,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       start_prose_run!(
         %{
           text: "按前文约定补写第01章正文草稿，再复核。",
-          session_id: "session-b39-cp1",
+          work_id: work_id,
+          workspace_id: work_id,
+          context_override: TestAgenticLoopFixtures.prose_drafting_context(work_id),
+          session_id: session.id,
           turn_id: "turn-b39-cp1",
           quality_provider_execution: %Execution{result_fn: evaluator},
           chapter_mission_writer: fn work_id, seq, mission_map ->
@@ -1772,36 +1765,47 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert ready_event.payload.observation_count >= 1
 
     assert_receive {:writer_prompt, writer_prompt}, 1_000
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "已完成观察"
-
-    # 观察内容（含真实 refs 的 summary）进入后续 writer 真实请求，而不只是内部状态。
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
-             explore_event.payload.summary
-
-    # CP1b：观察以 observation ref 进入使命输入，模型可引用且 bind 保留；
-    # writer AuthoringTask 材料/来源登记同一 observation ref。
     assert_receive {:mission_prompt, mission_prompt}, 1_000
+    assert explore_event.payload.summary == read_text
 
-    mission_observations =
+    for prompt <- [mission_prompt, writer_prompt] do
+      leaves =
+        for %{role: "scope_update", blocks: [%{type: "scope", content: content}]} <-
+              prompt.messages,
+            get_in(content, ["operation", "role"]) == "planned_exploration",
+            do: content["facts"]["exploration_result"]
+
+      assert [
+               %{
+                 "source_refs" => [^read_ref],
+                 "status" => "ok",
+                 "content" => %{"summary" => ^read_text}
+               }
+             ] = leaves
+
+      for wire <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = RequestIR.Projection.project(prompt, wire)
+        assert length(String.split(Jason.encode!(body), read_text)) == 2
+      end
+    end
+
+    # 实际读取留在 canonical Scope，使命与 writer 只绑定它的真实来源。
+    mission_items =
       TestProviderPrompt.scope_content(mission_prompt)["operation"]["mission_inputs"]["items"]
-      |> Enum.filter(&(&1["group"] == "observation"))
 
-    assert [%{"ref" => observation_ref, "text" => observation_text}] = mission_observations
-    assert observation_ref =~ "observation:obs_"
-    assert observation_text =~ explore_event.payload.summary
+    assert Enum.filter(mission_items, &(&1["group"] == "observation")) == []
+    writer_scope = TestProviderPrompt.scope_content(writer_prompt)
+    refute writer_scope["operation"]["creative_brief"] =~ read_text
+    writer_task = writer_scope["authoring_task"]
 
-    writer_task = TestProviderPrompt.scope_content(writer_prompt)["authoring_task"]
+    assert [%{"ref" => ^read_ref, "complete?" => false}] =
+             Enum.filter(writer_task["materials"], &(&1["kind"] == "observation"))
 
-    assert Enum.any?(
-             writer_task["materials"],
-             &(&1["kind"] == "observation" and &1["ref"] == observation_ref)
-           )
+    refute read_ref in writer_task["source_refs"]
 
-    assert observation_ref in writer_task["source_refs"]
-
-    assert_receive {:mission_persisted, "work-agent-prose-flow", 1, persisted_mission}, 1_000
+    assert_receive {:mission_persisted, ^work_id, 1, persisted_mission}, 1_000
     persisted_advance = persisted_mission["must_advance"] || persisted_mission[:must_advance]
-    assert [%{"basis_ref" => "observation:" <> _} | _] = persisted_advance
+    assert [%{"basis_ref" => ^read_ref}] = persisted_advance
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
@@ -1825,11 +1829,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     summary = turn_result.trace_summary
 
     assert summary.used_context_refs_validation == "partial"
-    assert [observed_ref] = summary.used_context_refs
-    assert observed_ref =~ "observation:obs_"
+    assert summary.used_context_refs == [read_ref]
     assert summary.unbound_context_refs == ["chapter:b39-invented"]
-    assert observed_ref in summary.request_observation_refs
-    assert summary.request_base_refs != []
+    refute read_ref in summary.request_observation_refs
+    assert read_ref in summary.request_base_refs
     assert summary.used_context_refs_provider_call_ref == "pc-b39-cp1-writer"
     assert Enum.any?(turn_result.adoption_state.pending, &(&1.artifact_type == :prose_fragment))
   end

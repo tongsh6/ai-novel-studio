@@ -10,7 +10,57 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   alias NovelCommon.AuthoringSemantics
 
   @version "b27-task-v2"
+  @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+  @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
+  @adopted_capabilities ~w(revise_adopted_content)
+  @structure_capabilities ~w(maintain_chapter_structure)
+  @character_profile_capabilities ~w(revise_character_profile)
+
   def version, do: @version
+
+  @doc "判断角色支持的固定能力名称；当前许可仍由每次 Scope 与执行门禁决定。"
+  @spec judgment_capabilities() :: [String.t()]
+  def judgment_capabilities, do: @judgment_capabilities ++ artifact_capabilities(:all)
+
+  @doc "候选工作流的能力分组；效果定义仍以既有能力 registry 为唯一来源。"
+  @spec artifact_capabilities(:pending | :adopted | :structure | :character_profile | :all) ::
+          [String.t()]
+  def artifact_capabilities(:pending), do: @pending_capabilities
+  def artifact_capabilities(:adopted), do: @adopted_capabilities
+  def artifact_capabilities(:structure), do: @structure_capabilities
+  def artifact_capabilities(:character_profile), do: @character_profile_capabilities
+
+  def artifact_capabilities(:all),
+    do:
+      @pending_capabilities ++
+        @adopted_capabilities ++
+        @structure_capabilities ++
+        @character_profile_capabilities
+
+  @doc "判断角色固定定义的唯一渲染口；能力效果复用 registry，探索定义由现役目录传入。"
+  @spec judgment_definitions([map()]) :: String.t()
+  def judgment_definitions(exploration_catalog) do
+    definitions = %{
+      capabilities: operation_data(capabilities: judgment_capabilities()),
+      exploration: exploration_catalog
+    }
+
+    "\n\n判断角色固定定义（不是当前许可；当前允许集、目标、权限和预算以最新 Scope 为准）：\n" <>
+      Jason.encode!(definitions)
+  end
+
+  @doc "只校验本次目录名称属于已支持定义且不重复；权限、目标与预算仍由当前 Scope 决定。"
+  @spec validate_judgment_options(keyword(), [String.t()]) :: :ok | {:error, atom()}
+  def validate_judgment_options(options, exploration_tool_names) do
+    if valid_names?(Keyword.get(options, :capabilities, []), judgment_capabilities()) and
+         valid_names?(Keyword.get(options, :explore_tools, []), exploration_tool_names),
+       do: :ok,
+       else: {:error, :unsupported_judgment_capabilities}
+  end
+
+  defp valid_names?(names, supported) do
+    is_list(names) and Enum.uniq(names) == names and Enum.all?(names, &(&1 in supported))
+  end
 
   @doc "判断阶段的对象、版本与可操作范围证据纪律。"
   def judgment_scope_rules do
@@ -49,11 +99,12 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   @doc "判断/计划专属规则（对话协作/取证/必要提问/能力缺口/自然表达）；不含作者主权等共享段。"
   def judgment_rules do
     """
-    结合作者原话、近期对话、作品状态和实际结果推进当前作品，作者无需使用工具名或固定句式。
+    结合作者原话、对话历史和实际结果推进当前创作目标，作者无需使用工具名或固定句式。
+    作品材料只在当前目标需要时取证；当前作品身份不代表作者要求读取或沿用其中的故事。
     所需事实可由已授权只读能力取得时先取证；已有足够证据则推进原任务，不机械重复读取。
     对追问、纠正和不满，结合前轮目标与真实结果继续处理；只有无法从材料消歧且影响
     方向、对象或范围的决定才问作者。只聊、先收下、不要改等本轮限制保持有效。
-    角色叙事身份以「角色索引」里的 Character 主档案 narrative_role 为当前事实；记忆/摘要中的
+    角色叙事身份以实际读取的 Character 主档案 narrative_role 为当前事实；记忆/摘要中的
     旧主角描述只是历史参考，不得覆盖或冒充当前字段（多主角照实全列，无主角诚实说明）。
     作者明确要求创作动作时，判断必须落到实际执行或具体澄清：写/续写/重写某章正文时，
     若已有章计划等事实足够则直接 execute prose_writing；需要计划事实时可先 explore，
@@ -90,15 +141,12 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   @doc "仅 :judgment 输出的操作路由规则；不进入 continuation/agentic_plan 的共用 rules()。"
   def judgment_operation_rules do
     """
-    系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取：能只读取证先 chapter_read/archive_read；
-    无法读取时用已有索引/统计事实回答并说明证据边界。问“某章写完了吗/有无矛盾/质量如何”必须先读正文与章计划，
-    不得仅凭章状态或“已保存/无待采纳候选”断言完成，也不得编造未读到的情节作为依据。
-    统计/章节索引已经足够回答的问题（如“第二章写完了吗”）直接 reply，不要为形式先 explore；
-    只有需要正文/章计划细节时才 chapter_read/archive_read。
-    统计/索引类问题只回答进度与可核对事实；不得凭统计给质量/完成度结论（如“更像骨架/片段/未成型/
-    篇幅不够=没写完”），需要质量判断时明确说明需读正文，或给下一步，而不是下结论。
-    只问进度/章数/字数/是否已写/章状态（如“第二章写完了吗”）时直接按索引/统计 reply，不要 chapter_read；
-    只有问质量/矛盾/计划兑现时才读正文。不得把统计本身当质量结论。
+    固定能力与探索目录只说明定义，不授予执行权限；当前 Scope 的允许集、目标、权限和预算才是本轮边界。
+    作者需要作品事实时，系统可读的章节目录、章状态、统计、正文/档案材料不得转向作者索取：
+    未提供的目录/统计先 archive_read，必要正文与章计划先 chapter_read；不能将未提供材料说成空或不存在。
+    实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply，不为形式重复读取。
+    统计只证明进度与可核对状态，不能单凭章状态或“已保存/无待采纳候选”断言叙事完成、质量或无矛盾；
+    这些判断需要相应正文与章计划证据，不得编造未读情节。
     章节结构维护：作者要求“把第N卷/第N章编号理顺、只改列表编号、重编号、只修正章节序号、章节顺序编号”等
     既有结构维护时，必须用 judgment_decision.execute capability=maintain_chapter_structure（effect 仅
     display_number_only：只重编号/只改展示章号，不生成大纲、不新建章、不改 title/正文/归卷/章数）；
@@ -106,7 +154,8 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     用 ask_author 按页面章序与章名给可辨认澄清（卷/章）或 report_capability_gap，不得猜。
     角色主档案字段修订：作者要求“指定/改判/确立/把 <已有角色名或别名> 设为主角/反派/配角/群像”等
     已有角色叙事身份修订时，必须用 judgment_decision.execute capability=revise_character_profile，
-    并逐字复制「角色索引」中该角色的 character_ref（身份只认 ref，name/aliases 仅展示与消歧）；
+    先 archive_read 发现并读取目标角色详情，再逐字复制该真实观察的 character_ref 与当前基线；
+    目录只供发现与消歧，name/aliases 不替代 ref，也不授予未读详情的修改资格。
     只允许修订既有角色主档案 narrative_role，不新建角色、不写正文、不冒充角色演化记忆。
     同名/别名歧义不得猜：ask_author 用姓名与作品内可见特征（身份/关系/最近出现处）列出候选让作者选择；
     不存在/越界用澄清或 report_capability_gap；不得回退 reply/character_evolution/character_design
@@ -176,7 +225,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   defp operation(name) do
     case NovelApplication.CapabilityRegistry.get(name) do
       nil ->
-        "- #{name}：仅对本轮 available_operations 列出的对象可用；修订产候选，放弃仅改变候选状态。"
+        "- #{name}：仅在本轮 available_operations 允许该能力且对应目标检查通过时可用；修订产候选，放弃仅改变候选状态。"
 
       entry ->
         "- #{name}：#{entry.effect_summary || entry.tool_layer}；读域=#{Enum.join(entry.read_scopes, ",")}；" <>

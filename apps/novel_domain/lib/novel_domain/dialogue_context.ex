@@ -18,6 +18,7 @@ defmodule NovelDomain.DialogueContext do
           interaction_state: map(),
           current_chapters: [String.t()],
           structured_chapters: [map()],
+          reading_audit: %{work_id: String.t(), audit: map()} | nil,
           context_refs: [ContextSourceRef.t()],
           # AU03-CONTEXT：逐来源可用性（:ok | :empty | :unknown | :unavailable）。
           # 缺失状态表示未读取，不能从 nil/空列表推断作品不存在。
@@ -39,6 +40,7 @@ defmodule NovelDomain.DialogueContext do
     interaction_state: %{},
     current_chapters: [],
     structured_chapters: [],
+    reading_audit: nil,
     context_refs: [],
     source_status: %{},
     assembly_policy: nil,

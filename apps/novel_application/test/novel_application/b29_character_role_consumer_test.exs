@@ -1,76 +1,29 @@
 defmodule NovelApplication.B29CharacterRoleConsumerTest do
   use ExUnit.Case, async: true
 
-  alias NovelApplication.{CharacterProfile, ExplorationService}
   alias NovelApplication.JudgmentProtocol
 
-  @ref "character:11111111-1111-1111-1111-111111111111"
-
-  defp target(role) do
-    %{
-      character_ref: @ref,
-      name: "沈砚",
-      aliases: ["老沈"],
-      role: "查账人",
-      summary: "主角与账房",
-      narrative_role: role,
-      status: "ACCEPTED",
-      updated_at: "2026-10-24T22:24:08Z",
-      base_fingerprint: "fp"
-    }
-  end
-
-  defp input(opts) do
-    %{
-      author_text: Keyword.get(opts, :author_text, "根据本章实际内容判断"),
-      scope: %{
-        facts: %{
-          characters:
-            Enum.map(Keyword.get(opts, :character_targets, []), fn target ->
-              target |> Map.put(:ref, target.character_ref) |> Map.delete(:character_ref)
-            end)
-        },
-        context: %{},
-        coverage: %{characters: %{status: "complete"}}
-      },
-      source_input_ref: "author-turn",
-      supplied_context_refs:
-        Enum.map(Keyword.get(opts, :character_targets, []), & &1.character_ref),
-      options: Keyword.put_new(opts, :plan_run, %{run_id: "run-b29-character-role"})
-    }
-  end
-
-  test "判断 prompt：角色索引携带当前 narrative_role，并声明主档案优先于旧记忆" do
-    # 角色索引在 canonical scope 文本块、主档案优先规则在 application_base：
-    # 断言读与 provider 同源的完整投影文本视图。
+  test "判断固定规则保留主档案身份优先级，但不把未请求的角色材料塞入 Scope" do
     request =
-      input(
-        capabilities: ["revise_character_profile"],
-        character_targets: [target("PROTAGONIST")]
-      )
-      |> JudgmentProtocol.request_for_production()
+      JudgmentProtocol.request_for_production(%{
+        author_text: "根据本章实际内容判断",
+        scope: %{facts: %{}, context: %{}, coverage: %{}},
+        source_input_ref: "author-turn",
+        supplied_context_refs: [],
+        options: [
+          capabilities: ["revise_character_profile"],
+          plan_run: %{run_id: "run-b29-character-role"}
+        ]
+      })
 
     content = NovelApplication.TestAgenticLoopFixtures.prompt_text(request)
+    scope = NovelTest.TestProviderPrompt.scope_content(request)
 
-    assert [%{"narrative_role" => "PROTAGONIST", "ref" => @ref}] =
-             get_in(NovelTest.TestProviderPrompt.scope_content(request), ["facts", "characters"])
-
+    refute Map.has_key?(scope["facts"], "characters")
     assert content =~ "Character 主档案 narrative_role 为当前事实"
     assert content =~ "记忆/摘要中的"
     assert content =~ "旧主角描述只是历史参考"
     assert content =~ "多主角照实全列，无主角诚实说明"
-  end
-
-  test "memory_recall 事实注记：主档案当前主角优先，旧记忆不冒充；无主角诚实" do
-    assert note = ExplorationService.role_fact_note([target("PROTAGONIST")])
-    assert note =~ "主角=沈砚"
-    assert note =~ "记忆中的旧身份描述属历史"
-
-    assert note = ExplorationService.role_fact_note([target("ENSEMBLE_POV")])
-    assert note =~ "尚无被标记为主角的角色"
-    assert note =~ "记忆中的旧身份描述属历史"
-
-    assert ExplorationService.role_fact_note([]) == ""
   end
 end
 
@@ -78,7 +31,14 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{CharacterProfile, CharacterRosterNarration}
+
+  alias NovelApplication.{
+    CharacterProfile,
+    CharacterRosterNarration,
+    ExplorationService,
+    WorkService
+  }
+
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{Repo, WorkArchiveRepo}
   alias NovelPersistence.Schemas.{Character, Work}
@@ -86,6 +46,25 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
   setup do
     :ok = Sandbox.checkout(Repo)
     :ok
+  end
+
+  @tag :scope_archive_index
+  test "memory_recall 的角色关键词不暗读主档案或塞入无角色来源的当前事实" do
+    {:ok, work} = WorkService.create(%{title: "记忆与人物来源分离"})
+
+    character =
+      Repo.insert!(%NovelPersistence.Schemas.Character{
+        work_id: work.id,
+        name: "只能主动查档案才可见的人物",
+        narrative_role: "PROTAGONIST",
+        status: "ACCEPTED"
+      })
+
+    assert {:ok, observation} = ExplorationService.run(work.id, "memory_recall", "谁是主角")
+    assert observation.refs == []
+    assert observation.outcome == :empty_result
+    refute observation.summary =~ character.name
+    refute observation.summary =~ "当前角色主档案"
   end
 
   test "采纳 narrative_role 后：主档案读端口/roster 同批返回新值，旧值不留当前事实" do

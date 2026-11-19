@@ -102,7 +102,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   test "修订传递已消解指代的目标与原稿全文，原稿保留且新稿来自 Provider", c do
     pid = self()
     body = "林渡经营旧书铺。"
-    input = %{c.author_input | text: "请按刚才讨论的名字修改这份候选，其他不变。"}
+    input = %{c.author_input | text: "  请按刚才讨论的名字修改这份候选，其他不变。 R05PENDINGAUTHOR91\r\n"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
     judgment = %{judgment(c, "revise_pending_artifact") | dialogue_goal: "把沈砚改成林渡，其余内容保持不变。"}
 
@@ -142,6 +142,15 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert_received {:revision_prompt, prompt}
     scope = TestProviderPrompt.scope_content(prompt)
     assert_wire_author_identity(prompt, input.text)
+    refute Jason.encode!(scope) =~ "R05PENDINGAUTHOR91"
+
+    assert get_in(scope, ["operation", "context_text"]) ==
+             "原候选全文（仅供修订，不是已确认作品事实）：\n沈砚经营旧书铺。"
+
+    for wire <- ["chat_completions", "responses_api", "anthropic_messages"] do
+      assert {:ok, body} = Projection.project(prompt, wire)
+      assert length(String.split(Jason.encode!(body), "R05PENDINGAUTHOR91")) == 2
+    end
 
     author = Enum.find(prompt.messages, &(&1.role == "user" and &1.provenance == "author"))
     current_scope = prompt.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
@@ -276,7 +285,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       narrative: "我会生成一份修订候选，你确认后才替代旧版。"
     }
 
-    age_input = %{c.author_input | text: "把年龄改成三十岁，其他不变。"}
+    age_input = %{c.author_input | text: "  把年龄改成三十岁，其他不变。 R05ADOPTEDAUTHOR91\r\n"}
 
     run = %{
       c.run
@@ -314,6 +323,18 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
              PendingArtifactWorkflow.run(judgment, age_input, run, c.context, provider)
 
     assert_received {:adopted_revision_prompt, prompt}
+    assert TestProviderPrompt.author_text(prompt) == age_input.text
+    scope = TestProviderPrompt.scope_content(prompt)
+    refute Jason.encode!(scope) =~ "R05ADOPTEDAUTHOR91"
+
+    assert get_in(scope, ["operation", "context_text"]) ==
+             "原已采纳内容（当前作品事实；新候选未采纳前仍以它为准）：\n岑舟今年二十五岁，是青云宗宗主。"
+
+    for wire <- ["chat_completions", "responses_api", "anthropic_messages"] do
+      assert {:ok, body} = Projection.project(prompt, wire)
+      assert length(String.split(Jason.encode!(body), "R05ADOPTEDAUTHOR91")) == 2
+    end
+
     prompt = NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
     assert prompt =~ "岑舟今年二十五岁"
     assert prompt =~ "把年龄改成三十岁"
@@ -888,6 +909,29 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       dialogue_goal: goal_text,
       narrative: "我会生成角色主档案叙事身份的修订候选。"
     }
+
+    assert {:error, {:character_profile_invalid, :not_observed}} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{c.author_input | text: goal_text},
+               run,
+               c.context,
+               nil
+             )
+
+    query = Jason.encode!(%{facet: "characters", ref: "character:#{shen.id}", offset: 0})
+
+    assert {:ok, detail} =
+             NovelApplication.ExplorationService.run(c.work.id, "archive_read", query)
+
+    %{messages: [%{blocks: [observed]}]} =
+      NovelApplication.JudgmentProtocol.observation_transcript(
+        %{messages: [], observation_refs: []},
+        %{tool_call_id: "profile-detail-read"},
+        detail
+      )
+
+    judgment = Map.put(judgment, :character_observation, observed)
 
     before = Repo.get!(Character, shen.id)
 

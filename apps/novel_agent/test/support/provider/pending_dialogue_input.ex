@@ -124,7 +124,6 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
          status: text_or_nil(Map.get(entry, "status")),
          title: text_or_nil(Map.get(entry, "title")),
          operations: operations,
-         body_preview: text_or_nil(Map.get(entry, "body_preview")),
          revision_of: text_or_nil(Map.get(entry, "revision_of")),
          origin: :interaction_state
        }}
@@ -148,7 +147,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
   end
 
   defp material_entry_from_candidate(candidate) do
-    Map.take(candidate, [:ref, :status, :title, :body_preview])
+    Map.take(candidate, [:ref, :status, :title, :revision_of])
     |> Map.put(:source, :candidate)
   end
 
@@ -158,7 +157,7 @@ defmodule NovelAgent.Test.Support.PendingDialogueInput do
         ref: text_or_nil(Map.get(entry, "artifact_ref")),
         status: text_or_nil(Map.get(entry, "status")),
         title: text_or_nil(Map.get(entry, "title")),
-        body_preview: text_or_nil(Map.get(entry, "body_preview")),
+        revision_of: text_or_nil(Map.get(entry, "revision_of")),
         source: :resolved_facts
       }
     ]

@@ -39,7 +39,7 @@ defmodule NovelPersistence.WorkspaceContext do
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
     fn work_id, author_text, session_id ->
-      {snapshot, work_status, structured_chapters, chapters_status} =
+      {snapshot, work_status, structured_chapters, chapters_status, reading_audit} =
         fetch_work_sources(work_id)
 
       {conv_summary, conversation_status} =
@@ -70,6 +70,7 @@ defmodule NovelPersistence.WorkspaceContext do
          memory_summary: mem_summary,
          open_behavior_summary: behavior_summary,
          structured_chapters: structured_chapters,
+         reading_audit: reading_audit,
          current_chapters: titles_from_structured_chapters(structured_chapters),
          interaction_state: interaction_state || %{},
          source_status: %{
@@ -153,18 +154,22 @@ defmodule NovelPersistence.WorkspaceContext do
       safe_source(workspace_id, :work, fn ->
         {:ok, result} =
           Repo.transaction(fn ->
-            {fetch_workspace_info(workspace_id), fetch_structured_chapters(workspace_id)}
+            snapshot = fetch_workspace_info(workspace_id)
+            projection = ReadingProjectionRepo.toc(workspace_id)
+            chapters = fetch_structured_chapters(workspace_id, projection)
+            reading_audit = %{work_id: projection.work_id, audit: projection.audit}
+            {snapshot, chapters, reading_audit}
           end)
 
         result
       end)
 
     case sources do
-      {snapshot, chapters} ->
-        {snapshot, source_status(snapshot), chapters, source_status(chapters)}
+      {snapshot, chapters, reading_audit} ->
+        {snapshot, source_status(snapshot), chapters, source_status(chapters), reading_audit}
 
       nil ->
-        {nil, status, [], status}
+        {nil, status, [], status, nil}
     end
   end
 
@@ -187,12 +192,13 @@ defmodule NovelPersistence.WorkspaceContext do
   # 供 planner/prose 的「当前卷蓝图」段、写作坐标 volume_ref、使命输入与探索面消费。
   # 全部为 additive keys（既有消费者按 title/seq/... 读取不受影响）；无卷/无蓝图时
   # 对应值为 nil，一切渲染与今天逐字节等价（I-VOL-4）。
-  defp fetch_structured_chapters(workspace_id) when is_binary(workspace_id) do
-    entries =
-      workspace_id
-      |> ReadingProjectionRepo.toc()
-      |> Map.get(:volumes, [])
-      |> Enum.flat_map(&structured_chapter_entries/1)
+  defp fetch_structured_chapters(workspace_id) when is_binary(workspace_id),
+    do: fetch_structured_chapters(workspace_id, ReadingProjectionRepo.toc(workspace_id))
+
+  defp fetch_structured_chapters(_workspace_id), do: []
+
+  defp fetch_structured_chapters(workspace_id, projection) do
+    entries = Enum.flat_map(projection.volumes, &structured_chapter_entries/1)
 
     # B27 CP4（M01/M16/M20）：判断上下文作品事实投影（只读）——按章并入当前采纳
     # 草稿计数/版本 refs/历史 superseded/摘要状态，供判断回答版本与完成度问题。
@@ -206,8 +212,6 @@ defmodule NovelPersistence.WorkspaceContext do
       |> Map.put(:visible_in_reading, true)
     end)
   end
-
-  defp fetch_structured_chapters(_workspace_id), do: []
 
   defp structured_chapter_entries(volume) when is_map(volume) do
     volume

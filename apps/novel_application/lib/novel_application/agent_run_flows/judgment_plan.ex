@@ -493,6 +493,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       namespace: "plan_explore",
       observation_suffix: "jp_tool"
     )
+    |> AuthoringSession.record_exploration_result(run, snapshot)
   end
 
   defp execute_context_decision_step(run, sequence, spec, snapshot) do
@@ -520,7 +521,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
      }}
   end
 
-  defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+  defp execute_tool_decision_step(run, sequence, spec, decision, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
@@ -541,7 +542,6 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
           frame,
           plan,
           decision_result,
-          observations,
           snapshot
         )
       else
@@ -560,7 +560,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     end
   end
 
-  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
+  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, snapshot) do
     execution_context = Map.get(stage_state(snapshot), :context) || Map.get(spec, :context)
 
     emit_stage(
@@ -588,8 +588,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         decision: decision,
         candidates: [],
         context: execution_context,
-        author_input: execution_author_input(author_input, run.goal.text),
-        creative_brief: creative_brief_text(run, plan, observations),
+        author_input: execution_author_input(author_input, run.goal),
+        creative_brief: creative_brief_text(plan),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         chapter_prose_reader:
@@ -678,30 +678,23 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     )
   end
 
-  defp execution_author_input(nil, goal_text),
-    do: %{text: nil, turn_id: nil, author_goal_text: goal_text}
+  defp execution_author_input(nil, goal),
+    do: %{
+      text: nil,
+      turn_id: nil,
+      author_goal_text: goal.text,
+      author_goal_source_ref: Map.get(goal, :source_ref)
+    }
 
-  defp execution_author_input(%{text: text, turn_id: turn_id}, goal_text),
-    do: %{text: text, turn_id: turn_id, author_goal_text: goal_text}
+  defp execution_author_input(%{text: text, turn_id: turn_id}, goal),
+    do: %{
+      text: text,
+      turn_id: turn_id,
+      author_goal_text: goal.text,
+      author_goal_source_ref: Map.get(goal, :source_ref)
+    }
 
-  defp creative_brief_text(run, plan, observations) do
-    observation_text =
-      observations
-      |> Enum.map(& &1.summary)
-      |> Enum.reject(&blank?/1)
-      |> Enum.join("\n")
-
-    [
-      run.goal.text,
-      "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text)
-    ]
-    |> Enum.reject(&blank?/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp observation_section(""), do: nil
-  defp observation_section(text), do: "已完成观察：\n#{text}"
+  defp creative_brief_text(plan), do: "当前 AgentStep：#{plan.plan_goal.summary}"
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{
@@ -901,7 +894,6 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
          sequence,
          spec,
          decision,
-         Map.get(snapshot, :observations, []),
          snapshot
        )
      end, decision}

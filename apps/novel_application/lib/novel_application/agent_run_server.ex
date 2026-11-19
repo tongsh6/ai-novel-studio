@@ -473,7 +473,7 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp do_apply_steer(state, text, submission_id, current_version) do
-    run = %{state.run | goal: %{state.run.goal | text: text, version: current_version + 1}}
+    run = put_author_goal(state.run, text, current_version + 1)
 
     case TurnInteractionService.record_steer(run, text, state.interaction_store, submission_id) do
       {:ok, %{duplicate?: true} = receipt} ->
@@ -493,13 +493,16 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
+  defp put_author_goal(run, text, version) do
+    run = %{run | goal: %{run.goal | text: text, version: version}}
+    %{run | goal: Map.put(run.goal, :source_ref, TurnInteractionService.input_ref(run))}
+  end
+
   defp commit_question_answer(state, request, submission_id) do
-    run = %{
+    run =
       state.run
-      | goal: %{state.run.goal | text: request.text, version: state.run.goal.version + 1},
-        # 回答回合来源标记：canonical transcript 据此区分「回答」与普通作者消息。
-        author_turn: %{origin: "author_choice", question_ref: request.question_ref}
-    }
+      |> put_author_goal(request.text, state.run.goal.version + 1)
+      |> Map.put(:author_turn, %{origin: "author_choice", question_ref: request.question_ref})
 
     applied = apply_author_steer(%{state | defer_delivery: true}, run)
     next = elem(applied, 2)

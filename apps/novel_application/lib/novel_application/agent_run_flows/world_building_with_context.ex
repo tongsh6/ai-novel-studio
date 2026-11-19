@@ -288,7 +288,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
      }}
   end
 
-  defp execute_tool_step(run, sequence, spec, decision, observations, snapshot) do
+  defp execute_tool_step(run, sequence, spec, decision, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
@@ -302,7 +302,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
       emit_gate_decision(snapshot, decision_result)
 
       if decision_result.decision_type == :allow_tool do
-        run_tool(run, sequence, spec, frame, plan, decision_result, observations, snapshot)
+        run_tool(run, sequence, spec, frame, plan, decision_result, snapshot)
       else
         # GATE-ORDER-CLOSURE：阻断决策同样必须写 DecisionTrace（ADR-0005 逐门可解释），
         # 再保持既有 agent_step_blocked 失败语义不变。
@@ -319,7 +319,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
     end
   end
 
-  defp run_tool(run, sequence, spec, frame, plan, decision, observations, snapshot) do
+  defp run_tool(run, sequence, spec, frame, plan, decision, snapshot) do
     execution_context = Map.get(stage_state(snapshot), :context) || Map.get(spec, :context)
 
     emit_stage(
@@ -350,9 +350,10 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
         author_input: %{
           text: author_input && author_input.text,
           turn_id: author_input && author_input.turn_id,
-          author_goal_text: run.goal.text
+          author_goal_text: run.goal.text,
+          author_goal_source_ref: Map.get(run.goal, :source_ref)
         },
-        creative_brief: creative_brief_text(run, plan, observations),
+        creative_brief: creative_brief_text(plan),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         chapter_prose_reader:
@@ -435,24 +436,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
     )
   end
 
-  defp creative_brief_text(run, plan, observations) do
-    observation_text =
-      observations
-      |> Enum.map(& &1.summary)
-      |> Enum.reject(&blank?/1)
-      |> Enum.join("\n")
-
-    [
-      run.goal.text,
-      "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text)
-    ]
-    |> Enum.reject(&blank?/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp observation_section(""), do: nil
-  defp observation_section(text), do: "已完成观察：\n#{text}"
+  defp creative_brief_text(plan), do: "当前 AgentStep：#{plan.plan_goal.summary}"
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{
@@ -640,7 +624,6 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
          sequence,
          spec,
          decision,
-         Map.get(snapshot, :observations, []),
          snapshot
        )
      end, decision}

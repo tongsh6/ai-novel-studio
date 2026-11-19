@@ -6,17 +6,18 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   - 本模块只做**事实组装**与机械校验，不写规则文本、不推断作者意图、不虚构对象/范围/版本。
   - 域模块（prose/aux）各自从真实端口取事实，调用本模块的 helper 构造 task；
     task 必须通过 `AuthoringSemantics.validate/1` 才可进入 provider 请求。
-  - 放入 `ToolRequest.input` 时用 `to_input/1`（JSON-safe map），出站时 `from_input/1` 恢复并校验。
+  - 放入 `ToolRequest.input` 时用 `to_input/1`（JSON-safe map），adapter 经共同契约恢复并校验。
   """
 
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
+  alias NovelCommon.RequestIR
 
   @doc """
   构造并校验 task；失败返回 `{:error, {code, detail}}`，调用方不得降级猜意图。
 
-  attrs 覆盖 AuthoringTask 字段（author_goal/author_words/source/scope/materials/
+  attrs 覆盖 AuthoringTask 字段（author_goal/goal_source_ref/author_words/source/scope/materials/
   preserve/operation_effect/prior_result/output_contract/source_refs）。
   """
   def new(kind, attrs \\ %{}) when is_atom(kind) and is_map(attrs) do
@@ -91,25 +92,6 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     %{"authoring_task" => AuthoringTask.to_map(task)}
   end
 
-  @doc "从 ToolRequest.input 恢复并校验；无字段返回 `{:ok, nil}`（迁移期兼容）。"
-  def from_input(input) when is_map(input) do
-    case input["authoring_task"] || input[:authoring_task] do
-      nil ->
-        {:ok, nil}
-
-      map when is_map(map) ->
-        case AuthoringTask.from_map(map) do
-          nil -> {:error, {:authoring_task_invalid, :not_a_task}}
-          task -> AuthoringSemantics.validate(task)
-        end
-
-      _other ->
-        {:error, {:authoring_task_invalid, :not_a_task}}
-    end
-  end
-
-  def from_input(_input), do: {:ok, nil}
-
   # ── CP3b：prose 域组装（writer / revision / quality_evaluation）─────────
   #
   # 这些函数只把调用点已有的真实业务事实映射成 task 字段；kind/效果/范围全部来自
@@ -145,7 +127,8 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   `attrs`：
   - `:action`：MicroPlan action（`:authoring_intent` / `:summary` / `:target_chapter_ref`）
   - `:author_words`：经真实输入/receipt 核对的作者原话字节；应用 author_goal 不作 fallback
-  - `:author_goal`：应用已验证的目标解释（action/step summary，来源在 `source_refs`）
+  - `:author_goal`：应用已验证的完整目标或独立执行解释
+  - `:goal_source_ref`：目标绑定的真实受理输入身份；无绑定时不从材料或文字相等推导
   - `:resolved_chapter` / `:resolved_chapter_ref`：应用解析后的目标章
   - `:prior_prose` / `:omission_notes`：已采纳前文与预算省略
   - `:sections`：已渲染材料段（只用判空与生成材料清单）
@@ -159,13 +142,14 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
     new(kind, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       scope: prose_scope(attrs, kind),
-      materials: prose_materials(attrs) ++ observation_materials(attrs[:observations]),
+      materials: prose_materials(attrs) ++ task_read_materials(attrs),
       preserve: prose_preserve(kind, attrs),
       operation_effect: prose_effect(kind),
       output_contract: attrs[:output_contract] || output_contract(:json, @prose_contract_opts),
-      source_refs: string_list(attrs[:source_refs]) ++ observation_refs(attrs[:observations])
+      source_refs: string_list(attrs[:source_refs])
     })
   end
 
@@ -182,6 +166,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
     new(:revision, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])) || "按作者动作或复核发现修订已有内容",
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       source: normalize_source(attrs[:source]),
       scope:
@@ -239,6 +224,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
       new(:revision, %{
         author_goal: blank_to_nil(text(attrs[:author_goal])) || "按作者要求修订整章正文（覆盖范围内完整替换）",
+        goal_source_ref: attrs[:goal_source_ref],
         author_words: author_words(attrs),
         source: normalize_source(attrs[:source]),
         scope:
@@ -385,6 +371,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
     new(:quality_evaluation, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       scope:
         scope(refs_for(source_ref),
           object_kind: :prose_fragment,
@@ -444,6 +431,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   def for_outline(attrs) when is_map(attrs) do
     new(:outline, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       scope: creative_scope(attrs, :outline, :multi),
       materials: creative_materials(attrs),
@@ -459,6 +447,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   def for_character_design(attrs) when is_map(attrs) do
     new(:character_design, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       scope: creative_scope(attrs, :character, :single),
       materials: creative_materials(attrs),
@@ -476,6 +465,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   def for_character_evolution(attrs) when is_map(attrs) do
     new(:character_evolution, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       scope: creative_scope(attrs, :character_memory, :single),
       materials: creative_materials(attrs),
@@ -499,6 +489,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
     new(:world_building, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])),
+      goal_source_ref: attrs[:goal_source_ref],
       author_words: author_words(attrs),
       scope: creative_scope(attrs, :world_setting, :single),
       materials: creative_materials(attrs),
@@ -667,12 +658,10 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       ),
       optional_material(:absence_directives, text(sections[:absence_directives]),
         ref: "absence_directives:#{key}"
-      ),
-      optional_material(:dialogue_context, text(sections[:dialogue_context]),
-        ref: "dialogue_context:#{key}"
       )
     ]
     |> Enum.reject(&is_nil/1)
+    |> Kernel.++(task_read_materials(attrs))
   end
 
   defp creative_material_key(attrs) do
@@ -797,9 +786,6 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       ),
       optional_material(:absence_directives, text(sections[:absence_directives]),
         ref: "absence_directives:#{key}"
-      ),
-      optional_material(:dialogue_context, text(sections[:dialogue_context]),
-        ref: "dialogue_context:#{key}"
       )
     ]
     |> Enum.reject(&is_nil/1)
@@ -816,37 +802,84 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     )
   end
 
-  # B39 CP1b/D7：本 run 只读探索观察作为 writer 任务材料与来源 refs（additive）。
-  # 内容由 author_input_text 观察段承载；这里只登记可核验来源，避免把同一份观察
-  # 既当 Base 材料又当模型产出。
-  defp observation_materials(observations) do
-    observations
-    |> observation_list()
-    |> Enum.map(fn observation ->
-      kind =
-        Map.get(observation, :tool) || Map.get(observation.structured_payload, :tool) ||
-          "observation"
+  @doc "本次实际可见读取的材料元数据；来源分类供任务、使命与证据校验共同消费。"
+  @spec request_read_materials(RequestIR.t() | nil) :: [map()]
+  def request_read_materials(nil), do: []
 
-      material(:observation, "observation:#{observation.observation_id}",
-        complete?: true,
-        omission_note: "单次只读观察；未覆盖全章/全书"
-      )
-      |> Map.put(:kind, :observation)
-      |> Map.put(:source, to_string(kind))
+  def request_read_materials(%RequestIR{} = request) do
+    request
+    |> RequestIR.visible_observations()
+    |> Enum.filter(fn observation ->
+      observation[:status] in ["ok", "partial"] and read_content?(observation[:content])
     end)
+    |> Enum.flat_map(&read_observation_materials/1)
+    |> Enum.uniq_by(&{&1.ref, &1[:version], &1[:complete?], &1.provenance})
   end
 
-  defp observation_refs(observations) do
-    observations
-    |> observation_list()
-    |> Enum.map(&"observation:#{&1.observation_id}")
-  end
+  defp read_observation_materials(observation) do
+    coverage = observation[:coverage] || %{}
+    omissions = List.wrap(observation[:omissions])
+    complete? = complete_read_coverage?(observation, coverage, omissions)
 
-  defp observation_list(observations) do
-    observations
+    notes =
+      [coverage[:coverage_note] || coverage["coverage_note"] | omissions]
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.join("；")
+
+    note = if notes == "", do: "仅表示本次可见读取；未声明完整覆盖", else: notes
+
+    observation[:source_refs]
     |> List.wrap()
-    |> Enum.filter(&is_struct(&1, NovelDomain.AgentObservation))
+    |> Enum.flat_map(&read_source_material(&1, observation, complete?, note))
   end
+
+  defp complete_read_coverage?(observation, coverage, omissions) do
+    (coverage[:complete?] || coverage["complete?"]) == true and
+      observation[:status] == "ok" and omissions == [] and is_nil(observation[:next_offset])
+  end
+
+  defp read_source_material(source, observation, complete?, note) do
+    {ref, version} = read_source_identity(source)
+    versions = observation[:versions] || %{}
+
+    if blank?(ref) do
+      []
+    else
+      [
+        material(:observation, ref,
+          version: version || Map.get(versions, ref),
+          complete?: complete?,
+          omission_note: if(complete?, do: nil, else: note)
+        )
+        |> Map.put(:provenance, observation[:provenance] || "tool_result")
+      ]
+    end
+  end
+
+  defp task_read_materials(attrs) do
+    attrs[:request_ir]
+    |> request_read_materials()
+    |> Enum.map(&Map.delete(&1, :provenance))
+  end
+
+  defp read_content?(content) when is_binary(content), do: not blank?(content)
+
+  defp read_content?(content) when is_map(content) do
+    summary = content[:summary] || content["summary"]
+    facts = content[:facts] || content["facts"]
+
+    not blank?(summary) or (is_map(facts) and map_size(facts) > 0) or
+      (is_list(facts) and facts != [])
+  end
+
+  defp read_content?(_content), do: false
+
+  defp read_source_identity(ref) when is_binary(ref), do: {ref, nil}
+
+  defp read_source_identity(source) when is_map(source),
+    do: {source[:ref] || source["ref"], source[:version] || source["version"]}
+
+  defp read_source_identity(_source), do: {nil, nil}
 
   defp revision_materials(attrs, base_ref) do
     [

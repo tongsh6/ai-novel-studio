@@ -68,7 +68,9 @@ defmodule NovelApplication.AuthoringOperation do
     end
   end
 
-  defp runtime_scope(scope, run) do
+  @doc "把真实 run 的权限与预算投影到操作 Scope；定义目录与材料引用不产生权限。"
+  @spec runtime_scope(map(), map() | nil) :: map()
+  def runtime_scope(scope, run) do
     scope = RequestIR.json_value(scope)
     operation = Map.get(scope, "operation", %{})
 

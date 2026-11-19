@@ -15,6 +15,8 @@ defmodule NovelApplication.MemoryManagementService do
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.WorkRepo
 
+  @memory_preview_chars 600
+
   @create_fields [
     "volume_id",
     "arc_id",
@@ -147,17 +149,67 @@ defmodule NovelApplication.MemoryManagementService do
     with :ok <- ensure_work(work_id) do
       filters = stringify_keys(params)
       limit = parse_limit(Map.get(filters, "token_budget"))
-      memories = MemoryManagementRepo.recall(work_id, Map.get(filters, "query"), limit: limit)
+
+      memories =
+        MemoryManagementRepo.recall(work_id, Map.get(filters, "query"),
+          limit: limit,
+          memory_id: Map.get(filters, "memory_id")
+        )
+
       text = NovelPersistence.MemoryRecallRepo.summary(memories) || ""
 
       {:ok,
        %{
          text: text,
+         items: memories,
          iron_law_count: 0,
          candidate_count: length(memories),
          estimated_tokens: estimate_tokens(text)
        }}
     end
+  end
+
+  @doc "只解析召回检索或真实记忆详情坐标，不读取数据或授予资格。"
+  @spec recall_selector(String.t()) :: {:ok, map()} | {:error, :invalid_memory_query}
+  def recall_selector(query) when is_binary(query) do
+    case String.trim(query) do
+      "{" <> _ = json ->
+        case Jason.decode(json) do
+          {:ok, %{"memory_ref" => "memory:" <> id = ref, "offset" => offset} = decoded}
+          when map_size(decoded) == 2 and id != "" and is_integer(offset) and offset >= 0 ->
+            {:ok, %{kind: "detail", memory_ref: ref, offset: offset}}
+
+          _ ->
+            {:error, :invalid_memory_query}
+        end
+
+      search ->
+        {:ok, %{kind: "recall", query: search}}
+    end
+  end
+
+  def recall_selector(_query), do: {:error, :invalid_memory_query}
+
+  @doc "从实际召回条目投影有界摘要，保留来源与正文覆盖区别。"
+  @spec recall_preview(map()) :: map()
+  def recall_preview(item) do
+    text = item.summary || item.content
+    preview = String.slice(text, 0, @memory_preview_chars)
+
+    item
+    |> Map.take([:type, :scope, :status, :source_type, :source_id])
+    |> Map.merge(%{
+      memory_ref: "memory:#{item.id}",
+      text: preview,
+      representation: if(item.summary, do: "summary", else: "content_preview"),
+      returned_graphemes: String.length(preview),
+      total_graphemes: String.length(text),
+      content_status:
+        if(item.summary,
+          do: "not_read",
+          else: if(preview == item.content, do: "complete", else: "partial")
+        )
+    })
   end
 
   @spec references(String.t(), String.t()) ::

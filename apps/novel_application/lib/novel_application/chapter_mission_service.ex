@@ -16,11 +16,12 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
+  alias NovelApplication.AuthoringTaskBuilder
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.ChapterPlanDirection
 
-  # kind（WR02）：:prose 写某章前 / :planning 规划下一批章前——两类调用点（prompt 目录
+  # kind（WR02）：:prose 写某章前 / :planning 按目标规划大纲前——两类调用点（prompt 目录
   # SSOT），工具名与锚点独立，值对象与绑定机制复用。
   @tool_names %{prose: "chapter_mission", planning: "planning_mission"}
   @prompt_anchors %{prose: "写前推理器", planning: "规划前推理器"}
@@ -156,8 +157,9 @@ defmodule NovelApplication.ChapterMissionService do
 
   defp intro_line(:planning) do
     """
-    本次你承担#{prompt_anchor(:planning)}的角色。下一批章节大纲尚未起草，请只根据下面
-    列出的材料，推导「本轮规划使命」：接下来要规划的章节必须安排什么、不得安排什么。
+    本次你承担#{prompt_anchor(:planning)}的角色。本轮大纲尚未起草，请根据当前目标的
+    规划层级与下面列出的材料，推导「本轮规划使命」：本轮必须安排什么、不得安排什么。
+    目标要求卷级规划时，使命停留在卷级；目标要求章计划时，才具体安排章节。
     """
     |> String.trim()
   end
@@ -167,7 +169,7 @@ defmodule NovelApplication.ChapterMissionService do
     - statement：一两句话说清这一章现在该干什么。优先处理已超期或本章到期的伏笔、停滞的
       弧光、沉寂的主线、偏离的题材承诺；没有这些压力就按本章计划推进。
     - must_advance：1 到 4 条，每条 text 具体可执行，basis_ref 必须精确复制 mission_inputs.items
-      的 ref 字段；找不到依据的不要写。
+      的 ref 或本次可见读取材料的 source_refs；仅有引用而没有可见内容的不构成依据。
     - must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。
     """
     |> String.trim()
@@ -175,12 +177,13 @@ defmodule NovelApplication.ChapterMissionService do
 
   defp requirement_lines(:planning) do
     """
-    - statement：一两句话说清这批章要完成什么。优先给已超期或临近的伏笔安排回收、给停滞
-      角色安排回归、让沉寂主线重新推进、守住题材承诺；并按全书进度控制节奏。
-    - must_advance：1 到 4 条「这批章必须安排的事」，每条 text 具体可排进章计划，basis_ref
-      必须精确复制 mission_inputs.items 的 ref 字段；找不到依据的不要写。
-    - must_avoid：0 到 3 条「这批章不得安排的事」（距目标尚远不得提前收官、不得另立主导
-      角色、不得提前揭示保密的计划信息等），basis_ref 同上。
+    - statement：一两句话说清当前目标范围内要完成什么。优先给已超期或临近的伏笔安排回收、
+      给停滞角色安排回归、让沉寂主线重新推进、守住题材承诺；并按全书进度控制节奏。
+    - must_advance：1 到 4 条「本轮必须安排的事」，每条 text 在目标要求的卷级或章级范围内
+      具体可执行，basis_ref 必须精确复制 mission_inputs.items 的 ref 或本次可见读取材料的
+      source_refs；仅有引用而没有可见内容的不构成依据。
+    - must_avoid：0 到 3 条「本轮不得安排的事」（不得超出作者要求的规划层级、距目标尚远
+      不得提前收官、不得另立主导角色、不得提前揭示保密的计划信息等），basis_ref 同上。
     """
     |> String.trim()
   end
@@ -223,7 +226,7 @@ defmodule NovelApplication.ChapterMissionService do
         ir,
         result_fn,
         tool_name(kind),
-        &parse_mission(&1, inputs, tool_name(kind)),
+        &parse_mission(&1, inputs, ir, tool_name(kind)),
         &exchange_error(&1, &2, tool_name(kind)),
         retry_transport: false,
         feedback: &mission_feedback(&1, kind)
@@ -246,9 +249,9 @@ defmodule NovelApplication.ChapterMissionService do
     end
   end
 
-  defp parse_mission(provider_result, inputs, tool_name) do
+  defp parse_mission(provider_result, inputs, ir, tool_name) do
     with {:ok, args} <- tool_arguments(provider_result, tool_name),
-         {:ok, mission} <- bound_mission(args, provider_result, inputs) do
+         {:ok, mission} <- bound_mission(args, provider_result, inputs, ir) do
       {narrative, source} = narrative(provider_result, args, tool_name)
 
       %{
@@ -263,14 +266,17 @@ defmodule NovelApplication.ChapterMissionService do
     end
   end
 
-  defp bound_mission(args, provider_result, inputs) do
+  defp bound_mission(args, provider_result, inputs, ir) do
+    read_refs = ir |> AuthoringTaskBuilder.request_read_materials() |> Enum.map(& &1.ref)
+    known_refs = MapSet.union(ChapterMissionInputs.refs(inputs), MapSet.new(read_refs))
+
     mission =
       args
       |> ChapterMission.new()
       |> Map.put(:mission_id, NovelFoundation.ID.unique("cm"))
       |> Map.put(:provider_call_ref, provider_call_ref(provider_result))
       |> ChapterMission.bind(
-        ChapterMissionInputs.refs(inputs),
+        known_refs,
         &ChapterMissionInputs.label(inputs, &1)
       )
 
@@ -298,8 +304,8 @@ defmodule NovelApplication.ChapterMissionService do
     message = """
     上一次输出无法使用（#{inspect(parsed.reason)}）。请重新调用 #{tool_name(kind)} 工具，且只调用这一个工具：
     - statement 必填；
-    - must_advance / must_avoid 每条的 basis_ref 只能精确复制材料中方括号内列出的 ref，
-      不得引用材料之外的标识；
+    - must_advance / must_avoid 每条的 basis_ref 只能精确复制 mission_inputs.items 的 ref，
+      或本次有可见内容的读取材料 source_refs；不得引用隐藏材料或仅有引用的标识；
     - 不要输出正文或解释性文字。
     """
 

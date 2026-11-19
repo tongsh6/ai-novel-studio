@@ -19,6 +19,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.ExplorationService
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.RequestIR
 
@@ -76,6 +77,74 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
         {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
         ir
     end
+  end
+
+  @doc "把专业计划的本次真实读取追加为应用材料；不重开已校验的计划调用。"
+  def record_exploration_result({:ok, %{observations: [observation]} = result}, run, snapshot) do
+    transcript =
+      transcript(snapshot) ||
+        AuthoringTranscript.new(run,
+          base_text: RequestIR.application_base_text(),
+          allow_authorless: true,
+          system:
+            RequestIR.system_envelope(
+              run_role: "creation_run",
+              instructions: "依据真实读取结果继续作者目标。"
+            )
+        )
+
+    payload =
+      observation.structured_payload
+      |> Map.put(:summary, observation.summary)
+      |> Map.put(:refs, observation.structured_payload.source_refs)
+      |> ExplorationService.request_observation()
+
+    operation = %{
+      role: "planned_exploration",
+      plan_ref: run.plan_ref,
+      plan_version: run.plan_version,
+      step_ref: result.step.step_id,
+      observation_ref: observation.observation_id
+    }
+
+    operation =
+      case plan_call_id(transcript, run) do
+        nil -> operation
+        call_id -> Map.put(operation, :plan_call_id, call_id)
+      end
+
+    scope = %{
+      work_id: run.work_id,
+      operation: operation,
+      facts: %{exploration_result: payload}
+    }
+
+    transcript =
+      AuthoringTranscript.append_scope_update(
+        transcript,
+        scope,
+        %{"scope_revision" => RequestIR.Scope.next_revision(transcript)},
+        payload.source_refs,
+        payload.source_refs
+      )
+
+    put_transcript({:ok, result}, transcript)
+  end
+
+  def record_exploration_result({:error, _reason} = error, _run, _snapshot), do: error
+
+  defp plan_call_id(transcript, run) do
+    transcript.messages
+    |> Enum.reverse()
+    |> Enum.flat_map(& &1.blocks)
+    |> Enum.find_value(fn
+      %{type: "validation_result", reason_code: "agent_plan_validated", detail: detail} = block ->
+        if detail["plan_ref"] == run.plan_ref and detail["plan_version"] == run.plan_version,
+          do: block.call_id
+
+      _ ->
+        nil
+    end)
   end
 
   @doc "在现有 canonical 会话中记录已核对的作者输入；原字节和 turn_id 必须来自同一次选择。"

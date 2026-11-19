@@ -62,6 +62,26 @@ defmodule NovelPersistence.MemoryRecallRepoTest do
       assert MemoryRecallRepo.summary(memories) =~ "林瑶失踪指向灵源矿区"
     end
 
+    @tag :r05_exploration
+    test "exact memory identity retains current version and cannot bypass ordinary recall eligibility" do
+      work_id = ID.uuid()
+      selected = insert_memory!(%{work_id: work_id, content: "本条独立正文", version: 9})
+      other = insert_memory!(%{work_id: work_id, content: "另一条正文"})
+      foreign = insert_memory!(%{work_id: ID.uuid(), content: "其他作品正文"})
+      hidden = insert_memory!(%{work_id: work_id, content: "不许召回", recallable: false})
+
+      assert [%{id: selected_id, work_id: source_work, version: 9}] =
+               MemoryRecallRepo.recall(work_id, nil, memory_id: selected.id)
+
+      assert selected_id == selected.id
+      assert source_work == work_id
+      refute selected_id == other.id
+
+      for id <- [foreign.id, hidden.id, ID.uuid(), "invalid-id"] do
+        assert MemoryRecallRepo.recall(work_id, nil, memory_id: id) == []
+      end
+    end
+
     test "returns no memory when the current input has no lexical match" do
       work_id = ID.uuid()
 
@@ -123,6 +143,9 @@ defmodule NovelPersistence.MemoryRecallRepoTest do
       refute out_of_window.id in ids
       assert covering.id in ids
       assert unwindowed.id in ids
+      assert MemoryRecallRepo.recall(work_id, nil, memory_id: out_of_window.id) == []
+      assert [%{id: covering_id}] = MemoryRecallRepo.recall(work_id, nil, memory_id: covering.id)
+      assert covering_id == covering.id
     end
 
     test "without an accepted chapter, current position is unknown and windows do not restrict" do

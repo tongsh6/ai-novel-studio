@@ -119,7 +119,7 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     {context_result, judgment_result, prompt} = plan_and_capture(work, raising)
 
     assert prompt["coverage"]["work"] == %{"status" => "unavailable"}
-    assert prompt["coverage"]["chapters"] == %{"status" => "unavailable"}
+    assert prompt["coverage"]["chapters"] == %{"status" => "not_read"}
     refute Map.has_key?(prompt["facts"], "work")
     refute Map.has_key?(prompt["facts"], "chapters")
 
@@ -169,12 +169,12 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     {context_result, _judgment_result, prompt} = plan_and_capture(work, partial)
 
     assert prompt["facts"]["work"]["title"] == "AU03 部分保留作品"
-    assert prompt["coverage"]["chapters"] == %{"status" => "unavailable"}
+    assert prompt["coverage"]["chapters"] == %{"status" => "not_read"}
     refute Map.has_key?(prompt["facts"], "chapters")
     assert "chapters" in context_status_observation(context_result).unavailable_sources
   end
 
-  test "真实空作品（生产 fetcher 成功读取、无章）→ 可渲染 0 章，不声明读取失败" do
+  test "生产 fetcher 的真实空集合可审计，默认判断仍不声明已供应章目录" do
     work = seed_work("AU03 真实空作品")
     production = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
 
@@ -182,9 +182,9 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
       plan_and_capture(work, fn ws, text, session -> production.(ws, text, session) end)
 
     assert prompt["facts"]["work"]["title"] == "AU03 真实空作品"
-    assert prompt["facts"]["chapters"] == []
-    assert prompt["coverage"]["chapters"]["total"] == 0
-    assert prompt["coverage"]["chapters"]["status"] == "complete"
+    refute Map.has_key?(prompt["facts"], "chapters")
+    assert prompt["coverage"]["chapters"] == %{"status" => "not_read"}
+    assert context_status_observation(context_result).sources["chapters"] == "empty"
     assert context_status_observation(context_result).unavailable_sources == []
   end
 
@@ -206,7 +206,7 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
     refute Map.has_key?(prompt["facts"], "chapters")
   end
 
-  test "明确读取到空作品与章节集合，才能报告 complete 与零章" do
+  test "明确空作品状态保持真实，未供应章节集合不在 Scope 推导零章" do
     work = seed_work("AU03 空作品")
 
     empty = fn workspace_id, _text, _session ->
@@ -217,11 +217,12 @@ defmodule NovelApplication.AU03ContextTurnMatrixTest do
        }}
     end
 
-    {_context_result, _judgment_result, prompt} = plan_and_capture(work, empty)
+    {context_result, _judgment_result, prompt} = plan_and_capture(work, empty)
     refute Map.has_key?(prompt["facts"], "work")
     assert prompt["coverage"]["work"] == %{"status" => "complete"}
-    assert prompt["facts"]["chapters"] == []
-    assert prompt["coverage"]["chapters"]["total"] == 0
+    refute Map.has_key?(prompt["facts"], "chapters")
+    assert prompt["coverage"]["chapters"] == %{"status" => "not_read"}
+    assert context_status_observation(context_result).sources["chapters"] == "empty"
   end
 
   test "跨作品切换与恢复：故障请求不串作品；恢复后真实事实进入后续请求，零 canon 写入" do

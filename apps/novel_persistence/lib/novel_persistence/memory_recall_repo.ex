@@ -22,6 +22,10 @@ defmodule NovelPersistence.MemoryRecallRepo do
 
   @type recalled_memory :: %{
           id: String.t(),
+          work_id: String.t(),
+          version: pos_integer(),
+          source_type: String.t(),
+          source_id: String.t() | nil,
           content: String.t(),
           summary: String.t() | nil,
           type: String.t(),
@@ -47,6 +51,7 @@ defmodule NovelPersistence.MemoryRecallRepo do
 
         uuid
         |> base_query()
+        |> select_memory(Keyword.get(opts, :memory_id))
         |> Repo.all()
         |> Enum.filter(&within_validity_window?(&1, current_position, chapter_seq_map))
         |> Enum.map(&score_memory(&1, query))
@@ -120,6 +125,10 @@ defmodule NovelPersistence.MemoryRecallRepo do
           m.recallable == true,
       select: %{
         id: m.id,
+        work_id: m.work_id,
+        version: m.version,
+        source_type: m.source_type,
+        source_id: m.source_id,
         content: m.content,
         summary: m.summary,
         type: m.type,
@@ -131,6 +140,15 @@ defmodule NovelPersistence.MemoryRecallRepo do
         valid_until: m.valid_until
       }
     )
+  end
+
+  defp select_memory(query, nil), do: query
+
+  defp select_memory(query, memory_id) do
+    case Ecto.UUID.cast(memory_id) do
+      {:ok, id} -> where(query, [memory], memory.id == ^id)
+      :error -> where(query, [memory], false)
+    end
   end
 
   defp score_memory(memory, query) do

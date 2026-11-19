@@ -2521,6 +2521,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.goal.text == "改成更冷静的反派"
     assert run.goal.version == 2
+    assert Map.get(run.goal, :source_ref) == "#{base_run(run_id).parent_turn_ref}:steer:2"
     assert run.interrupt_state.status == :steer_requested
 
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500

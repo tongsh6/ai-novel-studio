@@ -5,7 +5,6 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   alias NovelAgent.Provider.{Execution, Result}
 
   alias NovelApplication.{
-    AdoptionWorkflow,
     ChapterRevisionScope,
     ExplorationService,
     JudgmentProtocol,
@@ -220,16 +219,11 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     {j1, request1} = judge!(ctx, author, nil, provider, "explore")
 
     scope = TestProviderPrompt.scope_content(request1)
-    assert [target] = scope["operation"]["chapter_revision_targets"]
+    refute Map.has_key?(scope["operation"], "chapter_revision_targets")
+    refute Map.has_key?(scope["facts"], "chapters")
 
-    assert target == %{
-             "chapter_ref" => ctx.chapter_ref,
-             "chapter_title" => @g2_title,
-             "seq" => 2,
-             "covered_refs" => ["draft:#{ctx.draft.id}"],
-             "fragment_count" => 1,
-             "char_count" => String.length(ctx.base),
-             "coverage" => "complete"
+    assert scope["operation"]["adopted_content_targets"] == %{
+             ctx.chapter_ref => ["revise_adopted_content"]
            }
 
     rules = RequestIR.SystemEnvelope.system_text(request1.system)
@@ -238,6 +232,12 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
         do: assert(rules =~ modification_scope)
 
     {:ok, page1} = run_chapter_exploration(ctx, j1)
+    assert page1.chapter_ref == ctx.chapter_ref
+    assert page1.chapter_seq == 2
+    assert page1.refs == [ctx.chapter_ref]
+    assert page1.summary =~ "灰烬中的手印"
+    assert page1.prose_total_chars == String.length(ctx.base)
+    assert page1.versions == %{"draft:#{ctx.draft.id}" => 1}
 
     {j2, request2} = judge!(ctx, author, transcript(j1, page1), provider, "explore")
     assert [observed_page1] = g2_pages(request2)
@@ -318,8 +318,6 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   end
 
   defp judgment_input(ctx, author, transcript) do
-    {:ok, chapter_targets} = AdoptionWorkflow.chapter_revision_targets(ctx.work.id)
-
     context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
     adopted = PendingArtifactWorkflow.accepted_targets(context)
     capabilities = adopted |> Map.values() |> List.flatten() |> Enum.uniq()
@@ -340,8 +338,6 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
         capabilities: capabilities,
         pending_artifact_targets: %{},
         adopted_content_targets: adopted,
-        chapter_revision_targets: chapter_targets,
-        character_targets: [],
         readonly_capabilities: [],
         author_content_sources: [],
         explore: true,

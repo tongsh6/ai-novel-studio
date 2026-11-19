@@ -2,16 +2,13 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
   # 真实 Gateway 捕获需要注入测试 provider，不能与其它 async 用例并行改全局配置。
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
-  alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.JudgmentToolContract
   alias NovelApplication.TestAgenticLoopFixtures
-  alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelDomain.AgentRun
@@ -92,6 +89,74 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     end)
 
     :ok
+  end
+
+  test "R05 统计进入真实判断请求与三 wire，目录正文保持未读且不获得章节引用" do
+    context = %NovelDomain.DialogueContext{
+      work_id: "work-1",
+      current_work_snapshot: %{title: "最小统计作品", revision: 7},
+      structured_chapters: [
+        %{
+          id: "chapter-private",
+          work_id: "work-1",
+          title: "目录哨兵",
+          summary: "章摘要哨兵",
+          plan_direction: %{plot_progress: "章计划哨兵"},
+          has_prose: true
+        }
+      ],
+      conversation_summary: "历史预览哨兵",
+      memory_summary: "角色正文哨兵",
+      reading_audit: %{
+        work_id: "work-1",
+        audit: %{chapter_count: 3, empty_chapter_count: 2, total_word_count: 13}
+      },
+      source_status: %{work: :ok, chapters: :ok}
+    }
+
+    author_text = "  现在实际写了几章、多少正文有效字？\n"
+    scope = NovelApplication.DialoguePlanningService.judgment_scope(context)
+
+    protocol_input =
+      input(author_text, "r05-statistics-author", scope)
+      |> Map.put(:supplied_context_refs, ["work:work-1"])
+
+    {request, transcript} = production_request(protocol_input)
+    assert request.refs.base_refs == [%{ref: "work:work-1"}]
+    assert request.refs.observation_refs == []
+
+    content =
+      request.messages
+      |> Enum.find(&(&1.role == "scope_update"))
+      |> Map.fetch!(:blocks)
+      |> hd()
+      |> Map.fetch!(:content)
+
+    assert content["facts"]["work"]["chapter_statistics"] == %{
+             "structure_chapter_count" => 3,
+             "written_chapter_count" => 1,
+             "empty_chapter_count" => 2,
+             "total_word_count" => 13
+           }
+
+    assert content["coverage"]["chapters"] == %{"status" => "not_read"}
+    assert content["coverage"]["chapter_prose"] == %{"status" => "not_read"}
+    assert occurrences(capture(request) |> serialize(), author_text) == 1
+    assert {:ok, restored} = restore(transcript)
+
+    {restored_request, _restored_transcript} =
+      production_request(Map.put(protocol_input, :transcript, restored))
+
+    for target <- @projection_targets do
+      assert {:ok, projected} = Projection.project(request, target)
+      assert Projection.project(restored_request, target) == {:ok, projected}
+      wire = Jason.encode!(projected)
+      assert wire =~ "chapter_statistics"
+
+      for marker <- ["目录哨兵", "章摘要哨兵", "章计划哨兵", "历史预览哨兵", "角色正文哨兵", "chapter-private"] do
+        refute wire =~ marker
+      end
+    end
   end
 
   test "new/2 的 initial_scope 一次构造 base → scope → author，保留作者原字节与 turn 元数据" do
@@ -356,7 +421,6 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     test "continuation profile 同样直接产出 canonical IR" do
       input =
         input(capabilities: ["ask_author"])
-        |> Map.put(:goal_text, "继续当前任务")
         |> Map.put(:deviation_summary, "偏离事实摘要")
 
       {ir, _transcript} = production_request(input, :continuation)
@@ -375,24 +439,20 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
         input(capabilities: ["ask_author"])
         |> Map.delete(:author_text)
         |> Map.delete(:source_input_ref)
-        |> Map.put(:goal_text, "继续当前任务")
         |> Map.put(:deviation_summary, "偏离事实摘要")
 
       {ir, _transcript} = production_request(input, :continuation)
 
-      refute Enum.any?(
-               ir.messages,
-               &(&1.role == "user" and TestAgenticLoopFixtures.message_text(&1) == input.goal_text)
-             )
+      refute Enum.any?(ir.messages, &(&1.role == "user"))
 
-      assert NovelTest.TestProviderPrompt.scope_content(ir)["goal"]["text"] == input.goal_text
+      assert NovelTest.TestProviderPrompt.scope_content(ir)["goal"] ==
+               %{"text" => "根据本章实际内容判断", "version" => 1}
     end
 
     test "新建与刷新均只登记显式供应材料，不提升普通 Scope 来源" do
       for profile <- [:judgment, :continuation] do
         initial_input =
           input()
-          |> Map.put(:goal_text, "继续当前应用目标")
           |> Map.put(:deviation_summary, "按已读材料继续")
           |> Map.put(:scope_source_refs, ["plan:unread", "evidence:unread"])
 
@@ -456,11 +516,13 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     test "CP4a：续行继承创作历史并追加有版本的 scope，恢复后保持幂等" do
       run = input().options[:plan_run]
-      {creative, transcript} = production_request(input(capabilities: ["prose_writing"]))
+      run = %{run | goal: Map.put(run.goal, :source_ref, "author-turn")}
+
+      {creative, transcript} =
+        production_request(input(capabilities: ["prose_writing"], plan_run: run))
 
       continuation_input = %{
         transcript: transcript,
-        goal_text: "按原目标重试一次，完成本章正文候选",
         deviation_summary: "正文调用超时，尚未形成候选",
         observation_block: "已有章节计划，尚无本轮正文",
         scope_source_refs: ["observation:timeout", "plan:chapter-1"],
@@ -483,11 +545,19 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       assert continued.refs.base_refs == creative.refs.base_refs
       assert continued.refs.observation_refs == creative.refs.observation_refs
       scope = AuthoringTranscript.current_scope(continued_transcript)
-      assert scope.content["goal"]["text"] == continuation_input.goal_text
+      assert scope.content["goal"] == %{"source_input_ref" => "author-turn", "version" => 3}
       assert scope.content["context"]["deviation_summary"] == continuation_input.deviation_summary
 
       assert scope.content["context"]["observation_summary"] ==
                continuation_input.observation_block
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, wire} = Projection.project(continued, target)
+        bytes = Jason.encode!(wire)
+        assert occurrences(bytes, "根据本章实际内容判断") == 1
+        assert bytes =~ "正文调用超时，尚未形成候选"
+        assert bytes =~ "已有章节计划，尚无本轮正文"
+      end
 
       assert scope.versions["scope_revision"] == 2
       assert scope.versions["change_reason"] == "continuation"
@@ -518,26 +588,6 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
         production_request(%{continuation_input | transcript: restored}, :continuation)
 
       assert replayed.messages == continued.messages
-
-      assert {:ok, %{action: "continue"}} =
-               JudgmentProtocol.request_continuation(
-                 %Execution{
-                   result_fn: fn prompt ->
-                     {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
-
-                     output = %ProviderOutput{
-                       provider_run_ref: "cp4a-continuation-run",
-                       provider_call_ref: "cp4a-continuation-call",
-                       status: :ok,
-                       content: %{text: result.content, tool_calls: result.tool_calls}
-                     }
-
-                     {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
-                   end
-                 },
-                 %{},
-                 continuation_input
-               )
     end
   end
 

@@ -1,5 +1,10 @@
 # NovelPersistence
 
+## R05 当前阅读审计
+
+- [workspace_context.ex](lib/novel_persistence/workspace_context.ex)：在现有同次目录读取中保留 ReadingProjectionRepo 的真实 audit，由 DialogueContext 传递；不重建另一套计字或 accepted 选择规则。
+- [workspace_context_reading_audit_test.exs](test/novel_persistence/workspace_context_reading_audit_test.exs)：独立真实 DB 的结构章、当前 accepted 草稿、旧版/候选/跨作品排除与真实空作品零审计。
+
 **TODO: Add description**
 
 ## Installation

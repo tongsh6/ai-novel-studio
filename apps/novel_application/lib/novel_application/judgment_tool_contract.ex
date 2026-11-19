@@ -59,7 +59,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @nullable_text,
             :description,
-            "仅 revise_character_profile 时提供：从「角色索引」原样复制 character_ref（身份），不得猜。"
+            "仅 revise_character_profile 时提供：先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
           ),
         explore_request: %{
           anyOf: [

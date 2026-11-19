@@ -2,7 +2,7 @@ defmodule NovelApplication.MemoryManagementServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{MemoryManagementService, WorkService}
+  alias NovelApplication.{ExplorationService, MemoryManagementService, WorkService}
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
@@ -136,6 +136,158 @@ defmodule NovelApplication.MemoryManagementServiceTest do
     assert {:ok, references} = MemoryManagementService.references(work.id, memory.id)
     assert Enum.all?(references, &(&1.work_id == work.id))
     assert Enum.any?(references, &(&1.reference_reason == "作者询问矿区"))
+  end
+
+  @tag :r05_exploration
+  test "召回保留真实记忆身份和版本，有界摘要不冒充正文", %{work: work} do
+    first = recall_memory(work.id, %{content: "铜灯的正文事实", summary: "铜灯检索摘要", version: 7})
+    second = recall_memory(work.id, %{content: "青石的另一条事实", summary: "青石检索摘要", version: 11})
+    first_ref = "memory:#{first.id}"
+    second_ref = "memory:#{second.id}"
+
+    assert {:ok, recalled} = MemoryManagementService.recall(work.id, %{"query" => "铜灯"})
+    assert [%{id: first_id, work_id: source_work, version: 7}] = recalled.items
+    assert first_id == first.id
+    assert source_work == work.id
+    assert recalled.text =~ "铜灯检索摘要"
+    assert recalled.candidate_count == 1
+
+    assert {:ok, first_page} = ExplorationService.run(work.id, "memory_recall", "铜灯")
+    assert {:ok, second_page} = ExplorationService.run(work.id, "memory_recall", "青石")
+    assert first_page.refs == [first_ref]
+    assert second_page.refs == [second_ref]
+    assert first_page.versions == %{first_ref => 7}
+    assert second_page.versions == %{second_ref => 11}
+    refute first_page.refs == second_page.refs
+    assert first_page.coverage.kind == "recall"
+    assert first_page.coverage.exhaustive == false
+    assert first_page.next_offset == nil
+    assert first_page.omissions != []
+    refute first_page.summary =~ first.content
+    assert ExplorationService.observation_metadata(first_page).versions == %{first_ref => 7}
+  end
+
+  @tag :r05_exploration
+  test "长记忆正文按真实ref完整分页，读取间新版本不能变成旧页的完整续章", %{work: work} do
+    body = String.duplicate("忆👩🏽‍🚀é", 2_300) <> "记忆最后一页原文"
+    item = recall_memory(work.id, %{content: body, summary: "仅为索引摘要", version: 4})
+    before_read = Repo.get!(NovelPersistence.Schemas.MemoryItem, item.id)
+    ref = "memory:#{item.id}"
+
+    pages =
+      for offset <- [0, 6_000] do
+        assert {:ok, page} =
+                 ExplorationService.run(
+                   work.id,
+                   "memory_recall",
+                   Jason.encode!(%{memory_ref: ref, offset: offset})
+                 )
+
+        assert page.refs == [ref]
+        assert page.versions == %{ref => 4}
+        assert page.coverage.kind == "detail"
+        assert page.coverage.memory_ref == ref
+        assert page.coverage.summary.offset == offset
+        assert page.coverage.summary.total_graphemes == String.length(body)
+        assert page.facts.memory.work_id == work.id
+        assert page.facts.memory.status == MemoryStatus.confirmed()
+        page
+      end
+
+    assert Enum.map_join(pages, & &1.summary) == body
+    assert hd(pages).next_offset == 6_000
+    assert List.last(pages).next_offset == nil
+    assert List.last(pages).outcome == :partial
+    assert Repo.get!(NovelPersistence.Schemas.MemoryItem, item.id) == before_read
+
+    item |> Ecto.Changeset.change(content: body <> "新版追加", version: 5) |> Repo.update!()
+
+    assert {:ok, changed} =
+             ExplorationService.run(
+               work.id,
+               "memory_recall",
+               Jason.encode!(%{memory_ref: ref, offset: 6_000})
+             )
+
+    assert changed.versions == %{ref => 5}
+    assert hd(pages).versions == %{ref => 4}
+    assert changed.outcome == :partial
+    assert changed.omissions != []
+
+    continuation = %{tool: "memory_recall", kind: "detail", memory_ref: ref, next_offset: 6_000}
+
+    assert ExplorationService.continuation_request?(
+             "memory_recall",
+             Jason.encode!(%{memory_ref: ref, offset: 6_000}),
+             continuation
+           )
+
+    refute ExplorationService.continuation_request?(
+             "memory_recall",
+             Jason.encode!(%{memory_ref: ref, offset: 6_001}),
+             continuation
+           )
+
+    refute ExplorationService.continuation_request?(
+             "memory_recall",
+             Jason.encode!(%{memory_ref: "memory:#{Ecto.UUID.generate()}", offset: 6_000}),
+             continuation
+           )
+  end
+
+  @tag :r05_exploration
+  test "记忆详情继续受作品、召回状态约束且拒绝伪造读范围", %{work: work, other_work: other_work} do
+    good = recall_memory(work.id, %{content: "当前记忆", version: 3})
+    foreign = recall_memory(other_work.id, %{content: "他作记忆"})
+    disabled = recall_memory(work.id, %{content: "禁止召回", recallable: false})
+    draft = recall_memory(work.id, %{content: "草稿记忆", status: MemoryStatus.draft()})
+
+    for item <- [foreign, disabled, draft] do
+      assert {:error, :memory_not_found} =
+               ExplorationService.run(
+                 work.id,
+                 "memory_recall",
+                 Jason.encode!(%{memory_ref: "memory:#{item.id}", offset: 0})
+               )
+    end
+
+    assert {:error, :memory_offset_out_of_range} =
+             ExplorationService.run(
+               work.id,
+               "memory_recall",
+               Jason.encode!(%{memory_ref: "memory:#{good.id}", offset: 100})
+             )
+
+    assert {:error, :invalid_memory_query} =
+             ExplorationService.run(
+               work.id,
+               "memory_recall",
+               Jason.encode!(%{
+                 memory_ref: "memory:#{good.id}",
+                 offset: 0,
+                 work_id: other_work.id
+               })
+             )
+  end
+
+  defp recall_memory(work_id, attrs) do
+    attrs =
+      Map.merge(
+        %{
+          id: Ecto.UUID.generate(),
+          work_id: work_id,
+          content: "记忆原文",
+          type: MemoryType.world_rule(),
+          scope: "WORK",
+          status: MemoryStatus.confirmed(),
+          source_type: MemorySourceType.author_confirmed(),
+          recallable: true,
+          version: 1
+        },
+        attrs
+      )
+
+    NovelPersistence.Schemas.MemoryItem |> struct(attrs) |> Repo.insert!()
   end
 
   test "foreign memory ids cannot be read or governed from the current work", %{

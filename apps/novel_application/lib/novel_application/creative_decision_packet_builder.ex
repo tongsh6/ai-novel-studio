@@ -2,8 +2,8 @@ defmodule NovelApplication.CreativeDecisionPacketBuilder do
   @moduledoc """
   组装一次创作决策的输入载体 CreativeDecisionPacket（VS-00E §4）。
 
-  packet 聚合一次 turn 的创作决策输入（坐标 / 章方向 / 读者效果 / 目标章 / 作者输入 /
-  来源 turn），供 `ProseExecutionBriefBuilder` 消费产出场级执行简述。
+  packet 聚合一次 turn 的创作决策输入（坐标 / 章方向 / 读者效果 / 目标章 / 来源 turn），
+  供 `ProseExecutionBriefBuilder` 消费产出场级执行简述。作者输入由 RequestIR 独立承载。
 
   packet 不是作品事实，是一次 turn 的决策载体（plain map）。CP1 为最小聚合，后续
   checkpoint 可在此扩展 continuity / style_intent 等维度。
@@ -14,7 +14,6 @@ defmodule NovelApplication.CreativeDecisionPacketBuilder do
           optional(:chapter_direction) => term(),
           optional(:reader_effect_brief) => term(),
           optional(:chapter) => map(),
-          optional(:author_input) => String.t(),
           optional(:source_turn_ref) => String.t(),
           optional(:chapter_mission) => map() | nil
         }
@@ -26,7 +25,6 @@ defmodule NovelApplication.CreativeDecisionPacketBuilder do
       "chapter_direction" => Map.get(inputs, :chapter_direction),
       "reader_effect_brief" => Map.get(inputs, :reader_effect_brief),
       "chapter" => Map.get(inputs, :chapter, %{}),
-      "author_input" => Map.get(inputs, :author_input, ""),
       "source_turn_ref" => Map.get(inputs, :source_turn_ref),
       # WR01：写前推理产出的本章使命（设计态，随 run 消失；VS-00E §16）
       "chapter_mission" => Map.get(inputs, :chapter_mission)

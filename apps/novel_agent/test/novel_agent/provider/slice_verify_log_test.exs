@@ -221,6 +221,56 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     assert content != ""
   end
 
+  test "记录边界只写实际 IR，并裁剪 message private 字段", %{dir: dir} do
+    private_state = %{reasoning_content: "private-capture"}
+    private_session = %{handle: "private-session"}
+
+    ir =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("记录边界 Base"),
+          NovelTest.TestRequestIR.author("记录边界作者原话")
+        ],
+        tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
+        projection: %{tool_choice: "auto"}
+      )
+
+    assistant =
+      NovelTest.TestRequestIR.assistant("")
+      |> Map.put(:provider_state, private_state)
+      |> Map.put(:provider_session, private_session)
+
+    ir = %{ir | messages: ir.messages ++ [assistant]}
+    assert {:ok, _result} = SliceVerify.complete(nil, nil, ir, %InferenceParams{})
+    [record] = read_records(dir)
+
+    assert Enum.any?(record["request_body"]["messages"], fn message ->
+             message["role"] == "user" and message["provenance"] == "author" and
+               Enum.any?(message["blocks"], &(&1["text"] == "记录边界作者原话"))
+           end)
+
+    assert record["request_format"] == NovelCommon.RequestIR.ir_version()
+    assert record["prompt"] == nil
+    refute Map.has_key?(record["request_body"], "text")
+    assert record["request_body"]["ir_version"] == NovelCommon.RequestIR.ir_version()
+    assert [%{"role" => "application_base"} | _] = record["request_body"]["messages"]
+
+    refute Enum.any?(record["request_body"]["messages"], fn message ->
+             Map.has_key?(message, "provider_state") or Map.has_key?(message, "provider_session")
+           end)
+
+    recorded_assistant =
+      Enum.find(record["request_body"]["messages"], &(&1["role"] == "assistant"))
+
+    refute Map.has_key?(recorded_assistant, "provider_state")
+    refute Map.has_key?(recorded_assistant, "provider_session")
+
+    # 裁剪只发生在记录边界，原请求仍保留私有字段供真实恢复。
+    original_assistant = Enum.find(ir.messages, &(&1.role == "assistant"))
+    assert original_assistant.provider_state == private_state
+    assert original_assistant.provider_session == private_session
+  end
+
   defp read_records(dir) do
     path = Path.join(dir, "#{NovelTelemetry.LogFileDate.today_iso8601()}.jsonl")
 
@@ -234,6 +284,6 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     Map.get(arguments, key) || Map.get(arguments, to_string(key))
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:novel_common, key)
-  defp restore_env(key, value), do: Application.put_env(:novel_common, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:novel_telemetry, key)
+  defp restore_env(key, value), do: Application.put_env(:novel_telemetry, key, value)
 end

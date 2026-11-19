@@ -4,6 +4,14 @@
 
 ## 文件与目录
 
+- [novel_application/professional_writer_request_test.exs](novel_application/professional_writer_request_test.exs)：专业 Writer 的真实目标、作者单供给与实际可见来源；partial、application/native 分归、被覆盖旧页及 source-only 反例。
+- [novel_application/chapter_revision_request_test.exs](novel_application/chapter_revision_request_test.exs)：整章与目标段修订的实际请求材料；两段完整 accepted 基线及版本保留、作者原文字节独立、三 wire 供给。
+
+- [novel_application/judgment_plan_material_test.exs](novel_application/judgment_plan_material_test.exs)：真实同批计划校验、数据库读取、专业 Writer 与持久会话恢复链；同一计划/原生调用绑定、partial 正文和三 wire 单供给，不以手工拼接观察代替生产者。
+- [novel_application/planned_exploration_material_test.exs](novel_application/planned_exploration_material_test.exs)：R05 专业计划实读的 canonical 供给边界；已闭合计划不追加第二工具结果，application/native 来源分立，partial 原文在三类请求只供应一次，普通关联引用不生成材料。
+- [novel_application/session_adoptions_read_test.exs](novel_application/session_adoptions_read_test.exs)：现会话候选目录与完整正文的只读入口；真实状态、可信会话隔离、Unicode 分页与精确续页资格，迁入旧候选目录用例。
+- [novel_application/judgment_paged_sources_test.exs](novel_application/judgment_paged_sources_test.exs)：真实判断循环的候选目录、候选全文、记忆全文分页；两轮普通读取与额外续页预算、下一请求材料及来源绑定。
+
 - [novel_application/agentic_plan_completed_prefix_test.exs](novel_application/agentic_plan_completed_prefix_test.exs)：已完成计划前缀的纯不变量；保留、改写、缺失及无当前计划边界，与真实 Provider/IR 规划编排测试分离，不复制 Provider 支撑。
 
 - [test_helper.exs](test_helper.exs)：启动 ExUnit/Sandbox，定义 `NovelApplication.TestAssertions` 与 `NovelApplication.TestAgenticLoopFixtures`。`prompt_text/1` 对 `%NovelCommon.RequestIR{}` 读取 canonical `role/blocks`，对 binary 或 Gateway 注入后的真实 system/user list 复用 `NovelTest.TestProviderPrompt.text/1`；`message_text/1` 只提取消息文本块，不合成 canonical 字段。
@@ -17,3 +25,6 @@
 - [novel_application/transcript_compaction_summary_test.exs](novel_application/transcript_compaction_summary_test.exs)：摘要执行准入、真实来源/响应字节、调用计费、取消和持久失败；与恢复测试共用现役执行与事务入口。
 - [novel_application/transcript_compaction_runtime_test.exs](novel_application/transcript_compaction_runtime_test.exs)：讨论摘要在真实 AgentRunService 中的取消、转向、任务死亡、计费与预算生命周期；与 summary 用例测试通过单一 support/transcript_compaction_helper.exs 共享 Provider 执行环境，不复制业务判定。
 - [novel_application/transcript_compaction_recovery_test.exs](novel_application/transcript_compaction_recovery_test.exs)：R03 已持久接收摘要的原响应恢复，核验提交失败保留、跨 run 零模型调用恢复、同事务清除、取消/目标变更隔离与原文保真；不代签真实页面或模型摘要语义。
+- [novel_application/session_message_read_test.exs](novel_application/session_message_read_test.exs)：R03 会话消息原文探索：独立作者/模型文本 oracle、Unicode grapheme 分页与全文 hash、可信会话隔离、损坏版本/角色拒绝、真实取消/失败状态及下一请求 observation/used_refs/三类 Provider 投影。
+- [novel_application/work_archive_service_test.exs](novel_application/work_archive_service_test.exs)：面板读口与按需档案目录/详情；真实作品隔离、明确状态、Unicode 原文分页、来源/指纹/覆盖元数据、目录不授予正文或修订基线资格。
+- [novel_application/b29_character_profile_test.exs](novel_application/b29_character_profile_test.exs)：纯人物候选规则与同文件独立 Sandbox 派发分区；后者经真实持久基线验证未读/旧版本拒绝、精确身份、零模型字段候选及无变化裁决 trace，最终采纳和采纳后读投影分别由既有 B29 专项测试覆盖。

@@ -34,7 +34,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         [
           NovelTest.TestRequestIR.base("另一个任务仍在等待：先核对正文再调整大纲，UA01PLANEXHAUST-older-run。"),
           NovelTest.TestRequestIR.scope(%{
-            operation: %{available_operations: [%{name: "plot_outline"}]}
+            operation: %{available_operations: ["plot_outline"]}
           }),
           NovelTest.TestRequestIR.author(author_text)
         ],

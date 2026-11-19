@@ -3,6 +3,7 @@ defmodule NovelApplication.DialogueRunSpecTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentRunFlows.ToolConfirmationRun
   alias NovelApplication.DialoguePlanningService
   alias NovelDomain.AgentRun
   alias NovelPersistence.Repo
@@ -10,6 +11,58 @@ defmodule NovelApplication.DialogueRunSpecTest do
   setup do
     :ok = Sandbox.checkout(Repo)
     :ok
+  end
+
+  @tag :r05_goal_source
+  test "初始判断run目标绑定同次真实作者turn而非只保存重复文本" do
+    input = %{
+      text: "先核对真实资料，再拟定世界设定。",
+      workspace_id: "goal-source-workspace",
+      work_id: "goal-source-work",
+      session_id: "goal-source-session",
+      turn_id: "goal-source-author-turn"
+    }
+
+    execution = %Execution{result_fn: fn _ -> flunk("构造spec不得调用模型") end}
+
+    assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, nil, execution)
+    assert spec.run_attrs.goal.text == input.text
+    assert spec.run_attrs.goal.version == 1
+    assert Map.get(spec.run_attrs.goal, :source_ref) == "goal-source-author-turn"
+  end
+
+  @tag :r05_goal_source
+  test "tool_confirmation profile的目标绑定显式作者turn" do
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :tool_confirmation,
+        %{
+          text: "执行本次已经确认的动作。",
+          workspace_id: "goal-confirm-workspace",
+          work_id: "goal-confirm-work",
+          session_id: "goal-confirm-session",
+          turn_id: "goal-confirm-profile-turn"
+        },
+        nil,
+        %Execution{result_fn: fn _ -> flunk("构造spec不得调用模型") end}
+      )
+
+    assert Map.get(spec.run_attrs.goal, :source_ref) == "goal-confirm-profile-turn"
+  end
+
+  @tag :r05_goal_source
+  test "确认子run生产创建口保留已受理输入的真实来源" do
+    attrs =
+      ToolConfirmationRun.run_attrs(%{
+        text: "作者确认执行本次动作。",
+        workspace_id: "goal-child-workspace",
+        work_id: "goal-child-work",
+        session_id: "goal-child-session",
+        turn_id: "goal-confirm-child-turn",
+        origin_frame_ref: "goal-confirm-origin"
+      })
+
+    assert Map.get(attrs.goal, :source_ref) == "goal-confirm-child-turn"
   end
 
   test "legacy 最多一步 text no longer caps budget without structured author_limits" do

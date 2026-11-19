@@ -201,6 +201,55 @@ defmodule NovelApplication.ChapterMissionServiceTest do
              ChapterMissionService.derive(inputs(), failing, run: fixture_run())
   end
 
+  test "R05: 规划使命保留卷级目标，不把所有大纲请求改成下一批章节" do
+    parent = self()
+    goal = "规划第一卷的总体冲突和弧光，不创建任何章节。"
+    author_words = "  这次只谈卷纲 R05MISSIONAUTHOR\r\n"
+    run = %{fixture_run() | goal: %{text: goal, version: 2}}
+
+    provider =
+      execution(fn prompt ->
+        send(parent, {:r05_planning_prompt, prompt})
+
+        {:ok,
+         %{
+           content: "本轮只明确卷级冲突和弧光。",
+           provider_call_id: "pc-r05-volume-mission",
+           tool_calls: [
+             %{
+               "name" => "planning_mission",
+               "arguments" => %{
+                 "author_reasoning" => "本轮只明确卷级冲突和弧光。",
+                 "statement" => "卷级冲突与弧光保持一致。",
+                 "must_advance" => [],
+                 "must_avoid" => [],
+                 "confidence" => 0.9
+               }
+             }
+           ]
+         }}
+      end)
+
+    assert {:ok, _mission, _meta} =
+             ChapterMissionService.derive(
+               ChapterMissionInputs.build(%{mode: :planning}),
+               provider,
+               kind: :planning,
+               run: run,
+               author_text: author_words,
+               source_input_ref: "input:r05-volume-mission"
+             )
+
+    assert_receive {:r05_planning_prompt, prompt}
+    scope = NovelTest.TestProviderPrompt.scope_content(prompt)
+    assert scope["goal"]["text"] == goal
+    assert NovelTest.TestProviderPrompt.author_text(prompt) == author_words
+    rules = Projection.system_text(prompt.system)
+    refute rules =~ "下一批章节大纲尚未起草"
+    refute rules =~ "这批章必须安排"
+    refute rules =~ "这批章不得安排"
+  end
+
   test "使命请求同样使用 IR，规则与材料不冒充作者输入" do
     author_text = "  把这一章写得更紧凑\n"
     parent = self()

@@ -22,20 +22,112 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     facts: %{chapters: [%{ref: @chapter_ref, seq: 1, title: "夜潮", has_prose: true}]}
   }
 
-  defp ir(observation_summary) do
+  test "请求材料读取区分 canonical IR 与真实非 IR system/user 文本，不互相合成" do
+    author =
+      RequestIR.message(:user, :author, [
+        RequestIR.text_block("  第一段\n"),
+        RequestIR.text_block("第二段")
+      ])
+
+    ir =
+      NovelTest.TestRequestIR.ir([
+        NovelTest.TestRequestIR.base("Base"),
+        author,
+        NovelTest.TestRequestIR.scope(%{operation: %{summary: "当前 scope"}}),
+        NovelTest.TestRequestIR.assistant("已响应"),
+        NovelTest.TestRequestIR.notice("通知")
+      ])
+
+    assert NovelTest.TestProviderPrompt.author_text(ir) == "  第一段\n第二段"
+
+    assert NovelTest.TestProviderPrompt.scope_content(ir) == %{
+             "operation" => %{"summary" => "当前 scope"}
+           }
+
+    assert Jason.decode!(NovelTest.TestProviderPrompt.latest_scope(ir)) ==
+             NovelTest.TestProviderPrompt.scope_content(ir)
+
+    history = NovelTest.TestProviderPrompt.current_operation_messages(ir)
+    assert Enum.map(history, & &1.role) == ["assistant", "application_notice"]
+    assert Enum.all?(history, &is_list(&1.blocks))
+
+    wire = [
+      %{role: "system", content: "系统约束"},
+      %{role: "user", content: "作者原话"}
+    ]
+
+    assert NovelTest.TestProviderPrompt.text(wire) == "system: 系统约束\nuser: 作者原话"
+
+    assert NovelTest.TestProviderPrompt.operation_text(wire) ==
+             NovelTest.TestProviderPrompt.text(wire)
+
+    assert NovelTest.TestProviderPrompt.author_text(wire) == ""
+    assert NovelTest.TestProviderPrompt.latest_scope(wire) == nil
+    assert NovelTest.TestProviderPrompt.current_operation_messages(wire) == []
+    refute Enum.any?(wire, &Map.has_key?(&1, :blocks))
+    refute Enum.any?(wire, &Map.has_key?(&1, :provenance))
+
+    # 真实非 IR 请求按身份真源过滤；读取侧不合成 provenance/blocks。
+    injected = [
+      %{role: "system", content: NovelCommon.SystemIdentity.content()},
+      %{role: "user", content: "普通请求"}
+    ]
+
+    assert NovelTest.TestProviderPrompt.text(injected) == "user: 普通请求"
+  end
+
+  @tag :r05_goal_reader
+  test "显式目标来源贯通计划替身，不取较晚作者或应用副本" do
+    raw = "  请按另行起草计划设计角色和世界设定。 Ω\n  "
+
+    prompt =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("应用材料不提供作者目标"),
+          NovelTest.TestRequestIR.author(raw, "goal-author"),
+          NovelTest.TestRequestIR.author("较晚但不属于该目标的消息", "other-author"),
+          NovelTest.TestRequestIR.scope(%{
+            goal: %{source_input_ref: "goal-author", version: 1},
+            operation: %{profile_ref: "judgment_plan_v1"}
+          })
+        ],
+        tools: [NovelTest.TestRequestIR.tool("agent_plan_draft")]
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+
+    args =
+      result.tool_calls |> hd() |> Map.fetch!("arguments") |> Jason.encode!() |> Jason.decode!()
+
+    assert Enum.map(args["plan"]["steps"], & &1["target_tool_ref"]) ==
+             ["context_assemble", "character_design", "world_building"]
+
+    assert NovelTest.TestProviderPrompt.author_text(prompt, "goal-author") ==
+             "  请按另行起草计划设计角色和世界设定。 Ω\n  "
+  end
+
+  @tag :r05_goal_reader
+  test "作者引用缺失、重复或仅在应用消息中时不猜测原文" do
+    author = NovelTest.TestRequestIR.author("  已绑定作者 Ω\n", "goal-author")
+    request = NovelTest.TestRequestIR.ir([author])
+    assert NovelTest.TestProviderPrompt.author_text(request, "missing-author") == ""
+
+    duplicate = %{request | messages: [author, author]}
+    assert NovelTest.TestProviderPrompt.author_text(duplicate, "goal-author") == ""
+
+    application = %{author | provenance: "application"}
+    wrong_source = %{request | messages: [application]}
+    assert NovelTest.TestProviderPrompt.author_text(wrong_source, "goal-author") == ""
+
+    assert NovelTest.TestProviderPrompt.author_text(
+             [%{role: "user", content: "  已绑定作者 Ω\n"}],
+             "goal-author"
+           ) == ""
+  end
+
+  defp ir(observation_summary, include_directory \\ true) do
     scope = %{
-      operation: %{exploration: %{allowed: true, tools: ["chapter_read"]}},
-      facts: %{
-        chapters: [
-          %{
-            ref: "chapter:e81c059a-c31f-4008-88e3-8be124b896ca",
-            seq: 1,
-            title: "灰烬中的手印",
-            has_prose: false
-          },
-          %{ref: @chapter_ref, seq: 2, title: "灰烬中的手印", has_prose: true}
-        ]
-      }
+      operation: %{exploration: %{allowed: true, tools: ["archive_read", "chapter_read"]}}
     }
 
     messages = [
@@ -45,6 +137,18 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       RequestIR.message(:scope_update, :application, [RequestIR.scope_block(scope)]),
       RequestIR.message(:user, :author, [RequestIR.text_block(@author_text)])
     ]
+
+    directory = [
+      %{
+        ref: "chapter:e81c059a-c31f-4008-88e3-8be124b896ca",
+        seq: 1,
+        title: "灰烬中的手印",
+        has_prose: false
+      },
+      %{ref: @chapter_ref, seq: 2, title: "灰烬中的手印", has_prose: true}
+    ]
+
+    messages = if include_directory, do: messages ++ directory_messages(directory), else: messages
 
     messages =
       case observation_summary do
@@ -62,7 +166,11 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
               RequestIR.message(:tool, :tool_result, [
                 RequestIR.observation_block("call-1", %{
                   status: "ok",
-                  content: %{"query" => Jason.encode!(query), "summary" => summary}
+                  content: %{
+                    "tool" => "chapter_read",
+                    "query" => Jason.encode!(query),
+                    "summary" => summary
+                  }
                 })
               ])
             ]
@@ -74,6 +182,58 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       messages: messages,
       tools: [%{name: "judgment_decision", input_schema: %{type: "object"}}]
     })
+  end
+
+  defp directory_messages(entries) do
+    [
+      RequestIR.message(:assistant, :model, [
+        RequestIR.tool_call_block("archive_read", %{query: "chapters"}, "call-directory")
+      ]),
+      RequestIR.message(:tool, :tool_result, [
+        RequestIR.observation_block("call-directory", %{
+          status: "ok",
+          content: %{
+            tool: "archive_read",
+            query: "chapters",
+            summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+          },
+          coverage: %{
+            kind: "directory",
+            facet: "chapters",
+            returned_items: length(entries),
+            total_items: length(entries)
+          },
+          next_offset: nil
+        })
+      ])
+    ]
+  end
+
+  @tag :r03_provider_materials
+  test "判断首次缺少章节材料时先读真实目录，不猜章引用或无正文" do
+    assert {:ok, result} =
+             SliceVerify.complete(%SliceVerify{}, nil, ir(nil, false), %InferenceParams{})
+
+    assert [%{"arguments" => args}] = result.tool_calls
+    assert args["action"] == "explore"
+    assert args["explore_request"] == %{"tool" => "archive_read", "query" => "chapters"}
+
+    assert Enum.sort(Map.keys(args)) ==
+             ~w(action dialogue_goal explore_request reason)
+
+    assert args["dialogue_goal"] == @author_text
+  end
+
+  @tag :r03_provider_materials
+  test "同名章节只依据实际目录 has_prose 选择有正文的唯一引用" do
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, ir(nil), %InferenceParams{})
+    assert [%{"arguments" => args}] = result.tool_calls
+    assert args["explore_request"]["tool"] == "chapter_read"
+
+    assert Jason.decode!(args["explore_request"]["query"]) == %{
+             "chapter_ref" => @chapter_ref,
+             "offset" => 0
+           }
   end
 
   # B28 正文事实问答的真实形状：scope 开放探索目录，作者点名查「三十岁」，

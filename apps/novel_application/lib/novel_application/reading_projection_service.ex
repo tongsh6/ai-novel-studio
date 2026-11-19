@@ -7,7 +7,14 @@ defmodule NovelApplication.ReadingProjectionService do
   """
 
   alias NovelApplication.ChapterDisplay
+  alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.VolumeBlueprint
+  alias NovelFoundation.Enums.ChapterMissionStatus
+  alias NovelPersistence.ChapterSummaryRepo
   alias NovelPersistence.ReadingProjectionRepo
+
+  @chapter_mission_confirmed ChapterMissionStatus.confirmed()
+  @chapter_mission_author_edited ChapterMissionStatus.author_edited()
 
   @type toc :: %{
           work_id: String.t(),
@@ -28,6 +35,137 @@ defmodule NovelApplication.ReadingProjectionService do
   def toc(work_id) when is_binary(work_id) do
     ReadingProjectionRepo.toc(work_id)
   end
+
+  @doc "按本作品目录中的真实章节 ref 读取设计态及当前已采纳章摘要。"
+  @spec chapter_design(String.t(), String.t()) :: {:ok, map()} | {:error, :chapter_not_found}
+  def chapter_design(work_id, chapter_ref) do
+    target =
+      work_id
+      |> toc()
+      |> Map.fetch!(:volumes)
+      |> Enum.find_value(fn volume ->
+        case Enum.find(volume.chapters, &("chapter:#{&1.id}" == chapter_ref)) do
+          nil -> nil
+          chapter -> {volume, chapter}
+        end
+      end)
+
+    case target do
+      nil ->
+        {:error, :chapter_not_found}
+
+      {volume, chapter} ->
+        accepted = ChapterSummaryRepo.current_accepted(work_id, chapter.id)
+        summary = if accepted, do: Map.take(accepted, [:id, :status, :source_ref, :summary_text])
+        {:ok, %{chapter: chapter, volume: volume, accepted_summary: summary}}
+    end
+  end
+
+  # 设计态（E18-E22 结构化计划；ADR-0025 CP5b 探索补面 A）：无结构化计划时
+  # 回退 chapters.summary（大纲采纳的单行方向），两者皆无则诚实说明。
+  # B11A CP4（VS-00J §4 消费面 4 / 08 §8 探索面同步律）：所属卷与当前卷蓝图摘要
+  # 同批可读；卷无设计态蓝图时整段不渲染（I-VOL-4：与今天逐字节一致）。
+  @spec chapter_plan_preview(map(), map() | nil) :: String.t()
+  def chapter_plan_preview(chapter, volume) do
+    plan = ChapterPlanDirection.from_storage(Map.get(chapter, :plan_direction))
+
+    rendered =
+      case plan do
+        nil ->
+          case Map.get(chapter, :summary) do
+            summary when is_binary(summary) and summary != "" -> summary
+            _ -> "（本章尚无设计计划）"
+          end
+
+        direction ->
+          [
+            {"功能定位", direction.chapter_role},
+            {"情节推进", direction.plot_progress},
+            {"人物变化", direction.character_change},
+            {"信息释放", direction.information_release},
+            {"伏笔动作", direction.foreshadowing_action},
+            {"情绪定位", direction.emotion},
+            {"章首拉力", direction.opening_hook},
+            {"章尾断章", direction.ending_hook},
+            {"篇幅与场次", direction.word_count_and_scenes},
+            {"场次计划", scene_plans_text(direction.scene_plans)},
+            {"本章使命", chapter_mission_text(direction.chapter_mission)}
+          ]
+          |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
+          |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
+      end
+
+    append_volume_text(rendered, volume)
+  end
+
+  defp append_volume_text(rendered, volume) do
+    case volume_blueprint_text(volume) do
+      "" -> rendered
+      text -> rendered <> "；" <> text
+    end
+  end
+
+  defp volume_blueprint_text(nil), do: ""
+
+  defp volume_blueprint_text(volume) do
+    blueprint = volume |> Map.get(:blueprint) |> VolumeBlueprint.to_storage()
+
+    if VolumeBlueprint.empty?(blueprint) do
+      ""
+    else
+      summary = blueprint |> VolumeBlueprint.summary_lines() |> Enum.join("；")
+
+      [
+        volume_title_text(Map.get(volume, :title)),
+        if(summary == "", do: nil, else: "当前卷蓝图：#{summary}")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("；")
+    end
+  end
+
+  defp volume_title_text(title) when is_binary(title) do
+    case String.trim(title) do
+      "" -> nil
+      trimmed -> "所属卷：#{trimmed}"
+    end
+  end
+
+  defp volume_title_text(_title), do: nil
+
+  # 场次计划（NEM04 刀③，探索面同步律）：规划落库的逐场三槽在判断循环内可读。
+  # B11C CP1：VS-00E §1 场级结构子槽（因果/信息差/对白/感官）同批可读；缺子槽不渲染。
+  defp scene_plans_text([]), do: nil
+
+  defp scene_plans_text(plans) when is_list(plans) do
+    Enum.map_join(plans, " / ", fn plan ->
+      slots = plan |> ChapterPlanDirection.scene_slot_lines() |> Enum.join("；")
+
+      if slots == "", do: plan["title"], else: "#{plan["title"]}（#{slots}）"
+    end)
+  end
+
+  # 本章使命（WR01b，探索面同步律）：落章计划的使命与裁决状态在判断循环内可读。
+  defp chapter_mission_text(nil), do: nil
+
+  defp chapter_mission_text(mission) do
+    case NovelDomain.ChapterMission.from_map(mission) do
+      %NovelDomain.ChapterMission{statement: statement} = m when is_binary(statement) ->
+        items =
+          Enum.map(m.must_advance, &"必须推进：#{&1["text"]}") ++
+            Enum.map(m.must_avoid, &"不得：#{&1["text"]}")
+
+        status = mission_status_label(m.status)
+        Enum.join(["#{statement}（#{status}）" | items], "；")
+
+      _ ->
+        nil
+    end
+  end
+
+  defp mission_status_label(@chapter_mission_confirmed), do: "作者已确认"
+  defp mission_status_label(@chapter_mission_author_edited), do: "作者改写"
+  defp mission_status_label(_), do: "暂定"
 
   @doc """
   AU08 工作台/阅读页可见 TOC：只把各章 `title` 投影为当前章序可读标题。

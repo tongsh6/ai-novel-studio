@@ -126,7 +126,16 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert [%{blocks: [%{type: "text", text: ^raw_steer}]}] =
              Enum.filter(request.messages, &(&1.role == "user" and &1.provenance == "author"))
 
-    assert NovelTest.TestProviderPrompt.scope_content(request)["goal"]["text"] == next.goal.text
+    scope = NovelTest.TestProviderPrompt.scope_content(request)
+
+    assert scope["goal"] == %{
+             "provenance" => "application",
+             "version" => 2,
+             "source_input_ref" => expected_ref
+           }
+
+    refute Jason.encode!(scope) =~ next.goal.text
+    refute Jason.encode!(scope) =~ raw_steer
   end
 
   test "专业调用从同一输入选择原文和身份，不使用规范化目标", %{attrs: attrs} do

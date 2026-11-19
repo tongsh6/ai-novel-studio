@@ -261,7 +261,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
 
   defp string_list(_values), do: []
 
-  defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+  defp execute_tool_decision_step(run, sequence, spec, decision, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
@@ -282,7 +282,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
           frame,
           plan,
           decision_result,
-          observations,
           snapshot
         )
       else
@@ -301,7 +300,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
+  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, snapshot) do
     tool_name = tool_name(plan)
 
     author_input = TurnInteractionService.author_input(Map.get(spec, :author_input), run)
@@ -318,9 +317,10 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
         author_input: %{
           text: author_input && author_input.text,
           turn_id: author_input && author_input.turn_id,
-          author_goal_text: run.goal.text
+          author_goal_text: run.goal.text,
+          author_goal_source_ref: Map.get(run.goal, :source_ref)
         },
-        creative_brief: creative_brief_text(run, plan, observations),
+        creative_brief: creative_brief_text(plan),
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(tool_name, spec, snapshot),
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
@@ -368,24 +368,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
 
   defp provider_execution(_tool_name, _spec, _snapshot), do: nil
 
-  defp creative_brief_text(run, plan, observations) do
-    observation_text =
-      observations
-      |> Enum.map(& &1.summary)
-      |> Enum.reject(&blank?/1)
-      |> Enum.join("\n")
-
-    [
-      run.goal.text,
-      "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text)
-    ]
-    |> Enum.reject(&blank?/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp observation_section(""), do: nil
-  defp observation_section(text), do: "已完成观察：\n#{text}"
+  defp creative_brief_text(plan), do: "当前 AgentStep：#{plan.plan_goal.summary}"
 
   defp frame(run, sequence, summary) do
     %DialogueFrame{
@@ -419,7 +402,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
          sequence,
          spec,
          decision,
-         Map.get(snapshot, :observations, []),
          snapshot
        )
      end, decision}

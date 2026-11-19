@@ -287,26 +287,21 @@ defmodule NovelApplication.TurnExecutionService do
     # 非作品事实。
     # WR01：写前推理步产出的本章使命（stage_state 透传，设计态）随 packet 进简报；
     # 未排步/一步预算时为 nil，简报形态与此前逐字节一致。
-    author_text = author_input_text(frame, input[:author_input])
-
     brief_result =
       prose_execution_brief(
         frame,
         action,
         input[:context],
         resolved_chapter,
-        author_text,
         input[:chapter_mission]
       )
 
     emit_execution_brief(frame, brief_result, chapter_mission_ref(input[:chapter_mission]))
 
-    # CA03：目标章结构 / 会话上下文原在 tool_input 内部计算——上提到装配层，让携带
-    # 登记表日志能看全（bytes 不变，仅计算位置前移）。
+    # 目标章结构由应用材料装配；作者原文与对话历史只由 RequestIR 消息承载。
     target_structure =
       target_structure_section(frame, action, input[:context], resolved_chapter)
 
-    dialogue_context_text = tool_context_text(input[:context], author_text)
     planning_mission_text = render_planning_mission(action, input[:planning_mission])
     execution_brief_text = render_execution_brief(brief_result)
     decision_packet_data = decision_packet(brief_result)
@@ -328,14 +323,12 @@ defmodule NovelApplication.TurnExecutionService do
       {:progress_state, progress_state},
       {:execution_brief, execution_brief_text},
       {:decision_packet, decision_packet_data},
-      {:planning_mission, planning_mission_text},
-      {:dialogue_context, dialogue_context_text}
+      {:planning_mission, planning_mission_text}
     ])
 
     sections = %{
       resolved_chapter: resolved_chapter,
       target_structure: target_structure,
-      dialogue_context: dialogue_context_text,
       prior_prose: prior_prose,
       prior_summaries: prior_summaries,
       character_roster: character_roster,
@@ -362,7 +355,7 @@ defmodule NovelApplication.TurnExecutionService do
         resolved_chapter: resolved_chapter,
         resolved_chapter_ref: resolved_chapter_ref,
         sections: sections,
-        observations: input[:observations],
+        request_ir: input[:request_ir],
         prior_prose: prior_prose,
         omission_notes: omission_notes,
         brief_result: brief_result,
@@ -395,6 +388,8 @@ defmodule NovelApplication.TurnExecutionService do
 
     {tool_result, writer_session, execution_counts} =
       dispatch_authoring_task(authoring_task_result, req, provider_execution)
+
+    writer_request_ir = Map.get(writer_session, :request_ir)
 
     tool_result = validate_outline_chapter_scope(tool_result, input)
 
@@ -429,7 +424,7 @@ defmodule NovelApplication.TurnExecutionService do
       evidence_usage(
         authoring_task,
         tool_result,
-        input[:observations],
+        writer_request_ir,
         writer_provider_call_ref(tool_result)
       )
 
@@ -699,12 +694,11 @@ defmodule NovelApplication.TurnExecutionService do
          sections
        ) do
     text = author_input_text(frame, input[:author_input])
-    author_goal_text = author_goal_text(input[:author_input])
-    creative_brief = Map.get(input, :creative_brief) || text
+    creative_brief = Map.get(input, :creative_brief)
 
     # 顺序：目标章结构对象（L2 设计态）→ 现有角色主档案（作品级阵容）→ 前文各章摘要
     # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 确认记忆事实（L3b）→ 风格偏好
-    # （L4 最小形态）→ 当前作者输入。
+    # （L4 最小形态）；作者输入由独立 author 消息承载。
     context_text =
       [
         sections.target_structure,
@@ -716,8 +710,7 @@ defmodule NovelApplication.TurnExecutionService do
         sections.work_skeleton,
         sections.volume_scope,
         sections.current_volume_blueprint,
-        sections.absence_directives,
-        sections.dialogue_context
+        sections.absence_directives
       ]
       |> Enum.reject(&blank?/1)
       |> Enum.join("\n\n")
@@ -731,7 +724,6 @@ defmodule NovelApplication.TurnExecutionService do
       "context_text" => context_text,
       "source_input_ref" => input[:source_input_ref]
     }
-    |> maybe_put_author_goal_text(author_goal_text)
     |> maybe_put_characters(action, sections.characters)
     |> maybe_put_execution_brief(sections)
     |> maybe_put_decision_packet(sections)
@@ -747,49 +739,29 @@ defmodule NovelApplication.TurnExecutionService do
   defp evidence_usage(
          %AuthoringTask{} = task,
          %ToolResult{} = result,
-         observations,
+         request_ir,
          provider_call_ref
        ) do
-    materials = List.wrap(task.materials)
+    {application_reads, native_reads} =
+      request_ir
+      |> AuthoringTaskBuilder.request_read_materials()
+      |> Enum.split_with(&(&1.provenance == "application"))
 
     base_refs =
-      materials
-      |> Enum.reject(&(Map.get(&1, :kind) == :observation))
+      task.materials
+      |> List.wrap()
+      |> Enum.reject(&(Map.get(&1, :kind) in [:observation, "observation"]))
       |> Enum.map(&(Map.get(&1, :ref) || Map.get(&1, "ref")))
-      |> Kernel.++(List.wrap(task.source_refs))
+      |> Kernel.++(Enum.map(application_reads, & &1.ref))
 
-    observation_refs =
-      materials
-      |> Enum.filter(&(Map.get(&1, :kind) == :observation))
-      |> Enum.map(&(Map.get(&1, :ref) || Map.get(&1, "ref")))
-      |> Kernel.++(observation_source_refs(observations))
-
-    used_refs =
-      get_in(result.output || %{}, [:self_report, :used_context_refs]) || []
+    observation_refs = Enum.map(native_reads, & &1.ref)
+    used_refs = get_in(result.output || %{}, [:self_report, :used_context_refs]) || []
 
     NovelDomain.EvidenceUsage.validate(used_refs, base_refs, observation_refs)
     |> Map.put(:provider_call_ref, provider_call_ref)
   end
 
-  defp evidence_usage(_task, _result, _observations, _provider_call_ref), do: nil
-
-  defp observation_source_refs(observations) do
-    observations
-    |> List.wrap()
-    |> Enum.flat_map(fn
-      %NovelDomain.AgentObservation{} = observation ->
-        ["observation:#{observation.observation_id}"] ++
-          List.wrap(Map.get(observation.structured_payload, :source_refs, []))
-
-      _ ->
-        []
-    end)
-  end
-
-  defp maybe_put_author_goal_text(input, text) when is_binary(text) and text != "",
-    do: Map.put(input, "author_goal_text", text)
-
-  defp maybe_put_author_goal_text(input, _text), do: input
+  defp evidence_usage(_task, _result, _request_ir, _provider_call_ref), do: nil
 
   # VS-00E：把已渲染的场级执行简述文本放入工具输入，由 CreativeToolAdapter 透传给
   # provider（仅 prose_writing 路径非空）。
@@ -836,7 +808,7 @@ defmodule NovelApplication.TurnExecutionService do
       resolved_chapter: resolved_chapter,
       resolved_chapter_ref: resolved_chapter_ref,
       sections: sections,
-      observations: observations,
+      request_ir: request_ir,
       prior_prose: prior_prose,
       omission_notes: omission_notes,
       brief_result: brief_result,
@@ -847,18 +819,25 @@ defmodule NovelApplication.TurnExecutionService do
     tool = capability_name(action)
 
     if tool in @creative_tools do
+      {author_goal, goal_source_ref} =
+        case author_goal_text(input[:author_input]) do
+          "" -> {action_summary(action), nil}
+          goal -> {goal, map_value(input[:author_input], :author_goal_source_ref)}
+        end
+
       AuthoringTaskBuilder.for_creative_tool(tool, %{
         action: action,
         turn_id: frame.turn_id,
         workspace_id: frame.workspace_id,
         author_words: author_words(input[:author_input]),
-        author_goal: action_summary(action),
+        author_goal: author_goal,
+        goal_source_ref: goal_source_ref,
         resolved_chapter: resolved_chapter,
         resolved_chapter_ref: resolved_chapter_ref,
         prior_prose: prior_prose,
         omission_notes: omission_notes,
         sections: sections,
-        observations: observations,
+        request_ir: request_ir,
         execution_brief: sections[:execution_brief],
         execution_brief_degraded?: execution_brief_degraded?(brief_result),
         facts_truncated?: facts_truncated?,
@@ -2110,7 +2089,6 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          %DialogueContext{} = context,
          resolved_chapter,
-         author_text,
          chapter_mission
        ) do
     if prose_writing_action?(action) do
@@ -2128,7 +2106,6 @@ defmodule NovelApplication.TurnExecutionService do
           chapter_direction: direction,
           reader_effect_brief: reader_effect,
           chapter: current_chapter_map(current),
-          author_input: author_text,
           source_turn_ref: frame.turn_id,
           chapter_mission: chapter_mission
         }
@@ -2149,7 +2126,6 @@ defmodule NovelApplication.TurnExecutionService do
          _action,
          _context,
          _resolved_chapter,
-         _author_text,
          _mission
        ),
        do: nil
@@ -2768,14 +2744,6 @@ defmodule NovelApplication.TurnExecutionService do
   defp prior_prose_section(_action, prose) do
     "## 本章已采纳正文（写作基线材料，不是本轮指令；本轮操作范围由任务语义决定）\n" <> prose
   end
-
-  defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do
-    [NovelDomain.DialogueContext.to_prompt_text(context), "## 当前作者输入\n#{text}"]
-    |> Enum.reject(&blank?/1)
-    |> Enum.join("\n\n")
-  end
-
-  defp tool_context_text(_context, text), do: text
 
   defp action_summary(action) when is_map(action) do
     Map.get(action, :summary) || Map.get(action, "summary")

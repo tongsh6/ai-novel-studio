@@ -5,14 +5,32 @@ defmodule NovelApplication.CP4ContextFixesTest do
   """
   use ExUnit.Case, async: false
 
+  import NovelApplication.TestAgenticLoopFixtures,
+    only: [
+      run_until_turn_result: 3,
+      scripted_judgment_execution: 1,
+      drain_prompt_maps: 1,
+      observation_blocks: 1
+    ]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelApplication.{DialoguePlanningService, PendingArtifactWorkflow, WorkService}
-  alias NovelCommon.Contracts.ProviderOutput
+
+  alias NovelApplication.{
+    AuthoringTranscript,
+    ContextAssembler,
+    DialoguePlanningService,
+    ExplorationService,
+    JudgmentProtocol,
+    PendingArtifactWorkflow,
+    WorkService
+  }
+
+  alias NovelCommon.RequestIR
   alias NovelDomain.{AgentRun, DialogueContext}
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
-  alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+  alias NovelPersistence.Schemas.{Chapter, Character, Draft, Scene, Volume}
   alias NovelTest.TestProviderPrompt
 
   setup do
@@ -62,6 +80,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
              budget["continuation_only?"] == true and
                budget["continuation"] == %{
+                 "tool" => "chapter_read",
                  "chapter_ref" => chapter_ref,
                  "next_offset" => 12_000,
                  "read_end" => 12_000,
@@ -95,8 +114,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
     final_scope = TestProviderPrompt.scope_content(final_prompt)
 
-    assert %{"allowed" => false, "tools" => [], "catalog" => []} =
-             final_scope["operation"]["exploration"]
+    assert %{"allowed" => false, "tools" => []} = final_scope["operation"]["exploration"]
+    refute Map.has_key?(final_scope["operation"]["exploration"], "catalog")
 
     final_message =
       final_prompt.messages |> Enum.filter(&(&1.role == "scope_update")) |> List.last()
@@ -220,114 +239,128 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert Enum.all?(chapter_leaves, &(chapter_ref in &1["source_refs"]))
   end
 
-  # ── M01/M20/M16：结构化作品事实块 ──────────────────────────
+  @tag :scope_continuation
+  test "续读专用额度只允许上一真实章页的精确下一位置，不能换对象或跳页" do
+    {work_id, chapter_ref} = seed_chapter_with_prose(long_prose(13_000))
 
-  test "作品事实块：当前 accepted 版本/段数/字符数/superseded/摘要/全书目标/会话采纳计数" do
-    context = %DialogueContext{
-      work_id: "w-facts",
-      source_status: %{work: :ok, chapters: :ok, interaction: :ok},
-      current_work_snapshot: %{
-        title: "灯楼夜雨",
-        main_goal: "查清灯楼异象",
-        target_length: 200_000,
-        planned_volumes: 3
-      },
-      structured_chapters: [
-        %{
-          id: "chapter-1",
-          title: "第01章：灯楼夜雨",
-          seq: 1,
-          has_prose: true,
-          word_count: 900,
-          char_count: 950,
-          accepted_draft_count: 3,
-          scene_count: 3,
-          current_draft_refs: ["draft:d1:1", "draft:d2:1", "draft:d3:1"],
-          superseded_draft_count: 1,
-          chapter_status: "DRAFTING",
-          summary_status: "ACCEPTED",
-          summary_revision_base: "draft:d3:1",
-          plan_direction: %{opening_hook: "第七盏灯自亮", ending_hook: "第三人脚步"}
-        },
-        %{
-          id: "chapter-2",
-          title: "第02章：井底回声",
-          seq: 2,
-          has_prose: false,
-          word_count: 0,
-          plan_direction: %{plot_progress: "下井"}
-        }
-      ],
-      interaction_state: %{
-        pending_adoptions: [],
-        resolved_adoptions: [
-          %{
-            artifact_id: "as_m20",
-            adoption_status: "EDITED_ACCEPTED",
-            artifact_type: "prose_fragment"
-          }
-        ]
-      }
+    pages =
+      for offset <- [0, 6000] do
+        {:ok, page} =
+          ExplorationService.run(
+            work_id,
+            "chapter_read",
+            Jason.encode!(%{chapter_ref: chapter_ref, offset: offset})
+          )
+
+        page
+      end
+
+    input = continuation_protocol(work_id, pages)
+
+    continuation = %{
+      "tool" => "chapter_read",
+      "chapter_ref" => chapter_ref,
+      "next_offset" => 12_000,
+      "read_end" => 12_000,
+      "total" => 13_000
     }
 
-    scope = DialoguePlanningService.judgment_scope(context, "这一章写完了吗？")
+    assert input.options[:exploration_budget].continuation_only?
 
-    assert scope.facts.work.target_length == 200_000
-    assert scope.facts.work.planned_volumes == 3
-    assert scope.facts.work.ref == "work:w-facts"
+    assert {:ok, %{action: "explore"}} =
+             JudgmentProtocol.request_judgment(
+               continuation_execution(
+                 "chapter_read",
+                 %{chapter_ref: chapter_ref, offset: 12_000},
+                 continuation
+               ),
+               %{},
+               input
+             )
 
-    assert %{status: "complete", total: 2, returned: 2, written_count: 1, planned_count: 1} =
-             scope.coverage.chapters
-
-    assert [written, planned] = scope.facts.chapters
-    assert written.ref == "chapter:chapter-1"
-    assert written.work_id == "w-facts"
-    assert written.has_prose == true
-    assert written.char_count == 950
-    assert written.word_count == 900
-    assert written.accepted_draft_count == 3
-    assert written.scene_count == 3
-    assert written.current_draft_refs == ["draft:d1:1", "draft:d2:1", "draft:d3:1"]
-    assert written.summary_status == "ACCEPTED"
-    assert written.superseded_draft_count == 1
-    assert written.plan_direction == %{opening_hook: "第七盏灯自亮", ending_hook: "第三人脚步"}
-    assert planned.has_prose == false
-    assert scope.context.interaction_state.resolved_adoption_count == 1
-    assert [%{status: "EDITED_ACCEPTED"}] = scope.context.interaction_state.resolved_adoptions
+    for {tool, selector} <- [
+          {"chapter_read", %{chapter_ref: "chapter:#{Ecto.UUID.generate()}", offset: 12_000}},
+          {"chapter_read", %{chapter_ref: chapter_ref, offset: 6000}},
+          {"chapter_read", %{chapter_ref: chapter_ref, offset: 13_000}},
+          {"archive_read", %{facet: "characters", offset: 0}},
+          {"session_message_read", %{run_id: "other-run", run_sequence: 3, offset: 12_000}}
+        ] do
+      assert {:error, {:judgment_protocol_violation, :exploration_continuation_mismatch}, _state} =
+               JudgmentProtocol.request_judgment(
+                 continuation_execution(tool, selector, continuation),
+                 %{},
+                 input
+               )
+    end
   end
 
-  test "来源未提供 char_count 时保留有效字数，不伪造字符数" do
-    context = %DialogueContext{
-      work_id: "w-incomplete-count",
-      source_status: %{work: :ok, chapters: :ok},
-      current_work_snapshot: %{title: "旧作品"},
-      structured_chapters: [
-        %{
-          id: "c1",
-          title: "第01章：旧稿",
-          seq: 1,
-          has_prose: true,
-          word_count: 500,
-          accepted_draft_count: 1,
-          scene_count: 1,
-          current_draft_refs: ["draft:old:1"],
-          superseded_draft_count: 0,
-          chapter_status: "COMPLETED",
-          summary_status: nil,
-          plan_direction: %{}
-        }
-      ]
+  @tag :scope_continuation
+  test "真实角色详情后页复用同一续读额度，目录或其它角色不能借用该页坐标" do
+    {:ok, work} = WorkService.create(%{title: "角色分页作品"})
+
+    character =
+      Repo.insert!(%Character{
+        work_id: work.id,
+        name: "分页角色",
+        summary: String.duplicate("角色档案。", 1400),
+        narrative_role: "SUPPORTING",
+        status: AdoptionStatus.accepted()
+      })
+
+    ref = "character:#{character.id}"
+    {:ok, directory} = ExplorationService.run(work.id, "archive_read", "characters")
+
+    {:ok, detail} =
+      ExplorationService.run(
+        work.id,
+        "archive_read",
+        Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
+      )
+
+    assert detail.next_offset == 6000
+    input = continuation_protocol(work.id, [directory, detail])
+
+    continuation = %{
+      "tool" => "archive_read",
+      "kind" => "detail",
+      "facet" => "characters",
+      "ref" => ref,
+      "next_offset" => 6000,
+      "read_end" => 6000,
+      "total" => 7000,
+      "offset_unit" => "unicode_grapheme"
     }
 
-    scope = DialoguePlanningService.judgment_scope(context, "进度如何？")
-    assert [chapter] = scope.facts.chapters
-    assert chapter.word_count == 500
-    assert chapter.accepted_draft_count == 1
-    assert chapter.scene_count == 1
-    refute Map.has_key?(chapter, :char_count)
+    assert input.options[:exploration_budget].continuation_only?
+
+    assert {:ok, %{action: "explore"}} =
+             JudgmentProtocol.request_judgment(
+               continuation_execution(
+                 "archive_read",
+                 %{facet: "characters", ref: ref, offset: 6000},
+                 continuation
+               ),
+               %{},
+               input
+             )
+
+    for selector <- [
+          %{facet: "characters", ref: "character:#{Ecto.UUID.generate()}", offset: 6000},
+          %{facet: "characters", offset: 6000},
+          %{facet: "chapters", offset: 6000},
+          %{facet: "characters", ref: ref, offset: 0},
+          %{facet: "characters", ref: ref, offset: 12_000}
+        ] do
+      assert {:error, {:judgment_protocol_violation, :exploration_continuation_mismatch}, _state} =
+               JudgmentProtocol.request_judgment(
+                 continuation_execution("archive_read", selector, continuation),
+                 %{},
+                 input
+               )
+    end
   end
 
-  test "待采纳候选预览保留真实身份、状态、操作和原文；缺失正文不合成预览" do
+  test "默认候选只提供真实定位与状态，原文由现役实际读口消费" do
     context = %DialogueContext{
       work_id: "w-pending",
       source_status: %{interaction: :ok, chapters: :empty},
@@ -351,7 +384,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
       structured_chapters: []
     }
 
-    scope = DialoguePlanningService.judgment_scope(context, "那就整理一下吧。")
+    scope = DialoguePlanningService.judgment_scope(context)
     assert scope.context.provenance == "application"
     assert scope.coverage.interaction.status == "complete"
     assert [candidate, bare] = scope.context.interaction_state.pending_adoptions
@@ -365,9 +398,14 @@ defmodule NovelApplication.CP4ContextFixesTest do
            ]
 
     assert candidate.title == "仅排版候选"
-    assert candidate.body_preview == "雨点落在灯楼上。"
+    refute Map.has_key?(candidate, :body_preview)
+
+    assert NovelApplication.TurnInteractionService.artifact_body(
+             hd(context.interaction_state.pending_adoptions)
+           ) == "雨点落在灯楼上。"
+
     assert bare.artifact_ref == "as_bare"
-    assert bare.body_preview == ""
+    refute Map.has_key?(bare, :body_preview)
     assert bare.title == nil
   end
 
@@ -437,7 +475,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
   # ── retest2 根因回归：fetch → ContextAssembler 链保留 chapter_facts ──
 
-  test "生产 fetch 链把 chapter_facts 带进判断作品事实块（白名单透传回归）" do
+  test "完整专业上下文保留真实版本统计，判断仅通过实际 chapter_read 取得正文" do
     {:ok, work} = WorkService.create(%{"title" => "事实链作品"})
     {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -473,15 +511,16 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
     {:ok, _superseded} = Repo.update(Draft.supersede_changeset(old_draft))
 
-    %Draft{}
-    |> Draft.changeset(%{
-      work_id: work.id,
-      scene_id: scene.id,
-      content: "雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。",
-      status: AdoptionStatus.accepted(),
-      revision: 2
-    })
-    |> Repo.insert!()
+    current_draft =
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work.id,
+        scene_id: scene.id,
+        content: "雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。",
+        status: AdoptionStatus.accepted(),
+        revision: 2
+      })
+      |> Repo.insert!()
 
     fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
 
@@ -504,64 +543,106 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert entry.char_count == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
     assert entry.word_count < entry.char_count
 
-    scope = DialoguePlanningService.judgment_scope(context, "第01章写完了吗？当前版本是什么？")
-    assert [fact] = scope.facts.chapters
-    assert fact.accepted_draft_count == 1
-    assert fact.scene_count == 1
-    assert fact.char_count == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
-    assert fact.word_count == entry.word_count
-    assert fact.superseded_draft_count == 1
-    assert fact.chapter_status == "COMPLETED"
-    assert fact.current_draft_refs == [ref]
-    assert fact.work_id == work.id
-    assert fact.visible_in_reading == true
+    assert entry.visible_in_reading == true
+    scope = DialoguePlanningService.judgment_scope(context)
+    refute Map.has_key?(scope.facts, :chapters)
+    assert scope.coverage.chapters == %{status: "not_read"}
+
+    # 版本 oracle 来自调用前的实际持久源；changeset 乐观锁可能推进传入的 revision。
+    source_revision = Repo.get!(Draft, current_draft.id).revision
+    expected_versions = %{"draft:#{current_draft.id}" => source_revision}
+
+    {:ok, observation} =
+      ExplorationService.run(
+        work.id,
+        "chapter_read",
+        Jason.encode!(%{chapter_ref: "chapter:#{chapter.id}"})
+      )
+
+    assert observation.chapter_ref == "chapter:#{chapter.id}"
+    assert observation.prose_total_chars == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
+    assert observation.summary =~ "雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。"
+    refute observation.summary =~ "旧版本正文"
+    assert observation.versions == expected_versions
   end
 
   # ── helpers ───────────────────────────────────────────────
 
-  defp run_until_turn_result(spec, run, max_steps) do
-    empty = %{
-      stage_state: %{},
-      observations: [],
-      events: [],
-      step_results: [],
-      stage_sink: fn _ -> :ok end
-    }
+  defp continuation_execution(tool, selector, continuation) do
+    scripted_judgment_execution(fn request ->
+      exploration = TestProviderPrompt.scope_content(request)["operation"]["exploration"]
+      assert exploration["allowed"] == true
+      assert exploration["tools"] == [continuation["tool"]]
 
-    Enum.reduce_while(1..max_steps, {empty, nil}, fn seq, {snapshot, _result} ->
-      case spec.next_step_planner.(run, seq, snapshot) do
-        {:execute, step, _decision, _meta} ->
-          {:ok, result} = step.(run, seq, snapshot)
-          continue_after_step(result, snapshot)
+      assert exploration["budget"] == %{
+               "total" => 2,
+               "open?" => true,
+               "normal_open?" => false,
+               "continuation_open?" => true,
+               "continuation_only?" => true,
+               "continuation" => continuation
+             }
 
-        {:complete, _decision, _meta} ->
-          {:halt, {snapshot, nil}}
-
-        other ->
-          flunk("unexpected planner result: #{inspect(other)}")
-      end
+      {:decision,
+       %{
+         "action" => "explore",
+         "reason" => "继续真实来源的后续页",
+         "explore_request" => %{"tool" => tool, "query" => Jason.encode!(selector)}
+       }}
     end)
   end
 
-  defp continue_after_step(result, snapshot) do
-    snapshot = %{
-      snapshot
-      | stage_state: Map.merge(snapshot.stage_state, result[:stage_state] || %{}),
-        observations: snapshot.observations ++ (result[:observations] || []),
-        step_results: snapshot.step_results ++ [result]
-    }
+  defp continuation_protocol(work_id, observations) do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work_id)
+    text = "继续读取上一页的后续内容。"
 
-    if result[:turn_result],
-      do: {:halt, {snapshot, result}},
-      else: {:cont, {snapshot, nil}}
-  end
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-continuation-#{work_id}",
+        work_id: work_id,
+        workspace_id: work_id,
+        session_id: session.id,
+        parent_turn_ref: "turn-continuation",
+        origin_frame_ref: "frame-continuation",
+        profile_ref: "judgment_loop_v1",
+        authority_scope: %{production_write: false, allowed_tools: ["judgment"]},
+        goal: %{text: text, version: 1}
+      })
 
-  defp drain_prompt_maps(acc) do
-    receive do
-      {:prompt_map, prompt} -> drain_prompt_maps(acc ++ [prompt])
-    after
-      0 -> acc
-    end
+    context =
+      ContextAssembler.assemble_for_input(
+        work_id,
+        text,
+        NovelPersistence.WorkspaceContext.context_fetcher_with_query(), session_id: session.id)
+
+    initial =
+      DialoguePlanningService.judgment_protocol_input_for_test(%{text: text}, run, context, [])
+
+    {:ok, transcript} = JudgmentProtocol.transcript_for_production(initial)
+
+    transcript =
+      observations
+      |> Enum.with_index(1)
+      |> Enum.reduce(transcript, fn {observation, index}, current ->
+        call_id = "continuation-source-#{index}"
+
+        current
+        |> AuthoringTranscript.append_assistant("", [
+          RequestIR.tool_call_block(
+            "judgment_decision",
+            %{
+              action: "explore",
+              explore_request: %{tool: observation.tool, query: observation.query}
+            },
+            call_id
+          )
+        ])
+        |> JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, observation)
+      end)
+
+    %{text: text}
+    |> DialoguePlanningService.judgment_protocol_input_for_test(run, context, observations)
+    |> Map.put(:transcript, transcript)
   end
 
   defp has_observation?(prompt_map) do
@@ -569,12 +650,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
       %{role: "tool", blocks: blocks} -> Enum.any?(blocks, &(&1.type == "observation"))
       _ -> false
     end)
-  end
-
-  defp observation_blocks(prompt_map) do
-    for %{role: "tool", blocks: blocks} <- prompt_map.messages,
-        %{type: "observation"} = block <- blocks,
-        do: block
   end
 
   # 长章脚本：按观察页数逐页续读；读满 6 页（34357 字符）后收束引用末页锚点。
@@ -601,10 +676,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
   defp long_read_query(prompt) do
     case prompt |> observation_blocks() |> List.last() do
       nil ->
-        assert %{"facts" => %{"chapters" => [chapter | _]}} =
-                 TestProviderPrompt.scope_content(prompt)
-
-        Jason.encode!(%{"chapter_ref" => chapter["ref"], "offset" => 0})
+        # 作者明确点名第01章；现役 chapter_read 按真实章序查找并返回 canonical ref。
+        Jason.encode!(%{"chapter_seq" => 1, "offset" => 0})
 
       page ->
         Jason.encode!(%{
@@ -664,77 +737,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
          }}
       end
     end)
-  end
-
-  defp scripted_judgment_execution(script) do
-    %Execution{
-      result_fn: fn prompt ->
-        case script.(prompt) do
-          {:narrative, narrative} ->
-            {:ok,
-             %{
-               content: narrative,
-               tool_calls: [],
-               provider_output: provider_output(narrative)
-             }}
-
-          {:decision, arguments} ->
-            {:ok,
-             %{
-               content: "先核对作品事实。",
-               tool_calls: [
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" =>
-                     Map.put_new(
-                       Map.drop(arguments, ["reply_included", "frame_type", "record_only"]),
-                       "dialogue_goal",
-                       "核对作品事实"
-                     )
-                 }
-               ],
-               provider_output: provider_output("先核对作品事实。")
-             }}
-
-          {:plan_pair, arguments} ->
-            author_reasoning = Map.get(arguments, "author_reasoning") || "先取证再比较。"
-
-            {:ok,
-             %{
-               content: author_reasoning,
-               tool_calls: [
-                 %{
-                   "name" => "agent_plan_draft",
-                   "arguments" =>
-                     Map.take(arguments, [
-                       "plan",
-                       "author_reasoning",
-                       "reason_codes",
-                       "confidence"
-                     ])
-                 },
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" =>
-                     arguments
-                     |> Map.drop(["plan", "author_reasoning", "reason_codes", "confidence"])
-                     |> Map.put_new("dialogue_goal", "比较候选")
-                 }
-               ],
-               provider_output: provider_output(author_reasoning)
-             }}
-        end
-      end
-    }
-  end
-
-  defp provider_output(text) do
-    %ProviderOutput{
-      provider_run_ref: "prun-#{System.unique_integer([:positive])}",
-      provider_call_ref: "pcall-#{System.unique_integer([:positive])}",
-      status: :ok,
-      content: %{text: text}
-    }
   end
 
   defp context_with_pending_candidates(work_id, pending) do

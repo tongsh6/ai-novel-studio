@@ -110,13 +110,18 @@ defmodule NovelAgent.CreativeProvider.Real do
     {run, projection} = operation_context(request)
     material_refs = AuthoringTask.material_refs(request.task)
 
+    base_materials =
+      Enum.reject(request.task.materials, &(Map.get(&1, :kind) in [:observation, "observation"]))
+
+    base_refs = AuthoringTask.material_refs(%{request.task | materials: base_materials})
+
     Operation.prepare(request.request_ir, run, %{
       role: "creative_execution",
       instructions: instructions,
       scope: scope,
       tool: tentative_artifact_tool(),
       source_refs: source_refs(request, material_refs),
-      base_refs: material_refs,
+      base_refs: base_refs,
       versions: %{},
       author_text: request.task.author_words,
       source_input_ref: request.source_input_ref,
@@ -289,8 +294,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp creative_role_schema(%CreativeRequest{tool_name: "plot_outline"} = request) do
     role =
       if revision?(request),
-        do: "本次你承担章计划修订助手的角色。",
-        else: "本次你承担章计划助手的角色。"
+        do: "本次你承担小说大纲修订助手的角色。",
+        else: "本次你承担小说大纲规划助手的角色。"
 
     {role, outline_domain_schema(), ""}
   end
@@ -417,8 +422,19 @@ defmodule NovelAgent.CreativeProvider.Real do
     """
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
-    - "title"：章节标题，格式建议为“第NN章：标题”
-    - "body"：该章的结构化方向，必须逐行包含以下标签：
+    - "title"：本条目的大纲对象标题，按下述对应层级的形状填写
+    - "body"：本条目的结构化规划内容
+    - "rationale"：一句话说明该条目在整体结构中的作用（或 null）
+
+    根据 authoring_task.author_goal 与 scope 确定本轮规划层级，只产出目标要求的对象。
+    卷级规划可以仅包含卷蓝图，不必附带章计划；作者未要求新增章节时不得另造章节。
+
+    卷蓝图条目：title 必须为“卷蓝图”；body 必须为单行，子槽用｜分隔：
+    卷标题｜序号：N｜目标冲突：…｜弧光阶段：…｜地图边界：…｜支线启动：…｜支线推进：…｜支线收束：…｜高潮章：…｜爽点密度：…｜缓冲章：…｜新人物：…｜新设定：…｜新地图：…
+    序号从 1 起并遵守已有卷顺序；没有依据的子槽可以省略，标签不要改写。
+    高潮章/缓冲章只引用已有或本轮实际规划的章标题；仅规划卷蓝图时不得为填槽新建章节。
+
+    章计划条目：title 为章节标题，格式建议为“第NN章：标题”；body 逐行包含以下标签：
       章功能定位：推进章 / 铺垫章 / 高潮章 / 过渡章 / 转折章之一或自然语言等价描述
       情节推进：本章推进什么外部事件
       人物变化：本章人物状态或关系发生什么变化
@@ -435,7 +451,6 @@ defmodule NovelAgent.CreativeProvider.Real do
       读者得知：本场读者得知什么｜主角得知：本场主角得知什么｜仍隐藏：本场仍对读者/主角隐藏什么
       对白表面：对白表面在谈什么｜潜台词：对白暗里争什么
       感官：该场时空与感官锚点（如潮湿霉味、风扇噪音）
-    - "rationale"：一句话说明该章在整体结构中的作用（或 null）
     - "chapter_ref"（可选）：若该章在上下文「作品章节」索引中已存在，**逐字复制**该条目的
       `chapter_ref`（形如 `chapter:<uuid>`）；新规划的章不填/留空；不得自行编造、改写 ref，
       也不得把 ref 拼进 title 或 body。只有确实复制的 ref 才能填。

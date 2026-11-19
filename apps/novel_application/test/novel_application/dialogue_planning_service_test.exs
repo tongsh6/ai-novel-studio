@@ -152,9 +152,15 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
              Enum.filter(request.messages, &(&1.role == "user" and &1.provenance == "author"))
 
     scope = TestProviderPrompt.scope_content(request)
-    assert scope["goal"]["text"] == steered_run.goal.text
-    assert scope["goal"]["version"] == 2
-    assert scope["goal"]["source_input_ref"] == expected_ref
+
+    assert scope["goal"] == %{
+             "provenance" => "application",
+             "version" => 2,
+             "source_input_ref" => expected_ref
+           }
+
+    refute Jason.encode!(scope) =~ steered_run.goal.text
+    refute Jason.encode!(scope) =~ steered_text
     refute TestProviderPrompt.author_text(request) == original_text
   end
 

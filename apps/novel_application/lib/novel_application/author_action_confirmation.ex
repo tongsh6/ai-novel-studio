@@ -192,6 +192,9 @@ defmodule NovelApplication.AuthorActionConfirmation do
   """
   @spec child_runtime_opts(map(), AuthorActionInput.t(), keyword()) :: keyword()
   def child_runtime_opts(result, action_input, opts) do
+    provider_execution =
+      Keyword.get(opts, :provider_execution) || Execution.dependency(purpose: :tool)
+
     planner =
       ToolConfirmation.next_step_planner(%{
         source_turn_result: result.source_turn_result,
@@ -200,13 +203,12 @@ defmodule NovelApplication.AuthorActionConfirmation do
         behavior_ref: result.behavior_ref,
         receipt_id: result.receipt.id,
         context_fetcher: Keyword.get(opts, :context_fetcher),
-        provider_execution:
-          Keyword.get(opts, :provider_execution) ||
-            Execution.dependency(purpose: :tool)
+        provider_execution: provider_execution
       })
 
     opts
     |> Keyword.put(:next_step_planner, planner)
+    |> Keyword.put(:provider_execution, provider_execution)
     |> Keyword.put_new(:interaction_store, NovelApplication.TurnInteractionService.store())
   end
 

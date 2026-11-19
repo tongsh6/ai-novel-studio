@@ -15,6 +15,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AuthoringOperation,
     AuthoringTaskBuilder,
     CapabilityRegistry,
+    ChapterReadEvidence,
     ChapterRevisionScope,
     DialogueGateway,
     ExecutionOrchestrator,
@@ -412,14 +413,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     author_text = to_string(run.goal.text || judgment.dialogue_goal || "")
     desired_role = NovelApplication.CharacterProfile.narrative_role_from_text(author_text)
 
-    with {:ok, facts} <- character_profile_facts(input, run),
-         roster = List.wrap(Map.get(facts, :roster) || Map.get(facts, "roster")),
-         {:ok, target} <-
-           NovelApplication.CharacterProfile.resolve_target(
-             author_text,
-             roster,
-             field(judgment, :character_ref)
+    with {:ok, target, _source} <-
+           NovelApplication.CharacterProfile.observed_target(
+             run.work_id,
+             field(judgment, :character_ref),
+             List.wrap(field(judgment, :character_observation))
            ),
+         {:ok, roster} <- NovelApplication.CharacterProfile.targets(run.work_id),
          {:ok, payload} <-
            NovelApplication.CharacterProfile.build_candidate(
              target,
@@ -436,9 +436,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {:no_change, facts} ->
         build_character_profile_no_change(judgment, facts, input, run, context)
 
-      # with 链错误面是具体 atom code（:invalid_character_role/:target_ambiguous/
-      # :target_missing/:unsupported_effect/:unsupported_field），没有嵌套
-      # {:character_profile_invalid, _} 包装；原分支不可达（B60）。
+      # 未读、跨作品、字段缺失或过期基线均拒绝派发，不以重读的新指纹替换观察。
       {:error, reason} ->
         {:error, {:character_profile_invalid, reason}}
     end
@@ -492,20 +490,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     )
 
     {:ok, %{turn_result: result, artifact_refs: [], tool_call_count: 0, provider_call_count: 0}}
-  end
-
-  defp character_profile_facts(input, run) do
-    case Map.get(input, "character_profile_context") || Map.get(input, :character_profile_context) do
-      %{} = facts ->
-        {:ok, facts}
-
-      nil ->
-        case NovelApplication.CharacterProfile.targets(run.work_id || run.workspace_id) do
-          {:ok, roster} -> {:ok, %{roster: roster}}
-          roster when is_list(roster) and roster != [] -> {:ok, %{roster: roster}}
-          _ -> {:error, :target_missing}
-        end
-    end
   end
 
   defp build_character_profile_candidate(judgment, payload, input, run, context) do
@@ -627,22 +611,25 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
       previous_plan = Keyword.get(opts, :previous_plan)
 
+      request_context = %{
+        frame: frame,
+        plan: plan,
+        decision: decision,
+        tool: tool,
+        task: task,
+        facts: facts,
+        revision_scope: revision_scope,
+        modification_scope: modification_scope,
+        chapter_title: chapter_title,
+        judgment: judgment,
+        previous_plan: previous_plan
+      }
+
       request =
-        chapter_revision_request(%{
-          frame: frame,
-          plan: plan,
-          decision: decision,
-          tool: tool,
-          task: task,
-          facts: facts,
-          revision_scope: revision_scope,
-          modification_scope: modification_scope,
-          chapter_title: chapter_title,
-          judgment: judgment,
-          author_input: author_input,
-          previous_plan: previous_plan
-        })
+        request_context
+        |> chapter_revision_request()
         |> AuthoringSession.bind_tool_request(run, snapshot, author_input)
+        |> supply_chapter_revision_materials(request_context)
 
       {result, session} =
         AuthorizedToolExecutor.execute_with_session(
@@ -961,11 +948,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       tool: tool,
       task: task,
       facts: facts,
-      revision_scope: revision_scope,
       modification_scope: modification_scope,
       chapter_title: chapter_title,
-      judgment: judgment,
-      author_input: author_input
+      judgment: judgment
     } = request_context
 
     registry = CapabilityRegistry.get(tool)
@@ -974,16 +959,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       %{
         "creative_brief" =>
           "修订#{chapter_title}正文（#{modification_scope_label(modification_scope)}）。" <>
-            "作者原话：#{author_input.text}
-本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：" <>
+            "本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：" <>
             "#{judgment.dialogue_goal || ""}
 覆盖范围：#{length(facts.covered_refs)} 个已采纳片段，按阅读投影顺序处理。",
-        "context_text" =>
-          "#{chapter_title}当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
-" <>
-            facts.base_text <>
-            revision_target_context(facts, revision_scope, modification_scope) <>
-            previous_formatting_plan(Map.get(request_context, :previous_plan)),
         "revision" => chapter_revision_instruction(modification_scope),
         "artifact_type" =>
           if(modification_scope == :format_only,
@@ -1008,6 +986,36 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       trace_policy: %{level: "standard"},
       created_at: DateTime.utc_now()
     }
+  end
+
+  # 先绑定真实请求，再决定是否还需主动供应基线。Real 后续只追加专业 Scope，
+  # 不产生 checkpoint；这里合格的可见读叶会原样进入三个 Provider 投影。
+  defp supply_chapter_revision_materials(request, request_context) do
+    %{facts: facts, revision_scope: revision_scope, modification_scope: scope} = request_context
+    {baseline, task} = chapter_baseline_context(request, request_context)
+
+    context_text =
+      baseline <>
+        revision_target_context(facts, revision_scope, scope) <>
+        previous_formatting_plan(Map.get(request_context, :previous_plan))
+
+    input =
+      request.input
+      |> Map.put("context_text", context_text)
+      |> Map.merge(AuthoringTaskBuilder.to_input(task))
+
+    %{request | input: input}
+  end
+
+  defp chapter_baseline_context(request, %{facts: facts, task: task, chapter_title: title}) do
+    if ChapterReadEvidence.supplied_baseline?(request.input["request_ir"], facts) do
+      materials = [%{kind: :observation, ref: facts.target_chapter_ref, complete?: true}]
+
+      {"#{title}当前已采纳正文已由本次可见的 chapter_read 页完整供应，按页内阅读顺序处理。", %{task | materials: materials}}
+    else
+      {"#{title}当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：\n" <>
+         facts.base_text, task}
+    end
   end
 
   # 目标段与正文段来自同一次 LocalizedRevision.segment/1 结果（revision_scope），
@@ -1926,7 +1934,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
            revision_input(
              %{
                "creative_brief" =>
-                 "修订下面已采纳的作品内容，按作者要求输出完整的新版本，未提及的内容保持一致；这是待采纳的修订候选，不是直接覆盖。作者原话：#{author_text}\n本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：#{frame.dialogue_goal.summary}",
+                 "修订下面已采纳的作品内容，按作者要求输出完整的新版本，未提及的内容保持一致；这是待采纳的修订候选，不是直接覆盖。\n本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：#{frame.dialogue_goal.summary}",
                "context_text" =>
                  "原已采纳内容（当前作品事实；新候选未采纳前仍以它为准）：\n#{TurnInteractionService.artifact_body(entry)}",
                "revision" =>
@@ -2045,7 +2053,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
            revision_input(
              %{
                "creative_brief" =>
-                 "修订下面已有候选，按作者要求输出完整的新版本，未提及的内容保持一致；不新增无关候选。作者原话：#{author_text}\n本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：#{frame.dialogue_goal.summary}",
+                 "修订下面已有候选，按作者要求输出完整的新版本，未提及的内容保持一致；不新增无关候选。\n本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：#{frame.dialogue_goal.summary}",
                "context_text" =>
                  "原候选全文（仅供修订，不是已确认作品事实）：\n#{TurnInteractionService.artifact_body(entry)}",
                "revision" =>

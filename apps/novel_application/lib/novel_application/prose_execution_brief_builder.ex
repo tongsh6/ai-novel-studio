@@ -4,7 +4,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
 
   CP1 为**确定性投影**：以章级方向（`ChapterPlanDirection` E18–E22）+ 读者效果
   （`ReaderEffectBrief`）为来源，展开为场级执行结构。无结构化章方向时**不伪造场级
-  因果**，而是从计划摘要 / 作者输入降级生成最小 brief，并在 scene unit 上标记 degraded
+  因果**，而是从已有计划摘要降级生成最小 brief，并在 scene unit 上标记 degraded
   （由 `ProseExecutionBrief.new/1` 归一化），供 trace 标记降级来源。
 
   brief 是设计态、非作品事实（ADR-0020 I2）。后续 checkpoint 可把单场确定性投影
@@ -27,11 +27,10 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
     direction = packet["chapter_direction"]
     reader_effect = packet["reader_effect_brief"]
     chapter = packet["chapter"] || %{}
-    author_input = packet["author_input"] || ""
     source_turn_ref = packet["source_turn_ref"]
 
     {scene_units, degraded?, source} =
-      scene_units(direction, chapter, author_input)
+      scene_units(direction, chapter)
 
     {mission_context, mission_source} = mission_context(packet["chapter_mission"])
 
@@ -66,8 +65,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
   # 确定性投影进 scene unit——只从规划字节投影，缺子槽不写键、不生成模型内容。
   defp scene_units(
          %ChapterPlanDirection{scene_plans: [_ | _] = plans} = direction,
-         _chapter,
-         _author_input
+         _chapter
        ) do
     units =
       plans
@@ -97,7 +95,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
   end
 
   # 有结构化章方向：确定性投影为一个场级单元（无逐场计划时的章级回退）。
-  defp scene_units(%ChapterPlanDirection{} = direction, _chapter, _author_input) do
+  defp scene_units(%ChapterPlanDirection{} = direction, _chapter) do
     target_change =
       case clean(direction.character_change) || clean(direction.plot_progress) do
         nil -> %{}
@@ -122,9 +120,9 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
     {[unit], target_change == %{}, ["chapter_plan_direction"]}
   end
 
-  # 无结构化章方向：从计划摘要 / 作者输入降级生成最小 brief，不伪造场级因果。
-  defp scene_units(_direction, chapter, author_input) do
-    desc = clean(Map.get(chapter, :summary) || Map.get(chapter, "summary")) || clean(author_input)
+  # 无结构化章方向：只从已有计划摘要降级生成最小 brief，缺席时不伪造场级因果。
+  defp scene_units(_direction, chapter) do
+    desc = clean(Map.get(chapter, :summary) || Map.get(chapter, "summary"))
 
     target_change =
       if desc, do: %{"type" => "unspecified", "description" => desc}, else: %{}
@@ -135,7 +133,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
       "target_change" => target_change
     }
 
-    {[unit], true, ["plan_summary_or_author_input"]}
+    {[unit], true, if(desc, do: ["plan_summary"], else: [])}
   end
 
   # ── 规划子槽 → VS-00E §1 场级结构（确定性投影，缺省不写键） ──

@@ -4,13 +4,13 @@ defmodule NovelApplication.CharacterProfile do
 
   边界：
   - 身份 = character_ref；name/aliases 仅展示与同名/别名消歧，不参与身份。
-  - 只读既有角色事实（aux task-72 读端口；不可用时降级到 WorkArchive 角色面只读）；
-    不写库、不新建角色、不写记忆。
+  - 只读既有角色持久事实与完整指纹；不写库、不新建角色、不写记忆。
   - 候选只提议目标角色的白名单字段变更；「唯一主角/替换原主角」把其它角色变化放入
     other_character_changes 供作者裁决，不默认清空/改写其它角色。
   """
 
   alias NovelFoundation.Enums.{AdoptionStatus, NarrativeRole}
+  alias NovelPersistence.AdoptionRepository
 
   @role_keywords %{
     "主角" => "PROTAGONIST",
@@ -23,45 +23,143 @@ defmodule NovelApplication.CharacterProfile do
   @allowed_fields ["narrative_role"]
   @effects ["character_field_update"]
 
-  @doc "判断输入/候选所需的目标角色事实（读端口优先 aux，降级 WorkArchive 只读）。"
+  @bindable_statuses [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
+  @target_fields ~w(character_ref name aliases role summary narrative_role status updated_at base_fingerprint)a
+  @observed_fields @target_fields -- [:summary]
+
+  @doc "同作品已采纳角色的真实持久事实；不合成版本，也不降级到缺失指纹的投影。"
   def targets(work_id) when is_binary(work_id) do
-    case aux_character_context(work_id) do
-      {:ok, %{characters: characters}} ->
-        {:ok, normalize_targets(characters)}
-
-      {:ok, %{character_ref: _} = character} ->
-        {:ok, List.wrap(normalize_target(character))}
-
-      {:error, _reason} ->
-        fallback_targets(work_id)
+    with {:ok, %{characters: characters}} <- AdoptionRepository.character_profile_context(work_id) do
+      {:ok,
+       Enum.flat_map(characters, fn character ->
+         case normalize_target(character) do
+           nil -> []
+           target -> [target]
+         end
+       end)}
     end
   end
 
-  def targets(_work_id), do: []
+  def targets(_work_id), do: {:error, :target_missing}
+
+  @doc "精确读取同作品已采纳角色；目录读取与修订绑定共用同一状态/真实指纹规则。"
+  def target(work_id, "character:" <> _ = ref) when is_binary(work_id) do
+    with {:ok, character} <- AdoptionRepository.character_profile_context(work_id, ref),
+         %{} = target <- normalize_target(character) do
+      {:ok, target}
+    else
+      nil -> {:error, :target_missing}
+      {:error, _} = error -> error
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  def target(_work_id, _ref), do: {:error, :target_missing}
 
   @doc """
-  解析目标角色：模型 ref 优先且必须在 roster 内；无 ref 时按作者原话
-  name/aliases 唯一匹配；0 命中 target_missing，多命中 target_ambiguous。
+  绑定本次实际请求可见的 canonical 详情。目录、原始探索缓存和猜中的 ref 不授予
+  修订资格；所需字段须完整，摘要可分页。返回选中的原叶供派发重核同一指纹。
   """
-  def resolve_target(author_text, targets, model_ref \\ nil)
-      when is_list(targets) do
-    if is_binary(model_ref) and model_ref != "" do
-      case Enum.find(targets, &(&1.character_ref == model_ref)) do
-        nil -> {:error, :target_missing}
-        target -> {:ok, target}
-      end
+  def observed_target(work_id, ref, observations) when is_list(observations) do
+    with {:ok, current} <- target(work_id, ref),
+         %{} = observed <- latest_detail(observations, ref),
+         :ok <- validate_observed(observed, current, work_id) do
+      {:ok, current, observed}
     else
-      resolve_by_text(author_text, targets)
+      nil -> {:error, :not_observed}
+      {:error, _} = error -> error
     end
   end
 
-  defp resolve_by_text(author_text, targets) do
-    case by_text_matches(author_text, targets) do
-      [target] -> {:ok, target}
-      [] -> {:error, :target_missing}
-      _ -> {:error, :target_ambiguous}
+  def observed_target(_work_id, _ref, _observations), do: {:error, :not_observed}
+
+  defp latest_detail(observations, ref) do
+    observations
+    |> Enum.reverse()
+    |> Enum.find(fn
+      %{
+        content: %{"tool" => "archive_read"},
+        coverage: %{"kind" => "detail", "facet" => "characters", "ref" => ^ref}
+      } ->
+        true
+
+      _ ->
+        false
+    end)
+  end
+
+  defp validate_observed(observed, current, work_id) do
+    coverage = observed.coverage
+    fields = Map.get(coverage, "complete_fields")
+    facts = Map.get(observed.content, "facts")
+    actual = if is_map(facts), do: Map.get(facts, "character")
+    versions = Map.get(observed, :versions)
+    version = if is_map(versions), do: Map.get(versions, current.character_ref)
+
+    with :ok <- validate_observation_scope(coverage, work_id),
+         :ok <-
+           validate_observation_shape(observed, current.character_ref, actual, fields, version),
+         :ok <- validate_complete_fields(actual, fields) do
+      validate_observation_freshness(actual, version, current)
     end
   end
+
+  defp validate_observation_scope(coverage, work_id) do
+    if Map.get(coverage, "work_id") == work_id,
+      do: :ok,
+      else: {:error, :cross_work_scope}
+  end
+
+  defp validate_observation_shape(observed, ref, actual, fields, version) do
+    valid =
+      Map.get(observed, :status) in ["ok", "partial"] and
+        Map.get(observed, :source_refs) == [ref] and is_map(actual) and
+        is_list(fields) and is_binary(version) and version != ""
+
+    if valid, do: :ok, else: {:error, :incomplete_observation}
+  end
+
+  defp validate_complete_fields(actual, fields) do
+    complete =
+      Enum.all?(@observed_fields, fn key ->
+        name = Atom.to_string(key)
+        name in fields and Map.has_key?(actual, name)
+      end)
+
+    if complete, do: :ok, else: {:error, :incomplete_observation}
+  end
+
+  defp validate_observation_freshness(actual, version, current) do
+    matches =
+      version == current.base_fingerprint and
+        Enum.all?(@observed_fields, fn key ->
+          Map.get(actual, Atom.to_string(key)) == Map.fetch!(current, key)
+        end)
+
+    if matches, do: :ok, else: {:error, :stale_base}
+  end
+
+  @doc "以实际供应的 canonical 观察绑定角色修订；作者目标与当前持久指纹共同决定资格。"
+  @spec bind_judgment(map(), String.t(), [map()]) :: {:ok, map()} | {:error, term()}
+  def bind_judgment(
+        %{action: "execute", capability: "revise_character_profile"} = judgment,
+        work_id,
+        visible_payloads
+      ) do
+    if is_nil(narrative_role_from_text(judgment.author_input)) do
+      {:error, :invalid_character_role}
+    else
+      case observed_target(work_id, judgment.character_ref, visible_payloads) do
+        {:ok, _target, observation} ->
+          {:ok, Map.put(judgment, :character_observation, observation)}
+
+        {:error, reason} ->
+          {:error, {:character_profile_invalid, reason}}
+      end
+    end
+  end
+
+  def bind_judgment(judgment, _work_id, _visible_payloads), do: {:ok, judgment}
 
   @doc "作者原话里要改成的叙事角色（白名单值）；识别不了返回 nil。"
   def narrative_role_from_text(text) when is_binary(text) do
@@ -187,115 +285,24 @@ defmodule NovelApplication.CharacterProfile do
     Enum.join([change | other], "\n")
   end
 
-  @doc "把读端口指纹/事实注入 payload 前校验目标 ref 与 work 一致性由读端口负责。"
-  def fingerprint(%{base_fingerprint: fp}) when is_binary(fp) and fp != "", do: fp
-
-  def fingerprint(character) do
-    seed =
-      Enum.map_join(
-        [
-          Map.get(character, :character_ref) || Map.get(character, :id),
-          Map.get(character, :name),
-          Map.get(character, :narrative_role)
-        ],
-        "|",
-        &to_string/1
-      )
-
-    :sha256 |> :crypto.hash(seed) |> Base.encode16(case: :lower)
-  end
-
-  # ── 读端口 ─────────────────────────────────────────────
-
-  defp aux_character_context(work_id) do
-    cond do
-      Code.ensure_loaded?(NovelPersistence.AdoptionRepository) and
-          function_exported?(NovelPersistence.AdoptionRepository, :character_profile_context, 1) ->
-        safe_apply(NovelPersistence.AdoptionRepository, :character_profile_context, [work_id])
-
-      Code.ensure_loaded?(NovelPersistence.AdoptionRepository) and
-          function_exported?(NovelPersistence.AdoptionRepository, :character_profile_context, 2) ->
-        safe_apply(NovelPersistence.AdoptionRepository, :character_profile_context, [work_id, nil])
-
-      true ->
-        {:error, :unavailable}
-    end
-  end
-
-  defp safe_apply(module, function, args) do
-    apply(module, function, args)
-  rescue
-    UndefinedFunctionError -> {:error, :unavailable}
-  end
-
-  # 仅由 targets/1 的 is_binary(work_id) 分支调用；非 binary 分支不可达（B60）。
-  defp fallback_targets(work_id) when is_binary(work_id) do
-    case NovelApplication.persistence_character_reader() do
-      reader when is_function(reader, 1) ->
-        case reader.(work_id) do
-          characters when is_list(characters) -> normalize_targets(characters)
-          _ -> []
-        end
-
-      _ ->
-        []
-    end
-  rescue
-    _ -> []
-  end
-
-  @bindable_statuses [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
-
-  defp normalize_targets(characters) do
-    characters
-    |> Enum.filter(&(is_map(&1) and bindable_status?(&1)))
-    |> Enum.map(&normalize_target/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp bindable_status?(character) do
-    status = Map.get(character, :status)
-    is_nil(status) or to_string(status) in @bindable_statuses
-  end
-
-  defp normalize_target(character) when is_map(character) do
-    with ref when is_binary(ref) and ref != "" <- character_ref(character),
-         name when is_binary(name) and name != "" <- Map.get(character, :name) do
-      %{
-        character_ref: ref,
-        name: name,
-        aliases: List.wrap(Map.get(character, :aliases)) |> Enum.filter(&is_binary/1),
-        role: Map.get(character, :role),
-        summary: Map.get(character, :summary),
-        narrative_role: Map.get(character, :narrative_role),
-        status: Map.get(character, :status),
-        updated_at: Map.get(character, :updated_at),
-        base_fingerprint: Map.get(character, :base_fingerprint) || fingerprint(character)
-      }
-    else
-      _ -> nil
-    end
+  defp normalize_target(
+         %{
+           character_ref: "character:" <> _,
+           name: name,
+           aliases: aliases,
+           status: status,
+           base_fingerprint: fingerprint
+         } = character
+       )
+       when status in @bindable_statuses and is_binary(name) and name != "" and
+              is_list(aliases) and is_binary(fingerprint) and fingerprint != "" do
+    if Enum.all?(@target_fields, &Map.has_key?(character, &1)) and
+         Enum.all?(aliases, &is_binary/1),
+       do: Map.take(character, @target_fields),
+       else: nil
   end
 
   defp normalize_target(_character), do: nil
-
-  defp character_ref(character) do
-    Map.get(character, :character_ref) ||
-      case Map.get(character, :id) do
-        id when is_binary(id) and id != "" -> "character:#{id}"
-        _ -> nil
-      end
-  end
-
-  defp by_text_matches(text, targets) when is_binary(text) and text != "" do
-    Enum.filter(targets, fn target ->
-      names = [target.name | target.aliases] |> Enum.reject(&(&1 in [nil, ""]))
-
-      Enum.any?(names, fn name -> String.contains?(text, name) end)
-    end)
-  end
-
-  defp by_text_matches(_text, _targets), do: []
 
   defp other_character_changes(target, "PROTAGONIST", author_text, roster) do
     if exclusive_protagonist_intent?(author_text) do

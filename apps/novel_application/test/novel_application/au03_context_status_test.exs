@@ -6,9 +6,9 @@ defmodule NovelApplication.AU03ContextStatusTest do
 
   @author_text "第03章正文里有没有提到旧账？只按当前作品事实回答。"
 
-  defp scope(context), do: DialoguePlanningService.judgment_scope(context, @author_text)
+  defp scope(context), do: DialoguePlanningService.judgment_scope(context)
 
-  defp context(attrs \\ %{}) do
+  defp context(attrs) do
     struct(
       DialogueContext,
       Map.merge(
@@ -28,6 +28,109 @@ defmodule NovelApplication.AU03ContextStatusTest do
     )
   end
 
+  test "R05 同次阅读审计供应结构章数、正文章数与有效字数" do
+    projected =
+      scope(
+        context(%{
+          current_work_snapshot: %{title: "作品", revision: 7},
+          structured_chapters: [
+            %{
+              id: "c1",
+              work_id: "work-au03",
+              title: "计划",
+              has_prose: false,
+              summary: "不应默认供应的摘要"
+            },
+            %{id: "c2", work_id: "work-au03", title: "正文", has_prose: true},
+            %{id: "c3", work_id: "work-au03", title: "仅候选章", has_prose: false}
+          ],
+          reading_audit: %{
+            work_id: "work-au03",
+            audit: %{chapter_count: 3, empty_chapter_count: 2, total_word_count: 13}
+          },
+          source_status: %{work: :ok, chapters: :ok}
+        })
+      )
+
+    assert projected.facts.work.chapter_statistics == %{
+             structure_chapter_count: 3,
+             written_chapter_count: 1,
+             empty_chapter_count: 2,
+             total_word_count: 13
+           }
+
+    refute Map.has_key?(projected.facts.work, :chapter_counts)
+    assert projected.coverage.chapter_statistics == %{status: "complete"}
+    assert projected.coverage.chapters == %{status: "not_read"}
+    assert projected.coverage.chapter_prose == %{status: "not_read"}
+    refute Jason.encode!(projected) =~ "不应默认供应的摘要"
+    refute Map.has_key?(projected.facts, :chapters)
+  end
+
+  test "R05 无真实审计时不从空数组、未知正文或坏身份推定总量" do
+    chapter = %{id: "c1", work_id: "work-au03", title: "第一章", has_prose: true}
+
+    for chapters <- [
+          [],
+          [chapter],
+          [Map.put(chapter, :has_prose, nil)],
+          [chapter, chapter],
+          [Map.put(chapter, :work_id, "other")],
+          [Map.delete(chapter, :work_id)]
+        ] do
+      projected =
+        scope(
+          context(%{
+            current_work_snapshot: %{title: "作品"},
+            structured_chapters: chapters,
+            source_status: %{work: :ok, chapters: :ok}
+          })
+        )
+
+      refute Map.has_key?(projected.facts.work, :chapter_statistics)
+      refute Map.has_key?(projected.facts.work, :chapter_counts)
+      assert projected.coverage.chapter_statistics == %{status: "not_read"}
+    end
+  end
+
+  test "R05 未读失败或不完整来源不供应零，真实空审计才供应零" do
+    audit = %{
+      work_id: "work-au03",
+      audit: %{chapter_count: 0, empty_chapter_count: 0, total_word_count: 0}
+    }
+
+    for {status, expected} <- [
+          {:unknown, "not_read"},
+          {:unavailable, "unavailable"},
+          {:partial, "partial"},
+          {:stale, "stale"}
+        ] do
+      projected =
+        scope(
+          context(%{
+            current_work_snapshot: %{title: "作品"},
+            reading_audit: audit,
+            source_status: %{work: :ok, chapters: status}
+          })
+        )
+
+      refute Map.has_key?(projected.facts.work, :chapter_statistics)
+      assert projected.coverage.chapter_statistics == %{status: expected}
+    end
+
+    empty =
+      scope(context(%{current_work_snapshot: %{title: "空作品"}, reading_audit: audit}))
+
+    assert empty.facts.work.chapter_statistics == %{
+             structure_chapter_count: 0,
+             written_chapter_count: 0,
+             empty_chapter_count: 0,
+             total_word_count: 0
+           }
+
+    assert empty.coverage.chapter_statistics == %{status: "complete"}
+  end
+
   test "fetcher raise / 非 ok 明确 unavailable，不虚构空作品或零章" do
     for fetch <- [
           fn _work, _text, _session -> raise "db failure" end,
@@ -38,7 +141,7 @@ defmodule NovelApplication.AU03ContextStatusTest do
       assert value.source_status.chapters == :unavailable
       projected = scope(value)
       assert projected.facts == %{}
-      assert projected.coverage.chapters == %{status: "unavailable"}
+      assert projected.coverage.chapters == %{status: "not_read"}
       refute Map.has_key?(projected.context, :interaction_state)
     end
   end
@@ -66,14 +169,15 @@ defmodule NovelApplication.AU03ContextStatusTest do
     assert projected.facts.work.ref == "work:work-au03"
     assert projected.facts.work.version == 4
     refute Map.has_key?(projected.facts, :chapters)
-    assert projected.coverage.chapters == %{status: "unavailable"}
+    assert projected.coverage.chapters == %{status: "not_read"}
   end
 
-  test "成功空集合可以给零章，缺失来源状态只能 not_read" do
-    empty = scope(context(%{current_work_snapshot: %{title: "真实空作品"}}))
-    assert empty.facts.chapters == []
-    assert empty.coverage.chapters.total == 0
-    assert empty.coverage.chapters.status == "complete"
+  test "内部读取空集合不冒充模型已读，未供应目录不生成零章结论" do
+    value = context(%{current_work_snapshot: %{title: "真实空作品"}})
+    assert DialogueContext.source_status_summary(value).sources["chapters"] == "empty"
+    empty = scope(value)
+    refute Map.has_key?(empty.facts, :chapters)
+    assert empty.coverage.chapters == %{status: "not_read"}
 
     unknown = scope(%DialogueContext{work_id: "work-au03"})
     assert unknown.facts == %{}
@@ -81,7 +185,7 @@ defmodule NovelApplication.AU03ContextStatusTest do
     refute Map.has_key?(unknown.context, :interaction_state)
   end
 
-  test "已读索引不表示已读正文，缺 prose 状态不伪装已写或计划中" do
+  test "内部索引不默认供给模型，缺 prose 状态也不派生已写或计划中" do
     projected =
       scope(
         context(%{
@@ -90,15 +194,12 @@ defmodule NovelApplication.AU03ContextStatusTest do
         })
       )
 
-    assert [%{ref: "chapter:chapter-a", title: "第03章"} = chapter] = projected.facts.chapters
-    refute Map.has_key?(chapter, :has_prose)
-    assert projected.coverage.chapters.written_count == 0
-    assert projected.coverage.chapters.planned_count == 0
-    assert projected.coverage.chapters.unknown_prose_count == 1
-    assert projected.coverage.chapter_prose.status == "not_read"
+    refute Map.has_key?(projected.facts, :chapters)
+    assert projected.coverage.chapters == %{status: "not_read"}
+    assert projected.coverage.chapter_prose == %{status: "not_read"}
   end
 
-  test "部分读取没有未知的总数；实际预算与 draft ref 截断显式留下遗漏" do
+  test "默认判断不对未供应的章目录二次截断，也不推断总数或完整性" do
     partial =
       scope(
         context(%{
@@ -107,7 +208,8 @@ defmodule NovelApplication.AU03ContextStatusTest do
         })
       )
 
-    assert partial.coverage.chapters == %{status: "partial", returned: 1}
+    assert partial.coverage.chapters == %{status: "not_read"}
+    refute Map.has_key?(partial.facts, :chapters)
 
     entries =
       for n <- 1..15 do
@@ -122,12 +224,13 @@ defmodule NovelApplication.AU03ContextStatusTest do
       end
 
     budgeted = scope(context(%{structured_chapters: entries, source_status: %{chapters: :ok}}))
-    assert budgeted.coverage.chapters.total == 15
-    assert budgeted.coverage.chapters.status == "partial"
-    assert budgeted.coverage.chapters.returned < 15
-    assert Enum.any?(budgeted.facts.chapters, &(&1.ref == "chapter:chapter-3"))
-    assert Enum.any?(budgeted.omissions, &(&1.reason == "budget_limited"))
-    assert Enum.any?(budgeted.omissions, &(&1.reason == "draft_refs_truncated" and &1.total == 6))
+    assert budgeted.coverage.chapters == %{status: "not_read"}
+    refute Map.has_key?(budgeted.facts, :chapters)
+
+    refute Enum.any?(
+             budgeted.omissions,
+             &(&1.reason in ["budget_limited", "draft_refs_truncated"])
+           )
   end
 
   test "跨作品章节不能混入 Scope，作者原字节不被事实构造改变" do
@@ -137,10 +240,33 @@ defmodule NovelApplication.AU03ContextStatusTest do
         source_status: %{chapters: :ok}
       })
 
-    assert_raise ArgumentError, "invalid_chapter_source", fn -> scope(value) end
+    projected = scope(value)
+    refute Map.has_key?(projected.facts, :chapters)
+    refute Jason.encode!(projected) =~ "chapter-a"
 
     text = "  重新核对\n第03章，保留 Ω。\t"
-    projected = DialoguePlanningService.judgment_scope(context(), text)
+
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-au03-bytes",
+        work_id: "work-au03",
+        workspace_id: "workspace-au03",
+        session_id: "session-au03",
+        parent_turn_ref: "turn-au03",
+        origin_frame_ref: "frame-au03",
+        profile_ref: "judgment_loop_v1",
+        authority_scope: %{production_write: false, allowed_tools: ["judgment"]},
+        goal: %{text: text, version: 1}
+      })
+
+    request =
+      %{text: text}
+      |> DialoguePlanningService.judgment_protocol_input_for_test(run, value, [])
+      |> NovelApplication.JudgmentProtocol.request_for_production()
+
+    assert [%{blocks: [%{type: "text", text: ^text}]}] =
+             Enum.filter(request.messages, &(&1.role == "user"))
+
     refute Map.has_key?(projected, :author_text)
     refute Map.has_key?(projected.facts, :author_text)
   end

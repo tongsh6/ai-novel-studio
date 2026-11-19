@@ -40,6 +40,15 @@ be found at <https://hexdocs.pm/novel_application>.
 - [author_question_service.ex](lib/novel_application/author_question_service.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_roundtrip_test.exs](test/novel_application/author_question_roundtrip_test.exs)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 
+## 按需求证与人物绑定（VS-00M §5.2.2）
+
+- [exploration_service.ex](lib/novel_application/exploration_service.ex)：唯一探索目录、读取编排与 Observation 包装；档案材料委托 WorkArchiveService，保留实际来源、版本、范围与省略事实。
+- [work_archive_service.ex](lib/novel_application/work_archive_service.ex)：档案应用读边界；面板 DTO 与显式目录/详情有界查询复用既有持久端口，不生成 AgentObservation 或模型事实。
+- [character_profile.ex](lib/novel_application/character_profile.ex)：已采纳人物的真实单对象/目录读与 canonical 详情绑定；所需字段、同作品身份与完整持久指纹在候选派发前再次核验，无伪版本或未观察基线替换。
+- [chapter_revision_scope.ex](lib/novel_application/chapter_revision_scope.ex)：作者章修订授权、显式目标定位与判断绑定编排；读页证据不扩大修改范围。
+- [chapter_read_evidence.ex](lib/novel_application/chapter_read_evidence.ex)：R05 唯一章读页证据 owner；当前作者后的目标段绑定与本次可见 fresh 完整基线分别取证，共用页/hash/版本/连续范围算法。真实消费者为 ChapterRevisionScope 与 PendingArtifactWorkflow，验证沿现 B28 和 chapter_revision_request 测试。
+- [pending_artifact_workflow.ex](lib/novel_application/pending_artifact_workflow.ex)：消费协议绑定的真实人物观察生成字段候选/无变化说明；最终采纳仍由既有采纳事务再次核验基线。
+
 ## B47 canon freshness 决策编排
 
 - [adoption_workflow.ex](lib/novel_application/adoption_workflow.ex)：采纳前从产品生成期 payload 抽取基线（B28 covered/expected_base_versions、B36 covered/base_versions、ADR-0029 source_hash、B29 base_fingerprint+旧值）→ 读持久 canon → `NovelDomain.CanonFreshness` 判定；持久化失败错误码分类；成功 receipt additive `canon_freshness` 前后版本。
@@ -59,6 +68,8 @@ be found at <https://hexdocs.pm/novel_application>.
 - [agent_event_publisher.ex](lib/novel_application/agent_event_publisher.ex)：按真实 work/session 作用域统一发布 AgentRun 事件；Channel join 订阅一次，Registry 随进程退出清理。运行 owner 不持有窗口回调或 subscriber monitor，重连只恢复事实。
 - [agent_run_event_query.ex](lib/novel_application/agent_run_event_query.ex)：历史 `agent_events_since` 补拉的只读应用边界；按持久 run 校验 work/session 归属（含 dead run），返回 since 之后的作者可见事件语义 DTO，Web 只做 wire 序列化；scope/since 信任 Web 归一输入，应用内不重复校验，只校验真实外部 run_id 与持久归属。
 - [authoring_replay.ex](lib/novel_application/authoring_replay.ex)：消费统一 run 解析，严格校验 task header/run/work/parent 后读取会话段 canonical（`fetch/3`）或会话级作者安全摘要（`fetch_session/2`，B81 CP4）；缺版本/错绑不补造，会话级摘要不暴露 run/turn/call/ref 内部标识。
+- [session_message_read.ex](lib/novel_application/session_message_read.ex)：R03 会话原文探索适配器；模型按显式 run_id/run_sequence/offset 消费 checkpoint 来源，可信 work/session 只由调用方传入。复用同事务校验的 canonical 行，仅读作者原话和纯模型答复，Unicode grapheme 分页、全文 SHA-256、真实范围/省略/运行状态经既有 observation/used_refs 链进入下一请求。
+- [session_message_read_test.exs](test/novel_application/session_message_read_test.exs)：原文字节/组合字符分页、作用域拒绝、未知版本与角色拒绝、交错取消/失败来源、私有状态隔离及三类 Provider 观察投影。
 - [agent_run_server.ex](lib/novel_application/agent_run_server.ex)：状态机、received/staged 转换与提交后发布；结果/问题/状态/压缩统一走 `AgentRunPersistence`，不再自带序列化与 durable task 写入细节。
 - [agent_run_persistence.ex](lib/novel_application/agent_run_persistence.ex)：AgentRun snapshot 的唯一投影/写入请求边界；run/step/author-safe event、私有 checkpoint 编码调用与 durable task header/progress/step 投影，定义 delivery/status/compaction/question 四种事件语义；checkpoint_version 的唯一所属点。
 - [agent_run_startup.ex](lib/novel_application/agent_run_startup.ex)：B71 启动事实的单一生产点（VS-00L §16.14）；初始 run、`run_started` 事件、事件游标与空 stage_state 只构造一次，受理事务与执行 owner 共用同一份数据单元，普通启动/作者动作受理/已提交确认子 run 不再各自生成启动事件。

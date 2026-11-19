@@ -68,7 +68,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert [ref | _] = observation.refs
     assert ref =~ "chapter:"
 
-    # 第一轮当前 Scope 明确开放探索；工具目录来自同一结构。
+    # 当前 Scope 只给允许名称；固定工具定义在初始 Base 中保持一次。
     [first_prompt_map] = drain_prompt_maps([])
 
     first_exploration =
@@ -76,7 +76,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     assert first_exploration["allowed"] == true
     assert "prose_search" in first_exploration["tools"]
-    assert Enum.any?(first_exploration["catalog"], &(&1["tool"] == "prose_search"))
+    refute Map.has_key?(first_exploration, "catalog")
+    base = Enum.find(first_prompt_map.messages, &(&1.role == "application_base"))
+    base_text = NovelApplication.TestAgenticLoopFixtures.message_text(base)
+    assert base_text =~ ~s("tool":"prose_search")
+    assert base_text =~ "全文检索已采纳正文"
 
     # exploration_observed 阶段事件已发
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
@@ -183,7 +187,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     exploration = TestProviderPrompt.scope_content(prompt)["operation"]["exploration"]
     assert exploration["allowed"] == false
     assert exploration["tools"] == []
-    assert exploration["catalog"] == []
+    refute Map.has_key?(exploration, "catalog")
     assert exploration["budget"]["total"] == 2
     assert length(observation_blocks(prompt)) == 2
     assert native_cited_observation(prompt) =~ "灵气账单"
@@ -228,37 +232,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert Map.get(result.stage_state, :judgment_explorations, []) == []
   end
 
-  test "探索续读全回环：章节索引 ref → page1 → page2（JSON offset）→ reply 引用末页独有事实" do
+  test "探索续读全回环：作者点名 → page1 → 同源 page2（JSON offset）→ reply 引用末页独有事实" do
     {work_id, chapter_ref, versions} = seed_work_with_full_chapter()
-    chapter_id = String.replace_prefix(chapter_ref, "chapter:", "")
     test_pid = self()
 
     provider_execution = full_read_execution(test_pid)
-
-    # 判断章节索引真源：context fetcher 提供 structured_chapters（含 id/seq），
-    # 生产路径由 persistence reader 注入；这里用确定性夹具证明 I-READ-9 双面身份。
-    context_fetcher = fn workspace_id, _author_text, _session_id ->
-      {:ok,
-       %NovelDomain.DialogueContext{
-         work_id: workspace_id,
-         current_work_snapshot: %{"title" => "全章审核验证作品"},
-         conversation_summary: nil,
-         memory_summary: nil,
-         open_behavior_summary: nil,
-         structured_chapters: [
-           %{id: chapter_id, seq: 1, title: @full_read_title, has_prose: true}
-         ],
-         interaction_state: %{},
-         source_status: %{
-           work: :ok,
-           conversation: :empty,
-           memory: :empty,
-           behavior: :empty,
-           chapters: :ok,
-           interaction: :empty
-         }
-       }}
-    end
 
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
@@ -269,7 +247,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
                  session_id: "session-full-read",
                  turn_id: "turn-full-read"
                },
-               context_fetcher,
+               nil,
                provider_execution
              )
 
@@ -312,7 +290,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert event1.payload.next_offset == 6000
 
     # signature 不含 sequence：同 query 才可能重复，续读页不会误停（I-READ-5）。
-    # 首次 query 是模型从判断章节索引抄下的 chapter_ref（I-READ-9 双模型面）。
+    # 首次直接读取作者明确给出的章名；真实观察提供唯一 ref 和下一页位置。
     first_query =
       String.replace_prefix(
         explore1.progress_signature,
@@ -320,7 +298,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
         ""
       )
 
-    assert Jason.decode!(first_query) == %{"chapter_ref" => chapter_ref, "offset" => 0}
+    assert first_query == @full_read_title
 
     snapshot2 = %{empty | stage_state: Map.merge(snapshot1.stage_state, explore1.stage_state)}
 
@@ -423,15 +401,24 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     exploration = latest_content["operation"]["exploration"]
     assert exploration["allowed"] == false
     assert exploration["tools"] == []
-    assert exploration["catalog"] == []
+    refute Map.has_key?(exploration, "catalog")
     assert exploration["budget"]["total"] == 2
     assert exploration["budget"]["normal_open?"] == false
     assert exploration["budget"]["continuation_open?"] == false
     assert Enum.all?(third_observations, &(&1.content["tool"] == "chapter_read"))
 
-    # I-READ-9：当前事实同时绑定真实 chapter ref 与 seq/title。
-    assert [%{"ref" => ^chapter_ref, "seq" => 1, "title" => @full_read_title}] =
-             latest_content["facts"]["chapters"]
+    # I-READ-9：身份与章名来自实际读取的两页，不从未供应的 Scope 目录反推。
+    refute Map.has_key?(latest_content["facts"], "chapters")
+    assert latest_content["coverage"]["chapters"] == %{"status" => "not_read"}
+
+    assert Enum.map(third_observations, & &1.content["summary"]) ==
+             [page1.summary, page2.summary]
+
+    for observed <- third_observations do
+      assert observed.coverage["chapter_ref"] == chapter_ref
+      assert observed.source_refs == [chapter_ref]
+      assert observed.content["summary"] =~ "「#{@full_read_title}」（第 1 章）"
+    end
 
     snapshot4 = %{empty | stage_state: Map.merge(snapshot3.stage_state, reply_result.stage_state)}
     assert {:complete, _decision, _meta} = spec.next_step_planner.(run, 5, snapshot4)
@@ -585,19 +572,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert Repo.aggregate(NovelPersistence.Schemas.Draft, :count, :id) == 0
   end
 
-  # 判断循环替身：首轮复制当前 Scope 的章节 ref，后续直接读取原生观察的续读坐标。
+  # 判断循环替身：首轮读取作者点名的章，后续只沿真实观察的 ref/next_offset 续读。
   defp full_read_execution(test_pid) do
     scripted_judgment_execution(fn prompt, _text ->
       send(test_pid, {:prompt_map, prompt})
 
       case observation_blocks(prompt) do
         [] ->
-          [%{"ref" => ref}] = TestProviderPrompt.scope_content(prompt)["facts"]["chapters"]
-
-          explore_chapter_decision(
-            "need_full_chapter",
-            Jason.encode!(%{chapter_ref: ref, offset: 0})
-          )
+          explore_chapter_decision("need_full_chapter", @full_read_title)
 
         [page] ->
           assert is_integer(page.next_offset)

@@ -153,7 +153,8 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
         author_input: %{
           text: spec.author_message.text,
           turn_id: spec.author_message.turn_ref,
-          author_goal_text: spec.author_message.text
+          author_goal_text: spec.author_message.text,
+          author_goal_source_ref: spec.author_message.turn_ref
         },
         source_turn_ref: spec.action_input.source_turn_ref,
         provider_execution: provider_execution,

@@ -103,6 +103,28 @@ defmodule NovelTest.TestProviderPrompt do
 
   def author_text(_prompt), do: ""
 
+  @doc "按显式来源定位唯一 canonical 作者消息；缺失、重复或非 IR 输入不猜测原文。"
+  @spec author_text(prompt(), String.t()) :: String.t()
+  def author_text(%RequestIR{messages: messages}, ref) when is_binary(ref) and ref != "" do
+    matches =
+      Enum.filter(messages, fn message ->
+        canonical_author?(message) and
+          Enum.any?(Map.get(message, :source_refs, []), fn
+            %{ref: ^ref} -> true
+            %{"ref" => ^ref} -> true
+            ^ref -> true
+            _ -> false
+          end)
+      end)
+
+    case matches do
+      [message] -> canonical_text_of(message)
+      _ -> ""
+    end
+  end
+
+  def author_text(_prompt, _ref), do: ""
+
   @doc "最新 canonical scope 之后的实际消息；非 IR 请求没有 canonical 历史，返回空列表。"
   @spec current_operation_messages(prompt()) :: [map()]
   def current_operation_messages(%RequestIR{messages: messages}) do
@@ -113,6 +135,12 @@ defmodule NovelTest.TestProviderPrompt do
   end
 
   def current_operation_messages(_prompt), do: []
+
+  @doc "本次实际可见 canonical 工具观察叶；沿唯一 Compaction 投影，不从 refs 或文字反推。"
+  @spec visible_observations(prompt()) :: [map()]
+  def visible_observations(%RequestIR{} = request), do: RequestIR.visible_observations(request)
+
+  def visible_observations(_prompt), do: []
 
   # ── canonical 分支 ──────────────────────────────────────────────────────
 

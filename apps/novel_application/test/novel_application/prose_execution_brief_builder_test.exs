@@ -9,6 +9,30 @@ defmodule NovelApplication.ProseExecutionBriefBuilderTest do
     inputs |> CreativeDecisionPacketBuilder.build() |> ProseExecutionBriefBuilder.build()
   end
 
+  test "R05: 决策载体不再复制独立作者原文" do
+    packet =
+      CreativeDecisionPacketBuilder.build(%{
+        author_input: "  保持原样 R05PACKETAUTHOR\r\n",
+        source_turn_ref: "turn-r05-packet"
+      })
+
+    refute Map.has_key?(packet, "author_input")
+    assert packet["source_turn_ref"] == "turn-r05-packet"
+  end
+
+  test "R05: 缺章方向及摘要时不把作者原文伪装为场级目标" do
+    {brief, meta} =
+      ProseExecutionBriefBuilder.build(%{
+        "chapter" => %{},
+        "author_input" => "  克制一点 R05BRIEFAUTHOR\r\n",
+        "source_turn_ref" => "turn-r05-brief"
+      })
+
+    assert meta.degraded
+    refute inspect(brief) =~ "R05BRIEFAUTHOR"
+    refute "plan_summary_or_author_input" in meta.source
+  end
+
   test "projects structured chapter direction into one grounded scene unit (not degraded)" do
     direction =
       ChapterPlanDirection.from_storage(%{
@@ -187,7 +211,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilderTest do
       })
 
     assert meta.degraded
-    assert "plan_summary_or_author_input" in meta.source
+    assert "plan_summary" in meta.source
     assert [unit] = brief.scene_units
     assert unit["target_change"]["description"] == "主角与师父对峙"
   end

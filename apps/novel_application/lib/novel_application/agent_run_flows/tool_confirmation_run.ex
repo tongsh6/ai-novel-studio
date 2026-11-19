@@ -64,7 +64,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmationRun do
       plan: pending_plan(run_id),
       plan_ref: "ap_#{run_id}",
       plan_version: 1,
-      goal: %{text: Map.fetch!(input, :text), version: 1},
+      goal: %{text: Map.fetch!(input, :text), version: 1, source_ref: turn_id},
       authority_scope: %{
         production_write: false,
         allowed_tools: @allowed_tools,

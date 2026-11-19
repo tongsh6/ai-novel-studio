@@ -12,6 +12,141 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
   @work "work-agent-outline-flow"
 
+  test "R05: 卷级目标经使命与writer保持，卷蓝图沿既有采纳链落卷且零章" do
+    parent = self()
+    goal = "  只规划第一卷的目标冲突与人物弧光，不创建任何章节。R05VOLUMEGOAL91\r\n\n"
+    blueprint_body = "第一卷｜序号：1｜目标冲突：旧债与新秩序冲突｜弧光阶段：从逃避责任到主动担当"
+    {:ok, work} = NovelApplication.WorkService.create(%{title: "R05 卷级规划"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.ensure_active_for_work(work.id)
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        if planning_mission_prompt?(prompt) do
+          send(parent, {:r05_volume_mission, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-r05-volume-mission",
+             content: "本轮只规划卷级冲突与弧光。",
+             tool_calls:
+               TestAgenticLoopFixtures.native_tool_calls("planning_mission", %{
+                 author_reasoning: "本轮只规划卷级冲突与弧光。",
+                 statement: "第一卷建立旧债与责任的主要冲突。",
+                 must_advance: [],
+                 must_avoid: [],
+                 confidence: 0.9
+               })
+           }}
+        else
+          send(parent, {:r05_volume_writer, prompt})
+
+          {:ok,
+           TestAgenticLoopFixtures.native_artifact_result(
+             [%{item_id: "r05-volume", title: "卷蓝图", body: blueprint_body, rationale: nil}],
+             provider_call_id: "pc-r05-volume-writer"
+           )}
+        end
+      end
+    }
+
+    input = %{
+      text: goal,
+      workspace_id: work.id,
+      work_id: work.id,
+      session_id: session.id,
+      turn_id: "turn-r05-volume",
+      ledger_reader: fn _ -> [] end,
+      written_progress_reader: fn _ -> %{chapter_seq: 0, volume_seq: 0} end,
+      character_reader: fn _ -> [] end,
+      planning_mission_reader: fn _ -> nil end,
+      planning_mission_writer: fn _, mission -> {:ok, :stored, mission} end
+    }
+
+    context = %DialogueContext{
+      work_id: work.id,
+      current_chapters: [],
+      structured_chapters: [],
+      assembly_policy: AssemblyPolicy.for_tier(:floor)
+    }
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :plot_outline_with_context,
+        input,
+        context,
+        provider
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(planned.run_attrs, fn event ->
+                 send(parent, {:r05_volume_event, event.event_type, event})
+               end),
+               interaction_input: planned.interaction_input,
+               next_step_planner: planned.next_step_planner
+             )
+
+    NovelApplication.TestAgentRunCleanup.register_run(run_id)
+    assert_receive {:r05_volume_mission, mission_prompt}, 2_000
+    assert NovelTest.TestProviderPrompt.author_text(mission_prompt) == goal
+
+    assert NovelTest.TestProviderPrompt.scope_content(mission_prompt)["goal"] == %{
+             "source_input_ref" => "turn-r05-volume",
+             "version" => 1
+           }
+
+    refute prompt_text(mission_prompt) =~ "下一批章节大纲尚未起草"
+
+    assert_receive {:r05_volume_writer, writer_prompt}, 2_000
+    task = NovelTest.TestProviderPrompt.scope_content(writer_prompt)["authoring_task"]
+    assert NovelTest.TestProviderPrompt.author_text(writer_prompt) == goal
+    assert task["author_goal"] == %{"source_input_ref" => "turn-r05-volume"}
+    assert task["kind"] == "outline"
+    assert task["scope"]["object_kind"] == "outline"
+    refute prompt_text(writer_prompt) =~ "生成章节大纲草稿"
+
+    for wire <- ~w(chat_completions responses_api anthropic_messages) do
+      assert {:ok, body} = RequestIR.Projection.project(writer_prompt, wire)
+      assert Jason.encode!(body) =~ "卷蓝图条目：title 必须为“卷蓝图”"
+      assert length(String.split(Jason.encode!(body), "R05VOLUMEGOAL91")) == 2
+      assert {:ok, mission_body} = RequestIR.Projection.project(mission_prompt, wire)
+      assert length(String.split(Jason.encode!(mission_body), "R05VOLUMEGOAL91")) == 2
+    end
+
+    assert_receive {:r05_volume_event, :artifact_created, artifact_event}, 2_000
+    assert_receive {:r05_volume_event, :run_completed, _}, 2_000
+    turn_result = artifact_event.payload.turn_result
+    assert [candidate] = turn_result.adoption_state.pending
+    assert [%{title: "卷蓝图", body: ^blueprint_body}] = candidate.payload.items
+    refute turn_result.truthfulness.production_write_performed
+
+    assert {:ok, _action, adopted} =
+             NovelApplication.AdoptionWorkflow.handle_adopt(
+               turn_result,
+               %{"artifact_id" => candidate.artifact_id, "work_id" => work.id},
+               &NovelPersistence.AdoptionRepository.persist/1
+             )
+
+    assert adopted.truthfulness.production_write_performed
+
+    assert [] =
+             NovelPersistence.Repo.all(
+               from(chapter in NovelPersistence.Schemas.Chapter,
+                 where: chapter.work_id == ^work.id
+               )
+             )
+
+    assert [%{title: "第一卷", seq: 1, blueprint: blueprint}] =
+             NovelPersistence.Repo.all(
+               from(volume in NovelPersistence.Schemas.Volume,
+                 where: volume.work_id == ^work.id
+               )
+             )
+
+    assert blueprint["goal_conflict"] == "旧债与新秩序冲突"
+    assert blueprint["arc_stage"] == "从逃避责任到主动担当"
+  end
+
   test "bounded plot outline run uses a model-drafted plan before context and outline execution" do
     parent = self()
 
@@ -130,9 +265,9 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     # 无计划 run 的轨道 = judgment 事件链。
 
     assert_receive {:agent_event, :goal_understood, context_event}, 500
-    assert context_event.summary =~ "章节大纲规划上下文"
+    assert context_event.summary =~ "大纲规划上下文"
     assert_receive {:agent_event, :exploration_observed, context_observation}, 500
-    assert context_observation.summary =~ "已组装章节大纲规划上下文"
+    assert context_observation.summary =~ "已组装大纲规划上下文"
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
@@ -166,7 +301,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
     assert_receive {:agent_event, :tool_started, tool_started}, 500
-    assert tool_started.summary =~ "章节大纲规划能力"
+    assert tool_started.summary =~ "大纲规划能力"
     assert_receive {:provider_prompt, provider_prompt}, 500
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "当前 AgentStep"
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "章节大纲"
@@ -182,7 +317,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     refute NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "越界依据"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
-    assert tool_completed.summary =~ "章节大纲草稿已生成"
+    assert tool_completed.summary =~ "大纲草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
     assert tool_observation.summary =~ "待采纳大纲草稿"
 

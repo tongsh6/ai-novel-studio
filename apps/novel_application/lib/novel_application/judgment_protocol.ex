@@ -8,11 +8,13 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelApplication.{
     AgentNarrativeSource,
     AuthorContentRegistration,
+    AuthoringOperation,
     AuthoringSessionHistory,
     AuthoringTaskPolicy,
     AuthoringTranscript,
     ChapterRevisionScope,
     CharacterProfile,
+    ExplorationService,
     JudgmentToolContract,
     PendingArtifactWorkflow,
     ProviderActivityProjector,
@@ -22,14 +24,8 @@ defmodule NovelApplication.JudgmentProtocol do
   require NovelTelemetry.LogEmit, as: LogEmit
 
   @max_attempts 2
-  @observation_statuses %{
-    "failed" => "unavailable",
-    "partial" => "partial",
-    "truncated" => "truncated",
-    "stale" => "stale"
-  }
-  @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
-  @adopted_target_capabilities ~w(revise_adopted_content)
+  @pending_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:pending)
+  @adopted_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:adopted)
   @judgment_tool_names ~w(judgment_decision ask_author agent_plan_draft register_author_content
                           propose_creative_directions propose_work_profile_revision
                           report_capability_gap)
@@ -122,7 +118,8 @@ defmodule NovelApplication.JudgmentProtocol do
     text = author_text(input, profile)
     source_input_ref = Map.get(input, :source_input_ref)
 
-    with {:ok, author_messages} <- RequestIR.author_input_messages(text, source_input_ref),
+    with :ok <- validate_profile_capabilities(input, profile),
+         {:ok, author_messages} <- RequestIR.author_input_messages(text, source_input_ref),
          true <- profile != :judgment or author_messages != [],
          {:ok, transcript} <- new_transcript(input, profile, scope, scope_refs, base_refs) do
       transcript =
@@ -148,6 +145,15 @@ defmodule NovelApplication.JudgmentProtocol do
       {:error, _reason} = error -> error
     end
   end
+
+  defp validate_profile_capabilities(input, :judgment),
+    do:
+      AuthoringTaskPolicy.validate_judgment_options(
+        Map.get(input, :options, []),
+        ExplorationService.tool_names()
+      )
+
+  defp validate_profile_capabilities(_input, :continuation), do: :ok
 
   @doc "生产请求入口；返回已选择本次工具与 tool_choice 的 canonical IR。"
   @spec request_for_production(map(), atom()) :: RequestIR.t()
@@ -183,7 +189,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp same_scope?(nil, _scope, _refs, _versions), do: false
 
   defp same_scope?(previous, scope, refs, versions) do
-    previous.content == scope and
+    previous.content == RequestIR.scope_block(scope).content and
       RequestIR.json_value(previous.source_refs) == RequestIR.json_value(refs) and
       Map.drop(previous.versions, ["scope_revision", "change_reason"]) ==
         Map.drop(versions, ["scope_revision", "change_reason"])
@@ -236,14 +242,19 @@ defmodule NovelApplication.JudgmentProtocol do
   @spec observation_transcript(AuthoringTranscript.t(), map(), map()) :: AuthoringTranscript.t()
   def observation_transcript(transcript, judgment, observation) do
     call_id = judgment.tool_call_id || "call_judgment_decision"
-    AuthoringTranscript.append_observation(transcript, call_id, observation_payload(observation))
+
+    AuthoringTranscript.append_observation(
+      transcript,
+      call_id,
+      ExplorationService.request_observation(observation)
+    )
   end
 
   @doc "一个模型计划产生的多次读取聚合为一个有来源的结果，不伪造逐步 Provider 调用。"
   @spec planned_observations_transcript(AuthoringTranscript.t(), map(), [map()], map()) ::
           AuthoringTranscript.t()
   def planned_observations_transcript(transcript, judgment, observations, coverage \\ %{}) do
-    payloads = Enum.map(observations, &observation_payload/1)
+    payloads = Enum.map(observations, &ExplorationService.request_observation/1)
 
     # 叶子观察自身是版本与覆盖范围的真源：顶层只做来源去重、状态判定与汇总，
     # 不再 merge versions 或重复映射 coverage.items；正文也不作为顶层 summary 重复入线。
@@ -269,37 +280,6 @@ defmodule NovelApplication.JudgmentProtocol do
     "计划内只读检索完成（#{length(payloads)} 次：#{tools}）"
   end
 
-  defp observation_payload(observation) do
-    %{
-      status: observation_status(observation),
-      source_refs: field(observation, :refs) || [],
-      versions: field(observation, :versions) || %{},
-      coverage:
-        observation
-        |> Map.take([:prose_range, :prose_byte_range, :prose_total_chars, :chapter_ref])
-        |> Map.merge(%{
-          coverage_note: field(observation, :coverage_note),
-          continuation_hint: field(observation, :continue_hint)
-        }),
-      omissions: field(observation, :omissions) || [],
-      next_offset: field(observation, :next_offset),
-      content:
-        %{
-          summary: field(observation, :summary),
-          tool: field(observation, :tool),
-          query: field(observation, :query),
-          facts: field(observation, :facts) || %{}
-        }
-        |> put_present(:observation_ref, field(observation, :observation_ref))
-        |> put_present(:source_hash, field(observation, :source_hash))
-        |> put_present(:target_segments, field(observation, :target_segments))
-    }
-  end
-
-  # 可选身份只写入原生 content；旧无 ref 结果保持原形状，不补空字段。
-  defp put_present(map, _key, nil), do: map
-  defp put_present(map, key, value), do: Map.put(map, key, value)
-
   defp planned_status(payloads) do
     statuses = Enum.map(payloads, & &1.status) |> Enum.uniq()
 
@@ -308,10 +288,6 @@ defmodule NovelApplication.JudgmentProtocol do
       Enum.all?(statuses, &(&1 == "unavailable")) -> "unavailable"
       true -> "partial"
     end
-  end
-
-  defp observation_status(observation) do
-    Map.get(@observation_statuses, to_string(field(observation, :outcome)), "ok")
   end
 
   defp prepare_request(transcript, profile) do
@@ -330,6 +306,13 @@ defmodule NovelApplication.JudgmentProtocol do
   defp invoke(fun, transcript, input, profile, attempt, previous_tools \\ []) do
     case prepare_request(transcript, profile) do
       {:ok, request} ->
+        supplied_refs =
+          request
+          |> RequestIR.visible_observations()
+          |> Enum.flat_map(& &1.source_refs)
+          |> Enum.uniq()
+
+        input = Map.put(input, :supplied_observation_refs, supplied_refs)
         invoke_prompt(fun, request, transcript, input, profile, attempt, previous_tools)
 
       {:error, reason} ->
@@ -385,6 +368,12 @@ defmodule NovelApplication.JudgmentProtocol do
          request
        ) do
     with {:ok, judgment} <- decode(provider_result, profile, input, previous_tools, attempt),
+         {:ok, judgment} <-
+           CharacterProfile.bind_judgment(
+             judgment,
+             field(request.run, :work_id),
+             RequestIR.visible_observations(request)
+           ),
          {:ok, judgment} <-
            ChapterRevisionScope.bind_observed_targets(judgment, request) do
       {:ok,
@@ -476,14 +465,12 @@ defmodule NovelApplication.JudgmentProtocol do
       "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
   end
 
-  defp correction_content(:character_target_ambiguous) do
-    "本次响应未通过契约校验：character_target_ambiguous（作者点名的角色在角色索引里同名/别名歧义）。" <>
-      "用 ask_author 按姓名与作品内可见特征（身份/关系/最近出现处）列出候选让作者选择，不得猜；不要新建角色。"
-  end
-
-  defp correction_content(:character_target_missing) do
-    "本次响应未通过契约校验：character_target_missing（没有找到作者点名的已有角色）。" <>
-      "先确认对象：可用 ask_author 澄清，或 report_capability_gap 说明缺口；不得新建角色/写正文，不得用演化记忆冒充主档案修订。"
+  defp correction_content({:character_profile_invalid, reason}) do
+    "本次角色主档案修订未通过真实来源绑定：#{inspect(reason)}。" <>
+      "用 archive_read 的 characters 目录发现对象，再按真实 ref 读取详情；目录只供定位，不授予详情已读资格。" <>
+      "not_observed/incomplete_observation/stale_base 需要当前实际供应的详情包含必要身份字段、当前叙事身份、采纳状态和当前指纹；" <>
+      "已供应且指纹未变的历史详情可复用，未读或已被整理隐藏的材料不能冒充基线。" <>
+      "对象不存在、越界或仍有歧义时具体澄清，不新建角色或以演化记忆冒充主档案修订。"
   end
 
   defp correction_content(:invalid_character_role) do
@@ -497,6 +484,11 @@ defmodule NovelApplication.JudgmentProtocol do
       "\n规则：explore 只填 explore_request（tool/query），不得携带 capability/pending_artifact_ref/adopted_content_ref；" <>
       "execute 才填 capability 与一个目标 ref，不得携带 explore_request；plan 只填 plan 相关字段与判断字段。" <>
       "保留取证意图与目标，只纠正字段。"
+  end
+
+  defp correction_content(:exploration_continuation_mismatch) do
+    "本次响应未通过契约校验：exploration_continuation_mismatch。剩余额度只允许最新 Scope 中 continuation 指定来源的精确下一页；" <>
+      "保持同一工具、对象和档案面并使用 next_offset，不得重复或跳页。也可按已有证据收束并说明未读范围。"
   end
 
   defp correction_content(:exploration_not_available) do
@@ -699,11 +691,31 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validated_transcript(transcript, %{action: "explore"}), do: transcript
 
   # 计划可能立即执行只读步骤，其真实聚合观察仍须绑定 judgment_decision 的原调用。
-  defp validated_transcript(transcript, %{action: "plan", tool_call_id: id}) do
+  defp validated_transcript(transcript, %{action: "plan", tool_call_id: id} = judgment) do
+    transcript = validate_inline_plan_call(transcript, judgment)
     validate_calls(transcript, pending_call_ids(transcript) -- [id])
   end
 
   defp validated_transcript(transcript, _judgment), do: complete_validation(transcript)
+
+  defp validate_inline_plan_call(transcript, %{plan_result: %{plan: plan}} = judgment) do
+    call = inline_plan_call(judgment.provider_result)
+
+    AuthoringTranscript.append_validation(
+      transcript,
+      field(call, :id),
+      "passed",
+      "agent_plan_validated",
+      %{
+        plan_ref: plan.plan_id,
+        plan_version: plan.version,
+        execution_authorized: false,
+        canon_written: false
+      }
+    )
+  end
+
+  defp validate_inline_plan_call(transcript, _judgment), do: transcript
 
   @doc "应用分流完成后，闭合尚未由真实观察返回的协议调用；不表示执行批准。"
   @spec complete_validation(AuthoringTranscript.t()) :: AuthoringTranscript.t()
@@ -746,7 +758,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
         transcript =
           AuthoringTranscript.new(envelope,
-            base_text: RequestIR.application_base_text(),
+            base_text: application_base_text(profile),
             system:
               RequestIR.system_envelope(
                 instructions: ir_base_text(input, profile),
@@ -784,6 +796,13 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  defp application_base_text(:judgment) do
+    RequestIR.application_base_text() <>
+      AuthoringTaskPolicy.judgment_definitions(ExplorationService.catalog())
+  end
+
+  defp application_base_text(:continuation), do: RequestIR.application_base_text()
+
   defp put_scope_work_id(envelope, scope) do
     case field(scope, :work_id) do
       nil -> envelope
@@ -817,30 +836,22 @@ defmodule NovelApplication.JudgmentProtocol do
     |> Map.fetch!(:scope)
     |> Map.put(:goal, %{
       provenance: "application",
-      text: field(goal, :text),
       version: field(goal, :version),
       source_input_ref: Map.get(input, :source_input_ref)
     })
     |> Map.put(:operation, %{
-      available_operations: AuthoringTaskPolicy.operation_data(options),
+      available_operations: Keyword.get(options, :capabilities, []),
       pending_artifact_targets: Keyword.get(options, :pending_artifact_targets, %{}),
       adopted_content_targets: Keyword.get(options, :adopted_content_targets, %{}),
       registered_sources: Keyword.get(options, :registered_sources, []),
-      chapter_revision_targets: Keyword.get(options, :chapter_revision_targets, []),
       author_content_sources: ["current" | Keyword.get(options, :author_content_sources, [])],
       exploration: %{
         allowed: Keyword.get(options, :explore, false),
         tools: Keyword.get(options, :explore_tools, []),
-        catalog:
-          if(Keyword.get(options, :explore, false),
-            do: NovelApplication.ExplorationService.catalog(),
-            else: []
-          ),
         budget: Keyword.get(options, :exploration_budget, %{})
       }
     })
-    |> Jason.encode!()
-    |> Jason.decode!()
+    |> AuthoringOperation.runtime_scope(run)
   end
 
   defp judgment_output_text do
@@ -924,7 +935,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
     %{
       work_id: field(run, :work_id),
-      goal: %{provenance: "application", text: Map.fetch!(input, :goal_text)},
+      goal: field(run, :goal),
       context: %{
         provenance: "application",
         derived: true,
@@ -958,7 +969,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
-         :ok <- validate_character_profile_route(operation, args, options),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
@@ -1026,19 +1036,25 @@ defmodule NovelApplication.JudgmentProtocol do
     {:error, {:invalid_tool_arguments, detail}}
   end
 
-  defp validate_inline_plan(%{plan_result: result} = judgment, input) when is_map(result) do
-    case get_in(input, [:options, :plan_run]) do
-      nil ->
+  defp validate_inline_plan(judgment, input) do
+    case {inline_plan_call(judgment.provider_result), get_in(input, [:options, :plan_run])} do
+      {nil, _run} ->
         {:ok, judgment}
 
-      run ->
-        with {:ok, _plan, _meta} <-
+      {_call, nil} ->
+        {:ok, judgment}
+
+      {call, run} ->
+        result = Map.put(judgment.provider_result, :tool_calls, [call])
+
+        with {:ok, plan, meta} <-
                NovelApplication.AgenticPlanDraftPlanner.plan_from_result(run, result),
-             do: {:ok, judgment}
+             do: {:ok, %{judgment | plan_result: %{plan: plan, meta: meta}}}
     end
   end
 
-  defp validate_inline_plan(judgment, _input), do: {:ok, judgment}
+  defp inline_plan_call(result),
+    do: Enum.find(field(result, :tool_calls) || [], &(field(&1, :name) == "agent_plan_draft"))
 
   defp operation([], :judgment), do: {:ok, "reply", %{}, nil}
 
@@ -1069,33 +1085,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp operation(_, _), do: {:error, :invalid_tool_combination}
 
-  # B29 CP1（B33 整改后保留的客观检查）：execute revise_character_profile 仍校验真实目标、
-  # 唯一 character_ref 与可由作者原话确定的目标叙事角色；reply/讨论/澄清不再由词法预定。
-  defp validate_character_profile_route(operation, args, options) do
-    if operation == "execute" and field(args, :capability) == "revise_character_profile" do
-      validate_character_profile_execute(args, options, Keyword.get(options, :author_text, ""))
-    else
-      :ok
-    end
-  end
-
-  defp validate_character_profile_execute(args, options, author_text) do
-    targets = List.wrap(Keyword.get(options, :character_targets, []))
-    model_ref = field(args, :character_ref)
-
-    case CharacterProfile.narrative_role_from_text(author_text) do
-      nil ->
-        {:error, :invalid_character_role}
-
-      _desired ->
-        case CharacterProfile.resolve_target(author_text, targets, model_ref) do
-          {:ok, _target} -> :ok
-          {:error, :target_ambiguous} -> {:error, :character_target_ambiguous}
-          {:error, _reason} -> {:error, :character_target_missing}
-        end
-    end
-  end
-
   defp validate_operation("execute", args, options) do
     capability = field(args, :capability)
 
@@ -1114,6 +1103,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_operation("explore", args, options) do
     request = field(args, :explore_request)
+    budget = Keyword.get(options, :exploration_budget, %{})
 
     available =
       Keyword.get(options, :explore, false) and is_map(request) and
@@ -1125,6 +1115,14 @@ defmodule NovelApplication.JudgmentProtocol do
         {:error,
          {:incompatible_operation_fields,
           "explore 只提供 explore_request；capability/候选目标仅用于 execute，请保留取证意图并纠正字段。"}}
+
+      Map.get(budget, :continuation_only?, false) and
+          not ExplorationService.continuation_request?(
+            field(request, :tool),
+            field(request, :query),
+            Map.get(budget, :continuation)
+          ) ->
+        {:error, :exploration_continuation_mismatch}
 
       not available ->
         {:error, :exploration_not_available}
@@ -1372,9 +1370,6 @@ defmodule NovelApplication.JudgmentProtocol do
   defp nonblank?(text), do: is_binary(text) and String.trim(text) != ""
 
   defp normalized(operation, args, call, result, text, source, input) do
-    calls = field(result, :tool_calls) || []
-    plan_call = Enum.find(calls, &(field(&1, :name) == "agent_plan_draft"))
-
     %{
       action: operation,
       capability: field(args, :capability),
@@ -1398,7 +1393,7 @@ defmodule NovelApplication.JudgmentProtocol do
       narrative_source: source,
       tool_call_id: field(call, :id),
       provider_result: result,
-      plan_result: if(plan_call, do: Map.put(result, :tool_calls, [plan_call])),
+      plan_result: nil,
       author_input: Map.get(input, :author_text),
       model_interpretation_status: if(operation == "reply", do: "not_provided", else: "provided"),
       reply_record: reply_record(operation, args, text, source, input)
@@ -1436,12 +1431,12 @@ defmodule NovelApplication.JudgmentProtocol do
     }
   end
 
-  # B27 §9：声明由请求构造事实派生；缺省空，旧记录不回填。
+  # B27 §9：观察供给来自本次 prepared 请求的可见叶；旧记录不回填。
   defp reply_provenance(input) do
     %{
       supplied_context_refs: input[:supplied_context_refs] || [],
       available_context_refs: input[:available_context_refs] || [],
-      supplied_observation_refs: input[:supplied_observation_refs] || [],
+      supplied_observation_refs: Map.fetch!(input, :supplied_observation_refs),
       unavailable_sources: input[:unavailable_sources] || [],
       rendered_context_sections: input[:rendered_context_sections] || []
     }

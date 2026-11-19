@@ -746,6 +746,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       plan_protocol_mode(input) != nil ->
         plan_protocol_judgment(input)
 
+      # 显式计划耗尽刺激仍走既有计划裁决；读取属于其计划步骤，不能被目录问答抢占。
+      plan_exhaust_plan_verdict?(prompt) ->
+        regular_judgment_result(material, ir)
+
+      chapter_directory_request?(prompt) ->
+        judgment_explore_decision_result(material, %{
+          "tool" => "archive_read",
+          "query" => "chapters"
+        })
+
       memory_recall_fixture?(input) ->
         case memory_recall_answer(ir, input) do
           nil -> regular_judgment_result(material, ir)
@@ -826,11 +836,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       character_profile_arguments(source) != nil ->
         judgment_character_profile_result(source)
 
-      # B29 CP3：「谁是主角」问答从判断 prompt 的「角色索引」读取 Character 当前
-      # narrative_role（主档案优先），多主角全列/无主角诚实；不引用旧 memory。
+      # 身份问答先显式读目录；未观察不等于角色为空。
       protagonist_question_prompt?(prompt_text) ->
-        narrative = character_role_answer(source)
-        Result.new(narrative, nil)
+        protagonist_question_result(source, ir)
 
       # AU09：设计/创建新角色（含「帮我设计一个主角…」）→ execute character_design；
       # B29 已有角色修订分支先匹配，protagonist 查询分支先匹配，设计新角色不抢。
@@ -839,6 +847,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       true ->
         chapter_revision_or_b34_judgment_result(prompt_text, input, ir, source)
+    end
+  end
+
+  defp protagonist_question_result(source, ir) do
+    if is_nil(character_index_from_prompt(source)) and explore_context?("", ir, "archive_read") do
+      judgment_explore_decision_result(source, %{
+        "tool" => "archive_read",
+        "query" => "characters"
+      })
+    else
+      Result.new(character_role_answer(source), nil)
     end
   end
 
@@ -1250,7 +1269,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp continuation_result(prompt, _text) do
     scope = TestProviderPrompt.scope_content(prompt) || %{}
-    goal = get_in(scope, ["goal", "text"]) || ""
+    goal = scope_goal_text(prompt)
     context = Map.get(scope, "context", %{})
 
     text =
@@ -1723,14 +1742,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     profile_ref = agent_plan_profile_ref(prompt)
 
     cond do
-      plan_protocol_mode(agent_plan_author_goal(prompt)) != nil ->
+      plan_protocol_mode(scope_goal_text(prompt)) != nil ->
         plan_protocol_packet(:revision)
 
       plan_exhaust_revision?(profile_ref, prompt) ->
         plan_exhaust_revision_packet(prompt)
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(agent_plan_author_goal(prompt), "UA01NOPROGRESS") ->
+          String.contains?(scope_goal_text(prompt), "UA01NOPROGRESS") ->
         prose_no_progress_agent_plan_packet(:revision)
 
       true ->
@@ -1748,11 +1767,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 追加产出步，让 cursor 从 3 继续到产出步并真正完成（仍是同一 run）。
   defp plan_exhaust_revision?(profile_ref, prompt) do
     profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
-      String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_marker)
+      String.contains?(scope_goal_text(prompt), @plan_exhaust_marker)
   end
 
   defp plan_exhaust_revision_packet(prompt) do
-    if String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_steer_marker) do
+    if String.contains?(scope_goal_text(prompt), @plan_exhaust_steer_marker) do
       plan_exhaust_resume_packet()
     else
       plan_exhaust_readonly_packet(:revision)
@@ -1762,7 +1781,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp agent_plan_draft_packet(prompt) do
     profile_ref = agent_plan_profile_ref(prompt)
 
-    case plan_protocol_mode(agent_plan_author_goal(prompt)) do
+    case plan_protocol_mode(scope_goal_text(prompt)) do
       "先核对再补齐计划" -> plan_protocol_packet(:short)
       nil -> agent_plan_draft_packet_for_fixture(profile_ref, prompt)
       _ -> plan_protocol_packet(:complete)
@@ -1774,15 +1793,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       # B23 CP5 fixture：判断①判 plan 后的首次计划起草只排只读步（无产出步）。
       profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
-          String.contains?(agent_plan_author_goal(prompt), @plan_exhaust_marker) ->
+          String.contains?(scope_goal_text(prompt), @plan_exhaust_marker) ->
         plan_exhaust_readonly_packet(:draft)
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(agent_plan_author_goal(prompt), "UA01D6REPLAN") ->
+          String.contains?(scope_goal_text(prompt), "UA01D6REPLAN") ->
         prose_d6_agent_plan_packet()
 
       profile_ref == "prose_drafting_with_quality_v1" and
-          String.contains?(agent_plan_author_goal(prompt), "UA01NOPROGRESS") ->
+          String.contains?(scope_goal_text(prompt), "UA01NOPROGRESS") ->
         prose_no_progress_agent_plan_packet(:draft)
 
       true ->
@@ -2124,7 +2143,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp prose_writing_plan_step(prompt) do
-    author_goal = agent_plan_author_goal(prompt)
+    author_goal = scope_goal_text(prompt)
     chapters = accepted_chapters_in_prompt(prompt)
 
     {authoring_intent, target_chapter, requested_chapter_raw} =
@@ -2174,8 +2193,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp agent_plan_author_goal(prompt) do
-    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["goal", "text"]) || ""
+  defp scope_goal_text(prompt) do
+    case Map.get(TestProviderPrompt.scope_content(prompt) || %{}, "goal") do
+      %{"source_input_ref" => ref} -> TestProviderPrompt.author_text(prompt, ref)
+      %{"text" => text} when is_binary(text) -> text
+      _ -> ""
+    end
   end
 
   # 与真实 LLM 的计划契约对称：「作者点名的章按『作品章节』列表精确复制全名填 target_chapter，
@@ -3703,7 +3726,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # canonical IR 的当前操作材料只保留 scope + 作者原话，观察在结构化 tool_result 里。
   # 复用生产投影：被 checkpoint 压缩掉的交换不参与；只认最近作者输入之后、与作者
   # 请求同 tool 同 query 且 status ok 的真实 content.summary。
-  defp current_observation_summary(prompt, %NovelCommon.RequestIR{messages: messages}) do
+  defp current_observation_summary(prompt, %NovelCommon.RequestIR{messages: messages} = ir) do
     author_text = judgment_author_input(prompt)
 
     with tool when is_binary(tool) <- explore_tool_for(author_text),
@@ -3711,8 +3734,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       messages
       |> RequestIR.Compaction.project()
       |> messages_after_last_author()
-      |> Enum.filter(&(&1.role == "tool"))
-      |> Enum.flat_map(&observation_payloads_of_tool_message/1)
+      |> then(&TestProviderPrompt.visible_observations(%{ir | messages: &1}))
       |> Enum.find_value(&matching_observation_summary(&1, tool, query))
     end
   end
@@ -3741,13 +3763,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp observation_payloads_of_tool_message(message) do
-    message
-    |> Map.get(:blocks, [])
-    |> Enum.filter(&(Map.get(&1, :type) == "observation"))
-    |> Enum.flat_map(&RequestIR.observation_payloads/1)
-  end
-
   defp matching_observation_summary(payload, tool, query) do
     content = Map.get(payload, :content) || %{}
 
@@ -3767,10 +3782,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp request_ir(%NovelCommon.RequestIR{} = ir), do: ir
   defp request_ir(_prompt), do: nil
 
-  defp ir_observation_summaries(%NovelCommon.RequestIR{messages: messages}) do
-    messages
-    |> Enum.filter(&(&1.role == "tool"))
-    |> Enum.flat_map(&observation_summaries_of_tool_message/1)
+  defp ir_observation_summaries(%NovelCommon.RequestIR{} = ir) do
+    ir
+    |> TestProviderPrompt.visible_observations()
+    |> Enum.flat_map(&observation_summary_text/1)
   end
 
   defp memory_recall_answer(%NovelCommon.RequestIR{} = ir, input) do
@@ -3783,12 +3798,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp memory_recall_answer(_ir, _input), do: nil
   defp memory_recall_fixture?(input), do: String.contains?(input, "检索已确认记忆")
-
-  defp observation_summaries_of_tool_message(message) do
-    message.blocks
-    |> Enum.filter(&(Map.get(&1, :type) == "observation"))
-    |> Enum.flat_map(&observation_summary_text/1)
-  end
 
   defp observation_summary_text(block) do
     content = Map.get(block, :content) || %{}
@@ -3866,16 +3875,55 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 复制**有已采纳正文**那个章（索引行无「（计划中）」= 目标章 B）的 ref；
   # 同名干扰章 A 带「（计划中）」被排除。绝不按标题直接当查询（会命中歧义观察）。
   defp full_read_chapter_ref(prompt) do
-    entries = Enum.filter(scope_chapters(prompt), &(&1["title"] == @full_read_chapter_title))
-
-    case Enum.find(entries, &(&1["has_prose"] == true)) || List.first(entries) do
-      nil -> nil
-      entry -> entry["ref"]
+    case Enum.filter(
+           judgment_chapters(prompt),
+           &(&1["title"] == @full_read_chapter_title and &1["has_prose"] == true)
+         ) do
+      [entry] -> entry["ref"]
+      _ -> nil
     end
   end
 
+  # 专业 planner 仍显式供应章节事实；判断器只消费显式档案观察。
   defp scope_chapters(prompt) do
     get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "chapters"]) || []
+  end
+
+  defp judgment_chapters(prompt), do: archive_directory_entries(prompt, "chapters") || []
+
+  defp archive_directory_entries(prompt, facet) do
+    prompt
+    |> TestProviderPrompt.visible_observations()
+    |> Enum.filter(fn leaf ->
+      leaf.status == "ok" and get_in(leaf, [:content, "tool"]) == "archive_read" and
+        get_in(leaf, [:coverage, "kind"]) == "directory" and
+        get_in(leaf, [:coverage, "facet"]) == facet
+    end)
+    |> List.last()
+    |> case do
+      nil ->
+        nil
+
+      %{coverage: %{"returned_items" => 0, "total_items" => 0}} ->
+        []
+
+      leaf ->
+        leaf.content["summary"]
+        |> String.split("\n", trim: true)
+        |> Enum.map(&Jason.decode!/1)
+    end
+  end
+
+  defp chapter_directory_request?(prompt) do
+    author = judgment_author_input(prompt)
+
+    needs_chapters =
+      full_read_request?(PendingDialogueInput.material_text(prompt)) or
+        chapter_structure_maintenance_intent?(author) or
+        (contains_any?(author, ["章", "正文"]) and chapter_revision_intent?(author))
+
+    needs_chapters and is_nil(archive_directory_entries(prompt, "chapters")) and
+      explore_context?("", request_ir(prompt), "archive_read")
   end
 
   # 判断 prompt 里已渲染的观察段（`### 观察 N（tool「query」）\n<observation.summary>`）。
@@ -3890,11 +3938,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end)
   end
 
-  defp full_read_last_observation(prompt, %NovelCommon.RequestIR{} = ir) do
-    case ir_observation_summaries(ir) do
-      [] -> full_read_last_observation(prompt, nil)
-      summaries -> List.last(summaries)
-    end
+  defp full_read_last_observation(_prompt, %NovelCommon.RequestIR{} = ir) do
+    ir
+    |> TestProviderPrompt.visible_observations()
+    |> Enum.filter(&(get_in(&1, [:content, "tool"]) == "chapter_read" and &1.status == "ok"))
+    |> Enum.flat_map(&observation_summary_text/1)
+    |> List.last()
   end
 
   defp full_read_last_observation(prompt, _ir) do
@@ -4184,19 +4233,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @doc """
   B30 CP4 test-support：解析判断 prompt 的章节结构维护意图（与产品
   `ChapterStructureMaintenance.intent?/1` 同义），并只根据 prompt 里可见的
-  作品预约卷数/章节目录决定 execute 或澄清。返回 nil（非维护意图）或
-  %{mode: :execute | :clarify, ...}。仅 fixture 使用，不参与产品协议字段。
+  作品 profile/章节目录观察决定探索、execute 或澄清。返回 nil（非维护意图）或
+  %{mode: :explore | :execute | :clarify, ...}。仅 fixture 使用，不参与产品协议字段。
   """
   def chapter_structure_arguments(%RequestIR{} = prompt) do
     author_text = judgment_author_input(prompt)
 
     if chapter_structure_maintenance_intent?(author_text) do
-      build_chapter_structure_decision(
-        author_text,
-        scope_chapters(prompt) != [],
-        chapter_volume_number(author_text),
-        planned_volumes_from_prompt(prompt)
-      )
+      chapters = archive_directory_entries(prompt, "chapters")
+      planned = planned_volumes_from_prompt(prompt)
+
+      cond do
+        is_nil(chapters) ->
+          %{mode: :explore, explore_request: %{"tool" => "archive_read", "query" => "chapters"}}
+
+        chapters != [] and planned == :unread ->
+          %{mode: :explore, explore_request: %{"tool" => "archive_read", "query" => "profile"}}
+
+        true ->
+          build_chapter_structure_decision(
+            author_text,
+            chapters != [],
+            chapter_volume_number(author_text),
+            planned
+          )
+      end
     end
   end
 
@@ -4219,7 +4280,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     structure_execute(author_text)
   end
 
-  defp build_chapter_structure_decision(author_text, true, named, nil) when is_integer(named) do
+  defp build_chapter_structure_decision(author_text, true, _named, nil) do
     structure_clarify(author_text, "无法从当前作品信息确认卷范围；请先确认要维护哪一卷的章节编号。")
   end
 
@@ -4252,7 +4313,25 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp planned_volumes_from_prompt(prompt) do
-    get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "work", "planned_volumes"])
+    prompt
+    |> TestProviderPrompt.visible_observations()
+    |> Enum.filter(fn leaf ->
+      leaf.status in ["ok", "partial"] and leaf.source_refs == ["archive:profile"] and
+        get_in(leaf, [:content, "tool"]) == "archive_read" and
+        get_in(leaf, [:coverage, "kind"]) == "facet" and
+        get_in(leaf, [:coverage, "facet"]) == "profile"
+    end)
+    |> List.last()
+    |> case do
+      nil ->
+        :unread
+
+      leaf ->
+        case Regex.run(~r/^预计卷数：([0-9]+)$/mu, leaf.content["summary"]) do
+          [_, value] -> String.to_integer(value)
+          _ -> nil
+        end
+    end
   end
 
   defp chapter_volume_number(text) do
@@ -4286,6 +4365,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     decision = chapter_structure_arguments(prompt)
 
     case decision.mode do
+      :explore ->
+        judgment_explore_decision_result(prompt, decision.explore_request)
+
       :execute ->
         narrative = "按你的要求维护章节结构：只重编号，不改标题/正文/归卷/章数；我会先给出可审阅的旧→新编号变更计划。"
 
@@ -4318,14 +4400,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   @doc """
-  B29 CP4 test-support：解析判断 prompt「## 角色索引（已有角色）」+ 作者原话，
-  返回 nil（非修订意图/讨论/设计新角色）或
-  %{mode: :execute|:clarify, capability, character_ref, dialogue_goal, question, options}。
-  只做对象绑定，不产出 changes/old/new（候选由产品 CharacterProfile 生成）。
+  B29 test-support：只消费本次请求实际可见的角色目录和详情观察。
+  返回 nil（非修订意图）或 %{mode: :explore | :execute | :clarify, ...}。
+  只选择读取/对象，不产出 changes/old/new（候选由产品 CharacterProfile 生成）。
   """
   def character_profile_arguments(%RequestIR{} = prompt) do
     author_text = judgment_author_input(prompt)
-    characters = character_index_from_prompt(prompt)
 
     cond do
       character_profile_discussion?(author_text) ->
@@ -4338,7 +4418,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         nil
 
       character_profile_revision_intent?(author_text) ->
-        character_profile_decision(author_text, characters)
+        character_profile_decision(prompt, author_text, character_index_from_prompt(prompt))
 
       true ->
         nil
@@ -4347,34 +4427,54 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   def character_profile_arguments(_prompt), do: nil
 
-  defp character_profile_decision(author_text, []) do
+  defp character_profile_decision(_prompt, author_text, nil) do
+    %{
+      mode: :explore,
+      dialogue_goal: author_text,
+      explore_request: %{"tool" => "archive_read", "query" => "characters"}
+    }
+  end
+
+  defp character_profile_decision(_prompt, author_text, []) do
     %{
       mode: :clarify,
       capability: "revise_character_profile",
       dialogue_goal: author_text,
-      question: "当前上下文没有可核对的角色索引，无法确认要改哪个已有角色；需要先读取角色主档案再操作，我不会猜或新建角色。",
+      question: "已读取的角色目录没有已有角色；请先确认要修订的对象，我不会猜或新建角色。",
       options: []
     }
   end
 
-  defp character_profile_decision(author_text, characters) do
+  defp character_profile_decision(prompt, author_text, characters) do
     matches = Enum.filter(characters, &character_profile_match?(&1, author_text))
 
     case matches do
       [character] ->
-        %{
-          mode: :execute,
-          capability: "revise_character_profile",
-          character_ref: character.character_ref,
-          dialogue_goal: author_text
-        }
+        if character_detail_present?(prompt, character.character_ref) do
+          %{
+            mode: :execute,
+            capability: "revise_character_profile",
+            character_ref: character.character_ref,
+            dialogue_goal: author_text
+          }
+        else
+          %{
+            mode: :explore,
+            dialogue_goal: author_text,
+            explore_request: %{
+              "tool" => "archive_read",
+              "query" =>
+                Jason.encode!(%{facet: "characters", ref: character.character_ref, offset: 0})
+            }
+          }
+        end
 
       [] ->
         %{
           mode: :clarify,
           capability: "revise_character_profile",
           dialogue_goal: author_text,
-          question: "当前角色索引里没有找到与作者原话唯一匹配的已有角色；请确认要修订哪一位（不会新建角色或猜对象）。",
+          question: "当前角色目录里没有找到与作者原话唯一匹配的已有角色；请确认要修订哪一位（不会新建角色或猜对象）。",
           options: character_profile_options(characters)
         }
 
@@ -4387,6 +4487,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           options: character_profile_options(many)
         }
     end
+  end
+
+  # 替身只辨认已供应的详情；完整基线和持久版本的授权仍由应用 observed_target 校验。
+  defp character_detail_present?(prompt, ref) do
+    Enum.any?(TestProviderPrompt.visible_observations(prompt), fn leaf ->
+      fingerprint = get_in(leaf, [:content, "facts", "character", "base_fingerprint"])
+
+      leaf.status in ["ok", "partial"] and leaf.source_refs == [ref] and
+        get_in(leaf, [:content, "tool"]) == "archive_read" and
+        get_in(leaf, [:coverage, "kind"]) == "detail" and
+        get_in(leaf, [:coverage, "facet"]) == "characters" and
+        get_in(leaf, [:coverage, "ref"]) == ref and
+        is_binary(fingerprint) and fingerprint != "" and leaf.versions[ref] == fingerprint
+    end)
   end
 
   defp character_profile_options(characters) do
@@ -4405,12 +4519,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp character_role_label(character) do
-    aliases = Enum.join(character.aliases, "、")
-
-    cond do
-      aliases != "" -> "别名 #{aliases}"
-      character.role not in [nil, ""] -> character.role
-      true -> nil
+    case Enum.join(character.aliases, "、") do
+      "" -> nil
+      aliases -> "别名 #{aliases}"
     end
   end
 
@@ -4454,6 +4565,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     decision = character_profile_arguments(prompt)
 
     case decision.mode do
+      :explore ->
+        judgment_explore_decision_result(prompt, decision.explore_request)
+
       :execute ->
         narrative =
           "我会先给出角色叙事身份修订候选（只看主档案字段 narrative_role），待你确认后再改；不会新建角色、不写正文/记忆。"
@@ -4488,32 +4602,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   @doc """
-  B29 CP3 test-support：「谁是主角」问题的确定性回答，只读判断 prompt 的「角色索引」
-  中当前 narrative_role（主档案事实）。多主角全列；无主角诚实；无索引诚实说明。
+  B29 test-support：从本次真实可见的 characters 目录回答当前身份。
+  多主角全列；真实空目录可回答无主角；没有观察只能说明尚未核对。
   """
   def character_role_answer(%RequestIR{} = prompt) do
     case character_index_from_prompt(prompt) do
-      [] -> empty_character_index_answer(prompt)
+      nil -> "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
       characters -> protagonist_answer(characters)
     end
   end
 
   def character_role_answer(_prompt), do: ""
-
-  # 两类“空”分开处理（AU09 回归）：
-  # - 作品上下文已组装（有作品事实/章节列表等）但没有「## 角色索引」段 => 当前作品确实无
-  #   角色/无主角，按 AU09 诚实缺口回答（不要误报“没有可核对的角色索引”）；
-  # - 有索引段但为空/无法解析，或上下文本身缺失 => 诚实说明无法核对，不引用旧记忆。
-  defp empty_character_index_answer(prompt) do
-    case get_in(TestProviderPrompt.scope_content(prompt) || %{}, [
-           "coverage",
-           "characters",
-           "status"
-         ]) do
-      "complete" -> protagonist_answer([])
-      _ -> "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
-    end
-  end
 
   defp protagonist_answer(characters) do
     protagonists =
@@ -4541,16 +4640,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp character_index_from_prompt(prompt) do
-    (get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["facts", "characters"]) || [])
-    |> Enum.map(fn entry ->
-      %{
-        character_ref: entry["ref"],
-        name: entry["name"],
-        aliases: entry["aliases"] || [],
-        narrative_role: entry["narrative_role"],
-        role: entry["role"]
-      }
-    end)
+    case archive_directory_entries(prompt, "characters") do
+      nil ->
+        nil
+
+      entries ->
+        Enum.map(entries, fn entry ->
+          %{
+            character_ref: entry["ref"],
+            name: entry["name"],
+            aliases: entry["aliases"],
+            narrative_role: entry["narrative_role"]
+          }
+        end)
+    end
   end
 
   defp judgment_character_design_result(prompt) do
@@ -4654,8 +4757,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     arguments = %{
       "action" => "explore",
       "reason" => "missing_work_facts_require_retrieval",
-      "reply_included" => false,
-      "frame_type" => nil,
       "dialogue_goal" => judgment_dialogue_goal(prompt),
       "explore_request" => request
     }
@@ -4667,7 +4768,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
-          "arguments" => Map.put_new(arguments, "record_only", false)
+          "arguments" => arguments
         }
       ]
     )
@@ -5026,8 +5127,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp candidate_mentions?(candidate, hint) do
-    String.contains?(candidate.title || "", hint) or
-      String.contains?(candidate.body_preview || "", hint)
+    String.contains?(candidate.title || "", hint)
   end
 
   defp pending_target_ref(target, input) do
@@ -5126,15 +5226,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   def chapter_revision_arguments(_prompt), do: nil
 
   defp chapter_revision_targets_from_prompt(prompt) do
-    (scope_operation(prompt)["chapter_revision_targets"] || [])
+    allowed = scope_operation(prompt)["adopted_content_targets"] || %{}
+
+    prompt
+    |> judgment_chapters()
+    |> Enum.filter(&("revise_adopted_content" in Map.get(allowed, &1["ref"], [])))
     |> Enum.map(fn entry ->
-      %{
-        ref: entry["chapter_ref"],
-        title: entry["chapter_title"],
-        seq: entry["seq"],
-        fragment_count: entry["fragment_count"],
-        coverage: entry["coverage"]
-      }
+      %{ref: entry["ref"], title: entry["title"], seq: entry["seq"]}
     end)
   end
 
@@ -5471,19 +5569,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     Enum.map_join(entries, "；", &material_entry_text/1)
   end
 
-  defp material_entry_text(entry) do
-    title = entry.title || "（无标题）"
-    body = entry.body_preview
-
-    cond do
-      blank?(body) -> title
-      body == title -> title
-      String.starts_with?(body, title) -> body
-      true -> "#{title}：#{body}"
-    end
-  end
-
-  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
+  defp material_entry_text(entry), do: entry.title || "（无标题）"
 
   defp material_sentence(entries) do
     text = material_entries(entries)

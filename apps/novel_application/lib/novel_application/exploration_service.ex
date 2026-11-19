@@ -20,13 +20,11 @@ defmodule NovelApplication.ExplorationService do
     ChapterDisplay,
     MemoryManagementService,
     ReadingProjectionService,
+    SessionMessageRead,
     WorkArchiveService
   }
 
-  alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ProseFormatting
-  alias NovelDomain.VolumeBlueprint
-  alias NovelFoundation.Enums.ChapterMissionStatus
 
   alias NovelPersistence.{
     ChapterSummaryRepo,
@@ -46,6 +44,7 @@ defmodule NovelApplication.ExplorationService do
   # （章数/命中数/字符数），只进 developer 面，作者面仍只用 activity_summary。
   @type observation_outcome ::
           :observed
+          | :partial
           | :empty_result
           | :target_not_found
           | :ambiguous_target
@@ -60,7 +59,9 @@ defmodule NovelApplication.ExplorationService do
           required(:query) => String.t(),
           required(:summary) => String.t(),
           required(:refs) => [String.t()],
-          optional(:versions) => %{String.t() => pos_integer()},
+          optional(:versions) => %{String.t() => pos_integer() | String.t()},
+          optional(:coverage) => map(),
+          optional(:omissions) => [String.t()],
           required(:outcome) => observation_outcome(),
           required(:facts) => map(),
           optional(:activity_summary) => String.t(),
@@ -74,8 +75,12 @@ defmodule NovelApplication.ExplorationService do
           optional(:target_segments) => [map()]
         }
 
-  # ledgers 面为 VS-00F CP1（ADR-0026）第 9 面：五本账进度视图（探索面同步律，08 §8）。
-  @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences ledgers)
+  @observation_statuses %{
+    "failed" => "unavailable",
+    "partial" => "partial",
+    "truncated" => "truncated",
+    "stale" => "stale"
+  }
   @summary_max_chars 1500
   # B24（I-EXPLORE-READ-2）：观察 v2 分段预算——设计态材料另计上限，正文单页 6000
   # 字符。旧口径把三段拼成一条 1500 clip，设计态材料加料后正文只剩 216/4398 字
@@ -85,8 +90,6 @@ defmodule NovelApplication.ExplorationService do
   @chapter_page_chars 6000
   @section_ellipsis "…（略）"
   @adoption_page_size 3
-  @chapter_mission_confirmed ChapterMissionStatus.confirmed()
-  @chapter_mission_author_edited ChapterMissionStatus.author_edited()
 
   @catalog [
     %{
@@ -98,24 +101,33 @@ defmodule NovelApplication.ExplorationService do
       tool: "chapter_read",
       # I-EXPLORE-READ-7：章标识作品无关——query 是作品目录里的真实章标题，不假设
       # 任何编号格式；长章分页，续读用 JSON offset（I-EXPLORE-READ-3）。
-      query_help: ~s(作品目录中的真实章标题，原样复制；续读用 JSON {"chapter":"<章标题>","offset":<下页起点>}),
+      query_help:
+        ~s(先经 archive_read 的 chapters 目录发现章节；复制真实标题，或 JSON {"chapter_ref":"<ref>","offset":0}；续读采用 next_offset),
       description: "读取某一章的设计计划、章摘要与已采纳正文（长章分页，按观察内【续读】继续）"
     },
     %{
       tool: "archive_read",
       query_help:
-        "档案面之一：profile｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences",
-      description: "读取作品档案（简介/角色/伏笔/规则/统计/当前状态/人物关系/作者偏好）"
+        ~s(档案面 profile｜chapters｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences｜ledgers；chapters/characters 无 ref 时返回目录；详情用 JSON {"facet":"chapters","ref":"<目录ref>","offset":0}（角色详情改用 characters），chapters 详情读取完整计划/卷蓝图/已采纳章摘要；按 next_offset 续读，目录用 {"facet":"<目录面>","offset":<next_offset>}),
+      description: "按需发现对象并读取作品档案；目录不等于已读正文或角色修订基线"
     },
     %{
       tool: "session_adoptions",
-      query_help: ~s(关键词或 artifact_ref；空串查全部；翻页用 JSON {"query":"关键词","offset":3}),
+      query_help:
+        ~s(关键词或 artifact_ref 查目录，空串查全部；目录翻页 {"query":"关键词","offset":3}；全文详情 {"artifact_ref":"<真实ref>","offset":0}，按 next_offset 续读),
       description: "查询当前会话完整待采纳/已处置候选，返回实际数量、来源和下一页，不受聊天窗口限制"
     },
     %{
+      tool: "session_message_read",
+      query_help:
+        ~s(JSON {"run_id":"<来源 run_id>","run_sequence":<来源消息序号>,"offset":0}；续读采用 next_offset，offset 单位为 Unicode grapheme),
+      description: "按整理记录中的消息来源回查当前会话的作者原话或模型纯文本答复；保留原文、来源与分页范围"
+    },
+    %{
       tool: "memory_recall",
-      query_help: "检索词",
-      description: "检索治理记忆（已确认的设定、约束、方向）"
+      query_help:
+        ~s(检索词返回有界摘要和真实 memory_ref；完整正文用 {"memory_ref":"memory:<id>","offset":0}，按 next_offset 续读),
+      description: "检索治理记忆（已确认的设定、约束、方向），摘要与完整正文覆盖分开"
     }
   ]
 
@@ -124,6 +136,77 @@ defmodule NovelApplication.ExplorationService do
 
   @spec tool_names() :: [String.t()]
   def tool_names, do: Enum.map(@catalog, & &1.tool)
+
+  @doc "只认上一真实页的同源下一坐标；复用各读口解析规则，不执行读取或推断目标。"
+  @spec continuation_request?(String.t(), String.t(), map() | nil) :: boolean()
+  def continuation_request?(
+        "chapter_read",
+        query,
+        %{tool: "chapter_read", chapter_ref: ref, next_offset: offset}
+      )
+      when is_binary(query) and is_integer(offset) and offset > 0 do
+    case chapter_query(query) do
+      {:ok, {:ref, uuid}, ^offset} -> bare_chapter_ref(ref) == uuid
+      _ -> false
+    end
+  end
+
+  def continuation_request?(
+        "session_message_read",
+        query,
+        %{
+          tool: "session_message_read",
+          run_id: run_id,
+          run_sequence: sequence,
+          next_offset: offset
+        }
+      )
+      when is_integer(offset) and offset > 0 do
+    SessionMessageRead.parse_query(query) ==
+      {:ok, %{run_id: run_id, run_sequence: sequence, offset: offset}}
+  end
+
+  def continuation_request?(
+        "archive_read",
+        query,
+        %{tool: "archive_read", facet: facet, ref: ref, next_offset: offset}
+      )
+      when is_binary(query) and is_integer(offset) and offset > 0 do
+    WorkArchiveService.selector(String.trim(query)) ==
+      {:ok, %{facet: facet, ref: ref, offset: offset}}
+  end
+
+  def continuation_request?("session_adoptions", query, %{
+        tool: "session_adoptions",
+        kind: "directory",
+        query: search,
+        next_offset: offset
+      })
+      when is_integer(offset) and offset > 0 do
+    adoption_query(query) == {:ok, %{kind: "directory", query: search, offset: offset}}
+  end
+
+  def continuation_request?("session_adoptions", query, %{
+        tool: "session_adoptions",
+        kind: "detail",
+        artifact_ref: ref,
+        next_offset: offset
+      })
+      when is_integer(offset) and offset > 0 do
+    adoption_query(query) == {:ok, %{kind: "detail", artifact_ref: ref, offset: offset}}
+  end
+
+  def continuation_request?("memory_recall", query, %{
+        tool: "memory_recall",
+        memory_ref: ref,
+        next_offset: offset
+      })
+      when is_integer(offset) and offset > 0 do
+    MemoryManagementService.recall_selector(query) ==
+      {:ok, %{kind: "detail", memory_ref: ref, offset: offset}}
+  end
+
+  def continuation_request?(_tool, _query, _continuation), do: false
 
   @doc "判断 prompt 的探索目录段（与能力目录同段机械渲染，真源单点）。"
   @spec catalog_section() :: String.t()
@@ -155,35 +238,9 @@ defmodule NovelApplication.ExplorationService do
   def run(work_id, "session_adoptions", query, session_id) when is_binary(session_id) do
     with session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id),
          "ACTIVE" <- session.status,
-         {:ok, search, offset} <- adoption_query(query) do
+         {:ok, selector} <- adoption_query(query) do
       state = WorkSessionRepo.adoption_state(work_id, session_id)
-      all = state.pending_adoptions ++ state.resolved_adoptions
-      matches = matching_adoptions(all, search)
-      page = Enum.slice(matches, offset, @adoption_page_size)
-      next = offset + length(page)
-
-      summary = %{
-        pending_count: length(state.pending_adoptions),
-        resolved_count: length(state.resolved_adoptions),
-        matched_count: length(matches),
-        offset: offset,
-        next_offset: if(next < length(matches), do: next, else: nil),
-        items: Enum.map(page, &adoption_observation/1)
-      }
-
-      {:ok,
-       %{
-         tool: "session_adoptions",
-         query: query || "",
-         summary: Jason.encode!(summary),
-         refs: Enum.map(page, & &1["artifact_id"]),
-         outcome: :observed,
-         facts: %{
-           matched_count: length(matches),
-           pending_count: length(state.pending_adoptions)
-         },
-         activity_summary: activity_text("session_adoptions", query || "")
-       }}
+      adoption_read(state, selector, %{work_id: work_id, session_id: session_id}, query || "")
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :active_session_not_found}
@@ -193,22 +250,109 @@ defmodule NovelApplication.ExplorationService do
   def run(_work_id, "session_adoptions", _query, _session_id),
     do: {:error, :active_session_not_found}
 
+  def run(work_id, "session_message_read", query, session_id),
+    do: SessionMessageRead.run(work_id, query, session_id)
+
   def run(work_id, tool, query, _session_id), do: run(work_id, tool, query)
 
   defp adoption_query(query) do
     text = String.trim(query || "")
 
     if String.starts_with?(text, "{") do
-      case Jason.decode(text) do
-        {:ok, %{"query" => search, "offset" => offset}}
-        when is_binary(search) and is_integer(offset) and offset >= 0 ->
-          {:ok, search, offset}
-
-        _ ->
-          {:error, :invalid_adoption_query}
-      end
+      text |> Jason.decode() |> adoption_selector()
     else
-      {:ok, text, 0}
+      {:ok, %{kind: "directory", query: text, offset: 0}}
+    end
+  end
+
+  defp adoption_selector({:ok, %{"query" => search, "offset" => offset} = decoded})
+       when map_size(decoded) == 2 and is_binary(search) and is_integer(offset) and offset >= 0,
+       do: {:ok, %{kind: "directory", query: search, offset: offset}}
+
+  defp adoption_selector({:ok, %{"artifact_ref" => ref, "offset" => offset} = decoded})
+       when map_size(decoded) == 2 and is_binary(ref) and ref != "" and is_integer(offset) and
+              offset >= 0,
+       do: {:ok, %{kind: "detail", artifact_ref: ref, offset: offset}}
+
+  defp adoption_selector(_decoded), do: {:error, :invalid_adoption_query}
+
+  defp adoption_read(state, %{kind: "directory", query: search, offset: offset}, scope, query) do
+    matches = matching_adoptions(state.pending_adoptions ++ state.resolved_adoptions, search)
+
+    with :ok <- read_offset(offset, length(matches), :adoption_offset_out_of_range) do
+      page = Enum.slice(matches, offset, @adoption_page_size)
+      next = offset + length(page)
+      next_offset = if next < length(matches), do: next, else: nil
+
+      summary = %{
+        pending_count: length(state.pending_adoptions),
+        resolved_count: length(state.resolved_adoptions),
+        matched_count: length(matches),
+        offset: offset,
+        next_offset: next_offset,
+        items: Enum.map(page, &adoption_observation/1)
+      }
+
+      coverage =
+        Map.merge(scope, %{
+          kind: "directory",
+          query: search,
+          offset: offset,
+          returned_items: length(page),
+          total_items: length(matches),
+          offset_unit: "item"
+        })
+
+      {:ok,
+       observation(
+         "session_adoptions",
+         query,
+         Jason.encode!(summary),
+         Enum.map(page, & &1["artifact_id"]),
+         clip: false,
+         outcome:
+           if(matches == [],
+             do: :empty_result,
+             else: if(next_offset, do: :partial, else: :observed)
+           ),
+         facts: Map.take(summary, [:matched_count, :pending_count]),
+         extra: %{
+           versions: %{},
+           coverage: coverage,
+           next_offset: next_offset,
+           omissions: ["目录仅供定位、状态与来源，未读取候选正文；全文使用 artifact_ref/offset 详情。"]
+         }
+       )}
+    end
+  end
+
+  defp adoption_read(state, %{artifact_ref: ref, offset: offset}, scope, query) do
+    entry =
+      Enum.find(state.pending_adoptions ++ state.resolved_adoptions, &(&1["artifact_id"] == ref))
+
+    with entry when not is_nil(entry) <- entry,
+         {:ok, page} <-
+           source_page(
+             NovelApplication.TurnInteractionService.artifact_body(entry),
+             offset,
+             :adoption_offset_out_of_range
+           ) do
+      coverage = Map.merge(scope, %{kind: "detail", artifact_ref: ref, summary: page.range})
+
+      {:ok,
+       observation("session_adoptions", query, page.text, [ref],
+         clip: false,
+         outcome: page.outcome,
+         facts: %{artifact: adoption_observation(entry)},
+         extra:
+           Map.merge(Map.drop(page, [:text, :range, :outcome]), %{
+             versions: %{},
+             coverage: coverage
+           })
+       )}
+    else
+      nil -> {:error, :adoption_not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -235,8 +379,6 @@ defmodule NovelApplication.ExplorationService do
       source_ref: AuthorContentRegistration.author_source_ref(entry),
       content_source_ref: entry["source_tool_result_ref"],
       title: String.slice(to_string(payload["summary"] || item["title"] || ""), 0, 100),
-      body_preview:
-        String.slice(NovelApplication.TurnInteractionService.artifact_body(entry), 0, 600),
       revision_of: payload["revision_of"],
       available_operations: NovelApplication.PendingArtifactWorkflow.operations(entry)
     }
@@ -575,25 +717,25 @@ defmodule NovelApplication.ExplorationService do
         out_of_range_observation(chapter, query, 0)
 
       {:error, :not_found} ->
-        {:ok, empty_chapter_observation(work_id, chapter, volume, query)}
+        empty_chapter_observation(work_id, chapter, volume, query)
     end
   end
 
   defp empty_chapter_observation(work_id, chapter, volume, query) do
-    sections =
-      [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)] ++
-        ["【正文】还没有已采纳正文。"]
+    header = header_sections(work_id, chapter, volume, 0)
+    sections = header.sections ++ ["【正文】还没有已采纳正文。"]
 
     {:ok,
      observation(
        "chapter_read",
        query,
        chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
-       [chapter_ref(chapter)],
+       [chapter_ref(chapter) | header.refs],
+       clip: false,
        outcome: :empty_content,
        facts: %{prose_chars: 0},
        activity_summary: "已核查章节#{chapter_title_line(chapter)}：本章尚无已采纳正文。",
-       extra: chapter_identity_keys(chapter)
+       extra: Map.merge(chapter_identity_keys(chapter), Map.take(header, [:coverage, :omissions]))
      )}
   end
 
@@ -647,8 +789,10 @@ defmodule NovelApplication.ExplorationService do
 
     versions = chapter_page_versions(spans, start_byte, page_byte_end)
 
+    header = header_sections(work_id, chapter, volume, offset)
+
     sections =
-      header_sections(work_id, chapter, volume, offset) ++
+      header.sections ++
         [prose_page_section(offset, page_end, total, word_count, page_text)] ++
         continue_section(chapter, next_offset, total, page_end)
 
@@ -657,13 +801,15 @@ defmodule NovelApplication.ExplorationService do
        "chapter_read",
        query,
        chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
-       [chapter_ref(chapter)],
+       [chapter_ref(chapter) | header.refs],
        clip: false,
        facts: %{prose_chars: total},
        activity_summary: chapter_activity_summary(chapter, offset, page_end, total, word_count),
        extra:
          Map.merge(chapter_identity_keys(chapter), %{
            versions: versions,
+           coverage: header.coverage,
+           omissions: header.omissions,
            next_offset: next_offset,
            prose_total_chars: total,
            prose_range: %{start: offset + 1, end: page_end},
@@ -689,10 +835,53 @@ defmodule NovelApplication.ExplorationService do
 
   # 【计划】【摘要】只在首页（offset=0）返回；续读页不重复（I-EXPLORE-READ-3 的
   # 省流约定，D4）。
-  defp header_sections(work_id, chapter, volume, 0),
-    do: [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)]
+  defp header_sections(work_id, chapter, volume, 0) do
+    plan = ReadingProjectionService.chapter_plan_preview(chapter, volume)
+    accepted = ChapterSummaryRepo.current_accepted(work_id, chapter.id)
+    summary = if accepted, do: accepted.summary_text, else: ""
+    read_query = Jason.encode!(%{facet: "chapters", ref: chapter_ref(chapter), offset: 0})
+    summary_ref = if accepted, do: "chapter_summary:#{accepted.id}"
 
-  defp header_sections(_work_id, _chapter, _volume, _offset), do: []
+    %{
+      sections: [
+        "【计划】#{clip_section(plan, @chapter_plan_max_chars)}",
+        if(accepted,
+          do: "【摘要】#{clip_section(summary, @chapter_summary_max_chars)}",
+          else: "【摘要】（尚无章摘要）"
+        )
+      ],
+      refs: if(summary_ref, do: [summary_ref], else: []),
+      coverage: %{
+        chapter_plan:
+          preview_coverage(plan, @chapter_plan_max_chars, chapter_ref(chapter), read_query),
+        chapter_summary:
+          if(accepted,
+            do: preview_coverage(summary, @chapter_summary_max_chars, summary_ref, read_query),
+            else: %{status: "unavailable", read_query: read_query}
+          )
+      },
+      omissions: ["本页计划/摘要是预览；完整设计材料经 archive_read #{read_query} 读取，预览不证明全文已读。"]
+    }
+  end
+
+  defp header_sections(_work_id, _chapter, _volume, _offset),
+    do: %{sections: [], refs: [], coverage: %{}, omissions: []}
+
+  defp preview_coverage(text, limit, ref, query) do
+    total = String.length(text)
+    returned = if total > limit, do: limit - String.length(@section_ellipsis), else: total
+
+    %{
+      status: "partial",
+      representation: "preview",
+      source_ref: ref,
+      offset: 0,
+      returned_graphemes: returned,
+      total_graphemes: total,
+      offset_unit: "unicode_grapheme",
+      read_query: query
+    }
+  end
 
   # I-EXPLORE-READ-1：页范围首尾相接、无重叠、无缺口；优先在 ≤ offset+6000 内最靠后
   # 的 "\n\n" 段落边界切页（不把段落劈开），无段落边界按 6000 硬切。
@@ -785,42 +974,6 @@ defmodule NovelApplication.ExplorationService do
     %{chapter_ref: chapter_ref(chapter), chapter_seq: Map.get(chapter, :seq)}
   end
 
-  # 设计态（E18-E22 结构化计划；ADR-0025 CP5b 探索补面 A）：无结构化计划时
-  # 回退 chapters.summary（大纲采纳的单行方向），两者皆无则诚实说明。
-  # B11A CP4（VS-00J §4 消费面 4 / 08 §8 探索面同步律）：所属卷与当前卷蓝图摘要
-  # 同批可读；卷无设计态蓝图时整段不渲染（I-VOL-4：与今天逐字节一致）。
-  defp chapter_plan_section(chapter, volume) do
-    plan = ChapterPlanDirection.from_storage(Map.get(chapter, :plan_direction))
-
-    rendered =
-      case plan do
-        nil ->
-          case Map.get(chapter, :summary) do
-            summary when is_binary(summary) and summary != "" -> summary
-            _ -> "（本章尚无设计计划）"
-          end
-
-        direction ->
-          [
-            {"功能定位", direction.chapter_role},
-            {"情节推进", direction.plot_progress},
-            {"人物变化", direction.character_change},
-            {"信息释放", direction.information_release},
-            {"伏笔动作", direction.foreshadowing_action},
-            {"情绪定位", direction.emotion},
-            {"章首拉力", direction.opening_hook},
-            {"章尾断章", direction.ending_hook},
-            {"篇幅与场次", direction.word_count_and_scenes},
-            {"场次计划", scene_plans_text(direction.scene_plans)},
-            {"本章使命", chapter_mission_text(direction.chapter_mission)}
-          ]
-          |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
-          |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
-      end
-
-    "【计划】#{clip_section(append_volume_text(rendered, volume), @chapter_plan_max_chars)}"
-  end
-
   # 本章所属卷（按 TOC 卷节点反查：章的 volume_id / 章 id 归组）。
   defp chapter_volume(volumes, chapter) do
     Enum.find(volumes, fn volume ->
@@ -828,259 +981,19 @@ defmodule NovelApplication.ExplorationService do
     end)
   end
 
-  defp append_volume_text(rendered, volume) do
-    case volume_blueprint_text(volume) do
-      "" -> rendered
-      text -> rendered <> "；" <> text
-    end
-  end
-
-  defp volume_blueprint_text(nil), do: ""
-
-  defp volume_blueprint_text(volume) do
-    blueprint = volume |> Map.get(:blueprint) |> VolumeBlueprint.to_storage()
-
-    if VolumeBlueprint.empty?(blueprint) do
-      ""
-    else
-      summary = blueprint |> VolumeBlueprint.summary_lines() |> Enum.join("；")
-
-      [
-        volume_title_text(Map.get(volume, :title)),
-        if(summary == "", do: nil, else: "当前卷蓝图：#{summary}")
-      ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("；")
-    end
-  end
-
-  defp volume_title_text(title) when is_binary(title) do
-    case String.trim(title) do
-      "" -> nil
-      trimmed -> "所属卷：#{trimmed}"
-    end
-  end
-
-  defp volume_title_text(_title), do: nil
-
-  # 场次计划（NEM04 刀③，探索面同步律）：规划落库的逐场三槽在判断循环内可读。
-  # B11C CP1：VS-00E §1 场级结构子槽（因果/信息差/对白/感官）同批可读；缺子槽不渲染。
-  defp scene_plans_text([]), do: nil
-
-  defp scene_plans_text(plans) when is_list(plans) do
-    Enum.map_join(plans, " / ", fn plan ->
-      slots = plan |> ChapterPlanDirection.scene_slot_lines() |> Enum.join("；")
-
-      if slots == "", do: plan["title"], else: "#{plan["title"]}（#{slots}）"
-    end)
-  end
-
-  # 本章使命（WR01b，探索面同步律）：落章计划的使命与裁决状态在判断循环内可读。
-  defp chapter_mission_text(nil), do: nil
-
-  defp chapter_mission_text(mission) do
-    case NovelDomain.ChapterMission.from_map(mission) do
-      %NovelDomain.ChapterMission{statement: statement} = m when is_binary(statement) ->
-        items =
-          Enum.map(m.must_advance, &"必须推进：#{&1["text"]}") ++
-            Enum.map(m.must_avoid, &"不得：#{&1["text"]}")
-
-        status = mission_status_label(m.status)
-        Enum.join(["#{statement}（#{status}）" | items], "；")
-
-      _ ->
-        nil
-    end
-  end
-
-  defp mission_status_label(@chapter_mission_confirmed), do: "作者已确认"
-  defp mission_status_label(@chapter_mission_author_edited), do: "作者改写"
-  defp mission_status_label(_), do: "暂定"
-
-  # 实现态压缩层（chapter_summaries 治理摘要；CP5b 探索补面 B）。
-  defp chapter_summary_section(work_id, chapter) do
-    case ChapterSummaryRepo.current_accepted(work_id, chapter.id) do
-      %{summary_text: text} when is_binary(text) and text != "" ->
-        "【摘要】#{clip_section(text, @chapter_summary_max_chars)}"
-
-      _ ->
-        "【摘要】（尚无章摘要）"
-    end
-  end
-
   # ── archive_read ──
 
-  defp archive_read(work_id, facet) when facet in @archive_facets do
-    {:ok, observation("archive_read", facet, facet_summary(facet, work_id), ["archive:#{facet}"])}
-  end
-
-  defp archive_read(_work_id, facet),
-    do: {:error, {:unknown_archive_facet, facet, @archive_facets}}
-
-  defp facet_summary("profile", work_id), do: render_profile(WorkArchiveService.profile(work_id))
-
-  defp facet_summary("characters", work_id),
-    do: render_characters(WorkArchiveService.characters(work_id))
-
-  defp facet_summary("foreshadowing", work_id),
-    do: render_memory_items("伏笔", WorkArchiveService.foreshadowing(work_id))
-
-  defp facet_summary("rules", work_id),
-    do: render_memory_items("规则", WorkArchiveService.rules(work_id))
-
-  defp facet_summary("stats", work_id), do: render_stats(WorkArchiveService.stats(work_id))
-
-  defp facet_summary("current_state", work_id),
-    do: render_memory_items("当前状态", WorkArchiveService.current_states(work_id))
-
-  defp facet_summary("relationships", work_id),
-    do: render_memory_items("人物关系", WorkArchiveService.relationships(work_id))
-
-  defp facet_summary("preferences", work_id),
-    do: render_memory_items("作者偏好", WorkArchiveService.preferences(work_id))
-
-  defp facet_summary("ledgers", work_id) do
-    render_ledgers(WorkArchiveService.ledgers(work_id)) <>
-      render_reconciliation_report(WorkArchiveService.latest_reconciliation_report(work_id))
-  end
-
-  defp planning_mission_line(%{"planning_mission" => %{} = mission}) do
-    case mission["statement"] do
-      statement when is_binary(statement) and statement != "" ->
-        status =
-          case mission["status"] do
-            @chapter_mission_confirmed -> "已确认"
-            @chapter_mission_author_edited -> "作者改写"
-            _ -> "暂定"
-          end
-
-        "#{statement}（#{status}）"
-
-      _ ->
-        nil
+  defp archive_read(work_id, query) do
+    with {:ok, material} <- WorkArchiveService.read(work_id, query) do
+      {:ok,
+       observation("archive_read", query, material.summary, material.refs,
+         clip: false,
+         facts: material.facts,
+         outcome: material.outcome,
+         activity_summary: activity_text("archive_read", material.coverage.facet),
+         extra: Map.drop(material, [:summary, :refs, :facts, :outcome])
+       )}
     end
-  end
-
-  defp planning_mission_line(_), do: nil
-
-  defp render_profile(profile) when map_size(profile) == 0, do: "作品档案暂无简介。"
-
-  defp render_profile(profile) do
-    [
-      {"书名", profile[:title]},
-      {"类型", profile[:genre]},
-      {"核心卖点", profile[:core_selling_point]},
-      # CA01（NEM-GAP-01 要素物化 + 08 §8 探索面同步律）：创作锚三字段同批可达
-      {"前提", profile[:premise]},
-      {"主题", profile[:theme]},
-      {"主线目标", profile[:main_goal]},
-      # VS-00G CP3（NEM-GAP-08 全书骨架 + 探索面同步律）：目标体量/卷数/连载形态同批可达
-      {"目标体量（字）", profile[:target_length]},
-      {"预计卷数", profile[:planned_volumes]},
-      {"连载形态", profile[:serial_form]},
-      {"目标读者", profile[:target_reader]},
-      {"基调", profile[:tone_preference]},
-      # WR01c（探索面同步律）：工作级规划使命同批可达
-      {"当前规划使命", planning_mission_line(profile[:planning_direction])}
-    ]
-    |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
-    |> Enum.map_join("\n", fn {label, value} -> "#{label}：#{value}" end)
-    |> case do
-      "" -> "作品档案暂无简介。"
-      text -> text
-    end
-  end
-
-  defp render_characters([]), do: "档案中还没有已采纳角色。"
-
-  defp render_characters(characters) do
-    Enum.map_join(characters, "\n", fn character ->
-      role = character[:narrative_role] || character[:role]
-      summary = character[:summary] || ""
-      "#{character[:name]}（#{role}）：#{summary}"
-    end)
-  end
-
-  defp render_memory_items(label, []), do: "档案中还没有#{label}条目。"
-
-  defp render_memory_items(_label, items) do
-    Enum.map_join(items, "\n", fn item ->
-      title = item[:summary] || ""
-      body = item[:content] || ""
-      String.trim("#{title}：#{body}", "：")
-    end)
-  end
-
-  # VS-00F 账面机械渲染（不代笔、不伪造）。CP2a 起含弧光/承诺/信息账；无数据诚实说明。
-  defp render_ledgers([]), do: "脉络暂无记录（脉络随正文采纳自动维护；未落地脉络诚实缺席）。"
-
-  # 情绪曲线账每章一条，逐条呈现会淹没观察——聚合为一行统计 + 最近偏差章；
-  # 其余账逐条机械呈现。
-  defp render_ledgers(entries) do
-    {emotion, rest} = Enum.split_with(entries, &(&1.ledger == "emotion_curve"))
-
-    [Enum.map_join(rest, "\n", &render_ledger_entry/1), render_emotion_aggregate(emotion)]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
-  defp render_emotion_aggregate([]), do: ""
-
-  defp render_emotion_aggregate(entries) do
-    counts = Enum.frequencies_by(entries, & &1.status)
-
-    deviated =
-      entries
-      |> Enum.filter(&(&1.status == "DEVIATED"))
-      |> Enum.sort_by(&(-(Map.get(&1.payload || %{}, "seq") || 0)))
-      |> Enum.take(3)
-      |> Enum.map_join("、", & &1.subject_label)
-
-    "情绪曲线：相符 #{counts["MATCHED"] || 0} / 偏离 #{counts["DEVIATED"] || 0} / 计划外 #{counts["UNPLANNED"] || 0}" <>
-      if(deviated == "", do: "", else: "；最近偏离：#{deviated}")
-  end
-
-  defp render_ledger_entry(%{ledger: "arc"} = entry) do
-    seen = Map.get(entry.payload || %{}, "last_seen_seq")
-    seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
-    "角色弧光·#{entry.subject_label}：#{entry.status}，#{seen_text}"
-  end
-
-  defp render_ledger_entry(%{ledger: "promise"} = entry),
-    do: "题材承诺·#{entry.subject_label}：#{entry.status}"
-
-  defp render_ledger_entry(%{ledger: "information"} = entry) do
-    fact = Map.get(entry.payload || %{}, "fact") || entry.subject_label
-    "信息与伏笔·#{entry.subject_label}：#{entry.status}（#{fact}）"
-  end
-
-  defp render_ledger_entry(%{ledger: "conflict"} = entry) do
-    seq = Map.get(entry.payload || %{}, "last_advanced_seq")
-    advanced = if is_integer(seq), do: "最近推进第#{seq}章", else: "尚无推进记录"
-    "主线冲突·#{entry.subject_label}：#{entry.status}，#{advanced}"
-  end
-
-  defp render_ledger_entry(entry), do: "#{entry.ledger}·#{entry.subject_label}：#{entry.status}"
-
-  # CP2b：最新对账报告（TENTATIVE 裁决材料）随账面机械呈现；无报告不虚构。
-  defp render_reconciliation_report(nil), do: ""
-
-  defp render_reconciliation_report(report) do
-    items =
-      report.findings
-      |> Enum.map_join("\n", fn finding ->
-        severity = finding["severity"] || finding[:severity]
-        signal = finding["signal"] || finding[:signal]
-        "- [#{severity}] #{signal}"
-      end)
-
-    "\n审读报告（待作者处置，#{report.finding_count} 处偏离）：\n#{items}"
-  end
-
-  defp render_stats(stats) do
-    "已采纳正文总字数 #{stats[:words_total] || 0}；卷数 #{stats[:volumes] || 0}；" <>
-      "章节数 #{stats[:chapters] || 0}；" <>
-      "已采纳角色 #{stats[:characters] || 0}；确认记忆 #{stats[:memory_items] || 0}。"
   end
 
   # ── memory_recall ──
@@ -1088,73 +1001,116 @@ defmodule NovelApplication.ExplorationService do
   defp memory_recall(_work_id, ""), do: {:error, :empty_query}
 
   defp memory_recall(work_id, query) do
-    note = character_role_note(work_id, query)
+    with {:ok, selector} <- MemoryManagementService.recall_selector(query) do
+      params =
+        case selector do
+          %{kind: "recall", query: search} -> %{"query" => search}
+          %{memory_ref: "memory:" <> id} -> %{"memory_id" => id}
+        end
 
-    case MemoryManagementService.recall(work_id, %{"query" => query}) do
-      {:ok, %{text: text, candidate_count: count}} when count > 0 and text != "" ->
-        {:ok,
-         observation(
-           "memory_recall",
-           query,
-           "记忆检索「#{query}」命中 #{count} 条：\n#{text}#{note}",
-           ["memory:#{count}"],
-           facts: %{hit_count: count}
-         )}
-
-      {:ok, _empty} ->
-        {:ok,
-         observation("memory_recall", query, "记忆中未检索到「#{query}」。#{note}", [],
-           outcome: :empty_result,
-           facts: %{hit_count: 0},
-           activity_summary: "已检索记忆「#{query}」：没有命中任何记忆条目。"
-         )}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp character_role_note(work_id, query) do
-    if role_query?(query) do
-      # targets/1 成功面只有 {:ok, list} 或 list（见 CharacterProfile 读端口约定）；
-      # 其它形态会 raise 并由本函数 rescue 兜底为空串，行为不变（B60）。
-      case NovelApplication.CharacterProfile.targets(work_id) do
-        {:ok, characters} -> role_fact_note(characters)
-        characters when is_list(characters) -> role_fact_note(characters)
+      with {:ok, %{items: items}} <- MemoryManagementService.recall(work_id, params) do
+        memory_observation(items, selector, work_id, query)
       end
-    else
-      ""
-    end
-  rescue
-    _ -> ""
-  end
-
-  # query 在分析域内恒为 binary；非 binary 会 raise 并由 character_role_note/2 的
-  # rescue 兜底为空串，与原 `is_binary(query) and ...` 的 false 分支结果一致（B60）。
-  defp role_query?(query) do
-    String.contains?(query, ["主角", "反派", "配角", "身份", "谁是", "叙事角色"])
-  end
-
-  @doc false
-  def role_fact_note(characters) when is_list(characters) do
-    protagonists =
-      characters
-      |> Enum.filter(&(Map.get(&1, :narrative_role) == "PROTAGONIST"))
-      |> Enum.map(&(Map.get(&1, :name) || "未命名角色"))
-
-    cond do
-      protagonists != [] ->
-        "\n（当前角色主档案为准：主角=#{Enum.join(protagonists, "、")}；记忆中的旧身份描述属历史，不改变当前字段。）"
-
-      characters != [] ->
-        "\n（当前角色主档案为准：尚无被标记为主角的角色；记忆中的旧身份描述属历史，不改变当前字段。）"
-
-      true ->
-        ""
     end
   end
 
-  def role_fact_note(_characters), do: ""
+  defp memory_observation(items, %{kind: "recall"}, work_id, query) do
+    rows = Enum.map(items, &MemoryManagementService.recall_preview/1)
+    refs = Enum.map(items, &"memory:#{&1.id}")
+    versions = Map.new(items, &{"memory:#{&1.id}", &1.version})
+
+    summary =
+      if items == [],
+        do: "记忆中未检索到「#{query}」。",
+        else: Jason.encode!(%{returned_count: length(items), items: rows})
+
+    {:ok,
+     observation("memory_recall", query, summary, refs,
+       clip: false,
+       outcome: if(items == [], do: :empty_result, else: :observed),
+       activity_summary: if(items == [], do: "已检索记忆「#{query}」：没有命中任何记忆条目。"),
+       facts: %{hit_count: length(items)},
+       extra: %{
+         versions: versions,
+         next_offset: nil,
+         coverage: %{
+           kind: "recall",
+           work_id: work_id,
+           returned_items: length(items),
+           exhaustive: false,
+           items: Enum.map(rows, &Map.drop(&1, [:text]))
+         },
+         omissions: ["本次仅供应有界召回摘要/预览，不代表全部记忆；完整正文请按 memory_ref/offset 读取。"]
+       }
+     )}
+  end
+
+  defp memory_observation([], %{kind: "detail"}, _work_id, _query),
+    do: {:error, :memory_not_found}
+
+  defp memory_observation([item], %{memory_ref: ref, offset: offset}, work_id, query) do
+    with {:ok, page} <- source_page(item.content, offset, :memory_offset_out_of_range) do
+      coverage = %{kind: "detail", work_id: work_id, memory_ref: ref, summary: page.range}
+
+      {:ok,
+       observation("memory_recall", query, page.text, [ref],
+         clip: false,
+         outcome: page.outcome,
+         facts: %{
+           memory:
+             Map.take(item, [
+               :id,
+               :work_id,
+               :version,
+               :type,
+               :scope,
+               :status,
+               :source_type,
+               :source_id
+             ])
+         },
+         extra:
+           Map.merge(Map.drop(page, [:text, :range, :outcome]), %{
+             versions: %{ref => item.version},
+             coverage: coverage
+           })
+       )}
+    end
+  end
+
+  defp source_page(text, offset, error) do
+    total = String.length(text)
+
+    with :ok <- read_offset(offset, total, error) do
+      body = String.slice(text, offset, @chapter_page_chars)
+      stop = offset + String.length(body)
+      next = if stop < total, do: stop, else: nil
+      partial = offset > 0 or not is_nil(next)
+
+      {:ok,
+       %{
+         text: body,
+         next_offset: next,
+         source_hash: ProseFormatting.source_hash(text),
+         range: %{
+           offset: offset,
+           returned_graphemes: String.length(body),
+           total_graphemes: total,
+           offset_unit: "unicode_grapheme"
+         },
+         omissions:
+           if(partial,
+             do: ["本页仅含原文 [#{offset}, #{stop}) / #{total} grapheme；其余范围未在本页供应。"],
+             else: []
+           ),
+         outcome: if(partial, do: :partial, else: :observed)
+       }}
+    end
+  end
+
+  defp read_offset(0, 0, _error), do: :ok
+  defp read_offset(offset, total, _error) when offset >= 0 and offset < total, do: :ok
+  defp read_offset(_offset, _total, error), do: {:error, error}
 
   # ── 公共 ──
 
@@ -1172,6 +1128,7 @@ defmodule NovelApplication.ExplorationService do
   @doc "探索工具失败时给作者的诚实人话（不含内部工具 id / inspect 结构）。"
   @spec activity_failure_summary(String.t() | nil) :: String.t()
   def activity_failure_summary("chapter_read"), do: "章节检索未完成，可换个章名再试。"
+  def activity_failure_summary("session_message_read"), do: "会话原文回查未完成，请核对消息来源后重试。"
   def activity_failure_summary(_tool), do: "作品检索未完成，可换个检索词再试。"
 
   @doc """
@@ -1189,9 +1146,62 @@ defmodule NovelApplication.ExplorationService do
       tool: observation |> Map.get(:tool) |> normalize_metadata_text(),
       query: observation |> Map.get(:query) |> normalize_metadata_text(),
       outcome: observation |> Map.get(:outcome) |> normalize_metadata_outcome(),
-      facts: Map.get(observation, :facts) || %{}
+      facts: Map.get(observation, :facts) || %{},
+      source_refs: Map.get(observation, :refs) || []
+    }
+    |> Map.merge(
+      Map.take(observation, [
+        :versions,
+        :coverage,
+        :omissions,
+        :next_offset,
+        :prose_range,
+        :prose_byte_range,
+        :prose_total_chars,
+        :chapter_ref,
+        :observation_ref,
+        :source_hash,
+        :target_segments,
+        :coverage_note,
+        :continue_hint
+      ])
+    )
+  end
+
+  @doc "同次真实读取进入 RequestIR 的唯一观察投影；来源、覆盖与可选身份保持原值。"
+  @spec request_observation(map()) :: map()
+  def request_observation(observation) do
+    %{
+      status:
+        Map.get(@observation_statuses, to_string(observation_field(observation, :outcome)), "ok"),
+      source_refs: observation_field(observation, :refs) || [],
+      versions: observation_field(observation, :versions) || %{},
+      coverage:
+        observation
+        |> Map.take([:prose_range, :prose_byte_range, :prose_total_chars, :chapter_ref])
+        |> Map.merge(observation_field(observation, :coverage) || %{})
+        |> Map.merge(%{
+          coverage_note: observation_field(observation, :coverage_note),
+          continuation_hint: observation_field(observation, :continue_hint)
+        }),
+      omissions: observation_field(observation, :omissions) || [],
+      next_offset: observation_field(observation, :next_offset),
+      content:
+        %{
+          summary: observation_field(observation, :summary),
+          tool: observation_field(observation, :tool),
+          query: observation_field(observation, :query),
+          facts: observation_field(observation, :facts) || %{}
+        }
+        |> put_present(:observation_ref, observation_field(observation, :observation_ref))
+        |> put_present(:source_hash, observation_field(observation, :source_hash))
+        |> put_present(:target_segments, observation_field(observation, :target_segments))
     }
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+  defp observation_field(map, key), do: Map.get(map, key, Map.get(map, to_string(key)))
 
   defp normalize_metadata_text(nil), do: ""
   defp normalize_metadata_text(value) when is_binary(value), do: value
@@ -1223,6 +1233,7 @@ defmodule NovelApplication.ExplorationService do
 
   defp archive_facet_label("profile"), do: "作品简介"
   defp archive_facet_label("characters"), do: "角色档案"
+  defp archive_facet_label("chapters"), do: "章节目录"
   defp archive_facet_label("foreshadowing"), do: "伏笔"
   defp archive_facet_label("rules"), do: "写作规则"
   defp archive_facet_label("stats"), do: "作品统计"
@@ -1232,7 +1243,7 @@ defmodule NovelApplication.ExplorationService do
   defp archive_facet_label("ledgers"), do: "脉络账本"
   defp archive_facet_label(_facet), do: "作品档案"
 
-  defp observation(tool, query, summary, refs, opts \\ []) do
+  defp observation(tool, query, summary, refs, opts) do
     summary = observation_summary(summary, Keyword.get(opts, :clip, true))
 
     base = %{

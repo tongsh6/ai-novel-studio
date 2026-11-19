@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
   alias NovelCommon.RequestIR
+  alias NovelTest.TestProviderPrompt
 
   test "bounded roster-to-character-design run executes two re-gated steps and keeps artifact tentative" do
     parent = self()
@@ -16,7 +17,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     provider_execution = %Execution{result_fn: result_fn}
 
     input = %{
-      text: "先看看当前已有角色，再帮我设计一个与主角形成镜像冲突的主要反派。",
+      text: "  先看看当前已有角色，再帮我设计一个与主角形成镜像冲突的主要反派。R05ROSTERAUTHOR91\r\n",
       workspace_id: "work-agent-flow",
       work_id: "work-agent-flow",
       session_id: "11111111-1111-4111-8111-111111111118",
@@ -60,8 +61,15 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
     assert_receive {:provider_prompt, provider_prompt}, 500
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "已完成观察"
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
+
+    assert_roster_request(
+      provider_prompt,
+      input.work_id,
+      "turn-agent-flow",
+      input.text,
+      "R05ROSTERAUTHOR91"
+    )
+
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
 
@@ -255,7 +263,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
 
     assert_receive :roster_reader_started
-    raw_steer = "  改成政治操盘者，不做武力型反派 Ω\n  "
+    raw_steer = "  改成政治操盘者，不做武力型反派 Ω R05STEERGOAL91\n  "
     assert {:ok, _} = AgentRunService.steer(run_id, raw_steer)
     assert_receive {:agent_event, :plan_adjusted, _}
     assert_receive {:provider_prompt, provider_prompt}, 500
@@ -268,13 +276,46 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
              |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))
              |> List.last()
 
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "已完成观察"
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(provider_prompt) =~ "林烬"
+    assert_roster_request(
+      provider_prompt,
+      work.id,
+      "turn-agent-steer:steer:2",
+      raw_steer,
+      "R05STEERGOAL91"
+    )
+  end
+
+  defp assert_roster_request(request, work_id, goal_ref, author_text, author_nonce) do
+    assert :ok = RequestIR.validate(request)
+    assert TestProviderPrompt.author_text(request) == author_text
+    scope = TestProviderPrompt.scope_content(request)
+    task = scope["authoring_task"]
+    assert task["author_goal"] == %{"source_input_ref" => goal_ref}
+
+    assert scope["operation"]["context_text"] =~
+             "- 林烬（主角）：以底层债务驱动行动 R05ROSTERFACT91\n- 白玄（师父）：维持旧秩序的守门人"
+
+    refute scope["operation"]["creative_brief"] =~ "R05ROSTERFACT91"
+    refute Jason.encode!(scope) =~ author_nonce
+    material_ref = "character_roster:work:" <> work_id
+
+    assert [%{"ref" => ^material_ref}] =
+             Enum.filter(task["materials"], &(&1["kind"] == "character_roster"))
+
+    assert Enum.any?(request.refs.base_refs, &(&1.ref == material_ref))
+    refute Enum.any?(request.refs.observation_refs, &(&1.ref == material_ref))
+
+    for wire <- ~w(chat_completions responses_api anthropic_messages) do
+      assert {:ok, body} = RequestIR.Projection.project(request, wire)
+      encoded = Jason.encode!(body)
+      assert length(String.split(encoded, "R05ROSTERFACT91")) == 2
+      assert length(String.split(encoded, author_nonce)) == 2
+    end
   end
 
   defp characters do
     [
-      %{name: "林烬", role: "主角", summary: "以底层债务驱动行动"},
+      %{name: "林烬", role: "主角", summary: "以底层债务驱动行动 R05ROSTERFACT91"},
       %{name: "白玄", role: "师父", summary: "维持旧秩序的守门人"}
     ]
   end

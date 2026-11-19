@@ -15,4 +15,4 @@
 - [projection/responses_api.ex](projection/responses_api.ex)：Responses 请求投影。
 - [projection/anthropic_messages.ex](projection/anthropic_messages.ex)：Anthropic Messages 请求投影。
 
-现有验证仍经公共 RequestIR 边界，见 [request_ir_test.exs](../../../test/novel_common/request_ir_test.exs) 与 [compaction_test.exs](../../../test/novel_common/request_ir/compaction_test.exs)。
+现有验证仍经公共 RequestIR 边界，见 [request_ir_test.exs](../../../test/novel_common/request_ir_test.exs) 与 [compaction_test.exs](../../../test/novel_common/request_ir/compaction_test.exs)；应用实际后继请求验证见 planned_exploration_material_test.exs。
