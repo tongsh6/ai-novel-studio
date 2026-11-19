@@ -110,6 +110,7 @@ test("capture 绑定 raw、文本和截图内容，同数量页面不混用且�
     assert.equal(capture.screenshot.ok, true);
     assert.equal(capture.screenshot.fallback, false);
     assert.equal(fs.readFileSync(path.join(dir, sample.name + ".text.txt"), "utf8"), sample.text);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, sample.name + ".ax.json"), "utf8")), sample.nodes);
     assert.deepEqual(fs.readFileSync(path.join(dir, sample.name + ".jpg")), screenshotBytes);
     assertRecordFresh(dir, sample.name, "1970-01-01T00:00:00.000Z");
   }

@@ -25,26 +25,37 @@ function selectedRequest(requests, providerCallRef) {
   return matches.length === 1 && boundRequest(matches[0]) ? matches[0] : null;
 }
 // 只核现役 N-NARR 来源契约；可见文字由生产层决定，这里不复制 sanitizer。
-function replySourceBound(witness, request, runId, reply) {
+export function judgmentNarrativeSourceBound(witness, request, runId, reply, action = "reply") {
   const event = witness?.event, output = witness?.output;
   const payload = event?.payload, source = payload?.author_narrative_source;
   const range = source?.source_byte_range;
   if (!request || !nonBlank(runId) || !nonBlank(reply) ||
     event?.run_id !== runId || event.event_type !== "judgment_decided" ||
-    payload?.action !== "reply" || payload.author_narrative !== reply ||
-    source?.source_type !== "provider_output" || output?.run_id !== runId ||
+    !["reply", "execute"].includes(action) || payload?.action !== action || payload.author_narrative !== reply ||
+    !["provider_output", "provider_output_tool_narrative"].includes(source?.source_type) || output?.run_id !== runId ||
     output.role !== "assistant" || output.provenance !== "model" ||
     source.provider_call_ref !== request.provider_call_ref ||
     source.provider_run_ref !== request.provider_run_ref ||
     source.provider_output_ref !== request.provider_run_ref ||
     output.provider_call_ref !== request.provider_call_ref ||
     output.provider_run_ref !== request.provider_run_ref ||
-    !Array.isArray(output.blocks) || output.blocks.some((block) => block.type === "tool_call") ||
+    !Array.isArray(output.blocks) || (action === "reply" &&
+      (source.source_type !== "provider_output" || output.blocks.some((block) => block.type === "tool_call"))) ||
     !Number.isInteger(range?.start) || range.start < 0 ||
     !Number.isInteger(range.length) || range.length <= 0) return false;
-  const text = output.blocks.filter((block) => block.type === "text").map((block) => block.text);
-  if (text.length === 0 || !text.every((value) => typeof value === "string")) return false;
-  const raw = text.join(""), bytes = Buffer.from(raw, "utf8");
+  let raw;
+  if (source.source_type === "provider_output") {
+    const text = output.blocks.filter((block) => block.type === "text").map((block) => block.text);
+    if (text.length === 0 || !text.every((value) => typeof value === "string")) return false;
+    raw = text.join("");
+  } else {
+    if (!nonBlank(source.tool_call_name) || !nonBlank(source.tool_call_narrative_field)) return false;
+    const tools = output.blocks.filter((block) => block.type === "tool_call" && block.name === source.tool_call_name);
+    if (tools.length !== 1) return false;
+    raw = tools[0].arguments?.[source.tool_call_narrative_field];
+    if (typeof raw !== "string" || range.start !== 0 || range.length !== Buffer.byteLength(raw)) return false;
+  }
+  const bytes = Buffer.from(raw, "utf8");
   const end = range.start + range.length;
   return end <= bytes.length && source.source_hash === sha256Hex(raw) &&
     source.narrative_hash === sha256Hex(reply) &&
@@ -290,7 +301,7 @@ export function r05GoalEvidence({
     canon_unchanged: zero_write?.ok === true, actual_reply: nonBlank(reply),
   };
   if (goal === "count" || goal === "quality") {
-    checks.reply_source_bound = replySourceBound(reply_source, consumer, run_id, reply);
+    checks.reply_source_bound = judgmentNarrativeSourceBound(reply_source, consumer, run_id, reply);
   }
   if (goal === "count") Object.assign(checks, countChecks(all[0], source, pending_count));
   if (goal === "quality") Object.assign(checks, {
@@ -555,7 +566,7 @@ export function clippedViewport(nodes, node) {
       Math.min(clip[2], box[2]), Math.min(clip[3], box[3])] : box;
   }, null);
 }
-function withinViewport(nodes, node, { bodyStart = false } = {}) {
+export function withinViewport(nodes, node, { bodyStart = false } = {}) {
   if (!validRect(node?.frame)) return false;
   const clip = clippedViewport(nodes, node);
   if (!clip || clip[0] >= clip[2] || clip[1] >= clip[3]) return false;

@@ -272,12 +272,12 @@ export function readG2PageInputs(dir, { workId, runId, target } = {}) {
   });
 }
 
-function readR05ReplySource(dir, history, reply) {
+export function readJudgmentNarrativeSource(dir, history, reply, action = "reply") {
   const events = withDb(dir, (db) => all(db,
     "SELECT run_id, event_type, payload FROM agent_events WHERE run_id = ? AND event_type = 'judgment_decided'",
     [history.record.id])).map((row) => ({ ...row, payload: JSON.parse(row.payload) }));
   const matching = events.filter((event) =>
-    event.payload.action === "reply" && event.payload.author_narrative === reply);
+    event.payload.action === action && event.payload.author_narrative === reply);
   if (matching.length !== 1) return null;
   const source = matching[0].payload.author_narrative_source;
   const outputs = history.transcript.messages.filter((message) =>
@@ -320,7 +320,7 @@ export function readR05Inputs(dir, { config, history, records, wire }) {
   const writer = candidate ? writerArtifactMatch({ artifact: candidate, records }) : null;
   const reply = String(body.assistant_message?.text ?? "");
   const writing = config.r05_goal === "whole" || config.r05_goal === "style";
-  const replySource = writing ? null : readR05ReplySource(dir, history, reply);
+  const replySource = writing ? null : readJudgmentNarrativeSource(dir, history, reply);
   const requests = records.map((record) => ({
     provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref,
     facts: requestFactsFromRecord(record),

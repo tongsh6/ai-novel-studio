@@ -13,12 +13,18 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import {
-  candidateFacts, candidateChecks, rolesEqual, zeroWriteBetween, stateChecks, characterReadCandidateEvidence,
+  candidateFacts, candidateChecks, rolesEqual, zeroWriteBetween, stateChecks, characterReadCandidateEvidence, b29RoleCandidateVisible, b29RoleNoChangeVisible,
 } from "./lib/native_ui/authoring_character_candidate_evidence.mjs";
 import { splashRuntime, validatePreregistrationFile } from "./lib/native_ui/authoring_capture_evidence.mjs";
-import { bindNativeCalls, readNativeCallStarts } from "./lib/native_ui/authoring_run_evidence.mjs";
-import { readBatchAuthoringHistory } from "./lib/native_ui/authoring_history_evidence.mjs";
+import { bindNativeCalls, readNativeCallStarts, readJudgmentNarrativeSource } from "./lib/native_ui/authoring_run_evidence.mjs";
+import { authoringScope, readAuthoringHistory, readBatchAuthoringHistory } from "./lib/native_ui/authoring_history_evidence.mjs";
+import { judgmentNarrativeSourceBound } from "./lib/native_ui/authoring_r05_evidence.mjs";
+import { assistantCalls } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import { loadForbiddenTokens } from "./lib/author_visible/leak_scan.mjs";
+import { assertCapturedNodes } from "./lib/native_ui/authoring_live_evidence.mjs";
+import { axAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
+import { flatText } from "./lib/native_ui/workbench.mjs";
 import {
   assertCommonEvidence as assertNativeCommonEvidence,
   assertProviderAndWire as assertNativeProviderAndWire, writeNativeSummary,
@@ -432,7 +438,7 @@ function pendingOf(turn) {
 
 // action_result 的 artifact 归属：顶层 artifact_id / target_ref，或 decision 内 target_ref/candidate_ref，
 // 或 action_id 与发送动作匹配（accept -> adopt: 前缀差异，不能只用 action_id 严格相等）。
-function receiptMatchesArtifact(body, artifactId, sendAction) {
+export function receiptMatchesArtifact(body, artifactId, sendAction) {
   if (!body || typeof body !== "object") return false;
   const decision = body.decision ?? {};
   return (
@@ -516,6 +522,68 @@ function assertRecordFresh(dir, name, readyAt) {
   const jpg = path.join(dir, `${name}.jpg`);
   const magic = fs.readFileSync(jpg).subarray(0, 8).toString("hex");
   assert(magic.startsWith("ffd8ff") || magic === "89504e470d0a1a0a", `截图格式非法: ${name}.jpg`);
+}
+
+export function readB29NativeView(dir, name, turn) {
+  const common = { ready: read(dir, "native-driver-ready.json"), ui: read(dir, "native-ui-complete.json") };
+  const log = read(dir, "b29-native-driver-log.json"), wire = transport(dir);
+  assert.equal(log.run_ref, common.ready.run_ref, "B29 capture log 必须属于本批");
+  assert.equal(common.ui.harness_run_ref, common.ready.run_ref, "B29 截图清单必须属于本批");
+  assert(wire.some((entry) => same(entry, turn.message)), "B29 作者帧必须存在于真实 transport");
+  const message = frameBody(turn.message), runId = frameBody(turn.ack)?.response?.run_id;
+  assert(wire.some((entry) => same(entry, turn.ack)), "B29 ack 必须存在于真实 transport");
+  const terminal = wireTerminal(wire, { turnId: message.turn_id, runId,
+    topic: frameOf(turn.message)[2], workId: message.work_id, sessionId: message.session_id,
+    since: turn.message.at, resultPosition: "last", requireWireTerminal: true });
+  assert.equal(terminal?.kind, "completed", "B29 可见交付必须属于当前真实完成运行");
+  assert.deepEqual(terminal.body, turn.result, "B29 可见交付不得借用前缀相同的其他回合");
+  const inputs = (log.inputs ?? []).filter((entry) => entry.turn_id === message.turn_id);
+  assert.equal(inputs.length, 1, "B29 当前发送必须唯一绑定输入前 capture");
+  const input = inputs[0];
+  assert.equal(input.run_id, runId, "B29 输入前 capture 的运行不符");
+  assert.equal(input.message, message.text, "B29 输入前 capture 的作者原话不符");
+  const readCapture = (captureName) => {
+    assert(typeof captureName === "string" && /^[A-Za-z0-9_-]+$/u.test(captureName), "B29 capture 名非法");
+    assertRecordFresh(dir, captureName, common.ready.ready_at);
+    const rawFile = path.join(dir, captureName + ".ax.json");
+    assert(fs.statSync(rawFile).mtimeMs >= Date.parse(common.ready.ready_at), "B29 raw 早于窗口就绪");
+    const nodes = read(dir, captureName + ".ax.json");
+    const capture = assertCapturedNodes(dir, captureName, nodes, log, common);
+    assert.equal(axText(dir, captureName), flatText(nodes), "B29 可见文本必须来自同一 raw");
+    return { nodes, capture };
+  };
+  const baseline = readCapture(input.baseline_capture), current = readCapture(name);
+  const baselineTime = Date.parse(baseline.capture.at), currentTime = Date.parse(current.capture.at);
+  assert(baselineTime <= Date.parse(turn.message.at), "B29 作者基线必须早于发送");
+  const otherInputs = wire.filter((entry) => entry.direction === "sent" && frameEvent(entry) === "user_message" &&
+    frameOf(entry)[2] === frameOf(turn.message)[2] && frameBody(entry)?.turn_id !== message.turn_id);
+  const previous = otherInputs.filter((entry) => entry.at < turn.message.at).at(-1);
+  const next = otherInputs.find((entry) => entry.at > turn.message.at);
+  assert(!previous || baselineTime >= Date.parse(previous.at), "B29 基线不得借用前一作者输入之前的页面");
+  assert(currentTime >= Math.max(Date.parse(terminal.record.at), Date.parse(terminal.run_record.at)),
+    "B29 可见 capture 必须在真实结果与完成状态之后");
+  assert(!next || currentTime < Date.parse(next.at), "B29 capture 不得借用下一作者输入的页面");
+  const baselineAuthorCount = axAuthorMessages(baseline.nodes, message.text).length;
+  assert.equal(input.baseline_author_count, baselineAuthorCount, "B29 作者基线须从绑定 raw 独立重算");
+  return { nodes: current.nodes, message: message.text, baselineAuthorCount, workTitle: WORK_TITLE };
+}
+
+export function b29NoChangeSourceBound(dir, wire, turn, config) {
+  const scope = authoringScope(wire, turn.message, { workId: config.seed.work_id, parentTurnId: turn.turnId });
+  const runId = frameBody(turn.ack)?.response?.run_id;
+  const history = readAuthoringHistory(dir, { ...scope, run_id: runId });
+  const calls = bindNativeCalls(dir, history.transcript.run, history, logs(path.join(dir, "llm-calls")));
+  if (!Object.values(calls.checks).every((value) => value === true)) return false;
+  const reply = turn.result?.assistant_message?.text;
+  const witness = readJudgmentNarrativeSource(dir, history, reply, "execute");
+  const source = witness?.event?.payload?.author_narrative_source;
+  const requests = calls.records.filter((record) => record.provider_call_ref === source?.provider_call_ref &&
+    record.provider_run_ref === source?.provider_run_ref);
+  const decision = assistantCalls(history.transcript).at(-1);
+  return requests.length === 1 && decision?.name === "judgment_decision" &&
+    decision.arguments?.action === "execute" && decision.arguments?.capability === "revise_character_profile" &&
+    decision.pcall === source?.provider_call_ref && decision.prun === source?.provider_run_ref &&
+    judgmentNarrativeSourceBound(witness, requests[0], runId, reply, "execute");
 }
 
 function assertWaitLedger(dir, { requireRestore, minimum: minimumOverride }) {
@@ -674,7 +742,7 @@ function b29Checks(dir, config, wire, appRecords, production) {
   const t5CrossTurn = turnFacts(wire, messages.t5Cross[0]);
 
   const t1Pending = pendingOf(t1Turn).find((entry) => entry.artifact_type === "character_profile_revision");
-  assert(t1Pending, "T1 正例缺少 character_profile_revision 候选");
+  assert(t1Pending && pendingOf(t1Turn).length === 1, "T1 正例必须只有一个 character_profile_revision 候选");
   const t1Adoption = adoptionFor(wire, t1Pending.artifact_id);
   const t1Plan = candidateFacts({
     pending_payload: t1Pending.payload ?? {},
@@ -719,11 +787,15 @@ function b29Checks(dir, config, wire, appRecords, production) {
 
   const t5Pending = pendingOf(t5DiscardTurn).find((entry) => entry.artifact_type === "character_profile_revision");
   const t5DiscardReceipt = t5Pending ? discardFor(wire, t5Pending.artifact_id) : null;
-  const repeatPending = pendingOf(t5RepeatTurn).find((entry) => entry.artifact_type === "character_profile_revision");
+  const repeatActions = wire.filter((entry) => entry.direction === "sent" &&
+    entry.at >= repeatMessage.at && entry.at < messages.t5Cross[0].at &&
+    ["author_action", "adopt_artifact", "edit_adopt_artifact"].includes(frameEvent(entry)));
+  const repeatNoChange = b29RoleNoChangeVisible({ turnResult: t5RepeatTurn.result,
+    nativeView: readB29NativeView(dir, "T5-repeat", t5RepeatTurn), tokens: loadForbiddenTokens() });
+  const repeatSourceBound = b29NoChangeSourceBound(dir, wire, t5RepeatTurn, config);
 
-  const t1CandidateText = axText(dir, "T1-candidate");
-  const visibleHasOldToNew =
-    t1CandidateText.includes("ENSEMBLE_POV") && t1CandidateText.includes("PROTAGONIST") && t1CandidateText.includes("叙事身份修订");
+  const visibleHasOldToNew = b29RoleCandidateVisible({
+    candidate: t1Pending, nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
 
   const checks = {
     judgment_bound_revise_character_profile: judgmentsFor(appRecords, t1Turn.turnId).some(
@@ -761,9 +833,8 @@ function b29Checks(dir, config, wire, appRecords, production) {
       /主角/u.test(rosterText) === true && followupText.includes("沈砚") && followupText.includes("顾青"),
     followup_zero_write: rolesEqual(t4AfterRefresh, t4FollowupAfter),
     discard_keeps_original: zeroWriteBetween(t5DiscardBefore, t5DiscardAfter) === true,
-    repeat_adoption_idempotent:
-      zeroWriteBetween(t5RepeatBefore, t5RepeatAfter) === true &&
-      t5RepeatBefore.character_count === t5RepeatAfter.character_count,
+    repeat_no_change_separates_model_and_system:
+      same(t5RepeatBefore, t5RepeatAfter) && repeatActions.length === 0 && repeatNoChange && repeatSourceBound,
     cross_work_zero_write: zeroWriteBetween(t5CrossBefore, t5CrossAfter) === true,
     no_product_code_changed: production.unchanged === true,
     no_acceptance_hooks_added: production.unchanged === true,
@@ -841,8 +912,11 @@ function b29Checks(dir, config, wire, appRecords, production) {
         judgment: t5RepeatJudgment,
         assistant_text: String(t5RepeatTurn.result?.assistant_message?.text ?? ""),
         pending_types: pendingOf(t5RepeatTurn).map((entry) => entry.artifact_type),
-        candidate_present: Boolean(repeatPending),
-        idempotent_or_noop: zeroWriteBetween(t5RepeatBefore, t5RepeatAfter),
+        candidate_present: pendingOf(t5RepeatTurn).length !== 0,
+      result_notice_visible: repeatNoChange,
+      model_narrative_source_bound: repeatSourceBound,
+      author_action_count: repeatActions.length,
+        zero_write: same(t5RepeatBefore, t5RepeatAfter),
         character_count_unchanged: t5RepeatBefore.character_count === t5RepeatAfter.character_count,
       },
       cross_work: {
@@ -985,7 +1059,7 @@ function verifyStrataScoped(dir, config) {
   const t2Turn = turnFacts(wire, t2Messages[0]);
 
   const t1Pending = pendingOf(t1Turn).find((entry) => entry.artifact_type === "character_profile_revision");
-  assert(t1Pending, `真实模型 T1 未产出 character_profile_revision 候选（pending=${pendingOf(t1Turn).map((entry) => entry.artifact_type).join(",") || "none"}）`);
+  assert(t1Pending && pendingOf(t1Turn).length === 1, "真实模型 T1 必须唯一交付角色修订候选");
   const t1Adoption = adoptionFor(wire, t1Pending.artifact_id);
   const plan = candidateFacts({ pending_payload: t1Pending.payload ?? {}, action_result: t1Adoption.receipt });
 
@@ -1003,9 +1077,8 @@ function verifyStrataScoped(dir, config) {
   const t2ZeroWrite = zeroWriteBetween(t2Before, t2After);
   const t2Pending = pendingOf(t2Turn).filter((entry) => entry.artifact_type === "character_profile_revision");
 
-  const candidateText = axText(dir, "T1-candidate");
-  const visibleOldToNew =
-    candidateText.includes("ENSEMBLE_POV") && candidateText.includes("PROTAGONIST") && candidateText.includes("叙事身份修订");
+  const visibleOldToNew = b29RoleCandidateVisible({
+    candidate: t1Pending, nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
 
   const providerStarts = appRecords.filter((record) => record.event === "provider_gateway.complete.start");
   const llmOk =
@@ -1234,6 +1307,7 @@ function verifyR03Candidate(dir, config) {
   const pending = (terminal.body.adoption_state?.pending ?? []).filter((entry) =>
     (history.pending ?? []).includes(entry.artifact_id));
   assert.equal(pending.length, 1, "本次 run 的待采纳候选必须唯一");
+  assert.equal(terminal.body.adoption_state.pending.length, 1, "当前页面不能混入其他待采纳候选");
   const calls = bindNativeCalls(dir, history.transcript.run, history, llmRecords);
   const starts = withDb(dir, (db) => readNativeCallStarts(db, run.id));
   const before = read(dir, "t1-before.json").characters_and_memories;
@@ -1246,12 +1320,12 @@ function verifyR03Candidate(dir, config) {
   for (const name of ["T0-workbench", "T1-candidate", "B29-final"]) {
     assertRecordFresh(dir, name, common.ready.ready_at);
   }
-  const visible = axText(dir, "T1-candidate");
   const driver = read(dir, "b29-native-driver-log.json");
   const checks = {
     ...calls.checks, ...result.checks,
     real_sse_only: calls.measured.sse_decoder_tool_only_count === calls.measured.bound_request_count,
-    candidate_visible: ["叙事身份修订", "ENSEMBLE_POV", "PROTAGONIST"].every((value) => visible.includes(value)),
+    candidate_visible: b29RoleCandidateVisible({ candidate: pending[0], tokens: loadForbiddenTokens(),
+      nativeView: readB29NativeView(dir, "T1-candidate", { ...history.facts, message: messages[0], result: terminal.body }) }),
     final_authority_unchanged: same(after, read(dir, "final.json").characters_and_memories),
     driver_identity: driver.driver === common.ui.driver && driver.scope === config.scope &&
       driver.provider === config.provider && driver.model === config.model,

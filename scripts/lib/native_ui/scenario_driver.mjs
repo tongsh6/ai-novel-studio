@@ -78,6 +78,17 @@ export function evidenceText(node) {
   return head === "" ? valueText : `${head} ${valueText}`;
 }
 
+// 原始节点、可见文本与同次窗口截图共用一次内容绑定；调用方仍拥有采样与输入生命周期。
+export function captureNativeSnapshot({ dir, name, target, nodes, text, takeScreenshot, at }) {
+  writeAX(nodes, path.join(dir, `${name}.ax.txt`), target);
+  fs.writeFileSync(path.join(dir, `${name}.ax.json`), JSON.stringify(nodes));
+  fs.writeFileSync(path.join(dir, `${name}.text.txt`), text);
+  const shot = takeScreenshot(path.join(dir, `${name}.jpg`));
+  return { name, at, nodes: nodes.length,
+    ax_sha256: sha256(JSON.stringify(nodes)), text_sha256: sha256(text),
+    screenshot: shot.ok ? { ...shot, sha256: shaFile(path.join(dir, `${name}.jpg`)) } : shot };
+}
+
 export class NativeScenarioHarness {
   constructor(dir, io = {}) {
     this.dir = path.resolve(dir);
@@ -359,14 +370,12 @@ export class NativeScenarioHarness {
   capture(name, options = {}) {
     this.checkSupervisor();
     const nodes = this.dumpNodes();
-    const text = this.axText(nodes);
-    writeAX(nodes, path.join(this.dir, `${name}.ax.txt`), this.APP);
-    fs.writeFileSync(path.join(this.dir, `${name}.text.txt`), text);
-    const shot = this.screenshotSafe(path.join(this.dir, `${name}.jpg`), options);
-    if (shot.ok) this.screenshots.push(`${name}.jpg`);
-    this.captures.push({ name, at: this.nowIso(), nodes: nodes.length,
-      ax_sha256: sha256(JSON.stringify(nodes)), text_sha256: sha256(text),
-      screenshot: shot.ok ? { ...shot, sha256: shaFile(path.join(this.dir, `${name}.jpg`)) } : shot });
+    const capture = captureNativeSnapshot({
+      dir: this.dir, name, target: this.APP, nodes, text: this.axText(nodes), at: this.nowIso(),
+      takeScreenshot: (file) => this.screenshotSafe(file, options),
+    });
+    if (capture.screenshot.ok) this.screenshots.push(`${name}.jpg`);
+    this.captures.push(capture);
     this.log.push({ op: "capture", name, at: this.nowIso() });
     return nodes;
   }

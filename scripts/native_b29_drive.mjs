@@ -28,6 +28,10 @@ import { flatText, writeUiComplete } from "./lib/native_ui/workbench.mjs";
 import { cleanupNativeApp } from "./lib/native_app_ownership.mjs";
 import { INPUTS, WORK_TITLE, readB29Config } from "./native_b29_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import { b29NativeItemVisible, b29RoleNoChangeVisible } from "./lib/native_ui/authoring_character_candidate_evidence.mjs";
+import { loadForbiddenTokens } from "./lib/author_visible/leak_scan.mjs";
+import { axAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
+import { captureNativeSnapshot } from "./lib/native_ui/scenario_driver.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dir = path.resolve(process.argv[2] ?? "");
@@ -49,6 +53,7 @@ const DB_FILE = path.join(dir, "database", "ai_novel_studio_test.sqlite3");
 const step = new Step(dir);
 const screenshots = [];
 const captures = [];
+const inputs = [];
 const log = [];
 let currentPhase = "init";
 let failing = false;
@@ -176,11 +181,12 @@ async function tryPollAx(predicate, timeoutMs) {
 async function capture(name) {
   checkSupervisor();
   const nodes = dumpNodes();
-  writeAX(nodes, path.join(dir, `${name}.ax.txt`), APP);
-  fs.writeFileSync(path.join(dir, `${name}.text.txt`), axText(nodes));
-  screenshot(APP, path.join(dir, `${name}.jpg`));
+  const record = captureNativeSnapshot({
+    dir, name, target: APP, nodes, text: axText(nodes), at: nowIso(),
+    takeScreenshot: (file) => { screenshot(APP, file); return { ok: true }; },
+  });
   screenshots.push(`${name}.jpg`);
-  captures.push({ name, at: nowIso(), nodes: nodes.length });
+  captures.push(record);
   log.push({ op: "capture", name, at: nowIso() });
   return nodes;
 }
@@ -457,17 +463,15 @@ async function rawTypeAndSend(text, label) {
   return sent;
 }
 
-async function rawWaitCandidateCard({ anchorText, label, requireOldToNew = false, timeoutMs = CANDIDATE_TIMEOUT }) {
+async function rawWaitCandidateCard({ pending, turn, label, timeoutMs = CANDIDATE_TIMEOUT }) {
+  const items = pending?.payload?.items;
+  if (!Array.isArray(items) || items.length !== 1) throw new Error("role_candidate_item_not_unique");
   return pollAx(
-    (text, nodes) => {
-      const anchor = lastIndexWhere(nodes, (node) => textOf(node).includes(anchorText));
-      if (anchor < 0) return false;
-      const accept = findButton(nodes, "保存到作品", { afterIndex: anchor });
-      const hasOldToNew = !requireOldToNew || (text.includes("ENSEMBLE_POV") && text.includes("PROTAGONIST"));
-      return Boolean(accept) && hasOldToNew;
-    },
-    timeoutMs,
-    `candidate:${label}`,
+    (_text, nodes) => b29NativeItemVisible({
+      title: items[0].title, body: items[0].body, actionLabel: "保存到作品",
+      nativeView: { nodes, message: turn.authorMessage, baselineAuthorCount: turn.baselineAuthorCount,
+        workTitle: WORK_TITLE },
+    }), timeoutMs, `candidate:${label}`,
   );
 }
 
@@ -690,7 +694,8 @@ async function rawCloseArchive(label) {
 }
 
 function requirePending(turnResult, artifactType, label) {
-  const pending = (turnResult?.adoption_state?.pending ?? []).find((entry) => entry.artifact_type === artifactType);
+  const all = turnResult?.adoption_state?.pending ?? [];
+  const pending = all.length === 1 && all[0].artifact_type === artifactType ? all[0] : null;
   if (!pending) {
     const types = (turnResult?.adoption_state?.pending ?? []).map((entry) => entry.artifact_type).join(",");
     throw new Error(`candidate_missing:${label}:${artifactType}(pending=${types || "none"})`);
@@ -717,6 +722,9 @@ async function launchAndSelectWork() {
 }
 
 async function sendAuthorInput(text, label) {
+  const baselineCapture = `${label}-before-input`;
+  const baselineNodes = await capture(baselineCapture);
+  const baselineAuthorCount = axAuthorMessages(baselineNodes, text).length;
   const startedAt = nowIso();
   const message = await runStep("input", `type_send:${label}`, () => rawTypeAndSend(text, label));
   const turnId = String(frameBody(message)?.turn_id ?? "");
@@ -733,7 +741,10 @@ async function sendAuthorInput(text, label) {
   );
   if (terminal.kind !== "completed") throw new Error(`unexpected_run_terminal:${label}:${terminal.kind}`);
   await sleep(1_200);
-  return { turnId, turnResult: terminal.body, messageAt: message.at, startedAt };
+  inputs.push({ turn_id: turnId, run_id: runId, message: text, baseline_capture: baselineCapture,
+    baseline_author_count: baselineAuthorCount });
+  return { turnId, turnResult: terminal.body, messageAt: message.at, startedAt,
+    authorMessage: text, baselineAuthorCount };
 }
 
 async function restartApp(label) {
@@ -814,11 +825,11 @@ async function runDeterministicScenario() {
   const t5Discard = await sendAuthorInput(INPUTS.t5_discard, "T5-discard");
   const t5DiscardPending = requirePending(t5Discard.turnResult, "character_profile_revision", "T5-discard");
   await runStep("candidate", "candidate:T5-discard", () =>
-    rawWaitCandidateCard({ anchorText: "阿鸢 · 叙事身份修订", label: "T5-discard" }),
+    rawWaitCandidateCard({ pending: t5DiscardPending, turn: t5Discard, label: "T5-discard" }),
   );
   await capture("T5-discard");
   const discard = await runStep("adoption", "discard:T5", () =>
-    rawDiscardCandidate(t5DiscardPending.artifact_id, "阿鸢 · 叙事身份修订", "T5-discard"),
+    rawDiscardCandidate(t5DiscardPending.artifact_id, t5DiscardPending.payload.title, "T5-discard"),
   );
   log.push({ op: "t5_discard", artifact_id: t5DiscardPending.artifact_id, receipt_status: discard.receipt?.status ?? null });
   await capture("T5-discard-done");
@@ -827,9 +838,12 @@ async function runDeterministicScenario() {
   // ── T5b：重复「指定老沈为主角」→ 零写入/幂等（同一 id 不重复写）──────────────
   await inputReady("T5:repeat");
   evidence("capture", "t5-before-repeat");
-  await sendAuthorInput(INPUTS.t5_repeat, "T5-repeat");
-  await runStep("candidate", "candidate:T5-repeat", () =>
-    rawWaitCandidateCard({ anchorText: "沈砚 · 叙事身份修订", label: "T5-repeat" }),
+  const t5Repeat = await sendAuthorInput(INPUTS.t5_repeat, "T5-repeat");
+  const tokens = loadForbiddenTokens();
+  await runStep("maintenance", "result:T5-repeat", () =>
+    pollAx((_text, nodes) => b29RoleNoChangeVisible({ turnResult: t5Repeat.turnResult, tokens,
+      nativeView: { nodes, message: t5Repeat.authorMessage, baselineAuthorCount: t5Repeat.baselineAuthorCount,
+        workTitle: WORK_TITLE } }), CANDIDATE_TIMEOUT, "T5-repeat"),
   );
   await capture("T5-repeat");
   evidence("capture", "t5-after-repeat");
@@ -850,7 +864,7 @@ async function runDeterministicScenario() {
     slice_id: config.slice_id,
     driver: "ax-native-system-ui",
     finished_at: nowIso(),
-    captures: log,
+    captures, log, inputs, run_ref: ready.run_ref,
   });
   writeUiComplete(dir, {
     runRef: ready.run_ref,
@@ -914,7 +928,7 @@ async function runStrataScopedScenario() {
     scope: "scoped_real_model",
     finished_at: nowIso(),
     author_question_events: authorQuestionEvents,
-    captures: log,
+    captures, log, inputs, run_ref: ready.run_ref,
   });
   writeUiComplete(dir, {
     runRef: ready.run_ref,
@@ -931,7 +945,7 @@ async function generateT1Candidate(label, logOp) {
   const pending = requirePending(turn.turnResult, "character_profile_revision", label);
   log.push({ op: logOp, artifact_id: pending.artifact_id, payload: pending.payload ?? {} });
   await runStep("candidate", `candidate:${label}`, () =>
-    rawWaitCandidateCard({ anchorText: "叙事身份修订", label, requireOldToNew: true }),
+    rawWaitCandidateCard({ pending, turn, label }),
   );
   await capture("T1-candidate");
   return pending;
@@ -948,7 +962,7 @@ async function runR03CandidateScenario(config) {
   writeJson("b29-native-driver-log.json", {
     slice_id: config.slice_id, driver: "ax-native-system-ui", provider: config.provider,
     model: config.model, runtime: config.runtime, scope: config.scope,
-    finished_at: nowIso(), captures: log,
+    finished_at: nowIso(), captures, log, inputs, run_ref: ready.run_ref,
   });
   writeUiComplete(dir, { runRef: ready.run_ref, screenshots,
     driver: "ax-native-system-ui", scope: config.slice_id });

@@ -3,6 +3,147 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import * as evidence from "./lib/native_ui/authoring_character_candidate_evidence.mjs";
+import { loadForbiddenTokens } from "./lib/author_visible/leak_scan.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as nativeEvidence from "./native_b29_evidence.mjs";
+import { flatText } from "./lib/native_ui/workbench.mjs";
+import * as r05Evidence from "./lib/native_ui/authoring_r05_evidence.mjs";
+
+function capturedCandidateFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b29-raw-"));
+  const at = (second) => `2026-01-01T00:00:0${second}.000Z`;
+  const sent = { at: at(2), direction: "sent", frame: ["j", "m", "workspace:workspace-b29", "user_message",
+    { work_id: "work-b29", session_id: "session-b29", turn_id: "turn-b29", text: "指定老沈为主角" }] };
+  const result = { work_id: "work-b29", session_id: "session-b29", turn_id: "turn-b29",
+    agent_run: { run_id: "run-b29", parent_turn_ref: "turn-b29" }, adoption_state: { pending: [] } };
+  const ack = { at: at(3), direction: "received", frame: ["j", "m", sent.frame[2], "phx_reply",
+    { status: "ok", response: { turn_id: "turn-b29", run_id: "run-b29" } }] };
+  const wire = [sent, ack,
+    { at: at(4), direction: "received", frame: ["j", null, sent.frame[2], "turn_result", result] },
+    { at: at(5), direction: "received", frame: ["j", null, sent.frame[2], "agent_run_state",
+      { run_id: "run-b29", workspace_id: "workspace-b29", work_id: "work-b29", session_id: "session-b29",
+        parent_turn_ref: "turn-b29", status: "completed" }] }];
+  const nodes = nativeCandidateView().nodes;
+  nodes.find((node) => node.role === "AXPopUpButton").title = nativeEvidence.WORK_TITLE;
+  const baseline = nodes.filter((node) => !node.path.startsWith("0/1/"));
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const captures = [["before", baseline, at(1)], ["candidate", nodes, at(6)]].map(([name, raw, capturedAt]) => {
+    const text = flatText(raw), shot = Buffer.from("89504e470d0a1a0a00000000", "hex");
+    fs.writeFileSync(path.join(dir, name + ".ax.json"), JSON.stringify(raw));
+    fs.writeFileSync(path.join(dir, name + ".ax.txt"), "handwritten independent AX fixture");
+    fs.writeFileSync(path.join(dir, name + ".text.txt"), text);
+    fs.writeFileSync(path.join(dir, name + ".jpg"), shot);
+    return { name, at: capturedAt, nodes: raw.length, ax_sha256: hash(JSON.stringify(raw)),
+      text_sha256: hash(text), screenshot: { ok: true, sha256: hash(shot) } };
+  });
+  const driver = { run_ref: "harness-b29", captures, inputs: [{ turn_id: "turn-b29", run_id: "run-b29",
+    message: sent.frame[4].text, baseline_capture: "before", baseline_author_count: 0 }] };
+  const write = (file, data) => fs.writeFileSync(path.join(dir, file), JSON.stringify(data));
+  write("native-driver-ready.json", { run_ref: "harness-b29", ready_at: at(0) });
+  write("native-ui-complete.json", { harness_run_ref: "harness-b29", screenshots: ["before.jpg", "candidate.jpg"] });
+  write("b29-native-driver-log.json", driver);
+  fs.writeFileSync(path.join(dir, "native-transport.jsonl"), wire.map((row) => JSON.stringify(row)).join("\n"));
+  return { dir, nodes, driver, wire, write, turn: { turnId: "turn-b29", message: sent, ack, result } };
+}
+
+test("B29 reader 从 raw、截图和文本重算当前作者，不采信 driver 成功标志", () => {
+  const fixture = capturedCandidateFixture();
+  try {
+    const view = nativeEvidence.readB29NativeView(fixture.dir, "candidate", fixture.turn);
+    assert.deepEqual(view.nodes, fixture.nodes);
+    assert.equal(view.baselineAuthorCount, 0);
+    assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView: view }), true);
+  } finally { fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+});
+
+test("B29 内容替换、重复 capture、错运行、错作者基线和交付前截图均拒绝", () => {
+  for (const alter of [
+    ({ dir, nodes, write }) => { const raw = clone(nodes); raw.at(-1).frame[1] = -200; write("candidate.ax.json", raw); },
+    ({ dir }) => fs.appendFileSync(path.join(dir, "candidate.text.txt"), "借入旧卡"),
+    ({ dir }) => fs.appendFileSync(path.join(dir, "candidate.jpg"), "other screenshot"),
+    ({ driver, write }) => { driver.captures.push(clone(driver.captures[1])); write("b29-native-driver-log.json", driver); },
+    ({ driver, write }) => { driver.run_ref = "other"; write("b29-native-driver-log.json", driver); },
+    ({ driver, write }) => { driver.inputs[0].baseline_author_count = 1; write("b29-native-driver-log.json", driver); },
+    ({ driver, write }) => { driver.inputs[0].run_id = "other"; write("b29-native-driver-log.json", driver); },
+    ({ driver, write }) => { driver.captures[1].at = "2026-01-01T00:00:03.500Z"; write("b29-native-driver-log.json", driver); },
+  ]) {
+    const fixture = capturedCandidateFixture();
+    try {
+      assert.doesNotThrow(() => nativeEvidence.readB29NativeView(fixture.dir, "candidate", fixture.turn));
+      alter(fixture); assert.throws(() => nativeEvidence.readB29NativeView(fixture.dir, "candidate", fixture.turn));
+    }
+    finally { fs.rmSync(fixture.dir, { recursive: true, force: true }); }
+  }
+});
+
+const NO_CHANGE_MODEL = "MODEL_41c9\n老沈的主角身份已经登记。";
+const NO_CHANGE_SYSTEM = "沈砚（别名：老沈；灯楼查账人；主角）本次无需修改；角色档案未发生变更。";
+function noChangeFixture() {
+  const nativeView = nativeCandidateView();
+  nativeView.nodes.push({ path: "0/2", role: "AXPopUpButton", desc: "助手名称", title: "AI 助手" });
+  Object.assign(nativeView.nodes.find((node) => node.path === "0/1/3/0"),
+    { value: NO_CHANGE_MODEL, frame: [20, 200, 700, 60] });
+  nativeView.nodes.find((node) => node.path === "0/1/5/0").value = "系统核对结果";
+  nativeView.nodes.find((node) => node.path === "0/1/5/1").value = NO_CHANGE_SYSTEM;
+  nativeView.nodes = nativeView.nodes.filter((node) => node.path !== "0/1/6");
+  return { nativeView, tokens: loadForbiddenTokens(), turnResult: { assistant_message: { text: NO_CHANGE_MODEL }, actions: [],
+    adoption_state: { pending: [] }, ui_cards: [
+      { card_type: "result_card", title: "系统核对结果", body: NO_CHANGE_SYSTEM, actions: [] },
+    ] } };
+}
+
+test("同轮 no_change 保留模型换行原文并交付唯一无动作系统结果", () => {
+  assert.equal(evidence.b29RoleNoChangeVisible(noChangeFixture()), true);
+  for (const alter of [
+    (v) => { v.turnResult.assistant_message.text = NO_CHANGE_SYSTEM; },
+    (v) => { v.turnResult.ui_cards.push(clone(v.turnResult.ui_cards[0])); },
+    (v) => { v.turnResult.adoption_state.pending.push({ artifact_type: "character_profile_revision" }); },
+    (v) => { v.turnResult.actions.push({ action_id: "save" }); },
+    (v) => { v.turnResult.ui_cards[0].actions.push({ action_id: "save" }); },
+    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/3/0").frame[1] = -200; },
+    (v) => { v.nativeView.baselineAuthorCount = 1; },
+    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/5/1").frame[1] = 710; },
+  ]) {
+    const value = noChangeFixture(); alter(value);
+    assert.equal(evidence.b29RoleNoChangeVisible(value), false);
+  }
+});
+
+test("no_change 原文来源由真实 metadata 定位，不拿相同字符串猜另一渠道", () => {
+  const hash = (value) => createHash("sha256").update(value).digest("hex");
+  const request = { provider_call_ref: "call-role", provider_run_ref: "provider-role" };
+  const makeWitness = (sourceType, field = "author_narrative") => ({
+    event: { run_id: "role-run", event_type: "judgment_decided", payload: {
+      action: "execute", author_narrative: NO_CHANGE_MODEL, author_narrative_source: {
+        source_type: sourceType, ...request, provider_output_ref: request.provider_run_ref,
+        ...(sourceType === "provider_output_tool_narrative" ? {
+          tool_call_name: "judgment_decision", tool_call_narrative_field: field,
+        } : {}), source_hash: hash(NO_CHANGE_MODEL), narrative_hash: hash(NO_CHANGE_MODEL),
+        source_byte_range: { start: 0, length: Buffer.byteLength(NO_CHANGE_MODEL) },
+      },
+    } },
+    output: { run_id: "role-run", role: "assistant", provenance: "model", ...request,
+      blocks: [{ type: "text", text: NO_CHANGE_MODEL }, { type: "tool_call", name: "judgment_decision",
+        arguments: { action: "execute", capability: "revise_character_profile", [field]: NO_CHANGE_MODEL } }] },
+  });
+  for (const witness of [makeWitness("provider_output"), makeWitness("provider_output_tool_narrative"),
+    makeWitness("provider_output_tool_narrative", "reason")]) {
+    assert.equal(r05Evidence.judgmentNarrativeSourceBound(witness, request, "role-run", NO_CHANGE_MODEL, "execute"), true);
+  }
+  for (const alter of [
+    (w) => { w.event.payload.author_narrative_source.tool_call_name = "other"; },
+    (w) => { w.event.payload.author_narrative_source.tool_call_narrative_field = "reason"; },
+    (w) => { w.output.blocks[1].arguments.author_narrative = "different\nmodel"; },
+    (w) => { w.event.payload.author_narrative_source.provider_call_ref = "other"; },
+    (w) => { w.event.payload.author_narrative_source.source_byte_range.start = 1; },
+    (w) => { w.event.payload.author_narrative_source.narrative_hash = "0".repeat(64); },
+  ]) {
+    const witness = makeWitness("provider_output_tool_narrative"); alter(witness);
+    assert.equal(r05Evidence.judgmentNarrativeSourceBound(witness, request, "role-run", NO_CHANGE_MODEL, "execute"), false);
+  }
+});
 
 const WORK = "work-b29";
 const REF = "character:shen-id";
@@ -101,6 +242,8 @@ function fixture() {
     ["execute", [...wireBase, ...dirPair, ...detailPair]],
   ].map(([id, wireMessages]) => ({
     provider: "splash", provider_call_ref: "pcall-" + id, provider_run_ref: "prun-" + id,
+    response: { body: { tool_calls: [{ id: "call-" + id, name: "judgment_decision",
+      arguments: { directory: directoryArgs, detail: detailArgs, execute: executeArgs }[id] }] } },
     request: { body: { model: "local/Q4-PLE4", messages: wireMessages, tools: [] },
       refs: { base_refs: [{ ref: "work:" + WORK }], observation_refs: [], used_refs: [] } },
   }));
@@ -118,6 +261,118 @@ function fixture() {
 }
 const evaluate = (input) => evidence.characterReadCandidateEvidence(input);
 const check = (input, name) => evaluate(input).checks[name];
+const DISPLAY_TITLE = "沈砚（别名：老沈；身份：灯楼查账人；当前：群像视角） · 叙事身份修订";
+const DISPLAY_BODY = "- 叙事身份：群像视角 → 主角\n候选尚未采纳，角色档案尚未修改。";
+function displayedCandidate(body = DISPLAY_BODY, title = DISPLAY_TITLE) {
+  const candidate = fixture().candidate;
+  candidate.payload.items = [{ title, body }];
+  return { candidate, visibleText: title + "\n" + body, tokens: loadForbiddenTokens() };
+}
+
+test("作者读到可辨认的老沈、中文原身份和未生效候选，内部枚举仍留在payload", () => {
+  const input = displayedCandidate();
+  assert.equal(evidence.b29RoleCandidateVisible(input), true);
+  assert.equal(input.candidate.payload.changes[0].old, "ENSEMBLE_POV");
+  assert.equal(input.candidate.payload.changes[0].new, "PROTAGONIST");
+});
+test("错误目标、旧英文模板、缺正文和借用背景文字都不能冒充中文候选", () => {
+  for (const input of [
+    displayedCandidate(DISPLAY_BODY, DISPLAY_TITLE.replace("老沈", "小沈")),
+    displayedCandidate("- narrative_role：ENSEMBLE_POV → PROTAGONIST"),
+    { ...displayedCandidate(), visibleText: DISPLAY_TITLE },
+    { ...displayedCandidate(), visibleText: DISPLAY_TITLE + "\n另一份角色候选\n" + DISPLAY_BODY },
+    { ...displayedCandidate(), visibleText: DISPLAY_TITLE + "\n群像视角\n主角\n候选尚未采纳" },
+    displayedCandidate(DISPLAY_BODY + "\ncharacter:e9fe5f90-c939-4f9e-abee-da235d1eaa45"),
+  ]) assert.equal(evidence.b29RoleCandidateVisible(input), false);
+});
+function nativeCandidateView() {
+  const node = (path, role, extra = {}) => ({ path, role, frame: [20, 200, 700, 30], ...extra });
+  return { message: INPUT, baselineAuthorCount: 0, workTitle: "角色验收作品", nodes: [
+    node("0", "AXWindow", { frame: [0, 0, 1280, 800] }),
+    node("0/0", "AXPopUpButton", { desc: "作品", title: "角色验收作品" }),
+    node("0/1", "AXScrollArea", { frame: [0, 100, 1000, 600] }),
+    node("0/1/0", "AXGroup"), node("0/1/0/0", "AXStaticText", { value: "你" }),
+    node("0/1/1", "AXGroup"), node("0/1/1/0", "AXStaticText", { value: INPUT }),
+    node("0/1/2", "AXGroup"), node("0/1/2/0", "AXStaticText", { value: "AI 助手" }),
+    node("0/1/3", "AXGroup"), node("0/1/3/0", "AXStaticText", { value: "已核对老沈的身份。" }),
+    node("0/1/4", "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
+    node("0/1/5", "AXGroup", { frame: [20, 300, 700, 120] }),
+    node("0/1/5/0", "AXStaticText", { value: DISPLAY_TITLE, frame: [20, 300, 700, 30] }),
+    node("0/1/5/1", "AXStaticText", { value: DISPLAY_BODY, frame: [20, 330, 700, 90] }),
+    node("0/1/6", "AXButton", { title: "保存到作品", enabled: true, frame: [20, 430, 140, 30] }),
+  ] };
+}
+test("当前作者的真实单候选与保存入口在实际视口内", () => {
+  assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView: nativeCandidateView() }), true);
+});
+test("全页相同文字不能代替当前作者、目标卡和真实可见视口", () => {
+  const view = nativeCandidateView();
+  const cases = [
+    { ...clone(view), baselineAuthorCount: 1 },
+    { ...clone(view), workTitle: "另一作品" },
+    { ...clone(view), nodes: view.nodes.filter((node) => node.path !== "0/1/0/0") },
+    { ...clone(view), nodes: view.nodes.map((node) =>
+      node.path === "0/1/5/1" ? { ...node, frame: [20, 710, 700, 90] } : node) },
+    { ...clone(view), nodes: view.nodes.map((node) =>
+      node.path === "0/1/6" ? { ...node, path: "0/2/0" } : node) },
+    { ...clone(view), baselineAuthorCount: 1, nodes: [...clone(view.nodes),
+      { path: "0/1/8", role: "AXGroup" }, { path: "0/1/8/0", role: "AXStaticText", value: "你" },
+      { path: "0/1/9", role: "AXGroup" }, { path: "0/1/9/0", role: "AXStaticText", value: INPUT }] },
+  ];
+  for (const nativeView of cases) {
+    assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView }), false);
+  }
+});
+test("只排除原call已失败闭合的execute，接受的纠正决定仍唯一并带真实详情", () => {
+  const input = fixture();
+  const args = clone(input.messages.at(-1).blocks[0].arguments);
+  const failure = { type: "validation_result", call_id: "call-execute", status: "failed",
+    reason_code: "author_visible_narrative_invalid" };
+  input.messages.push(message("tool", "application", [failure]), call("corrected", args));
+  const record = clone(input.records.at(-1));
+  record.provider_call_ref = "pcall-corrected"; record.provider_run_ref = "prun-corrected";
+  record.request.body.messages.push(wireCall("execute", args),
+    { role: "tool", tool_call_id: "call-execute", content: JSON.stringify(failure) });
+  input.records.push(record);
+  input.starts.push({ provider_call_ref: "pcall-corrected", provider_run_id: "prun-corrected" });
+  assert.equal(evaluate(input).ok, true);
+  assert.equal(evaluate(input).measured.execute_provider_call_ref, "pcall-corrected");
+  const withModelText = clone(input), originalText = "FAILED_MODEL_82d1\n正在核对角色。";
+  withModelText.messages[7].blocks.unshift(text(originalText));
+  withModelText.records[2].response.body.content = originalText;
+  withModelText.records.at(-1).request.body.messages.at(-2).content = originalText;
+  assert.equal(evaluate(withModelText).ok, true);
+  withModelText.records.at(-1).request.body.messages.at(-2).content = originalText.replace("\n", " ");
+  assert.equal(check(withModelText, "model_execute_matches_source"), false);
+  const unknownCapability = clone(input);
+  const invalidArgs = { ...args, capability: "unknown_role_operation" };
+  unknownCapability.messages[7].blocks[0].arguments = invalidArgs;
+  unknownCapability.records[2].response.body.tool_calls[0].arguments = invalidArgs;
+  unknownCapability.records.at(-1).request.body.messages.at(-2).tool_calls[0].function.arguments = JSON.stringify(invalidArgs);
+  assert.equal(evaluate(unknownCapability).ok, true);
+  unknownCapability.records.at(-1).request.body.messages.splice(-2);
+  assert.equal(check(unknownCapability, "model_execute_matches_source"), false,
+    "未识别 capability 的失败同样必须进入真实下一请求");
+  for (const mutate of [
+    (request) => { request.messages = request.messages.slice(0, -2); },
+    (request) => { request.messages.at(-2).content = "并非模型原文的纠错说明"; },
+    (request) => { request.messages.at(-1).content = JSON.stringify({ ...failure, reason_code: "other_failure" }); },
+    (request) => { request.messages.at(-2).tool_calls[0].function.arguments = JSON.stringify({ ...args, character_ref: "character:other" }); },
+  ]) {
+    const changed = clone(input); mutate(changed.records.at(-1).request.body);
+    assert.equal(check(changed, "model_execute_matches_source"), false);
+  }
+  for (const bad of [
+    (rows) => { rows[8].blocks[0].call_id = "call-other"; },
+    (rows) => { rows[8].blocks[0].status = "ok"; },
+    (rows) => { rows.push(clone(rows[8])); },
+    (rows) => { [rows[7], rows[8]] = [rows[8], rows[7]]; },
+  ]) {
+    const changed = clone(input); bad(changed.messages);
+    assert.equal(check(changed, "model_execute_matches_source"), false);
+  }
+});
+
 
 test("动作前真实行的已知 SHA256 向量保留 UTC 六位精度", () => {
   assert.equal(evidence.characterSourceFingerprint(SOURCE), FP);

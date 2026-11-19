@@ -250,7 +250,7 @@ export function assistantCalls(transcript) {
   return calls;
 }
 
-function validations(transcript) {
+export function validations(transcript) {
   const results = [];
   for (const [messageIndex, message] of list(transcript?.messages).entries()) {
     if (!isObject(message) || message.role !== "tool") continue;
@@ -327,7 +327,7 @@ function firstRejected(first, firstArguments, firstValidation) {
   );
 }
 
-function strictPrefix(firstRequest, secondRequest) {
+export function strictPrefix(firstRequest, secondRequest) {
   return allTrue(
     firstRequest !== null,
     secondRequest !== null,
@@ -382,7 +382,7 @@ function appendedCallMatches(call, first, firstResponseCall, format) {
   );
 }
 
-function appendedAssistantMatches(assistant, first, firstResponseCall, format) {
+export function appendedAssistantMatches(assistant, first, firstResponseCall, format) {
   return allTrue(
     get(assistant, "role") === "assistant",
     list(get(assistant, "toolCalls")).length === 1,

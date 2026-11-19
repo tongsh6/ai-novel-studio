@@ -603,7 +603,7 @@ function reconcileNativeCalls(dir, config, history, records) {
   return calls;
 }
 
-function assertCapturedNodes(dir, name, nodes, log, common) {
+export function assertCapturedNodes(dir, name, nodes, log, common) {
   assert(Array.isArray(nodes), "AX 观察缺少原始节点");
   const captures = log.captures.filter((entry) => entry.name === name);
   assert.equal(captures.length, 1, "AX 观察必须唯一绑定 capture");

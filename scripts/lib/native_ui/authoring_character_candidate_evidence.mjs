@@ -2,9 +2,13 @@
 // 输入来自 native_b29_evidence 的现役 history/call/request 读取 owner。
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { assistantCalls } from "./authoring_revision_evidence.mjs";
+import { assistantCalls, validations, strictPrefix, appendedAssistantMatches } from "./authoring_revision_evidence.mjs";
+import { authorBoundary, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
+import { locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
+import { r05ReplyMatch, withinViewport } from "./authoring_r05_evidence.mjs";
+import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { observationNextRequestEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { AUTHORING_REQUEST_IR, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const list = (value) => Array.isArray(value) ? value : [];
@@ -45,6 +49,74 @@ export function stateChecks(before, after, plan) {
     no_new_character: after.characters.length === before.characters.length,
     no_new_memory: after.memories.length === before.memories.length,
   };
+}
+
+function currentAuthorNodes({ nodes, message, baselineAuthorCount, workTitle } = {}) {
+  if (!Array.isArray(nodes) || !nonBlank(message) || !nonBlank(workTitle) ||
+      !Number.isInteger(baselineAuthorCount) || baselineAuthorCount < 0 ||
+      nodes.some((node) => !/^\d+(?:\/\d+)*$/u.test(node?.path ?? "")) ||
+      new Set(nodes.map((node) => node.path)).size !== nodes.length) return null;
+  const works = nodes.filter((node) => node.role === "AXPopUpButton" && node.desc === "作品");
+  if (works.length !== 1 || works[0].title !== workTitle) return null;
+  const boundary = authorBoundary(nodes, message, baselineAuthorCount);
+  if (!boundary.author || boundary.authors.length !== baselineAuthorCount + 1 ||
+      boundary.nextAuthor !== null) return null;
+  const peers = nodes.filter((node) => withinAuthorBoundary(node, {
+    container: boundary.container, afterPath: boundary.authorGroup, beforePath: null,
+  }));
+  return nodes.filter((node) => peers.some((peer) =>
+    node.path === peer.path || node.path.startsWith(peer.path + "/")));
+}
+
+export function b29RoleNoChangeVisible({ turnResult, nativeView, visibleText, replyText, tokens } = {}) {
+  const cards = turnResult?.ui_cards, pending = turnResult?.adoption_state?.pending;
+  const reply = turnResult?.assistant_message?.text;
+  if (!Array.isArray(cards) || cards.length !== 1 || !Array.isArray(pending) || pending.length !== 0 ||
+      !Array.isArray(turnResult?.actions) || turnResult.actions.length !== 0 || !nonBlank(reply)) return false;
+  const card = cards[0];
+  if (card.card_type !== "result_card" || card.title !== "系统核对结果" ||
+      !Array.isArray(card.actions) || card.actions.length !== 0 || !nonBlank(card.body) ||
+      !["沈砚", "老沈", "灯楼查账人", "主角", "本次无需修改", "角色档案未发生变更"].every((part) => card.body.includes(part)) ||
+      !isObject(tokens) || !scanAuthorVisibleTexts([card.title, card.body], { tokens }).ok) return false;
+  if (nativeView) {
+    const match = r05ReplyMatch({ reply, ...nativeView });
+    return b29NativeItemVisible({ nativeView, title: card.title, body: card.body }) && match.ok &&
+      match.surface.leaves.every((node) => withinViewport(nativeView.nodes, node));
+  }
+  const normalize = (value) => String(value ?? "").replace(/\s+/gu, " ").trim();
+  return nonBlank(visibleText) && normalize(visibleText).includes(normalize(card.title + " " + card.body)) &&
+    nonBlank(replyText) && normalize(replyText) === normalize(reply);
+}
+
+export function b29NativeItemVisible({ nativeView, title, body, actionLabel = null } = {}) {
+  const scoped = currentAuthorNodes(nativeView);
+  if (!scoped) return false;
+  const target = { itemTitle: title, itemBody: body };
+  const item = locatePendingItem(scoped, target);
+  if (!item.ok) return false;
+  for (const value of [title, body]) {
+    const leaves = scoped.filter((node) => node.role === "AXStaticText" && node.value === value &&
+      node.path.startsWith(item.scope.path + "/"));
+    if (leaves.length !== 1 || !withinViewport(nativeView.nodes, leaves[0])) return false;
+  }
+  if (actionLabel === null) return true;
+  const action = locateScopedButton(scoped, { ...target, knownItems: [target], label: actionLabel });
+  return action.ok && withinViewport(nativeView.nodes, action.button);
+}
+
+// B29 的作者可见目标独立于内部枚举；同次实际 item 仅用于交付文字绑定。
+export function b29RoleCandidateVisible({ candidate, visibleText, tokens, nativeView } = {}) {
+  const items = list(candidate?.payload?.items);
+  if (items.length !== 1 || !isObject(tokens)) return false;
+  const { title, body, rationale = "" } = items[0];
+  if (![title, body].every(nonBlank) || (nativeView === undefined && !nonBlank(visibleText))) return false;
+  const normalize = (value) => value.replace(/\s+/gu, " ").trim();
+  return ["沈砚", "老沈", "灯楼查账人", "叙事身份修订"].every((value) => title.includes(value)) &&
+    body.includes("群像视角 → 主角") && body.includes("候选尚未采纳") &&
+    body.includes("角色档案尚未修改") &&
+    scanAuthorVisibleTexts([title, body, rationale], { tokens }).ok &&
+    (nativeView === undefined ? normalize(visibleText).includes(normalize(title + " " + body)) :
+      b29NativeItemVisible({ nativeView, title, body, actionLabel: "保存到作品" }));
 }
 
 export function candidateFacts(adoption) {
@@ -208,6 +280,28 @@ function initialMaterialsMinimal(records, starts, before) {
   });
 }
 
+function failedCallCarriedForward({ call, next, failure, messages, records, starts }) {
+  const source = matchingRecord(records, call), successor = matchingRecord(records, next);
+  const first = requestFactsFromRecord(source), second = requestFactsFromRecord(successor);
+  if (!first.ok || !second.ok || !strictPrefix(first.messages, second.messages)) return false;
+  const start = list(starts).findIndex((entry) =>
+    entry.provider_call_ref === call.pcall && entry.provider_run_id === call.prun);
+  if (start < 0 || starts[start + 1]?.provider_call_ref !== next?.pcall ||
+      starts[start + 1]?.provider_run_id !== next?.prun) return false;
+  const appended = second.messageFacts.slice(first.messages.length);
+  const responseCalls = list(source?.response?.body?.tool_calls);
+  const sourceText = source?.response?.body?.content ?? "";
+  if (typeof sourceText !== "string" || appended[0]?.text !== sourceText) return false;
+  if (responseCalls.length !== 1 ||
+      !appendedAssistantMatches(appended[0], call, responseCalls[0], second.format)) return false;
+  const result = appended[1]?.toolResults;
+  const payload = messages[failure.messageIndex]?.blocks?.[failure.blockIndex];
+  return appended[1]?.role === "tool" && result?.length === 1 &&
+    result[0].callId === call.call_id &&
+    (second.format === AUTHORING_REQUEST_IR || result[0].toolCallId === (responseCalls[0].id || call.call_id)) &&
+    isDeepStrictEqual(result[0].payload, payload);
+}
+
 export function characterReadCandidateEvidence({
   before, after, sourceCharacterId, workId, messages, records, starts, candidate,
 } = {}) {
@@ -222,10 +316,22 @@ export function characterReadCandidateEvidence({
     ? observationNextRequestEvidence({ messages, records, starts, ...directory }) : null;
   const detailSupply = detail
     ? observationNextRequestEvidence({ messages, records, starts, ...detail }) : null;
-  const executions = assistantCalls({ messages }).filter((call) =>
-    call.name === "judgment_decision" && call.arguments?.action === "execute" &&
-    call.arguments?.capability === "revise_character_profile");
-  const execution = executions.length === 1 ? executions[0] : null;
+  const calls = assistantCalls({ messages }), results = validations({ messages });
+  const attempts = calls.filter((call) => call.name === "judgment_decision" && call.arguments?.action === "execute");
+  const resultsOf = (call) => results.filter((result) => result.call_id === call.call_id);
+  const unclosed = attempts.filter((call) => resultsOf(call).length === 0);
+  const accepted = unclosed.length === 1 && unclosed[0].arguments?.capability === "revise_character_profile"
+    ? unclosed[0] : null;
+  const closedInOrder = results.every((result) => calls.some((call) => call.call_id === result.call_id)) && calls.every((call) => {
+    if (call === accepted) return call === calls.at(-1);
+    const owned = resultsOf(call), next = calls[calls.indexOf(call) + 1];
+    if (owned.length === 0) return !attempts.includes(call);
+    return owned.length === 1 && owned[0].status === "failed" && next !== undefined &&
+      owned[0].messageIndex > call.messageIndex && owned[0].messageIndex < next.messageIndex &&
+      failedCallCarriedForward({ call, next, failure: owned[0], messages, records, starts });
+  });
+  const execution = closedInOrder && new Set(calls.map((call) => call.call_id)).size === calls.length
+    ? accepted : null;
   const executionRecord = matchingRecord(records, execution);
   const plan = candidateFacts({ pending_payload: candidate?.payload });
   const target = candidateChecks(plan, { character_ref: ref, name: source?.name,
