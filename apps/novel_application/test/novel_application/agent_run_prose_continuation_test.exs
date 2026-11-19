@@ -108,7 +108,7 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
 
         {:ok,
          %{
-           content: text,
+           content: "",
            tool_calls: calls,
            provider_output: %ProviderOutput{
              provider_run_ref:
@@ -116,7 +116,7 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
              provider_call_ref:
                TestAgenticLoopFixtures.unique_provider_call_id("pcall-continuation"),
              status: :ok,
-             content: %{text: text, tool_calls: calls}
+             content: %{text: "", tool_calls: calls}
            }
          }}
       end

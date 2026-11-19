@@ -360,7 +360,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           revision_reason: continuation.narrative,
           guidance: continuation.guidance
         },
-        author_narrative: continuation.narrative,
+        summary: continuation.narrative,
         author_narrative_source: continuation.narrative_source
       }
       |> attach_deviation_meta(deviation, snapshot)

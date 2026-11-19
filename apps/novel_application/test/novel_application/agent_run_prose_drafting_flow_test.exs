@@ -1294,7 +1294,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         continuation_decision_prompt?(prompt) ->
-          continuation_decision("continue", "去掉无代价复活，补上规则代价。")
+          continuation_decision("continue", "去掉无代价复活，补上规则代价。", "松灯408\n我会保留原有线索，再补足这次复活的代价。")
 
         true ->
           send(parent, :writer_called)
@@ -1388,6 +1388,22 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # CP3b：quality confirm finding → 判断② continue（观察 + 修正指引）→ 中间稿被
     # supersede（预算放行 + 作者可见说明）→ writer 重试产改进稿 → 复评通过 → 完成。
     events = collect_agent_events_until(:run_completed, 3_000)
+
+    [{:plan_revised, continued}] =
+      Enum.filter(events, fn {type, event} ->
+        type in [:plan_drafted, :plan_revised] and "judgment_continue" in event.reason_codes
+      end)
+
+    assert continued.visibility == :author
+    assert continued.payload.author_narrative == "松灯408\n我会保留原有线索，再补足这次复活的代价。"
+    source = continued.payload.author_narrative_source
+    assert source.source_type == "provider_output_tool_narrative"
+    assert source.tool_call_name == "continuation_decision"
+    assert source.tool_call_narrative_field == "reason"
+
+    assert source.narrative_hash ==
+             :crypto.hash(:sha256, "松灯408\n我会保留原有线索，再补足这次复活的代价。")
+             |> Base.encode16(case: :lower)
 
     superseded = find_event!(events, :artifact_superseded)
     assert superseded.refs != []
@@ -1604,8 +1620,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         &(&1.name == "continuation_decision")
       )
 
-  defp continuation_decision(action, guidance) do
-    text = if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"
+  defp continuation_decision(action, guidance, text \\ nil) do
+    text = text || if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"
 
     {name, args} =
       if action == "continue",
@@ -1618,13 +1634,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     {:ok,
      %{
-       content: text,
+       content: "",
        tool_calls: calls,
        provider_output: %NovelCommon.Contracts.ProviderOutput{
          provider_run_ref: TestAgenticLoopFixtures.unique_provider_call_id("prun-continuation"),
          provider_call_ref: TestAgenticLoopFixtures.unique_provider_call_id("pcall-continuation"),
          status: :ok,
-         content: %{text: text, tool_calls: calls}
+         content: %{text: "", tool_calls: calls}
        }
      }}
   end
