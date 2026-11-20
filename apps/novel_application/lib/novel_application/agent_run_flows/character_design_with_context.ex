@@ -353,7 +353,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
          artifact_refs: artifact_refs(turn_result),
          turn_result: turn_result,
          tool_call_count: 1,
-         provider_call_count: provider_call_count(tool_name),
+         provider_call_count: AuthoringSession.provider_call_count(turn_result),
          progress_signature: progress_signature(turn_result)
        }}
       |> AuthoringSession.put_transcript(transcript)
@@ -583,9 +583,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   end
 
   defp maybe_finalize(turn_result, _run, _tool_name), do: turn_result
-
-  defp provider_call_count("character_design"), do: 1
-  defp provider_call_count(_tool_name), do: 0
 
   defp progress_signature(turn_result) do
     tool_result = Map.get(turn_result, :tool_result) || %{}

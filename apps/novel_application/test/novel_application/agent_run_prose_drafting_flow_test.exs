@@ -905,6 +905,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     parent = self()
 
     writer = fn prompt ->
+      send(parent, :d1_provider_called)
+
       cond do
         mission_prompt?(prompt) ->
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
@@ -950,8 +952,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 1
 
-    # runtime 直连（无判断①入场）：起草 1 + 写前推理 1 + 失败 writer 步 2 + 判断② 1 = 5。
-    assert state.run.consumed_budget.provider_calls == 5
+    # runtime 直连（无判断①入场）：起草 1 + 写前推理 1 + 失败 writer 1 + 判断② 1。
+    # 传输失败不触发原生协议纠错，也未进入 evaluator；只计真实调用，不计预留上限。
+    for _ <- 1..4, do: assert_receive(:d1_provider_called)
+    refute_receive :d1_provider_called
+    refute_receive {:writer_prompt, _prompt}
+    assert state.run.consumed_budget.provider_calls == 4
   end
 
   test "writer timeout exhaustion surfaces a scoped retry reason" do

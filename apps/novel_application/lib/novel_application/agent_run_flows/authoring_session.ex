@@ -244,6 +244,27 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
 
   def provider_metadata(_session), do: %{provider_call_count: 0, tool_call_count: 0}
 
+  @doc """
+  投影 TurnResult 已发生的 Provider 调用次数，供流程返回执行消耗。
+
+  缺失计数为 0；预算上限与工具名称都不能代替真实执行计数。
+  """
+  @spec provider_call_count(term()) :: non_neg_integer()
+  def provider_call_count(turn_result) do
+    [:trace_summary, :execution_counts, :provider_calls]
+    |> Enum.reduce(turn_result, fn
+      key, value when is_map(value) ->
+        Map.get(value, key) || Map.get(value, Atom.to_string(key))
+
+      _key, _value ->
+        nil
+    end)
+    |> case do
+      count when is_integer(count) and count >= 0 -> count
+      _ -> 0
+    end
+  end
+
   defp put_derived_transcript(metadata, nil), do: metadata
 
   defp put_derived_transcript(metadata, %RequestIR{} = ir) do

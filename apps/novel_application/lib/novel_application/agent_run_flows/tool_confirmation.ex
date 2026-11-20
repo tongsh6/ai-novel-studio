@@ -305,11 +305,6 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
         idempotency_key: "#{run.run_id}:#{sequence}:tool_confirmation:#{spec.receipt_id}"
       })
 
-    provider_calls =
-      trace_summary
-      |> Map.get(:execution_counts, %{})
-      |> Map.get(:provider_calls, 0)
-
     %{
       step: step,
       observations: observations,
@@ -317,7 +312,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
       turn_result: turn_result,
       decision_trace: trace,
       artifact_refs: artifact_refs(turn_result),
-      provider_call_count: provider_calls,
+      provider_call_count: AuthoringSession.provider_call_count(turn_result),
       tool_call_count: get_in(trace_summary, [:execution_counts, :tool_calls]) || 0,
       loop_status: :completed,
       loop_decision: ToolConfirmationRun.complete_decision(run, sequence + 1),

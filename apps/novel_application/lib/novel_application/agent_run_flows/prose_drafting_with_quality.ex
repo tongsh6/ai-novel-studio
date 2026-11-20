@@ -1500,7 +1500,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       },
       step: failed_execution_step(run, sequence, plan, turn_result),
       tool_call_count: 1,
-      provider_call_count: provider_call_count(turn_result)
+      provider_call_count: AuthoringSession.provider_call_count(turn_result)
     )
   end
 
@@ -1559,7 +1559,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       stage_state: AuthoringSession.transcript_state(transcript),
       turn_result: turn_result,
       tool_call_count: 1,
-      provider_call_count: provider_call_count(turn_result),
+      provider_call_count: AuthoringSession.provider_call_count(turn_result),
       progress_signature: progress_signature(turn_result)
     }
   end
@@ -1831,30 +1831,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       "goal_v#{run.goal.version}"
     ]
     |> Enum.map_join(":", &to_string/1)
-  end
-
-  defp provider_call_count(turn_result) do
-    count =
-      turn_result
-      |> get_in([:trace_summary, :provider_call_budget])
-      |> case do
-        budget when is_map(budget) ->
-          [:writer, :evaluator, :revision_writer]
-          |> Enum.map(&budget_value(budget, &1))
-          |> Enum.sum()
-
-        _ ->
-          0
-      end
-
-    if count > 0, do: count, else: 1
-  end
-
-  defp budget_value(budget, key) do
-    case Map.get(budget, key) || Map.get(budget, Atom.to_string(key)) do
-      value when is_integer(value) and value > 0 -> value
-      _ -> 0
-    end
   end
 
   defp artifact_refs(turn_result) do
