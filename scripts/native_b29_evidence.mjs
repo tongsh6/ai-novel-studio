@@ -1312,9 +1312,12 @@ function verifyR03Candidate(dir, config) {
   const starts = withDb(dir, (db) => readNativeCallStarts(db, run.id));
   const before = read(dir, "t1-before.json").characters_and_memories;
   const after = read(dir, "t1-after.json").characters_and_memories;
+  const reply = terminal.body.assistant_message?.text;
+  const judgmentSource = readJudgmentNarrativeSource(dir, history, reply, "execute");
   const result = characterReadCandidateEvidence({
     before, after, sourceCharacterId: config.seed.shen_character_id, workId: config.seed.work_id,
     messages: history.sessionMessages, records: calls.records, starts, candidate: pending[0],
+    runId: run.id, reply, judgmentSource,
   });
   const production = checkProductionFingerprint(dir);
   for (const name of ["T0-workbench", "T1-candidate", "B29-final"]) {

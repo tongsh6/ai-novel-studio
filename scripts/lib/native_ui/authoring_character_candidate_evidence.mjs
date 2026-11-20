@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { assistantCalls, validations, strictPrefix, appendedAssistantMatches } from "./authoring_revision_evidence.mjs";
 import { authorBoundary, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
 import { locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
-import { r05ReplyMatch, withinViewport } from "./authoring_r05_evidence.mjs";
+import { judgmentNarrativeSourceBound, r05ReplyMatch, withinViewport } from "./authoring_r05_evidence.mjs";
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { observationNextRequestEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { AUTHORING_REQUEST_IR, requestFactsFromRecord } from "./authoring_request_facts.mjs";
@@ -303,7 +303,7 @@ function failedCallCarriedForward({ call, next, failure, messages, records, star
 }
 
 export function characterReadCandidateEvidence({
-  before, after, sourceCharacterId, workId, messages, records, starts, candidate,
+  before, after, sourceCharacterId, workId, messages, records, starts, candidate, runId, reply, judgmentSource,
 } = {}) {
   const source = sourceFor(before, workId, sourceCharacterId);
   const ref = "character:" + sourceCharacterId;
@@ -319,20 +319,33 @@ export function characterReadCandidateEvidence({
   const calls = assistantCalls({ messages }), results = validations({ messages });
   const attempts = calls.filter((call) => call.name === "judgment_decision" && call.arguments?.action === "execute");
   const resultsOf = (call) => results.filter((result) => result.call_id === call.call_id);
-  const unclosed = attempts.filter((call) => resultsOf(call).length === 0);
-  const accepted = unclosed.length === 1 && unclosed[0].arguments?.capability === "revise_character_profile"
-    ? unclosed[0] : null;
-  const closedInOrder = results.every((result) => calls.some((call) => call.call_id === result.call_id)) && calls.every((call) => {
-    if (call === accepted) return call === calls.at(-1);
+  const passed = attempts.filter((call) => {
+    const owned = resultsOf(call);
+    return owned.length === 1 && owned[0].status === "passed" && owned[0].reason_code === "judgment_validated";
+  });
+  const accepted = passed.length === 1 && passed[0].arguments?.capability === "revise_character_profile"
+    ? passed[0] : null;
+  const closedInOrder = results.every((result) =>
+    messages[result.messageIndex]?.provenance === "tool_result" &&
+    calls.some((call) => call.call_id === result.call_id)) && calls.every((call) => {
     const owned = resultsOf(call), next = calls[calls.indexOf(call) + 1];
+    if (call === accepted) return call === calls.at(-1) && owned[0].messageIndex > call.messageIndex;
     if (owned.length === 0) return !attempts.includes(call);
-    return owned.length === 1 && owned[0].status === "failed" && next !== undefined &&
+    return owned.length === 1 && owned[0].status === "failed" && nonBlank(owned[0].reason_code) && next !== undefined &&
       owned[0].messageIndex > call.messageIndex && owned[0].messageIndex < next.messageIndex &&
       failedCallCarriedForward({ call, next, failure: owned[0], messages, records, starts });
   });
   const execution = closedInOrder && new Set(calls.map((call) => call.call_id)).size === calls.length
     ? accepted : null;
   const executionRecord = matchingRecord(records, execution);
+  const sourceCalls = assistantCalls({ messages: [judgmentSource?.output] });
+  const sourceCall = sourceCalls[0];
+  // passed 只闭合判断协议；候选资格还须由同一次实际接受及完整原文来源证明。
+  const sourceBound = execution !== null && sourceCalls.length === 1 &&
+    sourceCall.call_id === execution.call_id && sourceCall.name === execution.name &&
+    isDeepStrictEqual(sourceCall.arguments, execution.arguments) &&
+    judgmentSource?.event?.payload?.capability === execution.arguments.capability &&
+    judgmentNarrativeSourceBound(judgmentSource, executionRecord, runId, reply, "execute");
   const plan = candidateFacts({ pending_payload: candidate?.payload });
   const target = candidateChecks(plan, { character_ref: ref, name: source?.name,
     old: source?.narrative_role, new: "PROTAGONIST" });
@@ -346,7 +359,7 @@ export function characterReadCandidateEvidence({
     directory_in_next_request: directorySupply?.reason === null,
     detail_matches_source: detailMatchesSource(detail, source, fingerprint, ref),
     detail_in_next_request: detailSupply?.reason === null,
-    model_execute_matches_source: execution !== null && execution.arguments.character_ref === ref &&
+    model_execute_matches_source: sourceBound && execution.arguments.character_ref === ref &&
       execution.messageIndex > detail?.messageIndex &&
       observationInRequest(executionRecord, detail?.parent),
     actual_scope_provenance: list(records).length > 0 &&

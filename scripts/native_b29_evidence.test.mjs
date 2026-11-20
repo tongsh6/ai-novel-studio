@@ -149,6 +149,7 @@ const WORK = "work-b29";
 const REF = "character:shen-id";
 const FP = "b87f4f22d6bb5994fa0d69f60a218507d25ad0aa903126ec38e9f97800f02cf0";
 const INPUT = "指定老沈为主角";
+const EXECUTE_NARRATIVE = "ROLE_5e8a\n已核对老沈的角色档案，主角身份修订候选等待你采纳。";
 const SOURCE = {
   id: "shen-id", name: "沈砚", aliases: ["老沈"], role: "灯楼查账人",
   narrative_role: "ENSEMBLE_POV", summary: "群像视角中的查账人，熟悉灯楼旧账与井底黑泉",
@@ -177,6 +178,25 @@ function call(id, arguments_) {
   return message("assistant", "model", [{
     type: "tool_call", call_id: "call-" + id, name: "judgment_decision", arguments: arguments_,
   }], { provider_call_ref: "pcall-" + id, provider_run_ref: "prun-" + id });
+}
+function judgmentWitness(id, args) {
+  const hash = createHash("sha256").update(EXECUTE_NARRATIVE).digest("hex");
+  return {
+    event: { run_id: "run-b29", event_type: "judgment_decided", payload: {
+      action: "execute", capability: "revise_character_profile", author_narrative: EXECUTE_NARRATIVE,
+      author_narrative_source: {
+        source_type: "provider_output_tool_narrative", provider_call_ref: "pcall-" + id,
+        provider_run_ref: "prun-" + id, provider_output_ref: "prun-" + id,
+        tool_call_name: "judgment_decision", tool_call_narrative_field: "reason",
+        source_hash: hash, narrative_hash: hash,
+        source_byte_range: { start: 0, length: Buffer.byteLength(EXECUTE_NARRATIVE) },
+      },
+    } },
+    output: { run_id: "run-b29", role: "assistant", provenance: "model",
+      provider_call_ref: "pcall-" + id, provider_run_ref: "prun-" + id,
+      blocks: [{ type: "tool_call", call_id: "call-" + id, name: "judgment_decision", arguments: clone(args) }],
+    },
+  };
 }
 function wireCall(id, arguments_) {
   return { role: "assistant", content: "", tool_calls: [{
@@ -223,14 +243,18 @@ function fixture() {
   };
   const directoryArgs = { action: "explore", explore_request: { tool: "archive_read", query: "characters" } };
   const detailArgs = { action: "explore", explore_request: { tool: "archive_read", query } };
-  const executeArgs = { action: "execute", capability: "revise_character_profile", character_ref: REF };
+  const executeArgs = { action: "execute", capability: "revise_character_profile", character_ref: REF,
+    reason: EXECUTE_NARRATIVE };
   const base = [
     message("application_base", "application", [text("固定判断契约；作品事实按需探索。")]),
     scopeMessage(), message("user", "author", [text(INPUT)], { source_refs: [{ ref: "turn-b29" }] }),
   ];
   const messages = [...base, call("directory", directoryArgs),
     message("tool", "tool_result", [directory]), call("detail", detailArgs),
-    message("tool", "tool_result", [detail]), call("execute", executeArgs)];
+    message("tool", "tool_result", [detail]), call("execute", executeArgs),
+    message("tool", "tool_result", [{ type: "validation_result", call_id: "call-execute",
+      status: "passed", reason_code: "judgment_validated",
+      detail: { execution_authorized: false, canon_written: false } }])];
   const wireBase = [{ role: "user", content: "【应用数据 · application_base】固定判断契约；作品事实按需探索。" },
     scopeWire(), { role: "user", content: INPUT }];
   const dirPair = [wireCall("directory", directoryArgs),
@@ -257,7 +281,8 @@ function fixture() {
       adoption_effect: { mode: "character_field_update", character_ref: REF } },
   };
   return { before, after: clone(before), sourceCharacterId: source.id, workId: WORK,
-    messages, records, starts, candidate };
+    messages, records, starts, candidate, runId: "run-b29", reply: EXECUTE_NARRATIVE,
+    judgmentSource: judgmentWitness("execute", executeArgs) };
 }
 const evaluate = (input) => evidence.characterReadCandidateEvidence(input);
 const check = (input, name) => evaluate(input).checks[name];
@@ -323,14 +348,72 @@ test("全页相同文字不能代替当前作者、目标卡和真实可见视�
     assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView }), false);
   }
 });
+test("成功回执仅闭合协议，实际接受来源、目标及待采纳候选共同成立才通过", () => {
+  const input = fixture(), result = evaluate(input);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.measured.execute_provider_call_ref, "pcall-execute");
+  assert.deepEqual(input.messages.at(-1).blocks[0], {
+    type: "validation_result", call_id: "call-execute", status: "passed",
+    reason_code: "judgment_validated", detail: { execution_authorized: false, canon_written: false },
+  });
+  assert.equal(input.candidate.adoption_status, "TENTATIVE");
+  assert.deepEqual(input.before, input.after);
+});
+
+test("缺失、失败、错call、错状态或乱序的回执不能借正确候选冒充接受", () => {
+  for (const [label, alter] of [
+    ["missing", (v) => { v.messages.pop(); }],
+    ["failed", (v) => { Object.assign(v.messages.at(-1).blocks[0],
+      { status: "failed", reason_code: "author_visible_narrative_invalid" }); }],
+    ["wrong call", (v) => { v.messages.at(-1).blocks[0].call_id = "call-other"; }],
+    ["unknown status", (v) => { v.messages.at(-1).blocks[0].status = "ok"; }],
+    ["wrong success reason", (v) => { v.messages.at(-1).blocks[0].reason_code = "agent_plan_validated"; }],
+    ["duplicate", (v) => { v.messages.push(clone(v.messages.at(-1))); }],
+    ["before call", (v) => { [v.messages[7], v.messages[8]] = [v.messages[8], v.messages[7]]; }],
+    ["wrong provenance", (v) => { v.messages.at(-1).provenance = "model"; }],
+    ["wrong capability", (v) => { v.messages[7].blocks[0].arguments.capability = "propose_structure"; }],
+    ["wrong target", (v) => { v.messages[7].blocks[0].arguments.character_ref = "character:gu-id"; }],
+  ]) {
+    const input = fixture(); alter(input);
+    assert.equal(check(input, "model_execute_matches_source"), false, label);
+  }
+});
+
+test("passed 回执不能代替真实接受来源或当前待采纳候选", () => {
+  for (const [label, alter] of [
+    ["missing source", (v) => { v.judgmentSource = null; }],
+    ["wrong run", (v) => { v.judgmentSource.event.run_id = "other-run"; }],
+    ["wrong provider call", (v) => { v.judgmentSource.event.payload.author_narrative_source.provider_call_ref = "other-call"; }],
+    ["wrong provider output", (v) => { v.judgmentSource.event.payload.author_narrative_source.provider_output_ref = "other-output"; }],
+    ["wrong accepted capability", (v) => { v.judgmentSource.event.payload.capability = "propose_structure"; }],
+    ["wrong accepted tool call", (v) => { v.judgmentSource.output.blocks[0].call_id = "call-other"; }],
+    ["wrong accepted target", (v) => { v.judgmentSource.output.blocks[0].arguments.character_ref = "character:gu-id"; }],
+    ["wrong narrative hash", (v) => { v.judgmentSource.event.payload.author_narrative_source.narrative_hash = "0".repeat(64); }],
+    ["wrong range", (v) => { v.judgmentSource.event.payload.author_narrative_source.source_byte_range.length -= 1; }],
+    ["replaced final text", (v) => { v.reply = "系统已完成任务。"; }],
+    ["missing candidate", (v) => { v.candidate = null; }],
+    ["wrong candidate", (v) => { v.candidate.payload.character_ref = "character:gu-id"; }],
+    ["already adopted", (v) => { v.candidate.adoption_status = "ACCEPTED"; }],
+  ]) {
+    const input = fixture(); alter(input);
+    assert.equal(evaluate(input).ok, false, label);
+  }
+});
+
 test("只排除原call已失败闭合的execute，接受的纠正决定仍唯一并带真实详情", () => {
   const input = fixture();
-  const args = clone(input.messages.at(-1).blocks[0].arguments);
+  const args = clone(input.messages[7].blocks[0].arguments);
   const failure = { type: "validation_result", call_id: "call-execute", status: "failed",
     reason_code: "author_visible_narrative_invalid" };
-  input.messages.push(message("tool", "application", [failure]), call("corrected", args));
+  input.messages[8] = message("tool", "tool_result", [failure]);
+  input.messages.push(call("corrected", args), message("tool", "tool_result", [{
+    type: "validation_result", call_id: "call-corrected", status: "passed",
+    reason_code: "judgment_validated", detail: { execution_authorized: false, canon_written: false },
+  }]));
+  input.judgmentSource = judgmentWitness("corrected", args);
   const record = clone(input.records.at(-1));
   record.provider_call_ref = "pcall-corrected"; record.provider_run_ref = "prun-corrected";
+  record.response.body.tool_calls[0].id = "call-corrected";
   record.request.body.messages.push(wireCall("execute", args),
     { role: "tool", tool_call_id: "call-execute", content: JSON.stringify(failure) });
   input.records.push(record);
