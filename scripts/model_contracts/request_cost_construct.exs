@@ -2,7 +2,7 @@ defmodule ModelContracts.RequestCostConstruct do
   @moduledoc """
   B87 R05：同一冻结 recipe 经当前 checkout 的生产 run 构造请求。
   只在脚本内替换 Splash transport；原生固定响应不是模型推理证据。
-  判断路由只依据实际工具 schema 选择唯一必填作者说明字段；固定响应随请求保留。
+  固定 execute 路由只依据实际工具 schema 选择唯一作者说明字符串字段；固定响应随请求保留。
   DB/源码副本由外部 root 准备；不迁移、seed、恢复数据库或操作 Git。
   """
   alias Ecto.Adapters.SQL.Sandbox
@@ -250,6 +250,10 @@ defmodule ModelContracts.RequestCostConstruct do
         field = judgment_narrative_field!(schema)
         %{"author_reasoning" => narrative} = arguments = Jason.decode!(call.function.arguments)
 
+        if arguments["action"] != "execute" do
+          raise "scripted judgment response must use execute"
+        end
+
         arguments =
           arguments
           |> Map.delete("author_reasoning")
@@ -266,11 +270,9 @@ defmodule ModelContracts.RequestCostConstruct do
     end
   end
 
-  defp response_for_request!(%{content: text} = response, body)
-       when map_size(response) == 1 and is_binary(text) do
-    body |> request_tool_schema!("judgment_decision") |> judgment_narrative_field!()
-    response
-  end
+  defp response_for_request!(%{content: text} = response, _body)
+       when map_size(response) == 1 and is_binary(text),
+       do: response
 
   defp response_for_request!(_response, _body), do: raise("invalid scripted response shape")
 
@@ -293,15 +295,16 @@ defmodule ModelContracts.RequestCostConstruct do
   end
 
   defp judgment_narrative_field!(schema) do
-    with %{"type" => "object", "properties" => properties, "required" => required} <- schema,
-         true <- is_map(properties) and is_list(required),
+    with %{"type" => "object", "properties" => properties} <- schema,
+         true <- is_map(properties),
          [field] <- Enum.filter(~w(reason author_reasoning), &Map.has_key?(properties, &1)),
          %{"type" => "string"} <- Map.fetch!(properties, field),
-         true <- field in required do
+         %{"type" => "string", "enum" => actions} <- Map.get(properties, "action"),
+         true <- is_list(actions) and "execute" in actions do
       field
     else
       _ ->
-        raise "judgment_decision must declare exactly one required string reason/author_reasoning"
+        raise "judgment_decision must declare exactly one string reason/author_reasoning and allow execute"
     end
   end
 
