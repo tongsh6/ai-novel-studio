@@ -2082,3 +2082,13 @@ JP 改为先校验后发布后，现有 judgment_decided 接受事件必须由�
 **前向验证预算。** quality 已实际消费 3 batch、2 次作者发送；保留 quality-01/02 的旧失败与 quality-03 的上述分层结果。完成修复及相关验证后，登记 quality-04 一次 batch／一次作者发送／零手动重试／900秒，用于同一质量场景的叙述受众与时间顺序复核；从 quality-03 仅改变 id 与独立 evidence 目录，作者原话、seed/hash、材料、正式状态、模型/runtime 与阶段超时保持。冻结 `native-preregistration/quality-04.json`（SHA `079f7be4012a6bbfc39805b042330d4a1073d706c354f16d6be702136b5690aa`），相对原件只改上述两项；现执行协调器仅追加其哈希入口，原协调器字节在 `recovery-20261120/author-delivery-followup-registration-01/` 留存。累计登记 4 batch，只执行新增一次，不结转旧发送，不修改旧 binding。role-02、g2-01、whole-01、style-02 四批均未执行，原预算不增加。源码再次封存后才执行，最终工程出口只能绑定最终实际同源成功 UI 证据；count-03 与 quality-03 不重签到新源。
 
 **最终成本证据。** §16.9 七对实际字节只属于其原 source；当前字段说明变化不能借用旧 after 数值。复用现固定构造 driver、snapshot restore、runtime 与 analyze-pairs owner，在新证据目录以相同新 recipe 重做 before/after 共14次封闭构造，before仍为原冻结源码及原始初态；各臂独立构建、独立恢复库、真实运行模块/Repo位置和完整source前后身份均核对。封闭 transport 合计16次内存响应、0次真实模型调用；不改原 capture 或比较规则来放过跨recipe身份。仍只报告实际请求字节与材料/原文重复，不据此宣称 Token、缓存、延迟或文学收益。上述修订不签 R06，也不缩小 R05 六目标。
+
+### 16.21 N-NARR 验收入口与接受后交付契约对齐（实施前修订，2026-11-20）
+
+**真实检查与失败分层。** HEAD `d4749e5ebc3e2d7e63eb04b1abfd70bb6a8236ca`、全树指纹 `1ba30b08764faacd00aeab2e67c741a0748fd49afc6ba2e6434a0f05c2cef8c5` 上，`mix check` 的全量强制编译、codegen、枚举、编译环、3509/0 测试、架构、ADR 与 I-CACHE 检查通过，I1/I2/I3 独立驱动通过；前后源身份和 47 项 WIP 相同。root 首次将 N-NARR 单独放入新的 owned scope，却漏接既有 `novel_test_db_prepare`，实际因缺 `provider_runs` 表而超时；原失败及 driver 原件保存在 `recovery-20261120/author-delivery-final-check-02/`。随后在新隔离库经同一现有迁移入口执行，得到真实契约失败：`no streamed author reasoning deltas were emitted`，证据在 `n-narr-migrated-check-01/`。该次已有 `judgment_decided` 的完整原文字节绑定通过；不能把缺表与此后真正的验收偏差混为一谈。
+
+**独立目标与反例。** 作者必须得到经接受的真实模型说明，说明逐字对应同一实际 Provider 输出与正确来源坐标；有效交付不能被全部隐藏。判断或计划尚未接受的 Provider 片段必须保持 developer，不能先向作者外显再撤回。固定原文须由场景事先给出，包含可辨认的中文、换行与 nonce，期望不能从实际事件反推；错误 run/call、字节范围、源哈希、模板替换和缺失有效交付均不能取得通过。当前路由无需凭空产生流式作者前缀；存在 provider chunk 与接受事件也不等于来源和作者归属正确。Writer 正文预览的独立职责不因此改变。
+
+**唯一责任与复用裁决。** §16.19 已明确 JP 及当前可达 Planner 的 Execution/stage sink 为 developer，验收后由现有 judgment/plan 事件交付，不得恢复提前发布。现 `run_n_narr.exs` 的真实入口是 `profile_routing → judgment_loop_v1`；它仍以“至少一条 author delta”作为成功条件，并保留未被当前单轮消费的旧 `conversation_turn_v1`／plan fixture 分支。对现 driver 作 `refactor-and-retire`：以真实当前消费者校验接受后字节来源及未接受片段的可见性，复用现 `AgentNarrativeSource`、Provider 契约与运行事件，移除只保护旧提前发布假设的断言和无实际消费者的 fixture。不得只删空流断言、另建来源 parser／事件／registry／业务开关，或把生产发布规则改回去迎合 driver。固定坏证据必须实际被拒绝；不以 driver 自报 PASS、数量增加或同源构造期望替代这一判断。现 Planner 的专属接受与纠错路径继续由邻接测试和实际可达证据承担，本单轮 driver 不冒称覆盖全部 Planner／Writer 或完整 R06。
+
+**实施与出口。** 修改限于既有 N-NARR driver 及确有必要的同一入口说明；先核输出与 fixture 的现役消费者，无新实体则记录 none。保留上述两次失败，在正确隔离库前置下运行重构后的 driver、既有相关叙述/投影测试及格式/规模检查，再按独立审查过的精确提交树分组提交。该验收修正不增加任何真实模型或 native 预算；source-02、quality-04 与其余四批、14 次封闭成本构造均继续等待最终源码封存，旧证据不重签，R05 仍未闭环。
