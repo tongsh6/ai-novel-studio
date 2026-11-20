@@ -77,7 +77,7 @@ describe("WorkspaceChat AgentRun activity hydration query turn", () => {
 // 原生十轮失败的独立输入顺序：resume -> HTTP activity -> pending submission 旧 ACK。
 // 预期来自已提交事件的身份与计数，不从组件投影反推；这组纯机制测试不代签原生恢复。
 describe("运行事件与业务回执分别归属", () => {
-  it("公开流式到交付只留一份渲染内容，取消没有交付时保留未完成原文", () => {
+  it("公开流式仅由同源正文交付接管，取消未交付时保留原文", () => {
     const text = "## 对照\n\n**中文。**继续";
     const stream: AgentEventData = {
       event_id: "evt-stream",
@@ -94,11 +94,20 @@ describe("运行事件与业务回执分别归属", () => {
         author_narrative_delta: text,
       },
     };
+    const source = {
+      source_type: "provider_output",
+      provider_run_ref: "provider-live",
+      provider_call_ref: "call-live",
+      provider_output_ref: "provider-live:output",
+      source_hash: "b05f7f89db346b4d85a8b7f4d727622049c9cc7e40b3cd25502abd2430dcae0c",
+      source_byte_range: { start: 0, length: 30 },
+      narrative_hash: "b05f7f89db346b4d85a8b7f4d727622049c9cc7e40b3cd25502abd2430dcae0c",
+    };
     const delivery = turnResult({
       assistant_message: { text },
       agent_run: { run_id: "run-live", status: "running", phase: "executing" },
       trace_summary: {
-        reply_record: { provider_call_ref: "call-live", response_kind: "plain_text" },
+        reply_record: { author_narrative_source: source },
       },
     });
     const state = stateFromTurnResult(delivery)!;
@@ -111,6 +120,36 @@ describe("运行事件与业务回执分别归属", () => {
       </>,
     );
     expect(after.match(/<strong>中文。<\/strong>/g)).toHaveLength(1);
+    for (const replyRecord of [
+      { provider_call_ref: "call-live", response_kind: "plain_text" },
+      {
+        author_narrative_source: {
+          ...source,
+          provider_run_ref: "another-provider",
+          provider_output_ref: "another-provider:output",
+        },
+      },
+      {
+        author_narrative_source: {
+          ...source,
+          source_type: "provider_output_tool_narrative",
+          tool_call_name: "ask_author",
+          tool_call_narrative_field: "question",
+        },
+      },
+    ]) {
+      const otherDelivery = turnResult({
+        ...delivery,
+        trace_summary: { reply_record: replyRecord },
+      });
+      const retained = renderToStaticMarkup(
+        <>
+          <MarkdownText text={text} />
+          <AgentRunDialogueFlow run={state} events={[stream]} deliveredResults={[otherDelivery]} />
+        </>,
+      );
+      expect(retained.match(/<strong>中文。<\/strong>/g)).toHaveLength(2);
+    }
     const cancelled = renderToStaticMarkup(
       <AgentRunDialogueFlow
         run={{ ...state, status: "cancelled" }}
