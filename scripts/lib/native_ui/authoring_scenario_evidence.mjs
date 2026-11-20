@@ -3,10 +3,13 @@
 // 这里集中四类判定：全章核对请求、续航/角色的原生调用阶段、计划/canon 结果、
 // 作者可见结果与 Why 面板。缺失字段或不合法形状必须让对应检查为 false，
 // 不能以空集合、默认值或备用字段代签。
+import { isDeepStrictEqual } from "node:util";
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
+import { frameBody } from "./scenario_evidence.mjs";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import {
+  observationRefOf,
   requestFactsFromBody,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
@@ -261,6 +264,7 @@ export function nativeRequestChecks(input) {
       application_base_does_not_duplicate_observation: applicationBaseIsClean(bases),
     },
     measured: nativeRequestMeasurement(factsList, observations, previous, continuation, query),
+    terminalExchange: exchanges.at(-1) ?? null,
   };
 }
 
@@ -752,6 +756,85 @@ export function planningOutcomeChecks({
   };
 }
 
+// 事件沿既有帧解析取原 payload；观察和调用只取已验证的末次 request exchange。
+function readingEventMatchesObservation(event, response, exchange) {
+  const body = frameBody(event);
+  const payload = body?.payload;
+  const observation = response?.payload;
+  const content = observation?.content;
+  const calls = list(exchange?.facts?.toolCalls).filter((call) => call.callId === response?.callId);
+  const call = calls.length === 1 ? calls[0] : null;
+  const argumentsValue = typeof call?.arguments === "string"
+    ? parseJson(call.arguments) : call?.arguments;
+  if (body?.event_type !== "exploration_observed" || !isObject(payload) ||
+      !isObject(content) || observation.status !== "ok" ||
+      !isObject(payload.coverage) || !isObject(observation.coverage) ||
+      !isObject(payload.versions) || !isObject(observation.versions) ||
+      !Array.isArray(observation.source_refs)) return false;
+  const observationRef = observationRefOf(observation);
+  return observationRef !== null && payload.observation_ref === observationRef &&
+    payload.stage === "exploration_observed" && payload.outcome === "observed" &&
+    call?.name === "judgment_decision" && argumentsValue?.action === "explore" &&
+    argumentsValue.explore_request?.tool === content.tool &&
+    argumentsValue.explore_request?.query === content.query &&
+    nonBlankId(content.query) && nonBlankId(content.summary) &&
+    payload.tool === content.tool && payload.query === content.query &&
+    payload.summary === content.summary &&
+    isDeepStrictEqual(payload.refs, observation.source_refs) &&
+    isDeepStrictEqual(payload.source_refs, observation.source_refs) &&
+    isDeepStrictEqual(payload.versions, observation.versions) &&
+    isDeepStrictEqual(payload.facts, content.facts) &&
+    payload.next_offset === observation.next_offset &&
+    Object.entries(payload.coverage).every(([key, value]) =>
+      Object.hasOwn(observation.coverage, key) && isDeepStrictEqual(value, observation.coverage[key]));
+}
+
+function fullReadPageMatches(event, observation, chapterRef, offset, nextOffset) {
+  const payload = frameBody(event)?.payload;
+  const query = observationQuery(observation);
+  const coverage = observation.coverage;
+  const end = nextOffset ?? 7000;
+  return observation.content.tool === "chapter_read" &&
+    query?.chapter_ref === chapterRef && query.offset === offset &&
+    coverage.chapter_ref === chapterRef && coverage.prose_total_chars === 7000 &&
+    isDeepStrictEqual(coverage.prose_range, { start: offset + 1, end }) &&
+    payload.chapter_ref === chapterRef && payload.prose_total_chars === 7000 &&
+    isDeepStrictEqual(payload.prose_range, coverage.prose_range) &&
+    observation.next_offset === nextOffset &&
+    observation.source_refs.includes(chapterRef) &&
+    Object.keys(observation.versions).length > 0;
+}
+
+function completeReadingEventsAreBound(explorations, request) {
+  const events = list(explorations);
+  const exchange = request?.terminalExchange;
+  if (!isObject(request?.checks) || Object.keys(request.checks).length === 0 ||
+      !Object.values(request.checks).every((value) => value === true) ||
+      exchange?.valid !== true || events.length !== 3) return false;
+  const responses = list(exchange.responses).filter((response) => response.type === "observation");
+  if (responses.length !== 3 ||
+      !events.every((event, index) => readingEventMatchesObservation(event, responses[index], exchange))) {
+    return false;
+  }
+  const observations = responses.map((response) => response.payload);
+  if (new Set(observations.map(observationRefOf)).size !== 3) return false;
+  const [directory, first, last] = observations;
+  const coverage = directory.coverage;
+  const chapterRef = observationQuery(first)?.chapter_ref;
+  const refs = directory.source_refs;
+  // 目录 query 可为实际 bare "chapters"；类别由读取 coverage 确认，原 query 已逐字绑定。
+  return directory.content.tool === "archive_read" && coverage.kind === "directory" &&
+    coverage.facet === "chapters" && nonBlankId(coverage.work_id) &&
+    coverage.offset === 0 && coverage.offset_unit === "item" &&
+    coverage.returned_items === 2 && coverage.total_items === 2 &&
+    refs.length === 2 && new Set(refs).size === 2 &&
+    refs.every((ref) => nonBlankId(ref) && ref.startsWith("chapter:")) &&
+    directory.next_offset === null && nonBlankId(chapterRef) && refs.includes(chapterRef) &&
+    fullReadPageMatches(events[1], first, chapterRef, 0, 6000) &&
+    fullReadPageMatches(events[2], last, chapterRef, 6000, null) &&
+    isDeepStrictEqual(first.versions, last.versions);
+}
+
 export function fullReadOutcomeChecks({
   visible,
   lastPageAnchor,
@@ -766,7 +849,7 @@ export function fullReadOutcomeChecks({
   return {
     real_native_window_shows_last_page_fact: visibleText.includes(String(lastPageAnchor)),
     real_native_window_shows_reading_activity: visibleText.includes("已阅读章节正文"),
-    two_real_exploration_events: list(explorations).length === 2,
+    complete_reading_events_are_bound: completeReadingEventsAreBound(explorations, request),
     turn_result_has_no_pending_artifacts: pendingArtifacts(turnResult).length === 0,
     no_production_write: same(start, final),
     production_sources_unchanged: fingerprintUnchanged === true,

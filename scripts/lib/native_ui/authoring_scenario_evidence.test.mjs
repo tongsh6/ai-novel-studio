@@ -29,6 +29,7 @@ import {
 } from "./authoring_scenario_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { irBodyFromWire, scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { fullReadScenarioFacts } from "./fixtures/authoring_run_scenarios.mjs";
 
 const explorationScope = ({ allowed = false, tools = [] } = {}) => scopeWireMessage(
   { operation: { exploration: { allowed, tools } } },
@@ -584,25 +585,168 @@ test("计划结果把 UI、run、Why、canon 与来源指纹合成为同一套�
   assert.equal(planningOutcomeChecks({ ...fixture, ackBody: null }).checks.planning_run_is_durable_and_completed, false);
 });
 
-test("全章核对结果要求末页事实、阅读活动、两次探索与零待定，空集合不代签", () => {
+test("全章核对只认目录、首页、续页的真实调用与观察闭环，保留零写入等原门", async (t) => {
+  const { chapterRef, decoyRef, draftRef, firstQuery, lastQuery, firstSummary, eventPayloads, observations, calls } = fullReadScenarioFacts();
+  const messages = [
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n只读作品资料。" },
+    { role: "user", content: "「灰烬中的手印」这章我怀疑有重复，请把全章核对一遍。" },
+    { ...assistantCall(calls[0]), content: "" }, observationMessage(observations[0]),
+    { ...assistantCall(calls[1]), content: "" }, observationMessage(observations[1]),
+    { ...assistantCall(calls[2]), content: "" }, observationMessage(observations[2]),
+    explorationScope(),
+  ];
+  const tools = [{
+    type: "function",
+    function: { name: "judgment_decision", parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] } },
+  }];
+  const bodies = [2, 4, 6, 9].map((end) => ({ messages: structuredClone(messages.slice(0, end)), tools }));
+  const explorations = eventPayloads.map((payload, index) => ({
+    direction: "received",
+    frame: [null, null, "workspace:full-read", "agent_event", {
+      event_type: "exploration_observed", visibility: "author", run_ref: "run-full-read", sequence: index + 1, payload,
+    }],
+  }));
   const base = {
-    visible: `${ANCHOR} 已阅读章节正文`,
-    lastPageAnchor: ANCHOR,
-    explorations: [{ payload: { query: "q-1" } }, { payload: { query: "q-2" } }],
-    turnResult: { adoption_state: { pending: [] } },
-    start: { works: 1 },
-    final: { works: 1 },
-    fingerprintUnchanged: true,
-    request: { checks: { request_ok: true } },
+    visible: ANCHOR + " 已阅读章节正文", lastPageAnchor: ANCHOR, explorations,
+    turnResult: { adoption_state: { pending: [] } }, start: { works: 1 }, final: { works: 1 },
+    fingerprintUnchanged: true, request: nativeRequestChecks(bodies),
   };
-  assert.deepEqual(Object.values(fullReadOutcomeChecks(base)), [true, true, true, true, true, true, true]);
-  assert.equal(fullReadOutcomeChecks({ ...base, visible: "无" }).real_native_window_shows_last_page_fact, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, visible: "已阅读章节正文" }).real_native_window_shows_last_page_fact, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, explorations: [] }).two_real_exploration_events, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, explorations: [base.explorations[0]] }).two_real_exploration_events, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, turnResult: { adoption_state: { pending: [{ artifact_id: "x" }] } } }).turn_result_has_no_pending_artifacts, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, final: { works: 2 } }).no_production_write, false);
-  assert.equal(fullReadOutcomeChecks({ ...base, fingerprintUnchanged: false }).production_sources_unchanged, false);
+
+  await t.test("三个事件只绑定末次请求，历史严格前缀不会重复计数，真实 coverage 扩展允许", () => {
+    assert.equal(Object.values(base.request.checks).every(Boolean), true);
+    assert.equal(base.request.measured.observation_count, 6);
+    assert.equal(eventPayloads[0].query, "chapters");
+    assert.notDeepEqual(eventPayloads[1].coverage, observations[1].coverage);
+    for (const payload of eventPayloads) {
+      assert.equal(Object.hasOwn(payload, "status"), false);
+      assert.equal(Object.hasOwn(payload, "call_id"), false);
+    }
+    const checks = fullReadOutcomeChecks(base);
+    assert.equal(checks.complete_reading_events_are_bound, true);
+    assert.equal(Object.values(checks).every(Boolean), true);
+    assert.equal(Object.hasOwn(checks, "two_real_exploration_events"), false);
+    const irBodies = bodies.map((body) => irBodyFromWire(body));
+    assert.equal(typeof irBodies.at(-1).messages[2].blocks[0].arguments, "object");
+    const irRequest = nativeRequestChecks(irBodies);
+    assert.equal(Object.values(irRequest.checks).every(Boolean), true);
+    assert.equal(fullReadOutcomeChecks({ ...base, request: irRequest }).complete_reading_events_are_bound, true);
+  });
+
+  await t.test("三端保留同一 JSON 目录查询原字节时也合法", () => {
+    const jsonFacts = fullReadScenarioFacts('{"facet":"chapters","offset":0}');
+    const jsonBodies = structuredClone(bodies);
+    for (const body of jsonBodies.slice(1)) {
+      body.messages[2] = { ...assistantCall(jsonFacts.calls[0]), content: "" };
+      body.messages[3] = observationMessage(jsonFacts.observations[0]);
+    }
+    const jsonEvents = structuredClone(explorations);
+    jsonEvents[0].frame[4].payload = jsonFacts.eventPayloads[0];
+    const checks = fullReadOutcomeChecks({ ...base, explorations: jsonEvents, request: nativeRequestChecks(jsonBodies) });
+    assert.equal(checks.complete_reading_events_are_bound, true);
+    assert.equal(Object.values(checks).every(Boolean), true);
+  });
+
+  await t.test("旧两个 query 对象没有调用或观察身份，不能因数量正好而通过", () => {
+    const weak = { ...base, explorations: [{ payload: { query: "q-1" } }, { payload: { query: "q-2" } }] };
+    assert.equal(Object.values(fullReadOutcomeChecks(weak)).every(Boolean), false);
+  });
+
+  for (const [name, indexes] of [
+    ["缺全部事件", []], ["缺目录", [1, 2]], ["缺首页", [0, 2]], ["缺续页", [0, 1]],
+    ["重放首页替代续页", [0, 1, 1]], ["目录与首页错序", [1, 0, 2]], ["多出第四事件", [0, 1, 2, 2]],
+  ]) {
+    await t.test(name, () => {
+      const changed = { ...base, explorations: indexes.map((index) => explorations[index]) };
+      assert.equal(fullReadOutcomeChecks(changed).complete_reading_events_are_bound, false);
+    });
+  }
+
+  for (const [name, mutate] of [
+    ["单端目录 query 等义而原字节不同", (events) => { events[0].frame[4].payload.query = '{"facet":"chapters","offset":0}'; }],
+    ["事件没有观察身份", (events) => { delete events[1].frame[4].payload.observation_ref; }],
+    ["事件观察身份未绑定", (events) => { events[2].frame[4].payload.observation_ref = "observation:foreign"; }],
+    ["两事件复用同一观察身份", (events) => { events[2].frame[4].payload.observation_ref = "observation:first-page"; }],
+    ["单侧摘要被改写", (events) => { events[1].frame[4].payload.summary += "并未实际读取的结论"; }],
+    ["单侧来源被改写", (events) => { events[1].frame[4].payload.source_refs = [decoyRef]; }],
+    ["单侧版本被改写", (events) => { events[1].frame[4].payload.versions[draftRef] = 2; }],
+    ["单侧共享覆盖被改写", (events) => { events[1].frame[4].payload.coverage.chapter_plan.status = "complete"; }],
+    ["读取事件标记失败", (events) => { events[1].frame[4].payload.outcome = "failed"; }],
+    ["两页版本不一致而各自事件与请求一致", (events, results) => {
+      events[2].frame[4].payload.versions[draftRef] = 2;
+      results[2].versions[draftRef] = 2;
+    }],
+    ["两页都缺供应版本", (events, results) => {
+      for (const index of [1, 2]) {
+        events[index].frame[4].payload.versions = {};
+        results[index].versions = {};
+      }
+    }],
+    ["续页范围与首页重叠", (events, results) => {
+      events[2].frame[4].payload.prose_range.start = 6000;
+      results[2].coverage.prose_range.start = 6000;
+    }],
+    ["续页总长不闭合", (events, results) => {
+      events[2].frame[4].payload.prose_total_chars = 7001;
+      results[2].coverage.prose_total_chars = 7001;
+    }],
+    ["真实请求观察状态不可用", (_events, results) => { results[1].status = "unavailable"; }],
+    ["请求观察身份被改写", (_events, results) => { results[2].content.observation_ref = "observation:foreign"; }],
+    ["请求结果 call_id 没有原始调用", (_events, results) => { results[2].call_id = "call-foreign"; }],
+    ["真实调用不是 judgment_decision", (_events, _results, actualCalls) => { actualCalls[1].function.name = "agent_plan_draft"; }],
+    ["真实调用不是 explore", (_events, _results, actualCalls) => {
+      actualCalls[1].function.arguments = JSON.stringify({ action: "execute", capability: "review", dialogue_goal: "评估全章", author_reasoning: "评估全章。" });
+    }],
+    ["调用 query 与实际观察不一致", (_events, _results, actualCalls) => {
+      actualCalls[2].function.arguments = JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: firstQuery } });
+    }],
+    ["续页跨章且 footer 与单页内部均自洽", (events, results, actualCalls) => {
+      const foreignQuery = '{"chapter_ref":"' + decoyRef + '","offset":6000}';
+      events[2].frame[4].payload.query = foreignQuery;
+      events[2].frame[4].payload.chapter_ref = decoyRef;
+      events[2].frame[4].payload.refs = [decoyRef];
+      events[2].frame[4].payload.source_refs = [decoyRef];
+      results[2].content.query = foreignQuery;
+      results[2].coverage.chapter_ref = decoyRef;
+      results[2].source_refs = [decoyRef];
+      actualCalls[2].function.arguments = JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: foreignQuery } });
+      events[1].frame[4].payload.summary = firstSummary.replace(lastQuery, foreignQuery);
+      results[1].content.summary = firstSummary.replace(lastQuery, foreignQuery);
+    }],
+  ]) {
+    await t.test(name, () => {
+      const events = structuredClone(explorations);
+      const results = structuredClone(observations);
+      const actualCalls = structuredClone(calls);
+      mutate(events, results, actualCalls);
+      const changedMessages = [
+        ...structuredClone(messages.slice(0, 2)),
+        { ...assistantCall(actualCalls[0]), content: "" }, observationMessage(results[0]),
+        { ...assistantCall(actualCalls[1]), content: "" }, observationMessage(results[1]),
+        { ...assistantCall(actualCalls[2]), content: "" }, observationMessage(results[2]),
+        explorationScope(),
+      ];
+      const changedBodies = [2, 4, 6, 9].map((end) => ({ messages: structuredClone(changedMessages.slice(0, end)), tools }));
+      const checks = fullReadOutcomeChecks({ ...base, explorations: events, request: nativeRequestChecks(changedBodies) });
+      assert.equal(checks.complete_reading_events_are_bound, false);
+    });
+  }
+
+  await t.test("缺末次请求与旧请求门失败不由事件代签", () => {
+    assert.equal(fullReadOutcomeChecks({ ...base, request: { checks: { request_ok: true } } }).complete_reading_events_are_bound, false);
+    for (const key of Object.keys(base.request.checks)) {
+      const request = { ...base.request, checks: { ...base.request.checks, [key]: false } };
+      assert.equal(fullReadOutcomeChecks({ ...base, request }).complete_reading_events_are_bound, false, key);
+    }
+  });
+
+  await t.test("末页事实、阅读活动、零待定、零写入与源码指纹原门继续独立失败", () => {
+    assert.equal(fullReadOutcomeChecks({ ...base, visible: "无" }).real_native_window_shows_last_page_fact, false);
+    assert.equal(fullReadOutcomeChecks({ ...base, visible: "已阅读章节正文" }).real_native_window_shows_last_page_fact, false);
+    assert.equal(fullReadOutcomeChecks({ ...base, visible: ANCHOR }).real_native_window_shows_reading_activity, false);
+    assert.equal(fullReadOutcomeChecks({ ...base, turnResult: { adoption_state: { pending: [{ artifact_id: "x" }] } } }).turn_result_has_no_pending_artifacts, false);
+    assert.equal(fullReadOutcomeChecks({ ...base, final: { works: 2 } }).no_production_write, false);
+    assert.equal(fullReadOutcomeChecks({ ...base, fingerprintUnchanged: false }).production_sources_unchanged, false);
+  });
 });
 
 

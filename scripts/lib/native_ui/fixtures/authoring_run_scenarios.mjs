@@ -142,3 +142,122 @@ export function firstConsumerEvidence() {
   const llmRecords = [exchange(1), exchange(2), exchange(9)];
   return { wire, sent, ack, result, llmRecords, evidence: { wire, userMessages: [sent], llmRecords } };
 }
+
+export function fullReadScenarioFacts(directoryQuery = "chapters") {
+  const lastPageAnchor = "井底浮现第七枚手印";
+  // 独立固定事实；不从待测 reader 的返回值生成事件或预期，也不声称核准原库正文。
+  const chapterRef = "chapter:22222222-2222-4222-8222-222222222222";
+  const decoyRef = "chapter:11111111-1111-4111-8111-111111111111";
+  const draftRef = "draft:33333333-3333-4333-8333-333333333333";
+  const firstQuery = '{"chapter_ref":"' + chapterRef + '","offset":0}';
+  const lastQuery = '{"chapter_ref":"' + chapterRef + '","offset":6000}';
+  const directorySummary = [
+    JSON.stringify({ ref: decoyRef, seq: 1, title: "灰烬中的手印", volume: "第一卷", has_prose: false }),
+    JSON.stringify({ ref: chapterRef, seq: 2, title: "灰烬中的手印", volume: "第一卷", has_prose: true }),
+  ].join("\n");
+  const firstSummary = "「灰烬中的手印」（第 2 章）\n【计划】追查手印\n【摘要】（尚无章摘要）\n" +
+    "【正文】第 1–6000 字符 / 共 7000 字符\n" + "灰".repeat(6000) +
+    "\n【续读】剩余 1000 字符；用 " + lastQuery + " 继续。";
+  const lastSummary = "「灰烬中的手印」（第 2 章）\n【正文】第 6001–7000 字符 / 共 7000 字符\n" +
+    "烬".repeat(1000 - lastPageAnchor.length) + lastPageAnchor;
+  const directoryCoverage = {
+    kind: "directory", facet: "chapters", work_id: "work-full-read", offset: 0, offset_unit: "item",
+    returned_items: 2, total_items: 2, complete_fields: ["has_prose", "ref", "seq", "title", "volume"],
+  };
+  const firstCoverage = {
+    chapter_plan: {
+      status: "partial", representation: "preview", source_ref: chapterRef, offset: 0,
+      returned_graphemes: 4, total_graphemes: 4, offset_unit: "unicode_grapheme",
+      read_query: '{"facet":"chapters","ref":"' + chapterRef + '","offset":0}',
+    },
+    chapter_summary: {
+      status: "unavailable",
+      read_query: '{"facet":"chapters","ref":"' + chapterRef + '","offset":0}',
+    },
+  };
+  const eventPayloads = [
+    {
+      stage: "exploration_observed", tool: "archive_read", query: directoryQuery, summary: directorySummary,
+      outcome: "observed", facts: { total_count: 2, returned_count: 2 },
+      refs: [decoyRef, chapterRef], source_refs: [decoyRef, chapterRef], versions: {},
+      coverage: directoryCoverage, observation_ref: "observation:directory", next_offset: null,
+    },
+    {
+      stage: "exploration_observed", tool: "chapter_read", query: firstQuery, summary: firstSummary,
+      outcome: "observed", facts: { prose_chars: 7000 },
+      refs: [chapterRef], source_refs: [chapterRef], versions: { [draftRef]: 1 },
+      coverage: firstCoverage, observation_ref: "observation:first-page",
+      chapter_ref: chapterRef, chapter_seq: 2, prose_range: { start: 1, end: 6000 },
+      prose_total_chars: 7000, next_offset: 6000,
+    },
+    {
+      stage: "exploration_observed", tool: "chapter_read", query: lastQuery, summary: lastSummary,
+      outcome: "observed", facts: { prose_chars: 7000 },
+      refs: [chapterRef], source_refs: [chapterRef], versions: { [draftRef]: 1 },
+      coverage: {}, observation_ref: "observation:last-page",
+      chapter_ref: chapterRef, chapter_seq: 2, prose_range: { start: 6001, end: 7000 },
+      prose_total_chars: 7000, next_offset: null,
+    },
+  ];
+  const observations = [
+    {
+      type: "observation", call_id: "call-directory", status: "ok",
+      source_refs: [decoyRef, chapterRef], versions: {},
+      coverage: { ...directoryCoverage, coverage_note: null, continuation_hint: null }, next_offset: null,
+      content: {
+        tool: "archive_read", query: directoryQuery, summary: directorySummary,
+        facts: { total_count: 2, returned_count: 2 }, observation_ref: "observation:directory",
+      },
+    },
+    {
+      type: "observation", call_id: "call-first-page", status: "ok",
+      source_refs: [chapterRef], versions: { [draftRef]: 1 },
+      coverage: {
+        ...firstCoverage, prose_range: { start: 1, end: 6000 }, prose_byte_range: { start: 0, end: 18000 },
+        prose_total_chars: 7000, chapter_ref: chapterRef, coverage_note: null, continuation_hint: null,
+      },
+      next_offset: 6000,
+      content: {
+        tool: "chapter_read", query: firstQuery, summary: firstSummary,
+        facts: { prose_chars: 7000 }, observation_ref: "observation:first-page",
+      },
+    },
+    {
+      type: "observation", call_id: "call-last-page", status: "ok",
+      source_refs: [chapterRef], versions: { [draftRef]: 1 },
+      coverage: {
+        prose_range: { start: 6001, end: 7000 }, prose_byte_range: { start: 18000, end: 21000 },
+        prose_total_chars: 7000, chapter_ref: chapterRef, coverage_note: null, continuation_hint: null,
+      },
+      next_offset: null,
+      content: {
+        tool: "chapter_read", query: lastQuery, summary: lastSummary,
+        facts: { prose_chars: 7000 }, observation_ref: "observation:last-page",
+      },
+    },
+  ];
+  const calls = [
+    {
+      id: "call-directory", type: "function",
+      function: {
+        name: "judgment_decision",
+        arguments: JSON.stringify({ action: "explore", explore_request: { tool: "archive_read", query: directoryQuery } }),
+      },
+    },
+    {
+      id: "call-first-page", type: "function",
+      function: {
+        name: "judgment_decision",
+        arguments: JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: firstQuery } }),
+      },
+    },
+    {
+      id: "call-last-page", type: "function",
+      function: {
+        name: "judgment_decision",
+        arguments: JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: lastQuery } }),
+      },
+    },
+  ];
+  return { chapterRef, decoyRef, draftRef, firstQuery, lastQuery, firstSummary, eventPayloads, observations, calls };
+}
