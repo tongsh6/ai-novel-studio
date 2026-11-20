@@ -2116,3 +2116,31 @@ JP 改为先校验后发布后，现有 judgment_decided 接受事件必须由�
 **原生完成文件的唯一生产职责。** 查重确认 jsonWrite 已在 driver.mjs，writeUiComplete 是 B29/P1/B30 的现役消费者；workbench其余14个操作型导出均零外部消费者，包含同样未绑定findByText的死分支，应退役而不续接。保留 flatText，将既有 writeUiComplete 收束为完成文件共同owner并复用jsonWrite；现 NativeScenarioHarness 方法薄委托它，退役第二处对象构造。三个直接driver都已有实际绑定的APP target，同批迁为必填target；统一保持现已存在的六字段形态，app_bundle来自真实target，input_target原样保留，不保留固定bundle/无target旧分支或通用extra。真实target验证仍归原输入/采证owner，不能由完成文件自报替代。复用既有 B29 evidence 与 scenario_driver 测试的临时目录，直接调用两入口真实落盘，对手写字段、不同bundle和完整target核验；旧missing import必须先产生实际红灯。同步实际README，不新建扫描平台；其它日志写入职责不扩大。
 
 **前向执行与证据。** 新实体 none；以上均为现owner的复用/职责收束及死入口退役，原47项WIP按路径及增量保留。修复、独立审查、相关门禁和可review中文分组提交完成后重新封存source。role已实际消耗两batch、两次作者发送，前向仅登记role-03一次batch／一次发送／零手动重试／900秒；同原话、seed/hash、T0/T1候选模式、模型/runtime、阶段预算，不采纳且不扩大到T2–T5。登记只改id及独立evidence目录，原协调器保留前件后追加该单批入口，不重置旧消耗。g2-01、whole-01、style-02 原三批未执行，预算不变。新增语言规范会改变请求，旧cost-final-01保留其source身份，最终源码再以既有owner另做同recipe14次封闭构造；不得给旧capture换source标签。所有旧native、source-02与失败原件不重签；R05仍未闭环，R06不在本批。
+
+### 16.23 source-03 实测反例与现役接收职责重构（实施前裁决，2026-11-20）
+
+**本轮真实结果。** `c879eb262832f3363362025f7304428c5ba2c64e`、source-03 指纹 `39bdc8249efc0d2aaeff7af2471f50279f0df8aacfd0bfaf46651117c6c6561c` 上全量后端检查 3509/0，执行前后源码一致，原47项WIP增量保留。role-03 一次作者发送，owned `2b0c21f007fa2574`、86586ms、执行/binding 0，25项机械检查通过；目录/详情/真实下一请求、老沈唯一候选、正式状态保持、最终说明一次交付均有原件证据，但第二次 Provider reason 含“该 ref 的详情作为当前基线”，245 UTF-8字节、SHA `bfca5483af67dd164261ca51127da54d415607e12d5ff082705187e7802711c2`，真实作者AX可读。该次请求的system和字段description已经包含新版语言规则，故不是未接线；本样本仍 FAIL_AUTHOR_VISIBLE_LANGUAGE。独立可见/语义审查分别存 `recovery-20261120/role-03-visible-review/`、`role-03-semantic-review/`，原summary不改签。
+
+同一源上 g2-01（owned `f14df78c0170ca0a`，125249ms）实际交付目标段候选，但 Writer `pcall_mwoj59yu_a4` 的 `items[0].rationale` 原文包含内部段标识，页面“创作依据”原样展示，driver0/runner1。两个真实分页观察进入各自下一请求的事实成立；返回自报另包含无本次Base/Observation授信的作者message来源，不能把材料读全等同使用声明合格。现audit-g2原样执行退出1，缺证及usage未验证保持；其只读SQLite reader生成的-shm/-wal另记入派生审计，原52份证据字节未改，不删除副产物掩盖执行事实。
+
+whole-01（owned `236cd1b0a7f22d20`，103236ms）交付整章候选，完整7000字符基线在Writer请求出现一次、whole_chapter/replace_scope成立；原验收为driver0/runner1。作者实际最终说明236字符/692字节且与来源相同，但现reply surface把“生成草稿”结构标签并入正文，并错误定位首末截图；refs reader又因observation_refs的实际引用形状把同次Base一起置为unknown。两项需修判据，不是用现结果放宽目标。候选rationale中的“chapter_read”仍须独立审语义，不能由纠正采证推导作者交付PASS。style-02（owned `5ddd9ae4ec077492`，37256ms）一次作者发送、三次实际调用，先接受目录探索，再拒绝同响应两个judgment_decision及后续违规作者叙述；真实run失败，未交付候选，driver/runner1、无summary。保留整个失败与原call回执，不补造成功收尾。三批源码均前后不变；风格、整章和目标段的完整目标仍未闭环。
+
+`cost-final-02` 在source-03完成14次封闭构造、7 paired/0 unpaired、16次固定内存响应、0真实模型；六项initial比before增加4657–4659 stable JSON bytes，whole-writer 65985→67040。逐调用实际加载记录为2194个非空BEAM项和140个Mix定义项，共2334项；不得把总项数称为BEAM数。报告与303份证据封存，仅对source-03有效，不向后续源码重标。
+
+**独立目标与反例。** 作者得到有用的作品判断、取材目的及下一步，使用实际作品/角色/章节名称；操作字段与作者回应职责分离。每次模型决定只有一个明确的作者正文来源，原文字节、Provider坐标、接受后发布、过程时序、最终持久恢复与不同来源归属保持；系统结构和处置事实不冒领模型正文。相同结构化只读操作不得因说明包含“不会保存”而改变可执行性。候选使用声明必须绑定同次实际发送请求的Base或已成立观察，作者source、未读ref、未来观察和其它调用材料不能升格授信。错误声明或违规作者说明应在原工具调用接受前拒绝并进入现有有界纠错，不能先发布、清洗、删去坏引用或以另一干净字段替代；小说正文的创作职责不被一般词黑名单压缩。来源真实、schema合法和材料齐全都不能各自代签自然语言质量。
+
+**判断/计划唯一正文与计划入口。** 现judgment_decision/continuation_decision.reason已经被schema声明为作者文字，却又由JP的写意图正则参与只读操作裁决；content优先、工具文字兜底还要求模型生成可能无人消费的第二份说明。paired plan要求同次judgment_decision(action=plan)与agent_plan_draft各写一份说明，DPS/Planner随后分别消费，当前前端虽能合并同来源交付，但该协议仍不必要地要求两份作者文本。复用现author_reasoning字段，完整退役这两个工具的reason字段与措辞驱动的只读正则；普通reply保留原生content，ask_author保留question，其余判断工具与现计划入口只从各自明确的author_reasoning交付。工具响应另带非空content即冲突，沿现接受/纠错口拒绝，不按优先级吞掉一份，不保留旧字段alias或双解析。
+
+计划选择、计划结构及作者说明由已有agent_plan_draft单工具承担，退役judgment_decision中的plan动作及强制双工具组合。保留现Planner接受、inline_plan_meta、JudgmentPlan与plan_drafted/plan_revised、只读取材计划回到判断的真实消费者。plan的现dialogue_goal没有独立消费者，不迁成共用draft/revise的新必填副本；实际run.goal及steps继续承担目标与计划职责。三wire均已支持无content的单工具输出，Provider/IR仍忠实保留原始合法或拒绝响应，不在adapter改写；不新增并行工具参数、供应商能力声明、隐藏循环或内部思考字段。直接对作者沟通的角色定义与字段说明同步收束；重命名和提示均不承诺任意自然语言自动合格，实际新样本仍必须逐句审核。
+
+**Writer同次返回声明与作者说明接收。** CreativeProvider.Real的generate_with_session已持有Operation.prepare后真正发送的IR，现NativeToolExchange已承担原call_id失败回执和既有两次上限。把返回used_context_refs作为待验声明，在这一真实接收口复用RequestIR现有used⊆Base∪Observation判据；只用该次IR的真实边界，不用较早ToolRequest、Scope.source_refs或跨调用累计集合。现ToolOutputContract不得把坏引用形状经string_list丢弃后当空声明通过；明确拒绝坏形状，保留其余非权威质量意见的职责。现TurnExecutionService的事后unbound记录只是审计，不继续作为接收保证，也不在PWF各分支新增一套授信器。
+
+复用同一creative item契约和Common.AuthorVisible.Text校验实际给作者看的rationale，不对小说body施加作者说明专用约束、不代写title/body。Writer、判断与计划需要的短语言规范复用已被application和agent消费的Common.AuthoringSemantics；若迁移现AuthoringTaskPolicy规则，旧出口同批退役，不能让agent反依赖application或新建平行规则表。规则的结构检查能力边界保持公开，“该ref”“chapter_read”的真实语境仍独立审核，不靠扩大宽泛词黑名单获得绿灯。
+
+**应用固定说明与外部证据owner。** role-03卡片“只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆”来自PWF工程常量，不是模型reason。现Presenter.body已经表达中文差异、未采纳与未修改状态，item.rationale允许缺省且UICards已有条件渲染；退役这份重复工程说明，保持真实payload/ref/effect和既有可见状态，不改全局“创作依据”标签或另造系统文案。
+
+外部原文采证继续由现r05ReplySurface/语义单元比对/当前作者边界与首末视口owner承担：排除结构标签而完整保留实际作者正文，拒绝别的回合、过程说明、另一候选或背景同文补齐，不添加产品验收hook。Request refs读取按当前RequestIR.ref_key已有合法引用形状核同次明确登记，成功观察仍须前置唯一调用及同请求结果；缺证、坏形状和已证越界分别报告，不能全局授信source。修正后的派生审计不覆盖旧summary/binding/截图。旧wrong-path的role-02完成文件检查已另存completion-path-correction，真实native-ui-complete仍缺失，原失败结论不变。
+
+**七问、查重与实施顺序。** Contract为VS-00M §6、现判断/计划工具契约、CreativeProvider返回契约和RequestIR引用资格；Invariant为上述单一来源、接受后发布、真实同次引用及作者采纳边界。Boundary限当前common/application/agent生产接受者与既有外部验收脚本，无数据库/新持久实体/Provider wire改写；Consumer为本批真实判断、当前计划、G2/whole/style Writer及工作台。Proof先以独立固定原文、含否定词的合法只读操作、双正文/双工具、错run/call/引用/非法rationale、缺失或坏形状声明和错误采证建立反例，再穿过真实接受→纠错→候选/事件/持久恢复验证；测试不以实现派生值反推目标。Acceptance Driver复用现B29/B71原生入口；Exploration继续使用现目录/正文/记忆观察、同次回流及预算，不添加专用packet。新增实体none：现字段/工具/规则owner复用并退役旧入口，现错误测试随契约迁移；各文件原WIP精确增量保留。
+
+先按职责修订契约并实现上述可独立review部分，运行相关反例、门禁、精确提交树检查后分组中文提交。现已登记native预算均已消费，后续修复复验必须另行前向登记单批/单发送/零手动重试，保持原输入、seed、模型runtime及上限，不能重用旧目录或重签source-03。最后统一冻结源码，复核真实作者效果、材料和引用、最终成本与原scope工程出口；R05仍为未闭环，R06整体不在本次签署。
