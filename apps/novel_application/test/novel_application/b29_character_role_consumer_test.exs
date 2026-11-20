@@ -28,9 +28,10 @@ defmodule NovelApplication.B29CharacterRoleConsumerTest do
 end
 
 defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
-  use ExUnit.Case, async: false
+  use NovelPersistence.DataCase, async: false
 
-  alias Ecto.Adapters.SQL.Sandbox
+  alias NovelAgent.Provider.Execution
+  alias NovelApplication.{AgentRunService, DialoguePlanningService, TestAgenticLoopFixtures}
 
   alias NovelApplication.{
     CharacterProfile,
@@ -40,12 +41,15 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
   }
 
   alias NovelFoundation.Enums.AdoptionStatus
-  alias NovelPersistence.{Repo, WorkArchiveRepo}
+  alias NovelPersistence.{AgentRunLog, Repo, WorkArchiveRepo, WorkSessionRepo}
   alias NovelPersistence.Schemas.{Character, Work}
 
+  @role_narrative "灯笺731：我已核对老沈的身份。\n保留这段说明的原始换行。"
+
   setup do
-    :ok = Sandbox.checkout(Repo)
-    :ok
+    {:ok, work} = WorkService.create(%{title: "B29 角色交付"})
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+    %{work: work, session: session}
   end
 
   @tag :scope_archive_index
@@ -107,5 +111,249 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
     message = CharacterRosterNarration.message(archive_characters)
     assert message =~ "当前作品的主角是 沈砚"
     refute message =~ "还没有谁被标记为主角"
+  end
+
+  @tag :r05_role_handoff
+  test "确定性角色候选经 DPS 和真实 runtime 交付，缺省 metadata 不导致失败", c do
+    {state, source, before} = run_character_profile(c, "ENSEMBLE_POV")
+    assert [pending] = state.final_turn_result.adoption_state.pending
+    assert pending.artifact_type == :character_profile_revision
+    assert pending.adoption_status == "TENTATIVE"
+    assert pending.payload.character_ref == "character:#{source.id}"
+
+    assert pending.payload.changes == [
+             %{field: "narrative_role", old: "ENSEMBLE_POV", new: "PROTAGONIST"}
+           ]
+
+    assert pending.payload.other_character_changes == []
+    assert state.run.pending_artifact_refs == [pending.artifact_id]
+    assert {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
+    assert [persisted] = shown.pending_adoptions
+    assert persisted.artifact_id == pending.artifact_id
+    assert persisted.adoption_status == "TENTATIVE"
+    assert NovelPersistence.Repo.all(NovelPersistence.Schemas.Character) == before
+    refute state.final_turn_result.truthfulness.production_write_performed
+    refute state.final_turn_result.truthfulness.artifact_adopted
+  end
+
+  @tag :r05_role_handoff
+  test "已是主角的确定性 no_change 经 DPS 正常完成且不制造候选", c do
+    {state, _source, before} = run_character_profile(c, "PROTAGONIST")
+    assert state.run.pending_artifact_refs == []
+    refute Map.get(state.final_turn_result, :adoption_state)
+    assert state.final_turn_result.available_actions == []
+    assert state.final_turn_result.assistant_message.text == @role_narrative
+    assert [card] = state.final_turn_result.ui_cards
+    assert card.card_type == "result_card"
+    assert card.title == "系统核对结果"
+    assert card.body =~ "沈砚"
+    assert card.body =~ "老沈"
+    assert card.body =~ "主角"
+    refute card.body =~ "PROTAGONIST"
+    refute card.body =~ "character:"
+
+    for _delivery <- 1..2 do
+      assert {:ok, shown} = NovelApplication.WorkSessionService.resume(c.work.id)
+      assert shown.pending_adoptions == []
+      assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
+      assert restored.turn_result["assistant_message"]["text"] == @role_narrative
+      assert restored.turn_result["ui_cards"] == [Jason.decode!(Jason.encode!(card))]
+    end
+
+    assert NovelPersistence.Repo.all(NovelPersistence.Schemas.Character) == before
+    refute state.final_turn_result.truthfulness.production_write_performed
+  end
+
+  defp run_character_profile(c, initial_role) do
+    source =
+      NovelPersistence.Repo.insert!(%NovelPersistence.Schemas.Character{
+        work_id: c.work.id,
+        name: "沈砚",
+        aliases: ["老沈"],
+        role: "灯楼查账人",
+        narrative_role: initial_role,
+        summary: "熟悉灯楼旧账。",
+        status: "ACCEPTED"
+      })
+
+    NovelPersistence.Repo.insert!(%NovelPersistence.Schemas.Character{
+      work_id: c.work.id,
+      name: "沈砚",
+      aliases: ["小沈"],
+      narrative_role: "MINOR",
+      status: "ACCEPTED"
+    })
+
+    before = NovelPersistence.Repo.all(NovelPersistence.Schemas.Character)
+    ref = "character:#{source.id}"
+    parent = self()
+    calls = :counters.new(1, [])
+
+    execution = %Execution{
+      result_fn: fn request ->
+        :counters.add(calls, 1, 1)
+        observations = NovelCommon.RequestIR.visible_observations(request)
+
+        args =
+          case :counters.get(calls, 1) do
+            1 ->
+              assert observations == []
+
+              %{
+                action: "explore",
+                reason: "我会先查看角色目录，确认老沈对应的人物。",
+                explore_request: %{tool: "archive_read", query: "characters"}
+              }
+
+            2 ->
+              assert [%{coverage: %{"kind" => "directory"}}] = observations
+
+              %{
+                action: "explore",
+                reason: "我会查看老沈的角色详情，核对当前设定。",
+                explore_request: %{
+                  tool: "archive_read",
+                  query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
+                }
+              }
+
+            3 ->
+              assert [_, detail] = observations
+              assert detail.coverage["kind"] == "detail"
+              assert detail.content["facts"]["character"]["character_ref"] == ref
+              assert detail.content["facts"]["character"]["narrative_role"] == initial_role
+              assert detail.content["summary"] == "熟悉灯楼旧账。"
+
+              %{
+                action: "execute",
+                capability: "revise_character_profile",
+                character_ref: ref,
+                reason: @role_narrative
+              }
+
+            count ->
+              flunk("确定性角色步骤不应追加 provider 调用：#{count}")
+          end
+
+        args = Map.put(args, :dialogue_goal, "按作者要求处理老沈的叙事身份")
+        call_ref = TestAgenticLoopFixtures.unique_provider_call_id("pcall-role")
+        run_ref = TestAgenticLoopFixtures.unique_provider_call_id("prun-role")
+        send(parent, {:role_source, :counters.get(calls, 1), call_ref, run_ref})
+
+        {:ok,
+         %NovelAgent.Provider.Result{
+           content: "",
+           tool_calls: TestAgenticLoopFixtures.native_tool_calls("judgment_decision", args),
+           provider_call_ref: call_ref,
+           provider_run_ref: run_ref
+         }}
+      end
+    }
+
+    input = %{
+      text: "指定老沈为主角",
+      workspace_id: c.work.id,
+      work_id: c.work.id,
+      session_id: c.session.id,
+      turn_id: "turn-role-handoff",
+      interaction_store: &NovelPersistence.InteractionLifecycle.call/2
+    }
+
+    fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
+    assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, fetcher, execution)
+
+    attrs =
+      NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+        send(parent, {:role_event, event})
+      end)
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(attrs,
+               interaction_input: spec.interaction_input,
+               interaction_store: spec.interaction_store,
+               next_step_planner: spec.next_step_planner
+             )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
+    assert_receive {:role_event, %{event_type: :run_completed}}, 5_000
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+    assert state.run.consumed_budget.provider_calls == 3
+    assert state.run.consumed_budget.tool_calls == 0
+    assert :counters.get(calls, 1) == 3
+    assert AgentRunLog.get_run(run_id).status == "completed"
+    assert state.stage_state.judgment_settled == "completed"
+    assert state.stage_state.pending_artifact_request == nil
+    assert state.stage_state.pending_artifact_tool == nil
+
+    assert length(
+             for message <- state.stage_state.judgment_transcript.messages,
+                 block <- message.blocks,
+                 Map.get(block, :type) == "tool_call",
+                 do: block
+           ) == 3
+
+    assert_receive {:role_source, 3, call_ref, run_ref}
+
+    # 来源坐标来自 fixture 生产端；79 字节及 SHA 由上方固定含换行原文独立计算。
+    expected_source = %{
+      source_type: "provider_output_tool_narrative",
+      provider_call_ref: call_ref,
+      provider_run_ref: run_ref,
+      provider_output_ref: run_ref,
+      tool_call_name: "judgment_decision",
+      tool_call_narrative_field: "reason",
+      source_byte_range: %{start: 0, length: 79},
+      source_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab",
+      narrative_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab"
+    }
+
+    assert_receive {:role_event,
+                    %{
+                      event_type: :judgment_decided,
+                      payload: %{author_narrative: "我会先查看角色目录，确认老沈对应的人物。"}
+                    }}
+
+    assert_receive {:role_event,
+                    %{
+                      event_type: :judgment_decided,
+                      payload: %{author_narrative: "我会查看老沈的角色详情，核对当前设定。"}
+                    }}
+
+    assert_receive {:role_event,
+                    %{
+                      event_type: :judgment_decided,
+                      payload: %{author_narrative_source: ^expected_source}
+                    }}
+
+    assert state.final_turn_result.assistant_message.text == @role_narrative
+
+    assert get_in(state.final_turn_result, [
+             :trace_summary,
+             :reply_record,
+             :author_narrative_source
+           ]) ==
+             expected_source
+
+    assert_receive {:role_event, %{event_type: delivery_type, payload: %{turn_result: delivered}}}
+    assert delivery_type in [:artifact_created, :turn_result_ready]
+    assert delivered.assistant_message.text == @role_narrative
+
+    assert get_in(delivered, [:trace_summary, :reply_record, :author_narrative_source]) ==
+             expected_source
+
+    assert {:ok, shown} = NovelApplication.WorkSessionService.resume(c.work.id)
+    assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
+    assert restored.turn_result["assistant_message"]["text"] == @role_narrative
+
+    assert get_in(restored.turn_result, [
+             "trace_summary",
+             "reply_record",
+             "author_narrative_source"
+           ]) ==
+             Jason.decode!(Jason.encode!(expected_source))
+
+    {state, source, before}
   end
 end

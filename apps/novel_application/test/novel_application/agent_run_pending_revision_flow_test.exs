@@ -24,64 +24,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
   alias NovelDomain.DialogueFrame
   alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, WorkSessionRepo}
 
-  @role_narrative "灯笺731：我已核对老沈的身份。\n保留这段说明的原始换行。"
-
   setup do
     {:ok, work} = WorkService.create(%{title: "B71 修订接线"})
     {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
     %{work: work, session: session}
-  end
-
-  @tag :r05_role_handoff
-  test "确定性角色候选经 DPS 和真实 runtime 交付，缺省 metadata 不导致失败", c do
-    {state, source, before} = run_character_profile(c, "ENSEMBLE_POV")
-    assert [pending] = state.final_turn_result.adoption_state.pending
-    assert pending.artifact_type == :character_profile_revision
-    assert pending.adoption_status == "TENTATIVE"
-    assert pending.payload.character_ref == "character:#{source.id}"
-
-    assert pending.payload.changes == [
-             %{field: "narrative_role", old: "ENSEMBLE_POV", new: "PROTAGONIST"}
-           ]
-
-    assert pending.payload.other_character_changes == []
-    assert state.run.pending_artifact_refs == [pending.artifact_id]
-    assert {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
-    assert [persisted] = shown.pending_adoptions
-    assert persisted.artifact_id == pending.artifact_id
-    assert persisted.adoption_status == "TENTATIVE"
-    assert NovelPersistence.Repo.all(NovelPersistence.Schemas.Character) == before
-    refute state.final_turn_result.truthfulness.production_write_performed
-    refute state.final_turn_result.truthfulness.artifact_adopted
-  end
-
-  @tag :r05_role_handoff
-  test "已是主角的确定性 no_change 经 DPS 正常完成且不制造候选", c do
-    {state, _source, before} = run_character_profile(c, "PROTAGONIST")
-    assert state.run.pending_artifact_refs == []
-    refute Map.get(state.final_turn_result, :adoption_state)
-    assert state.final_turn_result.available_actions == []
-    assert state.final_turn_result.assistant_message.text == @role_narrative
-    assert [card] = state.final_turn_result.ui_cards
-    assert card.card_type == "result_card"
-    assert card.title == "系统核对结果"
-    assert card.body =~ "沈砚"
-    assert card.body =~ "老沈"
-    assert card.body =~ "主角"
-    refute card.body =~ "PROTAGONIST"
-    refute card.body =~ "character:"
-
-    for _delivery <- 1..2 do
-      assert {:ok, shown} = NovelApplication.WorkSessionService.resume(c.work.id)
-      assert shown.pending_adoptions == []
-      assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
-      assert restored.turn_result["assistant_message"]["text"] == @role_narrative
-      assert restored.turn_result["ui_cards"] == [Jason.decode!(Jason.encode!(card))]
-    end
-
-    assert NovelPersistence.Repo.all(NovelPersistence.Schemas.Character) == before
-    refute state.final_turn_result.truthfulness.production_write_performed
   end
 
   test "真实 run 将 snapshot 传入修订 step，保留判断历史与真实 3 次预算", c do
@@ -262,6 +209,10 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     # 内部 canonical 留在 stage_state；作者侧最终 TurnResult 不得夹带私有会话。
     assert is_map(state.stage_state.judgment_transcript)
     assert is_map(state.final_turn_result)
+
+    assert get_in(state.final_turn_result, [:trace_summary, :reply_record, :observation_refs]) ==
+             []
+
     refute_private_keys(state.final_turn_result)
     assert state.run.consumed_budget.provider_calls == 3
   end
@@ -568,118 +519,6 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     end
   end
 
-  defp run_character_profile(c, initial_role) do
-    source =
-      NovelPersistence.Repo.insert!(%NovelPersistence.Schemas.Character{
-        work_id: c.work.id,
-        name: "沈砚",
-        aliases: ["老沈"],
-        role: "灯楼查账人",
-        narrative_role: initial_role,
-        summary: "熟悉灯楼旧账。",
-        status: "ACCEPTED"
-      })
-
-    NovelPersistence.Repo.insert!(%NovelPersistence.Schemas.Character{
-      work_id: c.work.id,
-      name: "沈砚",
-      aliases: ["小沈"],
-      narrative_role: "MINOR",
-      status: "ACCEPTED"
-    })
-
-    before = NovelPersistence.Repo.all(NovelPersistence.Schemas.Character)
-    ref = "character:#{source.id}"
-    parent = self()
-    calls = :counters.new(1, [])
-
-    execution = %Execution{
-      result_fn: fn request ->
-        :counters.add(calls, 1, 1)
-        observations = NovelCommon.RequestIR.visible_observations(request)
-
-        args =
-          case :counters.get(calls, 1) do
-            1 ->
-              assert observations == []
-              %{action: "explore", explore_request: %{tool: "archive_read", query: "characters"}}
-
-            2 ->
-              assert [%{coverage: %{"kind" => "directory"}}] = observations
-
-              %{
-                action: "explore",
-                explore_request: %{
-                  tool: "archive_read",
-                  query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
-                }
-              }
-
-            3 ->
-              assert [_, detail] = observations
-              assert detail.coverage["kind"] == "detail"
-              assert detail.content["facts"]["character"]["character_ref"] == ref
-              assert detail.content["facts"]["character"]["narrative_role"] == initial_role
-              assert detail.content["summary"] == "熟悉灯楼旧账。"
-              %{action: "execute", capability: "revise_character_profile", character_ref: ref}
-
-            count ->
-              flunk("确定性角色步骤不应追加 provider 调用：#{count}")
-          end
-
-        args =
-          Map.merge(args, %{dialogue_goal: "按作者要求处理老沈的叙事身份", reason: @role_narrative})
-
-        {:ok,
-         %NovelAgent.Provider.Result{
-           content: "",
-           tool_calls: TestAgenticLoopFixtures.native_tool_calls("judgment_decision", args),
-           provider_call_ref: TestAgenticLoopFixtures.unique_provider_call_id("pcall-role")
-         }}
-      end
-    }
-
-    input = %{
-      text: "指定老沈为主角",
-      workspace_id: c.work.id,
-      work_id: c.work.id,
-      session_id: c.session.id,
-      turn_id: "turn-role-handoff",
-      interaction_store: &NovelPersistence.InteractionLifecycle.call/2
-    }
-
-    fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
-    assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, fetcher, execution)
-
-    attrs =
-      NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
-        if event.event_type in [:run_completed, :run_failed],
-          do: send(parent, {:role_terminal, event.event_type})
-      end)
-
-    assert {:ok, run_id} =
-             AgentRunService.start_bounded(attrs,
-               interaction_input: spec.interaction_input,
-               interaction_store: spec.interaction_store,
-               next_step_planner: spec.next_step_planner
-             )
-
-    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
-
-    assert_receive {:role_terminal, :run_completed}, 5_000
-    assert {:ok, state} = AgentRunService.state(run_id)
-    assert state.run.status == :completed
-    assert state.run.consumed_budget.provider_calls == 3
-    assert state.run.consumed_budget.tool_calls == 0
-    assert :counters.get(calls, 1) == 3
-    assert AgentRunLog.get_run(run_id).status == "completed"
-    assert state.stage_state.judgment_settled == "completed"
-    assert state.stage_state.pending_artifact_request == nil
-    assert state.stage_state.pending_artifact_tool == nil
-    assert length(transcript_blocks(state.stage_state.judgment_transcript, "tool_call")) == 3
-    {state, source, before}
-  end
-
   defp transcript_blocks(%{messages: messages}, type) do
     for message <- messages,
         block <- message.blocks,
@@ -711,16 +550,21 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     observation_refs used_refs
   )
 
-  defp refute_private_keys(value, path \\ []) do
+  defp refute_private_keys(value, path \\ [])
+
+  defp refute_private_keys(value, ["trace_summary", "reply_record", "observation_refs"]) do
+    # 本文件的两条修订场景均未取证；公开来源坐标与内部 RequestIR 同名键分开。
+    assert value == []
+  end
+
+  defp refute_private_keys(value, path) do
+    refute List.last(path) in @private_turn_result_keys,
+           "作者可见 TurnResult 泄露私有键 #{Enum.join(path, ".")}"
+
     cond do
       is_map(value) ->
         Enum.each(value, fn {key, child} ->
-          key = to_string(key)
-
-          refute key in @private_turn_result_keys,
-                 "作者可见 TurnResult 泄露私有键 #{Enum.join(path ++ [key], ".")}"
-
-          refute_private_keys(child, path ++ [key])
+          refute_private_keys(child, path ++ [to_string(key)])
         end)
 
       is_list(value) ->

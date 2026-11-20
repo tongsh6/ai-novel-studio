@@ -1829,8 +1829,7 @@ defmodule NovelApplication.DialoguePlanningService do
         model_interpretation_status: judgment.model_interpretation_status,
         model_interpretation:
           if(judgment.action == "reply", do: nil, else: %{goal: judgment.dialogue_goal}),
-        reply_record: judgment.reply_record,
-        author_narrative_source: judgment.narrative_source
+        reply_record: judgment.reply_record
       },
       uncertainty: []
     }

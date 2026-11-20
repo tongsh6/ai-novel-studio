@@ -382,7 +382,28 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   end
 
   test "放弃实际目标，刷新读取终态，原文可重新提出；重复放弃被拒绝", c do
-    judgment = %{judgment(c, "discard_pending_artifact") | narrative: "当前还未执行，不能声称已经放弃。"}
+    narrative = "当前还未执行，不能声称已经放弃。"
+
+    source = %{
+      source_type: "provider_output_tool_narrative",
+      provider_call_ref: "pcall-discard-judgment",
+      provider_run_ref: "prun-discard-judgment",
+      provider_output_ref: "prun-discard-judgment",
+      tool_call_name: "judgment_decision",
+      tool_call_narrative_field: "reason",
+      source_byte_range: %{start: 0, length: 48},
+      source_hash: "f36293a052297b0e4f889576594154527ae836105a1e33d9d380242f3d7cebd5",
+      narrative_hash: "f36293a052297b0e4f889576594154527ae836105a1e33d9d380242f3d7cebd5"
+    }
+
+    judgment =
+      c
+      |> judgment("discard_pending_artifact")
+      |> Map.merge(%{
+        narrative: narrative,
+        narrative_source: source,
+        reply_record: %{raw_content: narrative, author_narrative_source: source}
+      })
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
@@ -399,6 +420,10 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert target == c.target
     assert result.artifact_refs == []
     assert result.turn_result.assistant_message.text == "已放弃该待采纳内容。"
+    refute result.turn_result.assistant_message.text == narrative
+    assert result.turn_result.trace_summary.frame_type == :meta_discussion
+    refute Map.has_key?(result.turn_result.trace_summary, :reply_record)
+    refute Map.has_key?(result.turn_result.trace_summary, :author_narrative_source)
     refute result.turn_result.truthfulness.production_write_performed
     record(c.work.id, c.session.id, result.turn_result)
     {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)

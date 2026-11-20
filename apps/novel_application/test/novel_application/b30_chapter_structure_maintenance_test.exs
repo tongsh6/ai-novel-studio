@@ -225,6 +225,7 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
   describe "持久维护候选的 trace 与写入边界" do
     setup do
       :ok = Sandbox.checkout(Repo)
+      :ok = Sandbox.mode(Repo, {:shared, self()})
       {:ok, work} = WorkService.create(%{title: "B30 章节维护"})
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
       author_input = %{turn_id: "turn-b30", text: "把第2卷章节编号理顺，内容不要动"}
@@ -247,32 +248,117 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
       goal_text = "把第2卷章节编号理顺，内容不要动"
       run = %{c.run | goal: %{text: goal_text, version: 1}}
 
+      narrative = "我会生成第2卷章节重编号的可审阅变更计划。"
+
+      source = %{
+        source_type: "provider_output_tool_narrative",
+        provider_call_ref: "pcall-structure-candidate",
+        provider_run_ref: "prun-structure-candidate",
+        provider_output_ref: "prun-structure-candidate",
+        tool_call_name: "judgment_decision",
+        tool_call_narrative_field: "reason",
+        source_byte_range: %{start: 0, length: 61},
+        source_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d",
+        narrative_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d"
+      }
+
       judgment = %{
         action: "execute",
         capability: "maintain_chapter_structure",
         dialogue_goal: goal_text,
-        narrative: "我会生成第2卷章节重编号的可审阅变更计划。"
+        narrative: narrative,
+        narrative_source: source,
+        reply_record: %{author_narrative_source: source, raw_content: narrative}
       }
 
       before = chapter_rows(c.work.id)
 
-      assert {:ok, result} =
-               PendingArtifactWorkflow.run(
-                 judgment,
-                 %{c.author_input | text: goal_text},
-                 run,
-                 c.context,
-                 nil
+      parent = self()
+
+      provider = %Execution{
+        result_fn: fn _request ->
+          args =
+            judgment
+            |> Map.take([:action, :capability, :dialogue_goal])
+            |> Map.put(:reason, narrative)
+
+          {:ok,
+           %NovelAgent.Provider.Result{
+             content: "",
+             tool_calls:
+               NovelApplication.TestAgenticLoopFixtures.native_tool_calls(
+                 "judgment_decision",
+                 args
+               ),
+             provider_call_ref: source.provider_call_ref,
+             provider_run_ref: source.provider_run_ref
+           }}
+        end
+      }
+
+      input =
+        Map.merge(c.author_input, %{
+          text: goal_text,
+          workspace_id: c.work.id,
+          work_id: c.work.id,
+          session_id: run.session_id,
+          interaction_store: &NovelPersistence.InteractionLifecycle.call/2
+        })
+
+      assert {:ok, spec} =
+               NovelApplication.DialoguePlanningService.plan_agent_run(
+                 input,
+                 NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
+                 provider
                )
 
-      [pending] = result.turn_result.adoption_state.pending
+      attrs =
+        NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+          send(parent, {:maintenance_event, event})
+        end)
+
+      assert {:ok, run_id} =
+               NovelApplication.AgentRunService.start_bounded(attrs,
+                 interaction_input: spec.interaction_input,
+                 interaction_store: spec.interaction_store,
+                 next_step_planner: spec.next_step_planner
+               )
+
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
+      assert_receive {:maintenance_event, %{event_type: :run_completed}}, 5_000
+      assert {:ok, state} = NovelApplication.AgentRunService.state(run_id)
+      result = state.final_turn_result
+
+      assert_receive {:maintenance_event,
+                      %{event_type: :artifact_created, payload: %{turn_result: broadcast}}}
+
+      assert broadcast == result
+      assert state.run.consumed_budget.provider_calls == 1
+      assert state.run.consumed_budget.tool_calls == 0
+
+      [pending] = result.adoption_state.pending
       assert pending.payload.object_kind == "chapter_structure_change_plan"
       assert pending.payload.change_plan.object_count == 3
       assert pending.payload.change_plan.effects == ["display_number_only"]
+      assert result.assistant_message.text == narrative
+
+      assert get_in(result, [:trace_summary, :reply_record, :author_narrative_source]) ==
+               source
+
+      assert {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, run.session_id)
+      assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
+      assert restored.turn_result["assistant_message"]["text"] == narrative
+
+      assert get_in(restored.turn_result, [
+               "trace_summary",
+               "reply_record",
+               "author_narrative_source"
+             ]) ==
+               Jason.decode!(Jason.encode!(source))
 
       # 只产出候选：章节身份/序号零变化，未生产写入。
       assert chapter_rows(c.work.id) == before
-      refute Map.get(result.turn_result.truthfulness || %{}, :production_write_performed, false)
+      refute Map.get(result.truthfulness || %{}, :production_write_performed, false)
     end
 
     test "B30 维护负例：越界目标 → 作者可见拒绝（非内部错误）、零写入、无候选", c do
@@ -285,29 +371,104 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
       goal_text = "把第九卷章节编号理顺，内容不要动"
       run = %{c.run | goal: %{text: goal_text, version: 1}}
 
+      narrative = "作者点名了不存在的卷。"
+
+      source = %{
+        source_type: "provider_output_tool_narrative",
+        provider_call_ref: "pcall-structure-refusal",
+        provider_run_ref: "prun-structure-refusal",
+        provider_output_ref: "prun-structure-refusal",
+        tool_call_name: "judgment_decision",
+        tool_call_narrative_field: "reason",
+        source_byte_range: %{start: 0, length: 33},
+        source_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605",
+        narrative_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605"
+      }
+
       judgment = %{
         action: "execute",
         capability: "maintain_chapter_structure",
         dialogue_goal: goal_text,
-        narrative: "作者点名了不存在的卷。"
+        narrative: narrative,
+        narrative_source: source,
+        reply_record: %{author_narrative_source: source, raw_content: narrative}
       }
 
       before = chapter_rows(c.work.id)
 
-      assert {:ok, result} =
-               PendingArtifactWorkflow.run(
-                 judgment,
-                 %{c.author_input | text: goal_text},
-                 run,
-                 c.context,
-                 nil
+      parent = self()
+
+      provider = %Execution{
+        result_fn: fn _request ->
+          args =
+            judgment
+            |> Map.take([:action, :capability, :dialogue_goal])
+            |> Map.put(:reason, narrative)
+
+          {:ok,
+           %NovelAgent.Provider.Result{
+             content: "",
+             tool_calls:
+               NovelApplication.TestAgenticLoopFixtures.native_tool_calls(
+                 "judgment_decision",
+                 args
+               ),
+             provider_call_ref: source.provider_call_ref,
+             provider_run_ref: source.provider_run_ref
+           }}
+        end
+      }
+
+      input =
+        Map.merge(c.author_input, %{
+          text: goal_text,
+          workspace_id: c.work.id,
+          work_id: c.work.id,
+          session_id: run.session_id,
+          interaction_store: &NovelPersistence.InteractionLifecycle.call/2
+        })
+
+      assert {:ok, spec} =
+               NovelApplication.DialoguePlanningService.plan_agent_run(
+                 input,
+                 NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
+                 provider
                )
 
-      assert %{assistant_message: %{text: text}} = result.turn_result
+      attrs =
+        NovelApplication.TestAgentEventRelay.observe(spec.run_attrs, fn event ->
+          send(parent, {:maintenance_event, event})
+        end)
+
+      assert {:ok, run_id} =
+               NovelApplication.AgentRunService.start_bounded(attrs,
+                 interaction_input: spec.interaction_input,
+                 interaction_store: spec.interaction_store,
+                 next_step_planner: spec.next_step_planner
+               )
+
+      NovelApplication.TestAgentRunCleanup.register_run(run_id)
+      assert_receive {:maintenance_event, %{event_type: :run_completed}}, 5_000
+      assert {:ok, state} = NovelApplication.AgentRunService.state(run_id)
+      result = state.final_turn_result
+
+      assert_receive {:maintenance_event,
+                      %{event_type: :turn_result_ready, payload: %{turn_result: broadcast}}}
+
+      assert broadcast == result
+      assert state.run.consumed_budget.provider_calls == 1
+      assert state.run.consumed_budget.tool_calls == 0
+
+      assert %{assistant_message: %{text: text}} = result
       assert text =~ "超出当前作品结构"
-      assert result.artifact_refs == []
+      refute text == narrative
+      refute Map.has_key?(result.trace_summary, :reply_record)
+      assert {:ok, shown} = NovelApplication.WorkSessionService.show(c.work.id, run.session_id)
+      assert [restored] = Enum.filter(shown.transcript, &(&1.role == "assistant"))
+      assert restored.turn_result["assistant_message"]["text"] =~ "超出当前作品结构"
+      refute Map.has_key?(restored.turn_result["trace_summary"], "reply_record")
+      assert state.run.pending_artifact_refs == []
       assert chapter_rows(c.work.id) == before
-      assert result.tool_call_count == 0 and result.provider_call_count == 0
     end
 
     test "B30 维护负例：无目标 → 作者可见拒绝、零写入、无候选", c do

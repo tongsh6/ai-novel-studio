@@ -253,7 +253,12 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   defp maintain_refusal_result(judgment, input, run, context, reason) do
-    frame = frame(judgment, input, run, :meta_discussion, nil)
+    frame =
+      judgment
+      |> Map.drop([:reply_record, :narrative_source])
+      |> Map.put(:narrative, maintain_refusal_message(reason))
+      |> frame(input, run, :meta_discussion, nil)
+
     {trace, summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
 
     trace = %{
@@ -270,7 +275,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
     turn_result =
       TurnResultBuilder.build(frame, summary, [], nil, nil, nil)
-      |> Map.put(:assistant_message, %{text: maintain_refusal_message(reason)})
       |> Map.merge(%{
         workspace_id: run.workspace_id,
         work_id: run.work_id,
@@ -349,8 +353,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       source: %{"author_input_ref" => TurnInteractionService.input_ref(run)}
     }
 
+    {trace, summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
     result =
-      TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+      TurnResultBuilder.build(frame, summary, [], nil, nil, artifact, nil, %{
         candidate_title: title,
         pending_payload: payload
       })
@@ -361,8 +367,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         work_id: run.work_id,
         session_id: run.session_id
       })
-
-    {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
 
     trace = %{
       trace
@@ -469,7 +473,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           "character_profile_no_change"
         ])
 
-      {trace, _summary} =
+      {trace, summary} =
         TraceWriter.record(frame, %{turn_id: frame.turn_id}, context, decision: decision)
 
       trace = %{
@@ -489,7 +493,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       decision = %{decision | decision_trace_ref: trace.trace_id}
 
       result =
-        TurnResultBuilder.build(frame, %{}, [], decision)
+        TurnResultBuilder.build(frame, summary, [], decision)
         |> Map.put(:ui_cards, [
           %{
             card_type: "result_card",
@@ -537,15 +541,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         target_chapter_ref: nil
       }
 
+      # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
+      # DialogueGateway.trace_to_attrs badkey（frame_ref 等）。
+      {trace, summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
       result =
-        TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+        TurnResultBuilder.build(frame, summary, [], nil, nil, artifact, nil, %{
           candidate_title: title,
           pending_payload: Map.put(payload, :title, title)
         })
-
-      # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
-      # DialogueGateway.trace_to_attrs badkey（frame_ref 等）。
-      {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
 
       trace = %{
         trace
@@ -1439,7 +1443,12 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              "work_id" => run.work_id || run.workspace_id,
              "session_id" => run.session_id
            }) do
-      frame = frame(judgment, input, run, :meta_discussion, ref)
+      frame =
+        judgment
+        |> Map.drop([:reply_record, :narrative_source])
+        |> Map.put(:narrative, result.assistant_message.text)
+        |> frame(input, run, :meta_discussion, ref)
+
       {trace, summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
 
       trace = %{
@@ -2152,7 +2161,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       },
       execution_readiness: :ready,
       author_visible_draft: %{message: judgment.narrative},
-      evidence_summary: %{pending_artifact_ref: ref},
+      evidence_summary:
+        judgment
+        |> Map.take([:reply_record])
+        |> Map.put(:pending_artifact_ref, ref),
       uncertainty: []
     }
   end
