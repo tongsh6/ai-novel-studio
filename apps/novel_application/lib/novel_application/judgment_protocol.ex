@@ -409,10 +409,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "结构化引用仍留在对应参数；不要复述非法叙述，不改变任务、来源、目标、范围或权限。"
   end
 
-  # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
-  defp correction_content(:invalid_tool_arguments),
-    do: JudgmentToolContract.invalid_arguments_guidance()
-
   # M06：上一轮请求作者选择后，纠错重试不得改成推进具体候选/版本。
   defp correction_content(:await_author_unanswered) do
     "本次响应未通过契约校验：上一轮已向作者提问，但作者尚未回答/选择。" <>

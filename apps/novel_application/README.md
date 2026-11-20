@@ -35,6 +35,7 @@ be found at <https://hexdocs.pm/novel_application>.
 
 - [authoring_task_policy.ex](lib/novel_application/authoring_task_policy.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [judgment_tool_contract.ex](lib/novel_application/judgment_tool_contract.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
+- [judgment_decision_tool_contract.ex](lib/novel_application/judgment_decision_tool_contract.ex)：完整判断动作分支、平面工具描述、示例和动作专属纠错；由现工具目录单向组合，通用校验仍归 JudgmentToolContract，契约见 VS-00M §5.2.2 与 B87 §16.26。
 - [agent_plan_tool_contract.ex](lib/novel_application/agent_plan_tool_contract.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question.ex](lib/novel_application/author_question.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_service.ex](lib/novel_application/author_question_service.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。

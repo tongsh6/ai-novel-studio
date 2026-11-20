@@ -193,6 +193,7 @@ awaiting_author 不灭 run、预算与 no-progress backstop 原样。
 
 - apps/novel_application/lib/novel_application/judgment_protocol.ex
 - apps/novel_application/lib/novel_application/judgment_tool_contract.ex
+- apps/novel_application/lib/novel_application/judgment_decision_tool_contract.ex
 - apps/novel_application/lib/novel_application/dialogue_planning_service.ex
 - apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex
 - apps/novel_application/lib/novel_application/exploration_service.ex
