@@ -1,17 +1,15 @@
 defmodule NovelApplication.JudgmentToolContract do
   @moduledoc "B26：固定判断工具 schema 与同源字段校验，合法对象在派发前另行验证。"
 
-  alias NovelApplication.AuthoringTaskPolicy
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
 
-  @version "b26-tools-v1"
+  @version "b26-tools-v2"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
   # 纠错回执共用，避免两处各写一份而导致漂移（B27 CP4 task-16）。
-  @legal_combination_guidance "工具组合规则：agent_plan_draft 只能与 judgment_decision(action=plan) 在同一响应中同批返回（两个工具名必须同时出现）；单独返回 agent_plan_draft 是非法响应。其他操作一次只能返回一个工具；普通回复可以不调用工具。"
-
-  @plan_tool_description_suffix "必须与 judgment_decision(action=plan) 同一响应同批返回；单独返回非法。"
+  @legal_combination_guidance "工具组合规则：一次只返回一个工具；需要完整计划时只调用 agent_plan_draft，判断操作只调用 judgment_decision。普通回复不调用工具。工具响应的 content 必须为 null 或空字符串，作者说明只来自该工具的 question 或 author_reasoning。"
 
   @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。选择按钮标签必须非空且可区分，不能只靠首尾或重复空白；仅用已知事实区分，材料仍不可辨认时提出开放问题并用空 options，不追加内部引用或序号制造区分。"
 
@@ -23,7 +21,7 @@ defmodule NovelApplication.JudgmentToolContract do
     [
       decision(),
       question(),
-      plan_tool(),
+      NovelApplication.AgentPlanToolContract.tool(),
       registration(),
       directions(),
       work_profile_revision(),
@@ -32,12 +30,6 @@ defmodule NovelApplication.JudgmentToolContract do
   end
 
   def tools(:continuation), do: [continuation(), question(), gap()]
-
-  # 只在描述里补"必须同批"提示；schema/字段/名称保持不变（task-16 约束）。
-  defp plan_tool do
-    tool = NovelApplication.AgentPlanToolContract.tool()
-    Map.update!(tool, :description, &(&1 <> " " <> @plan_tool_description_suffix))
-  end
 
   @doc "判断调用合法工具组合的唯一文案真源（prompt 与纠错回执共用）。"
   def legal_combination_guidance, do: @legal_combination_guidance
@@ -100,9 +92,9 @@ defmodule NovelApplication.JudgmentToolContract do
 
     example =
       if revision? do
-        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","reason":"..."})
+        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","author_reasoning":"..."})
       else
-        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","reason":"..."})
+        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","author_reasoning":"..."})
       end
 
     "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
@@ -123,19 +115,18 @@ defmodule NovelApplication.JudgmentToolContract do
   defp decision do
     tool(
       "judgment_decision",
-      "建议创作执行、规划或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。",
+      "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。",
       %{
-        action: %{type: "string", enum: ~w(execute plan explore)},
+        action: %{type: "string", enum: ~w(execute explore)},
         dialogue_goal: @text,
-        reason:
+        author_reasoning:
           Map.put(
             @text,
             :description,
-            "本次判断的作者说明原文，说明为何需要所提的取材、规划或创作动作，不把尚未执行的动作说成已完成。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+            "本次判断的唯一作者说明原文，content 必须为空；说明为何需要所提的取材或创作动作，不把尚未执行的动作说成已完成。" <>
+              AuthoringSemantics.author_narrative_rules()
           ),
-        capability:
-          Map.put(@nullable_text, :description, "仅 execute 时提供；plan/explore 时省略或为 null。"),
+        capability: Map.put(@nullable_text, :description, "仅 execute 时提供；explore 时省略或为 null。"),
         pending_artifact_ref: @nullable_text,
         adopted_content_ref: @nullable_text,
         target_segment_ids: %{
@@ -157,7 +148,7 @@ defmodule NovelApplication.JudgmentToolContract do
           ]
         }
       },
-      ~w(action dialogue_goal reason)
+      ~w(action dialogue_goal author_reasoning)
     )
   end
 
@@ -168,15 +159,15 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         action: %{type: "string", enum: ["continue"]},
         guidance: @text,
-        reason:
+        author_reasoning:
           Map.put(
             @text,
             :description,
-            "后续调整的作者说明原文，依据已观察到的偏离说明为何这样调整。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+            "后续调整的唯一作者说明原文，content 必须为空；依据已观察到的偏离说明为何这样调整。" <>
+              AuthoringSemantics.author_narrative_rules()
           )
       },
-      ~w(action guidance reason)
+      ~w(action guidance author_reasoning)
     )
   end
 
@@ -216,7 +207,7 @@ defmodule NovelApplication.JudgmentToolContract do
             @text,
             :description,
             "登记作者原文的作者说明，说明登记的材料及其用途，不改写原文或声称已被采纳。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+              AuthoringSemantics.author_narrative_rules()
           )
       },
       ~w(author_content_source_ref dialogue_goal author_reasoning)
@@ -236,7 +227,7 @@ defmodule NovelApplication.JudgmentToolContract do
             @text,
             :description,
             "候选创作方向的作者说明，说明方向的依据与区别，保留作者选择。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+              AuthoringSemantics.author_narrative_rules()
           )
       },
       ~w(candidate_directions author_reasoning)
@@ -261,7 +252,7 @@ defmodule NovelApplication.JudgmentToolContract do
             @text,
             :description,
             "立项字段修订的作者说明，说明当前字段为何需要所提调整；这是待采纳提案，不是已生效修改。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+              AuthoringSemantics.author_narrative_rules()
           )
       },
       ~w(title body field value author_reasoning)
@@ -280,7 +271,7 @@ defmodule NovelApplication.JudgmentToolContract do
             @text,
             :description,
             "能力缺口的作者说明，说明当前目标缺少的效果及最近可行路径，不把建议说成已执行。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+              AuthoringSemantics.author_narrative_rules()
           ),
         alternative_operation_refs: @strings
       },

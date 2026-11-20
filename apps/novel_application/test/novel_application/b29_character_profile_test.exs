@@ -336,7 +336,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
         action: "execute",
         capability: "character_design",
         dialogue_goal: "另建角色",
-        reason: "我会另建一个角色。"
+        author_reasoning: "我会另建一个角色。"
       }
     }
 
@@ -587,7 +587,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
             %{
               action: "explore",
               dialogue_goal: "读取角色档案",
-              reason: "核对角色身份。",
+              author_reasoning: "核对角色身份。",
               explore_request: %{tool: "archive_read", query: "characters"}
             },
             call_id
@@ -610,7 +610,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
         capability: "revise_character_profile",
         character_ref: ref,
         dialogue_goal: "指定老林为主角",
-        reason: "根据已读档案提出角色修订。"
+        author_reasoning: "根据已读档案提出角色修订。"
       }
     }
   end

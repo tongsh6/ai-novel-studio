@@ -39,7 +39,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
           NovelTest.TestRequestIR.author(author_text)
         ],
         system: RequestIR.system_envelope(instructions: "本次你承担创作判断器的角色。"),
-        tools: [NovelTest.TestRequestIR.tool("judgment_decision")]
+        tools: NovelApplication.JudgmentToolContract.tools(:judgment)
       )
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
@@ -56,11 +56,12 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
     assert {:ok, own} = SliceVerify.complete(nil, nil, own_prompt, %{})
 
-    assert [%{"arguments" => own_args}] = own.tool_calls
-    assert own_args["action"] == "plan"
+    assert [%{"name" => "agent_plan_draft", "arguments" => own_args}] = own.tool_calls
+    assert own_args.plan.steps != []
+    assert own.content == ""
   end
 
-  test "B31 原生前提原话穿过判断守卫进入计划耗尽等待，而非角色身份纠错" do
+  test "B31 原生前提原话经真实只读计划取证后诚实停等，不重复读取或声称已产出" do
     previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
     System.put_env("SLICE_VERIFY_PLAN_EXHAUST", "1")
 
@@ -116,21 +117,40 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              )
 
     _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
-    assert_receive {:b31_plan_event, :plan_drafted, _}, 2_000
     assert_receive {:b31_plan_event, :awaiting_author, awaiting}, 3_000
-    assert "plan_exhausted_without_completion" in awaiting.reason_codes
+    assert "model_question" in awaiting.reason_codes
+    assert awaiting.summary =~ "尚未生成大纲或角色状态修改候选"
+    assert awaiting.summary =~ "请确认"
     assert {:ok, state} = AgentRunService.state(run_id)
-    assert state.run.profile_ref == "judgment_plan_v1"
+    assert state.run.profile_ref == "judgment_loop_v1"
     assert state.run.status == :awaiting_author
     assert state.run.goal.version == 1
     assert state.run.pending_artifact_refs == []
+    assert state.run.consumed_budget.provider_calls == 2
+    assert state.run.consumed_budget.replans == 0
+
+    assert Enum.map(state.stage_state.judgment_explorations, & &1.tool) ==
+             ["prose_search", "chapter_read"]
+
+    transcript = state.stage_state.judgment_transcript
+    assert transcript.run.run_id == run_id
+
+    calls =
+      for message <- transcript.messages,
+          block <- message.blocks,
+          block.type == "tool_call",
+          do: block.name
+
+    assert calls == ["agent_plan_draft", "ask_author"]
+    assert {:ok, ir} = NovelApplication.AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
     refute_receive {:b31_plan_event, :run_failed, _}
   end
 
-  for {mode, draft_count, revision_count, total} <- [
-        {"同批计划", 0, 0, 3},
-        {"另行起草计划", 1, 0, 4},
-        {"先核对再补齐计划", 1, 1, 5}
+  for {mode, revision_count, total} <- [
+        {"同批计划", 0, 3},
+        {"另行起草计划", 0, 3},
+        {"先核对再补齐计划", 1, 4}
       ] do
     test "#{mode} 从真实判断入口进入同一计划运行，按实际调用计数并保留待采纳边界" do
       parent = self()
@@ -204,18 +224,15 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
           {names, ref}
         end)
 
-      assert Enum.count(requests, fn {names, _} -> names == ["agent_plan_draft"] end) ==
-               unquote(draft_count)
+      refute Enum.any?(requests, fn {names, _} -> names == ["agent_plan_draft"] end)
 
       assert Enum.count(requests, fn {names, _} -> names == ["agent_plan_revision"] end) ==
                unquote(revision_count)
 
       assert event.payload.plan_steps != []
 
-      if unquote(draft_count) == 0 do
-        {_, judgment_ref} = hd(requests)
-        assert event.payload.author_narrative_source.provider_call_ref == judgment_ref
-      end
+      {_, judgment_ref} = hd(requests)
+      assert event.payload.author_narrative_source.provider_call_ref == judgment_ref
 
       refute_receive {:plan_request, _, _}, 30
     end
@@ -232,13 +249,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
         {:ok,
          %{
-           content: "先读取上下文，再完成大纲与正文两步产出。",
+           content: "",
            provider_call_id: "pc-jp-plan",
            tool_calls: [
              %{
                "name" => "agent_plan_draft",
                "arguments" => %{
-                 "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                 "author_reasoning" => "先读取上下文，再完成大纲与正文两步产出。",
                  "plan" => %{
                    "steps" => [
                      plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -354,13 +371,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       if plan_draft_prompt?(prompt) do
         {:ok,
          %{
-           content: "先看作品统计，再补写正文。",
+           content: "",
            provider_call_id: "pc-jp-explore-plan",
            tool_calls: [
              %{
                "name" => "agent_plan_draft",
                "arguments" => %{
-                 "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                 "author_reasoning" => "先看作品统计，再补写正文。",
                  "plan" => %{
                    "steps" => [
                      plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -476,13 +493,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
           {:ok,
            %{
-             content: "计划走完但正文还没产出，我补上正文步继续完成。",
+             content: "",
              provider_call_id: "pc-jp-revise",
              tool_calls: [
                %{
                  "name" => "agent_plan_revision",
                  "arguments" => %{
-                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                   "author_reasoning" => "计划走完但正文还没产出，我补上正文步继续完成。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -500,13 +517,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
           # CP4b 诱导：起草短计划（只读上下文，漏产出步）。
           {:ok,
            %{
-             content: "先读取上下文再看下一步。",
+             content: "",
              provider_call_id: "pc-jp-short-plan",
              tool_calls: [
                %{
                  "name" => "agent_plan_draft",
                  "arguments" => %{
-                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                   "author_reasoning" => "先读取上下文再看下一步。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。")
@@ -604,13 +621,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
           {:ok,
            %{
-             content: "修订后仍需核对上下文，#{raw_sentinel}-revision。",
+             content: "",
              provider_call_id: "pc-b23-cp3-revise",
              tool_calls: [
                %{
                  "name" => "agent_plan_revision",
                  "arguments" => %{
-                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                   "author_reasoning" => "修订后仍需核对上下文，#{raw_sentinel}-revision。",
                    "plan" => %{
                      "steps" => [
                        plan_step("r1", "context_assemble", "explore", "复核目标章节上下文。")
@@ -626,13 +643,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok,
            %{
-             content: "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
+             content: "",
              provider_call_id: "pc-b23-cp3-plan",
              tool_calls: [
                %{
                  "name" => "agent_plan_draft",
                  "arguments" => %{
-                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
+                   "author_reasoning" => "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),

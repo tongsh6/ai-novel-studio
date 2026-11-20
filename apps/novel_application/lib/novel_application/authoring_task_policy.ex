@@ -96,18 +96,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> String.trim()
   end
 
-  @doc "作者说明的语言规范，供判断/计划规则与现役工具叙事字段共用。"
-  @spec author_narrative_rules() :: String.t()
-  def author_narrative_rules do
-    """
-    面向作者，用自然创作语言说明有用的判断、依据与下一步，以实际作品和材料名称指明对象。
-    本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行，不将其写成创作说明；
-    作品中涉及的同名概念，或作者主动询问的机制，按真实语境正常讨论。
-    不机械复述输入。
-    """
-    |> String.trim()
-  end
-
   @doc "判断/计划专属规则（对话协作/取证/必要提问/能力缺口/自然表达）；不含作者主权等共享段。"
   def judgment_rules do
     """
@@ -144,7 +132,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     用单段修订冒充整章修订。章级仅排版由模型提出换行计划，系统从完整原文计算独立预览，
     所有非换行字节保持不变；作者采纳后才应用，不能将拒绝或生成方案说成排版已完成。
     作者要求当前系统不具备的能力时，用整体缺口说明与最近可行路径，不能用近似工具填平。
-    #{author_narrative_rules()}
+    #{AuthoringSemantics.author_narrative_rules()}
     不在判断说明中提前生成应由创作能力产出的正文。所有动作均须经系统门禁放行。
     """
     |> String.trim()

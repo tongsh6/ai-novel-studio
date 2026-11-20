@@ -57,7 +57,8 @@ defmodule NovelCommon.RequestIR.Operation do
         system: RequestIR.system_envelope(Map.get(attrs, :system, [])),
         messages: [
           RequestIR.message(:application_base, :application, [RequestIR.text_block(text)], %{
-            source_refs: refs
+            source_refs: refs,
+            base_refs: refs
           })
           | author_messages
         ],
@@ -212,12 +213,9 @@ defmodule NovelCommon.RequestIR.Operation do
         :error -> scope
       end
 
-    ir =
-      ir
-      |> RequestIR.add_tools([spec.tool])
-      |> RequestIR.append_scope_update(scope, versions, refs)
-
-    %{ir | refs: Map.update(ir.refs, :base_refs, base_refs, &Enum.uniq(&1 ++ base_refs))}
+    ir
+    |> RequestIR.add_tools([spec.tool])
+    |> RequestIR.append_scope_update(scope, versions, refs, base_refs)
   end
 
   defp system_version(versions, key) when is_map(versions) do

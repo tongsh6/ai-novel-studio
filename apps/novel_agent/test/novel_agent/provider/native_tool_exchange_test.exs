@@ -71,6 +71,38 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     refute_receive {:parse_attempt, _}, 10
   end
 
+  test "三参数解析器只取得同次真正发送的 IR，纠错不授信刚收到的声明" do
+    parent = self()
+
+    {provider, calls} =
+      scripted_provider([
+        {:ok, native_result("first-request", %{plan: "需要纠正"})},
+        {:ok, native_result("second-request", %{plan: "合法计划"})}
+      ])
+
+    parser = fn response, attempt, actual_request ->
+      send(parent, {:parsed_request, attempt, actual_request})
+      assert {:ok, []} = RequestIR.pending_call_ids(actual_request)
+
+      if attempt == 1,
+        do: error_result("materials_unbound", :source_only),
+        else: parse_plan(response)
+    end
+
+    assert {%{status: :ok, value: "合法计划"}, session} =
+             NativeToolExchange.run(request_ir(), provider, @tool, parser, &error_result/2,
+               tool_choice: "auto"
+             )
+
+    assert [first_sent, second_sent] = calls.()
+    assert_receive {:parsed_request, 1, ^first_sent}
+    assert_receive {:parsed_request, 2, ^second_sent}
+    assert RequestIR.Tools.tool_choice(first_sent) == "auto"
+    assert [%{call_id: "first-request", status: "failed"}] = validation_results(second_sent)
+    assert session.provider_call_count == 2
+    assert {:ok, ["second-request"]} = RequestIR.pending_call_ids(session.request_ir)
+  end
+
   test "启用传输重试时原请求逐字重发，只记录真实成功响应" do
     parent = self()
     reason = %{type: :timeout, message: "连接等待超时"}

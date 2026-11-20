@@ -70,7 +70,8 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
           NovelTest.TestRequestIR.base("本次你承担创作判断器的角色。"),
           NovelTest.TestRequestIR.author("请按另行起草计划设计一个角色。")
         ],
-        tools: [NovelTest.TestRequestIR.tool("judgment_decision")],
+        tools:
+          Enum.map(["judgment_decision", "agent_plan_draft"], &NovelTest.TestRequestIR.tool/1),
         projection: %{tool_choice: "auto"}
       )
 
@@ -87,7 +88,12 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
 
     assert record["tool_choice"] == "auto"
     assert record["request_body"]["projection"] == %{"tool_choice" => "auto"}
-    assert [%{"name" => "judgment_decision"}] = record["request_body"]["tools"]
+
+    assert Enum.map(record["request_body"]["tools"], & &1["name"]) ==
+             ["judgment_decision", "agent_plan_draft"]
+
+    assert record["response"]["body"]["content"] == ""
+    assert [%{"name" => "agent_plan_draft"}] = record["response"]["body"]["tool_calls"]
 
     refute Enum.any?(record["request_body"]["messages"], &Map.has_key?(&1, "content"))
   end

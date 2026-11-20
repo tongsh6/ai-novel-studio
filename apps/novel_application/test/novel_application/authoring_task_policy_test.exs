@@ -11,6 +11,8 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     # 共享段只出现一次（单一真源，不得在判断段再抄一份）
     assert length(String.split(rules, "作者是唯一裁决者")) == 2
     assert String.contains?(rules, AuthoringTaskPolicy.judgment_rules())
+    assert String.contains?(rules, AuthoringSemantics.author_narrative_rules())
+    assert length(String.split(rules, "以实际作品和材料名称指明对象")) == 2
   end
 
   test "judgment rules describe implemented revision guards without promising successful output" do

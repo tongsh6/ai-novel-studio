@@ -145,6 +145,34 @@ defmodule NovelApplication.AgentNarrativeSourceTest do
              )
   end
 
+  test "原生第二正文不能在绑定工具参数前被中间结果删除或替换" do
+    call = %{
+      id: "native-plan",
+      name: "agent_plan_draft",
+      arguments: %{author_reasoning: "先核对人物，再整理设定。"}
+    }
+
+    for original <- ["还有一份原生正文。", "  \n"], exposed <- [nil, "", "另一份文字"] do
+      output = %{provider_output(original) | content: %{text: original, tool_calls: [call]}}
+
+      assert {:error, :tool_call_not_bound_to_provider_output} =
+               AgentNarrativeSource.verify_tool_call(
+                 %{content: exposed, provider_output: output},
+                 call
+               )
+    end
+
+    for {original, exposed} <- [{nil, ""}, {"", nil}, {"", ""}, {"原文", "原文"}] do
+      output = %{provider_output("") | content: %{text: original, tool_calls: [call]}}
+
+      assert :ok =
+               AgentNarrativeSource.verify_tool_call(
+                 %{content: exposed, provider_output: output},
+                 call
+               )
+    end
+  end
+
   test "完整参数、原调用 id/name 和唯一调用数共同决定来源，不能借用同一 question" do
     args = %{
       "question" => "  要修订哪位角色？\n",

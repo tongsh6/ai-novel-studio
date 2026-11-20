@@ -328,6 +328,11 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
     assert_received {:paged_revision_writer, request}
     assert RequestIR.visible_observations(request) == []
     assert_fresh_baseline(request, state.source)
+
+    assert result.turn_result.tool_result.output.self_report.used_context_refs == [
+             state.source.draft_ref
+           ]
+
     assert_whole_candidate(result, state.source)
 
     for wire <- ["chat_completions", "responses_api", "anthropic_messages"] do
@@ -558,6 +563,13 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
           "submit_tentative_artifact" in names ->
             send(test_pid, {:paged_revision_writer, request})
+            base_refs = Enum.map(request.refs.base_refs, &ref_id/1)
+            observed_refs = Enum.map(RequestIR.usable_observation_refs(request), &ref_id/1)
+
+            used_ref =
+              if source.draft_ref in base_refs, do: source.draft_ref, else: source.chapter_ref
+
+            assert used_ref in (base_refs ++ observed_refs)
 
             native_response("submit_tentative_artifact", %{
               items: [
@@ -571,7 +583,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
               self_report: %{
                 assumptions: [],
                 intended_reader_effect: "章内表达连贯",
-                used_context_refs: [source.chapter_ref],
+                used_context_refs: [used_ref],
                 risk_flags: []
               }
             })
@@ -595,7 +607,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
     %{
       action: "explore",
-      reason: "逐页读取第二章正文",
+      author_reasoning: "逐页读取第二章正文",
       dialogue_goal: "读取第二章完整正文后生成整章修订候选",
       explore_request: %{
         tool: "chapter_read",
@@ -610,7 +622,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
       capability: "revise_adopted_content",
       adopted_content_ref: source.chapter_ref,
       dialogue_goal: "修订第二章整章正文，保留待采纳状态",
-      reason: "按作者要求生成整章修订候选"
+      author_reasoning: "按作者要求生成整章修订候选"
     }
   end
 

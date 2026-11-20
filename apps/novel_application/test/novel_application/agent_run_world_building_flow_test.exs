@@ -141,7 +141,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
              turn_result.adoption_state.pending
 
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-world-writer"
-    assert turn_result.trace_summary.provider_call_budget.writer == 1
+    assert turn_result.trace_summary.provider_call_budget.writer == 2
   end
 
   test "bounded world building run keeps writing rule artifact type through the same loop" do

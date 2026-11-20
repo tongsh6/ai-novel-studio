@@ -38,6 +38,7 @@ be found at <https://hexdocs.pm/novel_agent>.
 - [adapter_execution.ex](lib/novel_agent/provider/adapter_execution.ex) / [execution.ex](lib/novel_agent/provider/execution.ex)：adapter 执行边界（ProviderRun/ProviderEvent/ProviderOutput 物化、超时策略消费）。
 - [timeout_policy.ex](lib/novel_agent/provider/timeout_policy.ex)：local/hosted 时钟策略唯一真源（connect/response/non_stream/deadline/probe）。
 - [native_tool_exchange.ex](lib/novel_agent/provider/native_tool_exchange.ex)：原生工具交换（单工具、最多一次重试、失败闭合）。
+- [creative_response_acceptance_test.exs](test/novel_agent/creative_provider/creative_response_acceptance_test.exs)：Writer 接收声明绑定同次实际请求、错误原调用闭合、有界纠错与作者说明原字节；无真实模型语义代签。
 - [sse_stream.ex](lib/novel_agent/provider/sse_stream.ex)：三 wire 共用 SSE 生命周期（见下节）。
 - [author_prose_stream.ex](lib/novel_agent/provider/author_prose_stream.ex)：写作工具参数写正文增量 → 作者可见 `author_content_delta`。
 - [runtime_config.ex](lib/novel_agent/provider/runtime_config.ex)：当前 provider 选择与运行时配置持有。

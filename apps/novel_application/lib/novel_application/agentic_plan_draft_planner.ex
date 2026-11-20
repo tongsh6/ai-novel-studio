@@ -134,14 +134,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  @doc "消费判断响应同批给出的模型计划，不发起第二次调用。"
+  @doc "消费判断响应中的单一模型计划调用，不发起第二次调用。"
   def plan_from_result(run, result) do
     with {:ok, parsed} <- parse_tool_call_result(result, @draft_tool_name),
          :ok <- validate_writing_intents(parsed, %{run: run}),
          {:ok, plan} <- build_plan(run, parsed),
          :ok <- validate_plan_targets(run, plan),
-         {:ok, text, origin, source} <- resolve_narrative(%{provider_result: result}, parsed),
-         {:ok, binding} <- narrative_source(source, text, origin, @draft_tool_name) do
+         {:ok, text} <- resolve_narrative(result, parsed),
+         {:ok, binding} <- narrative_source(result, text, @draft_tool_name) do
       {:ok, plan,
        %{
          provider_call_count: 0,
@@ -175,11 +175,11 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     ctx = %{run: run, provider_result: result, retry?: attempt == 1}
 
     with {:ok, parsed} <- parse_tool_call_result_detailed(result, tool_name),
-         {:ok, reasoning, origin, source} <- resolve_narrative(ctx, parsed),
+         {:ok, reasoning} <- resolve_narrative(result, parsed),
          :ok <- validate_writing_intents(parsed, ctx),
          {:ok, plan} <- build_plan(run, parsed),
          :ok <- validate_plan_targets(run, plan),
-         {:ok, binding} <- narrative_source(source, reasoning, origin, tool_name) do
+         {:ok, binding} <- narrative_source(result, reasoning, tool_name) do
       %{
         status: :ok,
         plan: plan,
@@ -261,22 +261,21 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     })
   end
 
-  # 只绑定当前有效响应；纠正调用不能沿用失败响应的作者文字。
-  defp resolve_narrative(ctx, parsed) do
-    content = ctx.provider_result |> map_get(:content) |> to_string()
-    tool_reasoning = parsed |> map_get(:author_reasoning) |> to_string()
+  # 作者说明只来自本次计划工具；第二份正文必须纠错，不能按优先级吞掉。
+  defp resolve_narrative(provider_result, parsed) do
+    content = map_get(provider_result, :content)
+    text = map_get(parsed, :author_reasoning)
 
-    selected =
-      cond do
-        String.trim(content) != "" -> {:ok, content, :content}
-        String.trim(tool_reasoning) != "" -> {:ok, tool_reasoning, :tool_arguments}
-        true -> {:error, :reasoning_text_required}
-      end
+    cond do
+      content not in [nil, ""] ->
+        {:error, :author_narrative_content_conflict}
 
-    # 起草、修订和 inline plan 共用实际选中的来源；不改写原文，也不以另一字段逃逸校验。
-    with {:ok, text, origin} <- selected,
-         :ok <- Text.validate_narrative(text) do
-      {:ok, text, origin, ctx.provider_result}
+      not is_binary(text) or String.trim(text) == "" ->
+        {:error, :reasoning_text_required}
+
+      true ->
+        with :ok <- Text.validate_narrative(text),
+             do: {:ok, text}
     end
   end
 
@@ -728,8 +727,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
 
     ## 输出契约
-    调用 #{tool_name} 给出完整计划；content 可同时说明事实、理由和影响范围。
-    author_reasoning 保留作者可见说明原话，空 content 时从该字段展示。
+    仅调用 #{tool_name} 给出完整计划，content 必须为 null 或空字符串。
+    author_reasoning 是唯一作者可见说明，说明事实、安排及影响范围。
     #{plan_argument_rules()}
     #{plan_arguments_contract(allowed_targets(run))}
     """
@@ -869,11 +868,15 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     targets = allowed_targets(run)
 
     narrative_requirement =
-      if reason == :author_visible_narrative_invalid do
-        "作者说明含内部协议字段或内部身份。请重写实际正文来源，使用作者可读的角色名和章名；" <>
-          "有非空 assistant content 时先修正 content，不能只将 author_reasoning 改干净。"
-      else
-        ""
+      case reason do
+        :author_visible_narrative_invalid ->
+          "作者说明含内部协议字段或内部身份。请在 author_reasoning 使用作者可读的角色名和章名重新说明，保持 content 为空。"
+
+        :author_narrative_content_conflict ->
+          "本次计划有两份作者正文。content 必须为 null 或空字符串，只在 author_reasoning 给出唯一完整说明；保留原任务、目标、来源与范围。"
+
+        _ ->
+          ""
       end
 
     message =
@@ -996,7 +999,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> map_get(:tool_calls)
     |> case do
       calls when is_list(calls) ->
-        matching_tool_arguments(calls, tool_name)
+        with {:ok, args} <- matching_tool_arguments(calls, tool_name),
+             :ok <- AgentNarrativeSource.verify_tool_call(provider_result, hd(calls)),
+             do: {:ok, args}
 
       _ ->
         {:error, :native_tool_call_required}
@@ -1029,14 +1034,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     to: NovelApplication.AgentPlanToolContract,
     as: :tool
 
-  defp narrative_source(provider_result, summary, :content, _tool_name) do
-    case AgentNarrativeSource.from_provider_result(provider_result, summary) do
-      {:ok, source} -> {:ok, source}
-      {:error, reason} -> {:error, {:invalid_author_narrative_source, reason}}
-    end
-  end
-
-  defp narrative_source(provider_result, summary, :tool_arguments, tool_name) do
+  defp narrative_source(provider_result, summary, tool_name) do
     case AgentNarrativeSource.from_tool_call_narrative(provider_result, tool_name, summary) do
       {:ok, source} -> {:ok, source}
       {:error, reason} -> {:error, {:invalid_author_narrative_source, reason}}

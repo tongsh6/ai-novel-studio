@@ -87,8 +87,9 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert "validator.sentence_rhythm_uniformity" in refs
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-cp2-writer"
     assert turn_result.trace_summary.evaluator_provider_call_ref == "pc-cp2-evaluator"
-    assert turn_result.trace_summary.provider_call_budget.writer == 1
-    assert turn_result.trace_summary.provider_call_budget.evaluator == 1
+    assert turn_result.trace_summary.provider_call_budget.writer == 2
+    assert turn_result.trace_summary.provider_call_budget.evaluator == 2
+    assert turn_result.trace_summary.execution_counts.provider_calls == 2
   end
 
   test "evaluator failure → quality_review unavailable, never faked pass" do

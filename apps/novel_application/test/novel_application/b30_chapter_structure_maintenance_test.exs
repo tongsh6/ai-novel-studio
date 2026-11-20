@@ -256,7 +256,7 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
         provider_run_ref: "prun-structure-candidate",
         provider_output_ref: "prun-structure-candidate",
         tool_call_name: "judgment_decision",
-        tool_call_narrative_field: "reason",
+        tool_call_narrative_field: "author_reasoning",
         source_byte_range: %{start: 0, length: 61},
         source_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d",
         narrative_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d"
@@ -280,7 +280,7 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
           args =
             judgment
             |> Map.take([:action, :capability, :dialogue_goal])
-            |> Map.put(:reason, narrative)
+            |> Map.put(:author_reasoning, narrative)
 
           {:ok,
            %NovelAgent.Provider.Result{
@@ -379,7 +379,7 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
         provider_run_ref: "prun-structure-refusal",
         provider_output_ref: "prun-structure-refusal",
         tool_call_name: "judgment_decision",
-        tool_call_narrative_field: "reason",
+        tool_call_narrative_field: "author_reasoning",
         source_byte_range: %{start: 0, length: 33},
         source_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605",
         narrative_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605"
@@ -403,7 +403,7 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
           args =
             judgment
             |> Map.take([:action, :capability, :dialogue_goal])
-            |> Map.put(:reason, narrative)
+            |> Map.put(:author_reasoning, narrative)
 
           {:ok,
            %NovelAgent.Provider.Result{

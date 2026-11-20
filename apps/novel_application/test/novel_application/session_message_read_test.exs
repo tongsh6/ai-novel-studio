@@ -282,6 +282,8 @@ defmodule NovelApplication.SessionMessageReadTest do
           "judgment_decision",
           %{
             action: "explore",
+            dialogue_goal: "准确引用上一轮作者原话",
+            author_reasoning: "读取上一轮对话的原文。",
             explore_request: %{tool: "session_message_read", query: query("wire-source", 2, 0)}
           },
           "read-call"
@@ -384,7 +386,8 @@ defmodule NovelApplication.SessionMessageReadTest do
             {:decision,
              %{
                "action" => "explore",
-               "reason" => "read_original_session_message",
+               "author_reasoning" => "读取上一轮对话的原文。",
+               "dialogue_goal" => "回查上轮长答中尚未完成的承诺",
                "explore_request" => %{
                  "tool" => "session_message_read",
                  "query" => Jason.encode!(locator)

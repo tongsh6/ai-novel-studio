@@ -437,18 +437,7 @@ defmodule NovelApplication.DialoguePlanningService do
   # 0 提供者调用），观察写进 stage_state 回环再判断；回合硬上限后判断不再开放
   # explore 选项（被迫四选一收束）。
 
-  # 探索回合：普通探索（不同工具/问题）最多 2 轮；正文/会话原文分页共用 8 轮续读额度。
-  # （B27 CP4 M03：34k 字符长章需 6 页，旧 2 轮上限只读到 12,000 即被迫收束）。
-  # 续读额度只在上一真实正文/会话消息页仍有 next_offset 时开放，
-  # 读完末页立即关闭；总探索步数仍有硬上界，预算按上界补足。
-  @max_explore_rounds 2
-  @max_page_continuation_rounds 8
-  @max_explore_steps @max_explore_rounds + @max_page_continuation_rounds
-
-  # 判断循环内联执行的计划步目标（只读、0 provider 调用；B27 CP4 M17）。
-  @read_only_plan_targets ~w(context_assemble character_roster prose_search chapter_read archive_read memory_recall)
-  @exploration_plan_targets ~w(prose_search chapter_read archive_read memory_recall)
-
+  # 探索配额与计划内联资格由 ExplorationService 同源派生；这里只执行已验证读取。
   # 判断①能力目录（prompt 目录 + schema enum + 解析校验三处同源；dispatch 表
   # @judgment_capability_profiles 是按能力分派 profile 的超集，作者可选目录仍以本列表为准）。
 
@@ -460,12 +449,6 @@ defmodule NovelApplication.DialoguePlanningService do
     "world_building" => :world_building_with_context,
     "work_archive_read" => :readonly_batch_context
   }
-
-  # Q3a 语义对账只读集：由 dispatch 表编译期推导（profile=readonly_batch_context
-  # 的能力），SSOT 单点——新增只读能力自动进对账口径，不另立第二张表。
-  @judgment_readonly_capabilities for {cap, :readonly_batch_context} <-
-                                        @judgment_capability_profiles,
-                                      do: cap
 
   defp judgment_loop_next_step(run, sequence, snapshot, provider_execution, input) do
     state = judgment_stage_state(snapshot)
@@ -645,232 +628,78 @@ defmodule NovelApplication.DialoguePlanningService do
       else: ""
   end
 
-  # ── B27 CP4 M03/M17：探索预算、计划内联执行、作品事实块 ──
-
-  # 分页续读额度：普通探索 2 轮后，只对上一真实只读来源的精确下一页开放。
-  # 所有读取共用 @max_page_continuation_rounds 上界，不另建探索循环。
-  defp exploration_budget(explorations) do
-    total = length(explorations)
-    normal_open? = total < @max_explore_rounds
-    continuation = continuation_target(List.last(explorations))
-    extra = max(total - @max_explore_rounds, 0)
-    continuation_open? = continuation != nil and extra < @max_page_continuation_rounds
-
-    %{
-      open?: normal_open? or continuation_open?,
-      normal_open?: normal_open?,
-      continuation_open?: continuation_open?,
-      continuation_only?: not normal_open? and continuation_open?,
-      continuation: continuation,
-      total: total
-    }
-  end
-
-  defp continuation_target(%{
-         tool: "session_message_read",
-         next_offset: offset,
-         facts: %{run_id: run_id, run_sequence: sequence},
-         coverage: %{total_graphemes: total, range: %{end_exclusive: stop}}
-       })
-       when is_integer(offset) do
-    %{
-      tool: "session_message_read",
-      run_id: run_id,
-      run_sequence: sequence,
-      next_offset: offset,
-      total: total,
-      read_end: stop
-    }
-  end
-
-  defp continuation_target(%{tool: "chapter_read"} = observation) do
-    next_offset = Map.get(observation, :next_offset)
-
-    if is_integer(next_offset) do
-      %{
-        tool: "chapter_read",
-        chapter_ref: Map.get(observation, :chapter_ref),
-        next_offset: next_offset,
-        total: Map.get(observation, :prose_total_chars),
-        read_end: get_in(observation, [:prose_range, :end]) || next_offset
-      }
-    end
-  end
-
-  defp continuation_target(%{
-         tool: "archive_read",
-         next_offset: offset,
-         coverage: %{
-           kind: "directory",
-           facet: facet,
-           offset: start,
-           returned_items: returned,
-           total_items: total
-         }
-       })
-       when is_integer(offset) and offset == start + returned and offset > start and
-              offset < total do
-    %{
-      tool: "archive_read",
-      kind: "directory",
-      facet: facet,
-      ref: nil,
-      next_offset: offset,
-      total: total,
-      read_end: offset,
-      offset_unit: "item"
-    }
-  end
-
-  defp continuation_target(%{
-         tool: "archive_read",
-         next_offset: offset,
-         coverage:
-           %{
-             kind: kind,
-             facet: facet,
-             summary: %{offset: start, returned_graphemes: returned, total_graphemes: total}
-           } = coverage
-       })
-       when kind in ["detail", "facet"] and is_integer(offset) and
-              offset == start + returned and offset > start and offset < total do
-    %{
-      tool: "archive_read",
-      kind: kind,
-      facet: facet,
-      ref: Map.get(coverage, :ref),
-      next_offset: offset,
-      total: total,
-      read_end: offset,
-      offset_unit: "unicode_grapheme"
-    }
-  end
-
-  defp continuation_target(%{
-         tool: "session_adoptions",
-         next_offset: offset,
-         coverage: %{
-           kind: "directory",
-           query: query,
-           offset: start,
-           returned_items: returned,
-           total_items: total
-         }
-       })
-       when is_integer(offset) and offset == start + returned and offset > start and
-              offset < total do
-    %{
-      tool: "session_adoptions",
-      kind: "directory",
-      query: query,
-      next_offset: offset,
-      total: total,
-      read_start: start,
-      read_end: offset,
-      offset_unit: "item"
-    }
-  end
-
-  defp continuation_target(%{
-         tool: tool,
-         next_offset: offset,
-         coverage:
-           %{
-             kind: "detail",
-             summary: %{offset: start, returned_graphemes: returned, total_graphemes: total}
-           } = coverage
-       })
-       when tool in ["session_adoptions", "memory_recall"] and is_integer(offset) and
-              offset == start + returned and offset > start and offset < total do
-    coverage
-    |> Map.take([:artifact_ref, :memory_ref])
-    |> Map.merge(%{
-      tool: tool,
-      kind: "detail",
-      next_offset: offset,
-      total: total,
-      read_start: start,
-      read_end: offset,
-      offset_unit: "unicode_grapheme"
-    })
-  end
-
-  defp continuation_target(_observation), do: nil
-
-  defp exploration_tools(%{continuation_only?: true, continuation: %{tool: tool}}), do: [tool]
-  defp exploration_tools(%{open?: true}), do: ExplorationService.tool_names()
-  defp exploration_tools(_budget), do: []
-
-  # 只读计划：全部步 target 都属只读集合；返回需内联执行的探索步（context/roster 已就绪）。
-  # 调用点只传 selected_judgment_plan/3 成功返回的 AgentPlan 结构（map）。
-  defp read_only_plan_steps(plan) do
-    steps =
-      case map_get(plan, :steps) do
-        steps when is_list(steps) -> steps
-        _ -> []
-      end
-
-    if steps != [] and
-         Enum.all?(steps, &(map_get(&1, :target_tool_ref) in @read_only_plan_targets)) do
-      Enum.filter(steps, &(map_get(&1, :target_tool_ref) in @exploration_plan_targets))
-    else
-      nil
-    end
-  end
-
+  # ── 计划内联执行：接受前与执行边界复用同一当前 Scope 读取资格 ──
   # M17：内联执行纯只读计划的探索步，观察写入 stage_state 后回到判断循环收束
   # （下一轮判断给最终作者可见结论/必要提问）。不切 profile、不产生 turn_result。
   defp execute_planned_explorations(judgment, steps, run, sequence, snapshot) do
-    work_id = run.work_id
-    log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
     explorations = judgment_explorations(judgment_stage_state(snapshot))
+    budget = ExplorationService.budget(explorations)
 
-    planned =
-      steps
-      |> Enum.with_index(1)
-      |> Enum.map(fn {step, index} ->
-        tool = map_get(step, :target_tool_ref)
-        query = map_get(step, :exploration_query) || ""
-        observation = run_inline_exploration(work_id, run, tool, query)
+    with :ok <-
+           ExplorationService.validate_inline_plan(judgment.plan_result.plan,
+             exploration_budget: budget,
+             explore: budget.open?,
+             explore_tools: ExplorationService.allowed_tools(budget)
+           ) do
+      work_id = run.work_id
+      log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
 
-        # 每次实际读只构造一个既有 AgentObservation；计划序位给同 run/step 内的
-        # 确定性 ID 后缀，source_ref 沿用工具/步并区分计划序位。
-        exploration_observation(
-          run,
-          sequence,
-          snapshot,
-          observation,
-          "explore:#{tool}:plan:#{sequence}:#{index}",
-          "judgment_plan_#{index}"
-        )
-      end)
+      planned =
+        steps
+        |> Enum.with_index(1)
+        |> Enum.map(fn {step, index} ->
+          tool = map_get(step, :target_tool_ref)
+          query = map_get(step, :exploration_query) || ""
+          observation = run_inline_exploration(work_id, run, tool, query)
 
-    {agent_observations, observations} = Enum.unzip(planned)
+          # 每次实际读只构造一个既有 AgentObservation；计划序位给同 run/step 内的
+          # 确定性 ID 后缀，source_ref 沿用工具/步并区分计划序位。
+          exploration_observation(
+            run,
+            sequence,
+            snapshot,
+            observation,
+            "explore:#{tool}:plan:#{sequence}:#{index}",
+            "judgment_plan_#{index}"
+          )
+        end)
 
-    transcript =
-      JudgmentProtocol.planned_observations_transcript(
-        judgment.transcript,
-        judgment,
-        observations,
-        %{
-          coverage_note: coverage_note(observations),
-          continuation_hint:
-            continue_hint(observations, exploration_budget(explorations ++ observations))
-        }
-      )
+      {agent_observations, observations} = Enum.unzip(planned)
 
-    {:ok,
-     %{
-       step: judgment_agent_step(run, sequence, "按模型计划完成只读检索（#{length(observations)} 步）"),
-       observations: agent_observations,
-       stage_state: %{
-         judgment_explorations: explorations ++ observations,
-         judgment_transcript: transcript
-       },
-       provider_call_count: judgment.provider_call_count,
-       progress_signature:
-         "#{run.run_id}:explore:plan:#{length(explorations) + length(observations)}"
-     }}
+      plan = judgment.plan_result.plan
+      planned_run = %{run | plan_ref: plan.plan_id, plan_version: plan.version}
+      step = judgment_agent_step(run, sequence, "按模型计划完成只读检索（#{length(observations)} 步）")
+
+      transcript =
+        Enum.reduce(agent_observations, judgment.transcript, fn observation, transcript ->
+          result = %{
+            step: step,
+            observations: [observation]
+          }
+
+          {:ok, recorded} =
+            AuthoringSession.record_exploration_result(
+              {:ok, result},
+              planned_run,
+              %{stage_state: %{judgment_transcript: transcript}}
+            )
+
+          AuthoringSession.transcript(recorded)
+        end)
+
+      {:ok,
+       %{
+         step: step,
+         observations: agent_observations,
+         stage_state: %{
+           judgment_explorations: explorations ++ observations,
+           judgment_transcript: transcript
+         },
+         provider_call_count: judgment.provider_call_count,
+         progress_signature:
+           "#{run.run_id}:explore:plan:#{length(explorations) + length(observations)}"
+       }}
+    end
   end
 
   defp run_inline_exploration(work_id, run, tool, query) do
@@ -1149,7 +978,7 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_protocol_input(input, run, context, explorations, opts \\ []) do
-    budget = exploration_budget(explorations)
+    budget = ExplorationService.budget(explorations)
     author_input = TurnInteractionService.author_input(input, run)
     author_text = author_input.text
     write_judgment? = write_judgment_profile?(run)
@@ -1180,14 +1009,13 @@ defmodule NovelApplication.DialoguePlanningService do
         adopted_content_targets:
           NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
         registered_sources: AuthorContentRegistration.registered_sources(context),
-        readonly_capabilities: @judgment_readonly_capabilities,
         author_content_sources:
           context
           |> AuthorContentRegistration.author_sources(author_input.turn_id)
           |> Enum.map(& &1.turn_ref),
         exploration_budget: budget,
         explore: budget.open?,
-        explore_tools: exploration_tools(budget)
+        explore_tools: ExplorationService.allowed_tools(budget)
       ]
     }
 
@@ -1262,7 +1090,7 @@ defmodule NovelApplication.DialoguePlanningService do
       capability: judgment.capability,
       frame_type: to_string(frame_type),
       candidate_count: candidate_count,
-      reason_code: judgment.reason
+      reason_code: "judgment_" <> judgment.action
     })
   end
 
@@ -1286,36 +1114,25 @@ defmodule NovelApplication.DialoguePlanningService do
        ),
        do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
 
-  # CP4（ADR-0025 决策 2）：plan ≠ execute——判"复杂"进跨能力真计划 profile，
-  # 计划由模型基于能力目录制定（judgment_plan flow 内起草，plan_drafted 照发）。
-  # B27 CP4 M17：若模型计划只含只读探索步（无创作能力步），在判断循环内联执行这些
-  # 检索步后**回到判断收束**（下一轮由模型给最终作者可见结论/提问），而不是切到
-  # judgment_plan flow 耗尽后停等作者而没有结论。含创作步的计划仍走原 flow。
+  # 单次模型计划已经在 JudgmentProtocol 校验并闭合，派发只消费该结果。
+  # 纯只读步骤在判断循环完成真实读取后回到模型收束；创作步骤仍逐步过执行门。
   defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context, snapshot) do
-    case selected_judgment_plan(run, :judgment_plan, judgment) do
-      {:ok, plan, inline_meta} ->
-        case read_only_plan_steps(plan) do
-          steps when is_list(steps) and steps != [] ->
-            execute_planned_explorations(judgment, steps, run, sequence, snapshot)
+    with {:ok, plan, inline_meta} <- selected_judgment_plan(run, :judgment_plan, judgment) do
+      case ExplorationService.inline_plan_steps(plan) do
+        steps when is_list(steps) and steps != [] ->
+          execute_planned_explorations(judgment, steps, run, sequence, snapshot)
 
-          _ ->
-            judgment_switch_payload(
-              :judgment_plan,
-              judgment,
-              input,
-              run,
-              sequence,
-              plan,
-              inline_meta
-            )
-        end
-
-      # B27 CP4 retest5 M16 r1：同批 inline 计划参数非法时若直接 terminal，会绕过
-      # AgenticPlanDraftPlanner 的有界纠错重试链。这里降级为「切 judgment_plan flow，
-      # 由 flow 重新起草计划」：校验不放宽，planner 内部仍有字段级纠错回执；
-      # 只有 planner 两次都失败才按原子 reason 终局。
-      {:error, _reason} ->
-        judgment_switch_plan_drafting(judgment, input, run, sequence)
+        _ ->
+          judgment_switch_payload(
+            :judgment_plan,
+            judgment,
+            input,
+            run,
+            sequence,
+            plan,
+            inline_meta
+          )
+      end
     end
   end
 
@@ -1663,7 +1480,10 @@ defmodule NovelApplication.DialoguePlanningService do
     request_observation =
       request_observation
       |> Map.put(:coverage_note, coverage_note(explorations))
-      |> Map.put(:continue_hint, continue_hint(explorations, exploration_budget(explorations)))
+      |> Map.put(
+        :continue_hint,
+        continue_hint(explorations, ExplorationService.budget(explorations))
+      )
 
     transcript =
       JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)
@@ -1726,13 +1546,6 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # B27 CP4 retest5：inline plan 校验失败时切 flow 重新起草（planner 自带纠错重试链）。
-  defp judgment_switch_plan_drafting(judgment, input, run, sequence) do
-    log_judgment_decided(judgment, "judgment_plan", 0)
-    {:ok, pending_plan} = agent_run_agent_plan(run.run_id, :judgment_plan)
-    judgment_switch_payload(:judgment_plan, judgment, input, run, sequence, pending_plan, nil)
-  end
-
   defp judgment_switch_payload(profile, judgment, input, run, sequence, target_plan, inline_meta) do
     selection = judgment_selection(judgment, profile)
 
@@ -1773,6 +1586,9 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp selected_judgment_plan(_run, :judgment_plan, %{plan_result: %{plan: plan, meta: meta}}),
     do: {:ok, plan, meta}
+
+  defp selected_judgment_plan(_run, :judgment_plan, _judgment),
+    do: {:error, :validated_plan_required}
 
   defp selected_judgment_plan(run, profile, _judgment) do
     with {:ok, plan} <- agent_run_agent_plan(run.run_id, profile), do: {:ok, plan, nil}
@@ -2007,7 +1823,6 @@ defmodule NovelApplication.DialoguePlanningService do
         stage: :judgment_decided,
         action: judgment.action,
         capability: judgment.capability,
-        reason: judgment.reason,
         candidate_count: length(judgment.candidate_directions),
         model_interpretation_status: judgment.model_interpretation_status,
         author_narrative: judgment.narrative,
@@ -2591,7 +2406,7 @@ defmodule NovelApplication.DialoguePlanningService do
     # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
     # 再判断 1 step（单调用，含纠错余量）；B27 CP4 M03 起含长章续读额度
     # （普通探索 2 轮 + 同章续读最多 8 轮，续读在读完末页即关闭）。
-    explore_allowance = @max_explore_steps * 2
+    explore_allowance = ExplorationService.max_steps() * 2
 
     %{
       max_steps: max_budget(routed, :max_steps) + 2 + explore_allowance,

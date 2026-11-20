@@ -10,8 +10,9 @@ defmodule NovelApplication.TestAssertions do
 
   import ExUnit.Assertions
 
-  def assert_provider_output_narrative_source(source) when is_map(source) do
-    assert source.source_type == "provider_output"
+  def assert_provider_output_narrative_source(source, source_type \\ "provider_output")
+      when is_map(source) do
+    assert source.source_type == source_type
     assert is_binary(source.provider_run_ref)
     assert is_binary(source.provider_call_ref)
     assert is_binary(source.provider_output_ref)
@@ -92,62 +93,27 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
                provider_output: provider_output(narrative)
              }}
 
-          {:decision, arguments} ->
-            {:ok,
-             %{
-               content: "先核对作品事实。",
-               tool_calls: [
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" =>
-                     Map.put_new(
-                       Map.drop(arguments, ["reply_included", "frame_type", "record_only"]),
-                       "dialogue_goal",
-                       "核对作品事实"
-                     )
-                 }
-               ],
-               provider_output: provider_output("先核对作品事实。")
-             }}
-
-          {:plan_pair, arguments} ->
-            author_reasoning = Map.get(arguments, "author_reasoning") || "先取证再比较。"
+          {operation, arguments} when operation in [:decision, :plan] ->
+            name = if operation == :plan, do: "agent_plan_draft", else: "judgment_decision"
+            calls = [%{"name" => name, "arguments" => arguments}]
 
             {:ok,
              %{
-               content: author_reasoning,
-               tool_calls: [
-                 %{
-                   "name" => "agent_plan_draft",
-                   "arguments" =>
-                     Map.take(arguments, [
-                       "plan",
-                       "author_reasoning",
-                       "reason_codes",
-                       "confidence"
-                     ])
-                 },
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" =>
-                     arguments
-                     |> Map.drop(["plan", "author_reasoning", "reason_codes", "confidence"])
-                     |> Map.put_new("dialogue_goal", "比较候选")
-                 }
-               ],
-               provider_output: provider_output(author_reasoning)
+               content: "",
+               tool_calls: calls,
+               provider_output: provider_output("", calls)
              }}
         end
       end
     }
   end
 
-  defp provider_output(text) do
+  defp provider_output(text, calls \\ []) do
     %NovelCommon.Contracts.ProviderOutput{
       provider_run_ref: "prun-#{System.unique_integer([:positive])}",
       provider_call_ref: "pcall-#{System.unique_integer([:positive])}",
       status: :ok,
-      content: %{text: text}
+      content: %{text: text, tool_calls: calls}
     }
   end
 
@@ -261,7 +227,7 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     tool_name = Keyword.get(opts, :tool_name, "agent_plan_draft")
 
     %{
-      content: reasoning,
+      content: "",
       tool_calls: [
         %{
           "name" => tool_name,

@@ -174,6 +174,7 @@ defmodule NovelCommon.RequestIR do
         provenance: to_string(provenance),
         blocks: List.wrap(blocks),
         source_refs: [],
+        base_refs: [],
         versions: %{}
       },
       extra
@@ -203,6 +204,38 @@ defmodule NovelCommon.RequestIR do
   @doc "读取本次实际可见观察叶，保留来源与覆盖边界。"
   @spec visible_observations(t()) :: [map()]
   defdelegate visible_observations(request), to: Observation
+
+  @doc "读取本次可用的实际观察材料；关联元数据不能替代读取内容。"
+  @spec usable_observations(t()) :: [map()]
+  defdelegate usable_observations(request), to: Observation
+
+  @doc "读取本次已登记、可见且成功供应的观察引用，不提升来源关联或已压缩历史。"
+  @spec usable_observation_refs(t()) :: [map() | String.t()]
+  defdelegate usable_observation_refs(request), to: Observation, as: :usable_refs
+
+  @doc "规范化观察的实际内容资格；应用读取与原生观察复用同一判据。"
+  @spec usable_observation?(map()) :: boolean()
+  defdelegate usable_observation?(observation), to: Observation, as: :usable?
+
+  @doc "本次仍可见且已登记的显式 Base 材料绑定，不从来源目录回填。"
+  @spec usable_base_refs(t()) :: [map() | String.t()]
+  defdelegate usable_base_refs(request), to: Scope, as: :usable_refs
+
+  @doc "校验当前返回的引用声明；历史完整性与本次实际供应资格保持分立。"
+  @spec validate_used_refs(t(), [String.t()]) :: :ok | {:error, term()}
+  def validate_used_refs(%__MODULE__{} = request, used_refs) when is_list(used_refs) do
+    with :ok <- validate(request) do
+      current_refs = %{
+        base_refs: usable_base_refs(request),
+        observation_refs: usable_observation_refs(request),
+        used_refs: used_refs
+      }
+
+      validate_refs(current_refs, request.messages)
+    end
+  end
+
+  def validate_used_refs(_request, _used_refs), do: {:error, :invalid_refs}
 
   @doc "读取 canonical 观察的直接或计划聚合叶，不补造缺失材料。"
   @spec observation_payloads(map()) :: [map()]
@@ -551,11 +584,12 @@ defmodule NovelCommon.RequestIR do
     base = refs |> Map.get(:base_refs, []) |> Enum.map(&ref_key/1) |> MapSet.new()
     observed = refs |> Map.get(:observation_refs, []) |> Enum.map(&ref_key/1) |> MapSet.new()
     used = refs |> Map.get(:used_refs, []) |> Enum.map(&ref_key/1)
+    observation_used = Enum.reject(used, &MapSet.member?(base, &1))
 
     unknown = Enum.reject(used, &(MapSet.member?(base, &1) or MapSet.member?(observed, &1)))
 
     cond do
-      used_requires_observation?(used, messages) and MapSet.size(observed) == 0 ->
+      used_requires_observation?(observation_used, messages) and MapSet.size(observed) == 0 ->
         {:error, :used_refs_without_observation}
 
       unknown != [] ->
@@ -723,10 +757,16 @@ defmodule NovelCommon.RequestIR do
   def next_scope_revision(%__MODULE__{} = ir), do: Scope.next_revision(ir)
 
   @doc "追加当前运行事实；旧 scope 只保留为证据。"
-  @spec append_scope_update(t(), map(), map(), [map()]) :: t()
-  def append_scope_update(%__MODULE__{} = ir, content, versions \\ %{}, source_refs \\ [])
-      when is_map(content),
-      do: Scope.append_update(ir, content, versions, source_refs)
+  @spec append_scope_update(t(), map(), map(), [map()], [map()]) :: t()
+  def append_scope_update(
+        %__MODULE__{} = ir,
+        content,
+        versions \\ %{},
+        source_refs \\ [],
+        base_refs \\ []
+      )
+      when is_map(content) and is_list(base_refs),
+      do: Scope.append_update(ir, content, versions, source_refs, base_refs)
 
   @doc "追加真实工具校验结果，保留 call_id 关联。"
   @spec append_validation_result(t(), String.t(), String.t(), String.t(), map()) :: t()

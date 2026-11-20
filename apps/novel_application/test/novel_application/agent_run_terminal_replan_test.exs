@@ -142,13 +142,13 @@ defmodule NovelApplication.AgentRunTerminalReplanTest do
 
         {:ok,
          %{
-           content: narrative,
+           content: "",
            tool_calls: calls,
            provider_output: %ProviderOutput{
              provider_run_ref: "terminal-replan-provider-run",
              provider_call_ref: "terminal-replan-provider-call",
              status: :ok,
-             content: %{text: narrative, tool_calls: calls}
+             content: %{text: "", tool_calls: calls}
            }
          }}
       end

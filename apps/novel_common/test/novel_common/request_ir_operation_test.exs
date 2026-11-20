@@ -45,6 +45,9 @@ defmodule NovelCommon.RequestIR.OperationTest do
     assert scope.role == "scope_update"
     assert scope.source_refs == [author_source, material]
     assert hd(ir.messages).source_refs == [material]
+    assert hd(ir.messages).base_refs == []
+    assert scope.base_refs == [material]
+    assert RequestIR.usable_base_refs(ir) == [material]
     assert ir.refs.base_refs == [material]
     assert ir.refs.observation_refs == []
 
@@ -55,6 +58,8 @@ defmodule NovelCommon.RequestIR.OperationTest do
 
     assert {:ok, source_only} = Operation.prepare(nil, run, Map.delete(spec, :base_refs))
     assert source_only.refs.base_refs == []
+    assert List.last(source_only.messages).base_refs == []
+    assert RequestIR.usable_base_refs(source_only) == []
     assert hd(source_only.messages).source_refs == []
     assert List.last(source_only.messages).source_refs == spec.source_refs
 
@@ -135,6 +140,8 @@ defmodule NovelCommon.RequestIR.OperationTest do
     assert ir.refs.base_refs == [%{ref: "base:one", version: 1}, %{ref: "source:two", version: 2}]
     assert ir.refs.observation_refs == previous.refs.observation_refs
     assert List.last(ir.messages).source_refs == next.source_refs
+    assert List.last(ir.messages).base_refs == next.base_refs
+    assert RequestIR.usable_base_refs(ir) == ir.refs.base_refs
     assert Enum.map(ir.tools, & &1.name) == ["agent_plan_draft", "submit_tentative_artifact"]
   end
 

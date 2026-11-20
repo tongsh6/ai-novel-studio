@@ -40,11 +40,12 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [%{name: ^tool, arguments: arguments}] = result.tool_calls
 
+      assert result.content == ""
+
       if tool == "ask_author" do
-        assert result.content == ""
         assert arguments.question =~ phrase
       else
-        assert result.content =~ phrase
+        assert arguments.author_reasoning =~ phrase
       end
 
       assert :ok = JudgmentToolContract.validate(result.tool_calls, :continuation)
@@ -204,13 +205,13 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
         author_turn_ref: "turn-continuation-lineage",
         tools: NovelApplication.JudgmentToolContract.tools(:judgment)
       )
-      |> AuthoringTranscript.append_assistant("读取第一章正文。", [
+      |> AuthoringTranscript.append_assistant("", [
         RequestIR.tool_call_block(
           "judgment_decision",
           %{
             "action" => "explore",
             "dialogue_goal" => author_text,
-            "reason" => "核对已写内容。",
+            "author_reasoning" => "读取第一章正文，核对已写内容。",
             "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
           },
           "call-actually-read"

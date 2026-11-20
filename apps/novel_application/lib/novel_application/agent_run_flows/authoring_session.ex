@@ -96,6 +96,7 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
     payload =
       observation.structured_payload
       |> Map.put(:summary, observation.summary)
+      |> Map.put(:observation_ref, "observation:#{observation.observation_id}")
       |> Map.put(:refs, observation.structured_payload.source_refs)
       |> ExplorationService.request_observation()
 
@@ -119,13 +120,15 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
       facts: %{exploration_result: payload}
     }
 
+    base_refs = if RequestIR.usable_observation?(payload), do: payload.source_refs, else: []
+
     transcript =
       AuthoringTranscript.append_scope_update(
         transcript,
         scope,
         %{"scope_revision" => RequestIR.Scope.next_revision(transcript)},
         payload.source_refs,
-        payload.source_refs
+        base_refs
       )
 
     put_transcript({:ok, result}, transcript)

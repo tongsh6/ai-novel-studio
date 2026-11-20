@@ -49,11 +49,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @pending_invalid_ref_marker "B71_INVALID_PENDING_REF"
   @pending_invalid_ref "artifact:b71-explicit-invalid-target"
   @specialized_tools ~w(submit_tentative_artifact report_quality_findings agent_plan_draft agent_plan_revision chapter_mission planning_mission)
-  # B23 CP5 真实页面场景：仅测试替身读取 harness env，令判断循环判 plan、计划起草与
-  # 首轮修订都只排只读步（无产出步）→ replan 预算耗尽后机械停等
-  # `plan_exhausted_without_completion`；作者 steer 文本带「按已核对结果先出方案」
-  # 时修订返回带产出步的正常计划，使同一 run 恢复完成。仅依据 env + prompt 文本，
-  # 不识别 slice id；env 关闭时既有替身行为逐字节不变。
+  # B23/B31 只读计划场景：仅测试替身读取 harness env 和作者标记。
+  # 判断入口发出只读计划；同轮真实查询结果返回后询问下一步，不重复计划。
+  # 独立计划运行时仍可用只读起草/修订测试耗尽边界，作者补充后才追加产出步。
+  # 不读取脚本进度或 slice id；env 关闭时不进入该分支。
   @plan_exhaust_env "SLICE_VERIFY_PLAN_EXHAUST"
   @plan_exhaust_marker "UA01PLANEXHAUST"
   @plan_exhaust_steer_marker "按已核对结果先出方案"
@@ -125,14 +124,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     material = PendingDialogueInput.material_text(prompt, prompt_text)
 
     match_text =
-      if judgment_prompt?(prompt_text), do: judgment_author_input(prompt), else: prompt_text
+      if judgment_prompt?(prompt, prompt_text),
+        do: judgment_author_input(prompt),
+        else: prompt_text
 
     with path when is_binary(path) and path != "" <- System.get_env(@author_behavior_env),
          fixtures when is_list(fixtures) and fixtures != [] <- author_behavior_fixtures(path),
          %{"action" => _action} = fixture <-
            Enum.find(fixtures, fn entry -> String.contains?(match_text, entry["expression"]) end) do
       cond do
-        judgment_prompt?(prompt_text) ->
+        judgment_prompt?(prompt, prompt_text) ->
           author_behavior_stimulus(fixture, prompt)
 
         profile_routing_prompt?(prompt_text) ->
@@ -177,11 +178,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       "action" => "execute",
       "capability" => capability,
       "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression),
-      "reason" => "B73 deterministic execute stimulus"
+      "author_reasoning" => "我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。"
     }
 
     {:ok,
-     Result.new("已生成待采纳候选；保存前不会写入作品事实。", nil,
+     Result.new("", nil,
        tool_calls: [
          %{
            id: "tool-b73-execute",
@@ -720,7 +721,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       continuation_prompt?(prompt, prompt_text) ->
         continuation_result(prompt, prompt_text)
 
-      judgment_prompt?(prompt_text) ->
+      judgment_prompt?(prompt, prompt_text) ->
         judgment_result(prompt, prompt_text)
 
       StubChapterSummary.prompt?(prompt_text) ->
@@ -733,7 +734,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # VS-00F CP1（AU-13）+ B27 CP3d：章摘要确定性四栏唯一真源在
   # `NovelAgent.Provider.StubChapterSummary`（stub 与 SliceVerify 共用，避免双份漂移）。
-  # B26 判断①：一次 auto 响应同时给出公开文本与可选原生工具。
+  # 判断①：无工具回复使用 content；工具回复的作者说明只在原生参数中。
   defp judgment_result(prompt, prompt_text) do
     # 统一当前材料视图：只带当前 scope（或本轮无 scope 请求）与当前作者原话，
     # 不再把扁平历史传给后续意图/目标逻辑，避免旧 scope 或作者引用 JSON 被当授权。
@@ -746,9 +747,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       plan_protocol_mode(input) != nil ->
         plan_protocol_judgment(input)
 
-      # 显式计划耗尽刺激仍走既有计划裁决；读取属于其计划步骤，不能被目录问答抢占。
+      # 只读计划按本轮真实查询返回收束，不能被目录问答抢占或无限重发。
       plan_exhaust_plan_verdict?(prompt) ->
-        regular_judgment_result(material, ir)
+        plan_exhaust_judgment_result(material, ir)
 
       chapter_directory_request?(prompt) ->
         judgment_explore_decision_result(material, %{
@@ -765,6 +766,45 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         judgment_result_cond(material, input, ir)
     end
+  end
+
+  defp plan_exhaust_judgment_result(material, ir) do
+    if plan_exhaust_reads_returned?(ir) do
+      Result.new("", nil,
+        tool_calls: [
+          %{
+            name: "ask_author",
+            arguments: %{
+              question: "这轮只读查询已经返回，目前尚未生成大纲或角色状态修改候选。请确认先补充章节材料，还是先确定要调整的情节与主角变化？",
+              options: []
+            }
+          }
+        ]
+      )
+    else
+      regular_judgment_result(material, ir)
+    end
+  end
+
+  defp plan_exhaust_reads_returned?(ir) do
+    reads =
+      plan_exhaust_readonly_packet(:draft).steps
+      |> Enum.filter(&Map.has_key?(&1, :exploration_query))
+
+    observations = current_observations(ir)
+
+    reads != [] and
+      Enum.all?(reads, fn step ->
+        Enum.any?(observations, fn observation ->
+          case observation[:content] do
+            %{"tool" => tool, "query" => query} ->
+              tool == step.target_tool_ref and query == step.exploration_query
+
+            _ ->
+              false
+          end
+        end)
+      end)
   end
 
   defp judgment_result_cond(prompt_text, input, ir) do
@@ -789,7 +829,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(input, "把已有角色的叙事身份从配角改为主角") ->
         narrative = "当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改。可以先讨论调整方案，原档案保持不变。"
 
-        Result.new(narrative, nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               name: "report_capability_gap",
@@ -867,19 +907,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp plan_protocol_judgment(input) do
-    packet = plan_protocol_packet(:complete)
-
-    decision = %{
-      name: "judgment_decision",
-      arguments: %{action: "plan", dialogue_goal: input, reason: packet.reasoning}
-    }
-
-    calls =
-      if plan_protocol_mode(input) == "同批计划",
-        do: [decision, agent_plan_tool_call("agent_plan_draft", packet)],
-        else: [decision]
-
-    Result.new(packet.reasoning, nil, tool_calls: calls)
+    stage = if plan_protocol_mode(input) == "先核对再补齐计划", do: :short, else: :complete
+    packet = plan_protocol_packet(stage)
+    Result.new("", nil, tool_calls: [agent_plan_tool_call("agent_plan_draft", packet)])
   end
 
   defp plan_protocol_packet(stage) do
@@ -955,7 +985,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     chapter = "第01章：底层灵气账单"
 
     Result.new(
-      "按作者选择“保留悬念”继续写#{chapter}正文。",
+      "",
       nil,
       tool_calls: [
         %{
@@ -965,7 +995,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             "action" => "execute",
             "capability" => "prose_writing",
             "dialogue_goal" => "按作者选择继续写#{chapter}正文，保持结尾保留悬念；细节由你定，不要问我。",
-            "reason" => "author_question_choice_continue"
+            "author_reasoning" => "按你选择的“保留悬念”继续写#{chapter}正文。"
           }
         }
       ]
@@ -1095,7 +1125,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_world_foreshadow_adopt_result(input) do
     Result.new(
-      "我会按你的要求生成一份待采纳的世界设定/伏笔候选，确认前不会写入作品事实。",
+      "",
       nil,
       tool_calls: [
         %{
@@ -1104,7 +1134,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             "action" => "execute",
             "capability" => "world_building",
             "dialogue_goal" => input,
-            "reason" => "作者明确要求保存/采纳设定或伏笔"
+            "author_reasoning" => "我会按你的要求生成一份待采纳的世界设定或伏笔候选，供你审阅。"
           }
         }
       ]
@@ -1136,25 +1166,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     narrative = judgment_narrative_result(prompt_text, ir, observation).content
 
     case result.tool_calls do
-      [call] -> single_judgment_output(call["arguments"], narrative, result)
+      [call] -> single_judgment_output(call["arguments"], narrative, result, ir || prompt_text)
       _ -> result
     end
   end
 
   # 验收替身按既有场景的语义裁决构造新协议，一次调用返回全部字节。
-  defp single_judgment_output(args, text, result) do
-    {name, payload} = single_fixture_operation(args, text)
+  defp single_judgment_output(args, text, result, source) do
+    args = Map.put_new(args, "author_reasoning", text)
+    {name, payload} = single_fixture_operation(args, text, source)
 
     calls =
       if name, do: [%{"id" => "call_#{name}", "name" => name, "arguments" => payload}], else: []
 
     calls = fixture_conflicting_calls(calls, args)
 
-    content =
-      case calls do
-        [%{"name" => "ask_author"}] -> ""
-        _ -> text
-      end
+    content = if calls == [], do: text, else: ""
 
     %{result | content: content, tool_calls: calls}
   end
@@ -1172,7 +1199,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp fixture_conflicting_calls(calls, _), do: calls
 
-  defp single_fixture_operation(args, text) do
+  defp single_fixture_operation(args, text, source) do
     cond do
       # AU12 A：显式立项修订工具参数原样透传（title/body/field/value/author_reasoning）。
       is_binary(args["field"]) and not is_nil(args["value"]) and is_binary(args["title"]) ->
@@ -1191,6 +1218,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       args["action"] == "reply" ->
         single_fixture_reply(args, text)
+
+      args["action"] == "plan" ->
+        packet =
+          "judgment_plan_v1"
+          |> agent_plan_draft_packet_for_fixture(source)
+          |> Map.put(:reasoning, text)
+
+        {"agent_plan_draft", agent_plan_tool_arguments(packet)}
 
       true ->
         single_fixture_decision(args)
@@ -1233,7 +1268,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     filtered =
       Map.take(
         args,
-        ~w(action reason dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref)
+        ~w(action author_reasoning dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref)
       )
 
     filtered =
@@ -1286,7 +1321,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
          String.contains?(text, "工具 prose_writing 执行失败") do
       narrative = "本次正文生成未完成，当前也没有同步到发布平台的能力。可以先保留现有作品，在支持的范围内重新调整目标。"
 
-      Result.new(narrative, nil,
+      Result.new("", nil,
         tool_calls: [
           %{
             name: "report_capability_gap",
@@ -1314,11 +1349,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     {name, args} =
       if action == "continue",
         do:
-          {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
+          {"continuation_decision",
+           %{action: "continue", guidance: guidance, author_reasoning: narrative}},
         else: {"ask_author", %{question: narrative, options: []}}
 
-    content = if name == "ask_author", do: "", else: narrative
-    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
+    Result.new("", nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
@@ -1732,7 +1767,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     packet = agent_plan_draft_packet(prompt)
     reasoning = Map.fetch!(packet, :reasoning)
 
-    Result.new(reasoning, usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, reasoning),
       tool_calls: [agent_plan_tool_call("agent_plan_draft", packet)]
     )
   end
@@ -1741,7 +1776,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     packet = agent_plan_revision_packet(prompt)
     reasoning = Map.fetch!(packet, :reasoning)
 
-    Result.new(reasoning, usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, reasoning),
       tool_calls: [agent_plan_tool_call("agent_plan_revision", packet)]
     )
   end
@@ -2716,7 +2751,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           %{
             items: [item],
             companion_artifacts: prose_companion_artifacts(brief, fingerprint),
-            self_report: creative_self_report(context)
+            self_report: creative_self_report(context, materials)
           }
         else
           [item]
@@ -3235,14 +3270,26 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp creative_self_report(context) do
+  defp creative_self_report(context, materials) do
     %{
       assumptions: ["按目标章结构和 ReaderEffectBrief 生成正文草稿"],
       intended_reader_effect: reader_effect_from_context(context),
-      used_context_refs: ["target_structure", "reader_effect_brief"],
+      used_context_refs: creative_used_context_refs(materials),
       risk_flags: ["WARN: 章尾钩子强度需作者审阅"]
     }
   end
+
+  defp creative_used_context_refs(%RequestIR{refs: refs} = request) do
+    (Map.get(refs, :base_refs, []) ++ RequestIR.usable_observation_refs(request))
+    |> Enum.map(fn
+      %{ref: ref} -> ref
+      %{"ref" => ref} -> ref
+      ref when is_binary(ref) -> ref
+    end)
+    |> Enum.uniq()
+  end
+
+  defp creative_used_context_refs(_request), do: []
 
   defp reader_effect_from_context(context) do
     case Regex.run(~r/目标情绪[:：]\s*([^\n]+)/u, context) do
@@ -3551,7 +3598,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # ── 判断①（ADR-0025 CP1 方案 B）：复用路由规则表判形态，复用帧机器产内联回复/候选 ──
 
-  defp judgment_prompt?(prompt), do: String.contains?(prompt, "创作判断器")
+  defp judgment_prompt?(%RequestIR{} = prompt, _text),
+    do: Enum.any?(WireToolFacts.specs(prompt), &(&1.name == "judgment_decision"))
+
+  defp judgment_prompt?(_prompt, text), do: String.contains?(text, "创作判断器")
 
   @judgment_capability_for_profile %{
     "character_design_with_context_v1" => "character_design",
@@ -3734,15 +3784,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # canonical IR 的当前操作材料只保留 scope + 作者原话，观察在结构化 tool_result 里。
   # 复用生产投影：被 checkpoint 压缩掉的交换不参与；只认最近作者输入之后、与作者
   # 请求同 tool 同 query 且 status ok 的真实 content.summary。
-  defp current_observation_summary(prompt, %NovelCommon.RequestIR{messages: messages} = ir) do
+  defp current_observation_summary(prompt, %NovelCommon.RequestIR{} = ir) do
     author_text = judgment_author_input(prompt)
 
     with tool when is_binary(tool) <- explore_tool_for(author_text),
          query when is_binary(query) <- explore_query_for(tool, author_text) do
-      messages
-      |> RequestIR.Compaction.project()
-      |> messages_after_last_author()
-      |> then(&TestProviderPrompt.visible_observations(%{ir | messages: &1}))
+      ir
+      |> current_observations()
       |> Enum.find_value(&matching_observation_summary(&1, tool, query))
     end
   end
@@ -3755,6 +3803,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       exploration_observation_section(prompt)
     end
   end
+
+  # 已有摘要回复和只读计划收束共用当前轮次的实际观察；不把 refs 当执行记录。
+  defp current_observations(%RequestIR{messages: messages} = ir) do
+    messages
+    |> RequestIR.Compaction.project()
+    |> messages_after_last_author()
+    |> then(&TestProviderPrompt.visible_observations(%{ir | messages: &1}))
+  end
+
+  defp current_observations(_prompt), do: []
 
   defp messages_after_last_author(messages) do
     last_author_index =
@@ -4157,16 +4215,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_invalid_action_result(prompt) do
-    reasoning = "structure_complete_but_action_invalid"
+    reasoning = "当前响应选择了不受支持的判断动作。"
 
-    Result.new(reasoning, usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, reasoning),
       tool_calls: [
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
           "arguments" => %{
             "action" => "creative_exploration_frame",
-            "reason" => "model_still_speaks_frame_language",
+            "author_reasoning" => reasoning,
             "reply_included" => false
           }
         }
@@ -4218,10 +4276,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_work_profile_revision_result(prompt) do
-    reasoning = "作者要求修订作品立项，给出显式字段修订提案待采纳。"
-    author_reasoning = "作者从概览提出立项修订；只改一个显式字段，不写章节正文。"
+    author_reasoning = "我会按你的要求提出作品立项修订，供你审阅后决定是否采纳。"
 
-    Result.new(reasoning, usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, author_reasoning),
       tool_calls: [
         %{
           "id" => "call_work_profile_revision",
@@ -4379,7 +4436,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       :execute ->
         narrative = "按你的要求维护章节结构：只重编号，不改标题/正文/归卷/章数；我会先给出可审阅的旧→新编号变更计划。"
 
-        Result.new(narrative, nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               "id" => "call_judgment_decision",
@@ -4388,7 +4445,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
                 "action" => "execute",
                 "capability" => "maintain_chapter_structure",
                 "dialogue_goal" => decision.dialogue_goal,
-                "reason" => "chapter_structure_maintenance"
+                "author_reasoning" => narrative
               }
             }
           ]
@@ -4578,9 +4635,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       :execute ->
         narrative =
-          "我会先给出角色叙事身份修订候选（只看主档案字段 narrative_role），待你确认后再改；不会新建角色、不写正文/记忆。"
+          "我会先给出角色叙事身份的修订候选，供你审阅后再更新主档案。"
 
-        Result.new(narrative, nil,
+        Result.new("", nil,
           tool_calls: [
             %{
               "id" => "call_judgment_decision",
@@ -4590,7 +4647,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
                 "capability" => "revise_character_profile",
                 "character_ref" => decision.character_ref,
                 "dialogue_goal" => decision.dialogue_goal,
-                "reason" => "character_profile_revision"
+                "author_reasoning" => narrative
               }
             }
           ]
@@ -4670,7 +4727,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     narrative =
       "我会按你的要求设计一个待采纳的角色候选，并说明角色的叙事身份，确认前不会写入作品事实。"
 
-    Result.new(narrative, nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           "id" => "call_judgment_decision",
@@ -4679,7 +4736,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             "action" => "execute",
             "capability" => "character_design",
             "dialogue_goal" => author_text,
-            "reason" => "character_design_request"
+            "author_reasoning" => narrative
           }
         }
       ]
@@ -4762,16 +4819,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_explore_decision_result(prompt, request) do
+    reasoning = "我会先读取这次问题需要的作品材料，再依据实际内容继续。"
+
     arguments = %{
       "action" => "explore",
-      "reason" => "missing_work_facts_require_retrieval",
+      "author_reasoning" => reasoning,
       "dialogue_goal" => judgment_dialogue_goal(prompt),
       "explore_request" => request
     }
 
-    reasoning = "judgment_explore"
-
-    Result.new(reasoning, usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, reasoning),
       tool_calls: [
         %{
           "id" => "call_judgment_decision",

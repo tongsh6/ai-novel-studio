@@ -4,7 +4,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
   全章分页读取，而不是依赖旧渲染文本里的「### 观察 N」段。
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
@@ -74,6 +74,198 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     ]
 
     assert NovelTest.TestProviderPrompt.text(injected) == "user: 普通请求"
+  end
+
+  for {mode, targets} <- [
+        {"同批计划", ["context_assemble", "character_design", "world_building"]},
+        {"另行起草计划", ["context_assemble", "character_design", "world_building"]},
+        {"先核对再补齐计划", ["context_assemble"]}
+      ] do
+    @tag :r05_response_protocol
+    test "#{mode} 在真实判断目录里只返回一次原生计划，叙事只在参数中" do
+      input = "请按#{unquote(mode)}设计角色和世界设定。"
+      prompt = judgment_request(input)
+
+      assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+      assert result.content == ""
+      assert [%{"name" => "agent_plan_draft", "arguments" => arguments}] = result.tool_calls
+      args = arguments |> Jason.encode!() |> Jason.decode!()
+
+      assert Enum.map(args["plan"]["steps"], & &1["target_tool_ref"]) == unquote(targets)
+      assert is_binary(args["author_reasoning"]) and args["author_reasoning"] != ""
+      refute Map.has_key?(args, "reason")
+      refute Map.has_key?(args, "action")
+    end
+  end
+
+  @tag :r05_response_protocol
+  test "判断执行、登记与能力缺口的作者说明只在同一个原生参数中" do
+    for {input, expected} <- [
+          {"帮我设计一个新主角，名叫林渡。", "judgment_decision"},
+          {"把已有角色的叙事身份从配角改为主角", "report_capability_gap"},
+          {"把这段原文存档：主角经营旧书铺。", "register_author_content"}
+        ] do
+      assert {:ok, result} =
+               SliceVerify.complete(nil, nil, judgment_request(input), %InferenceParams{})
+
+      assert result.content == ""
+      [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
+      assert call["name"] == expected
+      assert is_binary(call["arguments"]["author_reasoning"])
+      assert call["arguments"]["author_reasoning"] != ""
+      refute Map.has_key?(call["arguments"], "reason")
+    end
+  end
+
+  @tag :r05_response_protocol
+  test "续行参数使用唯一作者说明且没有平行 content" do
+    prompt =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.scope(%{
+            goal: %{text: "完成当前正文"},
+            context: %{deviation_summary: "计划步骤已走完，但尚无正文产出"}
+          })
+        ],
+        tools: [NovelTest.TestRequestIR.tool("continuation_decision")]
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert result.content == ""
+    [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
+    assert call["name"] == "continuation_decision"
+    assert call["arguments"]["action"] == "continue"
+    assert call["arguments"]["author_reasoning"] =~ "补上产出步"
+    refute Map.has_key?(call["arguments"], "reason")
+  end
+
+  @tag :r05_response_protocol
+  test "Writer 替身只声明实际 Base 与可见观察，不从引用目录补造材料" do
+    prompt =
+      NovelTest.TestRequestIR.ir(
+        [
+          NovelTest.TestRequestIR.base("本章计划：主角在雨夜进门。"),
+          NovelTest.TestRequestIR.author("写出进门时的迟疑。", "turn:writer-author"),
+          NovelTest.TestRequestIR.scope(%{
+            operation: %{
+              artifact_type: "prose_fragment",
+              creative_brief: "写出进门时的迟疑。",
+              context_text: "目标情绪：紧张。"
+            }
+          }),
+          NovelTest.TestRequestIR.assistant("", [
+            NovelTest.TestRequestIR.tool_call("chapter_read", %{}, "read-actual")
+          ]),
+          NovelTest.TestRequestIR.observation("read-actual", %{
+            status: "ok",
+            source_refs: [%{ref: "chapter:actual"}],
+            content: %{summary: "雨滴留在门沿。"}
+          })
+        ],
+        tools: [NovelTest.TestRequestIR.tool("submit_tentative_artifact")],
+        refs: %{
+          base_refs: [%{ref: "plan:current", version: 1}],
+          observation_refs: [%{ref: "chapter:actual"}, "memory:metadata-only"],
+          used_refs: []
+        }
+      )
+
+    assert :ok = RequestIR.validate(prompt)
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
+
+    assert call["arguments"]["self_report"]["used_context_refs"] == [
+             "plan:current",
+             "chapter:actual"
+           ]
+  end
+
+  @tag :r05_readonly_plan
+  test "只读计划在本轮实际查询返回后收束，不从目录、旧轮次或不同查询推定完成" do
+    previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
+    System.put_env("SLICE_VERIFY_PLAN_EXHAUST", "1")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("SLICE_VERIFY_PLAN_EXHAUST", previous),
+        else: System.delete_env("SLICE_VERIFY_PLAN_EXHAUST")
+    end)
+
+    input = "先读完第01章正文，再调整章节大纲，最后更新主角当前状态，UA01PLANEXHAUST-current"
+    request = judgment_request(input)
+    observations = readonly_plan_observations("第01章", "ok")
+    old_author = NovelTest.TestRequestIR.author("上一轮核对第01章。", "turn:older-plan")
+
+    for unobserved <- [
+          request,
+          %{request | refs: Map.put(request.refs, :observation_refs, ["chapter:directory-only"])},
+          %{request | messages: [old_author | observations] ++ request.messages},
+          %{request | messages: request.messages ++ readonly_plan_observations("第02章", "ok")}
+        ] do
+      assert :ok = RequestIR.validate(unobserved)
+      assert {:ok, result} = SliceVerify.complete(nil, nil, unobserved, %InferenceParams{})
+      assert [%{"name" => "agent_plan_draft"}] = result.tool_calls
+      assert result.content == ""
+    end
+
+    # 成功空读和真实失败都已返回查询结果；收束文案不冒称已读完或已生成候选。
+    for status <- ["ok", "unavailable"] do
+      observed = %{
+        request
+        | messages: request.messages ++ readonly_plan_observations("第01章", status)
+      }
+
+      assert :ok = RequestIR.validate(observed)
+      assert {:ok, result} = SliceVerify.complete(nil, nil, observed, %InferenceParams{})
+      assert result.content == ""
+      [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
+      assert call["name"] == "ask_author"
+      assert call["arguments"]["question"] =~ "尚未生成"
+      refute call["arguments"]["question"] =~ "已读完"
+    end
+  end
+
+  defp readonly_plan_observations(query, status) do
+    for tool <- ["prose_search", "chapter_read"],
+        message <- [
+          NovelTest.TestRequestIR.assistant("", [
+            NovelTest.TestRequestIR.tool_call(tool, %{query: query}, "read-#{tool}")
+          ]),
+          NovelTest.TestRequestIR.observation("read-#{tool}", %{
+            status: status,
+            source_refs: [],
+            content: %{
+              tool: tool,
+              query: query,
+              summary: if(status == "ok", do: "当前没有匹配的章节材料。", else: "本次读取失败。")
+            }
+          })
+        ],
+        do: message
+  end
+
+  defp judgment_request(input) do
+    NovelTest.TestRequestIR.ir(
+      [
+        NovelTest.TestRequestIR.author(input, "turn:judgment-fixture"),
+        NovelTest.TestRequestIR.scope(%{
+          goal: %{source_input_ref: "turn:judgment-fixture", version: 1},
+          operation: %{role: "judgment"}
+        })
+      ],
+      system: RequestIR.system_envelope(instructions: "直接与作者讨论并提出下一步建议。"),
+      tools:
+        Enum.map(
+          [
+            "judgment_decision",
+            "agent_plan_draft",
+            "ask_author",
+            "report_capability_gap",
+            "register_author_content"
+          ],
+          &NovelTest.TestRequestIR.tool/1
+        )
+    )
   end
 
   @tag :r05_goal_reader
@@ -219,9 +411,11 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     assert args["explore_request"] == %{"tool" => "archive_read", "query" => "chapters"}
 
     assert Enum.sort(Map.keys(args)) ==
-             ~w(action dialogue_goal explore_request reason)
+             ~w(action author_reasoning dialogue_goal explore_request)
 
     assert args["dialogue_goal"] == @author_text
+    assert result.content == ""
+    assert is_binary(args["author_reasoning"])
   end
 
   @tag :r03_provider_materials

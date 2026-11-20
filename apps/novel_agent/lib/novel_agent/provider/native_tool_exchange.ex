@@ -17,7 +17,8 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   执行一次原生交换并返回业务结果与会话。
 
   默认具名工具调用、传输失败不重试；tool_choice、retry_transport 可由消费者
-  显式选择。解析器支持 (result) 或 (result, attempt)，attempt 是真实调用序号。
+  显式选择。解析器按消费者需要接收 (result)、(result, attempt) 或
+  (result, attempt, actual_request_ir)；后者是同次真正发送的请求，尚未追加当前响应。
   feedback.(parsed) 返回 reason_code/detail/message，供原生失败结果或应用通知使用。
   validate_result 只接受 nil 或 arity 1 回调，入口即校验；回调只在协议解析成功后
   执行，返回 :ok 或 {:error, %{reason_code: binary, detail: map, message: binary}}。
@@ -85,20 +86,20 @@ defmodule NovelAgent.Provider.NativeToolExchange do
       {:ok, ir} ->
         notify_retry(operation.on_retry, retry_notice)
         next = %{state | count: state.count + 1, result: nil}
-        consume(operation.provider.(ir), next, operation)
+        consume(operation.provider.(ir), next, operation, ir)
 
       {:error, reason} ->
         finish(operation.error.("invalid_request_ir", reason), state)
     end
   end
 
-  defp consume({:ok, text}, state, operation) when is_binary(text),
-    do: accept_response(%{content: text, tool_calls: []}, state, operation)
+  defp consume({:ok, text}, state, operation, actual_request) when is_binary(text),
+    do: accept_response(%{content: text, tool_calls: []}, state, operation, actual_request)
 
-  defp consume({:ok, result}, state, operation) when is_map(result),
-    do: accept_response(result, state, operation)
+  defp consume({:ok, result}, state, operation, actual_request) when is_map(result),
+    do: accept_response(result, state, operation, actual_request)
 
-  defp consume({:error, reason}, state, operation) do
+  defp consume({:error, reason}, state, operation, _actual_request) do
     parsed = operation.error.("provider_error", reason)
 
     retry_or_finish(
@@ -112,13 +113,13 @@ defmodule NovelAgent.Provider.NativeToolExchange do
     )
   end
 
-  defp consume(other, state, operation),
+  defp consume(other, state, operation, _actual_request),
     do: finish(operation.error.("provider_response_unexpected", other), state)
 
-  defp accept_response(result, state, operation) do
+  defp accept_response(result, state, operation, actual_request) do
     {ir, result} = RequestIR.append_assistant_result(state.ir, result)
     state = %{state | ir: ir, result: result}
-    parsed = parse_response(state, operation)
+    parsed = parse_response(state, operation, actual_request)
 
     case parsed.status do
       :ok ->
@@ -178,11 +179,11 @@ defmodule NovelAgent.Provider.NativeToolExchange do
     }
   end
 
-  defp parse_response(state, operation) do
+  defp parse_response(state, operation, actual_request) do
     calls = Map.get(state.result, :tool_calls, [])
 
     if allowed_response?(calls, state.ir, operation.tool) do
-      parse_result(operation.parse, state.result, state.count)
+      parse_result(operation.parse, state.result, state.count, actual_request)
     else
       code = if calls == [], do: "native_tool_call_required", else: "unexpected_tool_calls"
 
@@ -199,10 +200,13 @@ defmodule NovelAgent.Provider.NativeToolExchange do
 
   defp allowed_response?(_calls, _ir, _tool), do: false
 
-  defp parse_result(parse, result, attempt) when is_function(parse, 2),
+  defp parse_result(parse, result, attempt, actual_request) when is_function(parse, 3),
+    do: parse.(result, attempt, actual_request)
+
+  defp parse_result(parse, result, attempt, _actual_request) when is_function(parse, 2),
     do: parse.(result, attempt)
 
-  defp parse_result(parse, result, _attempt), do: parse.(result)
+  defp parse_result(parse, result, _attempt, _actual_request), do: parse.(result)
 
   defp response_feedback(%{feedback: feedback}, parsed) when is_function(feedback, 1),
     do: feedback.(parsed)

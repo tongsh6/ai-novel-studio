@@ -51,14 +51,17 @@ defmodule NovelApplication.AuthoringTranscript do
   def new(run, opts) when is_map(run) do
     base_text = Keyword.fetch!(opts, :base_text)
     base_refs = Keyword.get(opts, :base_refs, [])
+    initial_scope = Keyword.get(opts, :initial_scope)
+    base_text_refs = if is_nil(initial_scope), do: base_refs, else: []
 
     messages =
       [
         RequestIR.message(:application_base, :application, [RequestIR.text_block(base_text)], %{
-          source_refs: base_refs
+          source_refs: base_refs,
+          base_refs: base_text_refs
         })
       ] ++
-        initial_scope_messages(Keyword.get(opts, :initial_scope)) ++ author_messages(opts)
+        initial_scope_messages(initial_scope, base_refs) ++ author_messages(opts)
 
     %{
       run: RequestIR.run_envelope(run),
@@ -73,10 +76,13 @@ defmodule NovelApplication.AuthoringTranscript do
     }
   end
 
-  defp initial_scope_messages(nil), do: []
+  defp initial_scope_messages(nil, _base_refs), do: []
 
-  defp initial_scope_messages(%{content: content, versions: versions, source_refs: source_refs}),
-    do: [scope_message(content, versions, source_refs)]
+  defp initial_scope_messages(
+         %{content: content, versions: versions, source_refs: source_refs},
+         base_refs
+       ),
+       do: [scope_message(content, versions, source_refs, base_refs)]
 
   defp author_messages(opts) do
     case RequestIR.author_input_messages(
@@ -151,7 +157,7 @@ defmodule NovelApplication.AuthoringTranscript do
   @spec append_scope_update(t(), map(), map(), [map()], [map()]) :: t()
   def append_scope_update(transcript, content, versions, source_refs, base_refs)
       when is_map(content) and is_list(source_refs) and is_list(base_refs) do
-    message = scope_message(content, versions, source_refs)
+    message = scope_message(content, versions, source_refs, base_refs)
 
     %{
       transcript
@@ -160,10 +166,11 @@ defmodule NovelApplication.AuthoringTranscript do
     }
   end
 
-  defp scope_message(content, versions, source_refs) do
+  defp scope_message(content, versions, source_refs, base_refs) do
     RequestIR.message(:scope_update, :application, [RequestIR.scope_block(content)], %{
       versions: versions,
-      source_refs: source_refs
+      source_refs: source_refs,
+      base_refs: base_refs
     })
   end
 
@@ -206,7 +213,8 @@ defmodule NovelApplication.AuthoringTranscript do
   end
 
   @doc "当前生效的 scope；旧 scope 仍保留在消息序列中供审计。"
-  @spec current_scope(t()) :: %{content: map() | nil, versions: map(), source_refs: [map()]} | nil
+  @spec current_scope(t()) ::
+          %{content: map() | nil, versions: map(), source_refs: [map()], base_refs: [map()]} | nil
   def current_scope(transcript) do
     transcript.messages
     |> Enum.reverse()
@@ -219,7 +227,8 @@ defmodule NovelApplication.AuthoringTranscript do
               _ -> nil
             end),
           versions: Map.get(message, :versions, %{}),
-          source_refs: Map.get(message, :source_refs, [])
+          source_refs: Map.get(message, :source_refs, []),
+          base_refs: Map.get(message, :base_refs, [])
         }
       end
     end)

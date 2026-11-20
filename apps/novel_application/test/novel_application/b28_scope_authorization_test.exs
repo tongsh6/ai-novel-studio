@@ -403,17 +403,17 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   end
 
   defp g2_response(_mode, []),
-    do: {"先读第一页。", [explore_call(Jason.encode!(%{"chapter_seq" => 2, "offset" => 0}))]}
+    do: {"", [explore_call(Jason.encode!(%{"chapter_seq" => 2, "offset" => 0}), "先读第一页。")]}
 
   defp g2_response(:happy, [page1]),
-    do: {"继续读第二页。", [explore_call(continuation_query(page1))]}
+    do: {"", [explore_call(continuation_query(page1), "继续读第二页。")]}
 
   defp g2_response(:happy, pages) do
-    {"按刚读到的重复写法修订。", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages))]}
+    {"", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages), "按刚读到的重复写法修订。")]}
   end
 
   defp g2_response(:partial, [page1 | _]) do
-    {"按已读内容修订。", [execute_call(page_chapter_ref(page1), cross_page_target([page1]))]}
+    {"", [execute_call(page_chapter_ref(page1), cross_page_target([page1]), "按已读内容修订。")]}
   end
 
   # 续页只从实际观察叶取同章 ref 与 next_offset。
@@ -466,23 +466,23 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp leaf_content(leaf), do: leaf_field(leaf, :content) || %{}
   defp leaf_coverage(leaf), do: leaf_field(leaf, :coverage) || %{}
 
-  defp explore_call(query) do
+  defp explore_call(query, narrative) do
     call("judgment_decision", %{
       "action" => "explore",
       "dialogue_goal" => "读取章节正文核对",
-      "reason" => "核对正文",
+      "author_reasoning" => narrative,
       "explore_request" => %{"tool" => "chapter_read", "query" => query}
     })
   end
 
-  defp execute_call(chapter_ref, target_id) do
+  defp execute_call(chapter_ref, target_id, narrative) do
     call("judgment_decision", %{
       "action" => "execute",
       "capability" => "revise_adopted_content",
       "adopted_content_ref" => chapter_ref,
       "target_segment_ids" => [target_id],
       "dialogue_goal" => "把发现的重复写法改成一段候选",
-      "reason" => "按作者要求修订"
+      "author_reasoning" => narrative
     })
   end
 

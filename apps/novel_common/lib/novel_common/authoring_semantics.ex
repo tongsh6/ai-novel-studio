@@ -12,7 +12,7 @@ defmodule NovelCommon.AuthoringSemantics do
 
   alias NovelCommon.Contracts.AuthoringTask
 
-  @version "b27-semantics-v4"
+  @version "b27-semantics-v5"
 
   @kind_effects %{
     first_draft: [:create_candidate],
@@ -159,6 +159,18 @@ defmodule NovelCommon.AuthoringSemantics do
   @doc "共享规则静态段唯一真源。"
   def shared_rules, do: String.trim(@shared_rules)
 
+  @doc "作者说明的语言规范，供判断、计划与专业调用的作者说明共用。"
+  @spec author_narrative_rules() :: String.t()
+  def author_narrative_rules do
+    """
+    面向作者，用自然创作语言说明有用的判断、依据与下一步，以实际作品和材料名称指明对象。
+    本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行，不将其写成创作说明；
+    作品中涉及的同名概念，或作者主动询问的机制，按真实语境正常讨论。
+    不机械复述输入。
+    """
+    |> String.trim()
+  end
+
   @doc "任务类型对应的操作约束静态段。"
   def operation_rules(kind), do: @operation_rules |> Map.fetch!(kind) |> String.trim()
 
@@ -202,6 +214,9 @@ defmodule NovelCommon.AuthoringSemantics do
     """
     ## 创作协作共同规则
     #{shared_rules()}
+
+    ## 作者说明
+    #{author_narrative_rules()}
 
     ## 本轮任务语义：#{kind_label(task.kind)}
     #{operation_rules(task.kind)}
@@ -270,6 +285,7 @@ defmodule NovelCommon.AuthoringSemantics do
       [
         @version,
         shared_rules(),
+        author_narrative_rules(),
         kind_effects()
         |> Enum.sort()
         |> Enum.map_join("\n", fn {kind, effects} -> "#{kind}=#{Enum.join(effects, ",")}" end),

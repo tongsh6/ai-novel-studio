@@ -29,9 +29,11 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
     assert results == ["actual-plan-call"]
     [scope] = Enum.filter(request.messages, &(&1.role == "scope_update"))
     assert scope.provenance == "application"
+    assert scope.base_refs == ["draft:actual"]
     assert [block] = scope.blocks
     assert block.content["operation"]["plan_call_id"] == "actual-plan-call"
     assert block.content["operation"]["step_ref"] == "step:actual-read"
+    assert block.content["operation"]["observation_ref"] == "obs_actual_execution"
 
     assert {:ok, next} =
              Operation.prepare(request, run, %{
@@ -49,13 +51,68 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
     assert read.next_offset == 6000
     assert read.omissions == ["6000 字之后尚未读取"]
     assert read.content["summary"] == "实际读取的片段 R05READONCE73"
-    assert read.content["observation_ref"] == "observation:actual-page"
+    assert read.content["observation_ref"] == "observation:obs_actual_execution"
+    assert RequestIR.usable_base_refs(next) == ["draft:actual"]
     refute Enum.any?(next.refs.observation_refs, &(&1 == "draft:actual"))
     assert Enum.any?(next.refs.base_refs, &(&1 == "draft:actual" or &1[:ref] == "draft:actual"))
 
     for target <- ~w(chat_completions responses_api anthropic_messages) do
       assert {:ok, wire} = Projection.project(next, target)
       assert length(String.split(Jason.encode!(wire), "R05READONCE73")) == 2
+    end
+  end
+
+  @tag :r05_base_bindings
+  test "真实 failed 读取映射为 unavailable，保留来源记录但不能登记 Base" do
+    assert_unbound_application_read("failed", "本次未能取得正文。", "unavailable")
+  end
+
+  @tag :r05_base_bindings
+  test "stale 应用读取不因仍带正文摘要而登记 Base" do
+    assert_unbound_application_read("stale", "材料版本已经失效。", "stale")
+  end
+
+  @tag :r05_base_bindings
+  test "observed 读取只有关联元数据时不能登记 Base" do
+    assert_unbound_application_read("observed", "", "ok")
+  end
+
+  @tag :r05_base_bindings
+  test "真实成功空读取的摘要或零事实计数仍可供应 Base，不提升原覆盖范围" do
+    for {summary, facts} <- [
+          {"本次查询没有匹配到正文。", %{}},
+          {"", %{returned_items: 0}}
+        ] do
+      {:ok, result} = read_result()
+      [observation] = result.observations
+
+      observation = %{
+        observation
+        | summary: summary,
+          structured_payload: %{
+            observation.structured_payload
+            | outcome: "empty_result",
+              facts: facts
+          }
+      }
+
+      assert {:ok, recorded} =
+               AuthoringSession.record_exploration_result(
+                 {:ok, %{result | observations: [observation]}},
+                 run(),
+                 %{run: run(), stage_state: %{}}
+               )
+
+      request = AuthoringSession.request_ir(recorded)
+      assert :ok = RequestIR.validate_used_refs(request, ["draft:actual"])
+      assert RequestIR.usable_base_refs(request) == ["draft:actual"]
+      assert [read] = RequestIR.usable_observations(request)
+      assert read.status == "ok"
+      assert read.coverage["prose"] == %{"status" => "partial", "start" => 0, "end" => 6000}
+      assert read.coverage["coverage_note"] == nil
+      assert read.coverage["continuation_hint"] == nil
+      assert read.next_offset == 6000
+      assert read.omissions == ["6000 字之后尚未读取"]
     end
   end
 
@@ -125,7 +182,11 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
             }
           })
         ],
-        %{versions: %{"scope_revision" => 1}, source_refs: ["memory:current"]}
+        %{
+          versions: %{"scope_revision" => 1},
+          source_refs: ["memory:current"],
+          base_refs: ["memory:current"]
+        }
       )
     ]
 
@@ -176,6 +237,9 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
     assert visible.status == "partial"
     assert visible.versions == %{"memory:current" => 7}
     assert "draft:actual" in request.refs.base_refs
+    assert RequestIR.usable_base_refs(request) == ["memory:current"]
+    assert :ok = RequestIR.validate_used_refs(request, ["memory:current"])
+    assert {:error, _reason} = RequestIR.validate_used_refs(request, ["draft:actual"])
     assert Enum.at(request.messages, 3).blocks == List.last(old_messages).blocks
 
     assert hd(Enum.at(request.messages, 3).blocks).content["facts"]["exploration_result"][
@@ -190,6 +254,38 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
       assert length(String.split(encoded, "R05VISIBLECURRENT91")) == 2
       assert encoded =~ "请先核对原文"
     end
+  end
+
+  defp assert_unbound_application_read(outcome, summary, status) do
+    {:ok, result} = read_result()
+    [observation] = result.observations
+
+    observation = %{
+      observation
+      | summary: summary,
+        structured_payload: %{observation.structured_payload | outcome: outcome, facts: %{}}
+    }
+
+    assert {:ok, recorded} =
+             AuthoringSession.record_exploration_result(
+               {:ok, %{result | observations: [observation]}},
+               run(),
+               %{run: run(), stage_state: %{}}
+             )
+
+    request = AuthoringSession.request_ir(recorded)
+    assert :ok = RequestIR.validate(request)
+    assert [scope] = Enum.filter(request.messages, &(&1.role == "scope_update"))
+    assert [read] = RequestIR.visible_observations(request)
+    assert read.status == status
+    assert read.content["summary"] == summary
+    assert read.content["facts"] == %{}
+    assert RequestIR.usable_observations(request) == []
+    assert scope.source_refs == ["draft:actual"]
+    assert scope.base_refs == []
+    assert request.refs.base_refs == []
+    assert RequestIR.usable_base_refs(request) == []
+    assert {:error, _reason} = RequestIR.validate_used_refs(request, ["draft:actual"])
   end
 
   defp run do
@@ -240,7 +336,7 @@ defmodule NovelApplication.PlannedExplorationMaterialTest do
        step: %{step_id: "step:actual-read"},
        observations: [
          %{
-           observation_id: "observation:actual-execution",
+           observation_id: "obs_actual_execution",
            summary: "实际读取的片段 R05READONCE73",
            structured_payload: %{
              stage: :exploration_observed,

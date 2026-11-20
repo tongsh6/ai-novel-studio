@@ -151,7 +151,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert turn_result.trace_summary.writer_provider_call_ref ==
              "pc-agent-character-evolution-writer"
 
-    assert turn_result.trace_summary.provider_call_budget.writer == 1
+    assert turn_result.trace_summary.provider_call_budget.writer == 2
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
   end
 

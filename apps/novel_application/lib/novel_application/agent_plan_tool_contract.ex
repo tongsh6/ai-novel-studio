@@ -1,7 +1,7 @@
 defmodule NovelApplication.AgentPlanToolContract do
-  @moduledoc "B26：计划工具输入单一真源，判断同批计划与独立起草共用。"
+  @moduledoc "B26：计划工具输入单一真源，判断选择计划与独立起草/修订共用。"
 
-  alias NovelApplication.AuthoringTaskPolicy
+  alias NovelCommon.AuthoringSemantics
 
   @draft_tool_name "agent_plan_draft"
   def tool(tool_name \\ @draft_tool_name) do
@@ -137,8 +137,8 @@ defmodule NovelApplication.AgentPlanToolContract do
           type: "string",
           minLength: 1,
           description:
-            "本响应的作者可见计划说明原文，content 为空时的叙事来源；说明计划的目标、安排和依据，不把计划说成已执行。" <>
-              AuthoringTaskPolicy.author_narrative_rules()
+            "本响应唯一的作者可见计划说明原文，content 必须为空；说明计划的目标、安排和依据，不把计划说成已执行。" <>
+              AuthoringSemantics.author_narrative_rules()
         },
         plan: %{
           type: "object",

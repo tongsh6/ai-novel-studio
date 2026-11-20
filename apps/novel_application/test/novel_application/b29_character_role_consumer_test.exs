@@ -201,7 +201,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
               %{
                 action: "explore",
-                reason: "我会先查看角色目录，确认老沈对应的人物。",
+                author_reasoning: "我会先查看角色目录，确认老沈对应的人物。",
                 explore_request: %{tool: "archive_read", query: "characters"}
               }
 
@@ -210,7 +210,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
               %{
                 action: "explore",
-                reason: "我会查看老沈的角色详情，核对当前设定。",
+                author_reasoning: "我会查看老沈的角色详情，核对当前设定。",
                 explore_request: %{
                   tool: "archive_read",
                   query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
@@ -228,7 +228,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
                 action: "execute",
                 capability: "revise_character_profile",
                 character_ref: ref,
-                reason: @role_narrative
+                author_reasoning: @role_narrative
               }
 
             count ->
@@ -303,7 +303,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
       provider_run_ref: run_ref,
       provider_output_ref: run_ref,
       tool_call_name: "judgment_decision",
-      tool_call_narrative_field: "reason",
+      tool_call_narrative_field: "author_reasoning",
       source_byte_range: %{start: 0, length: 79},
       source_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab",
       narrative_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab"

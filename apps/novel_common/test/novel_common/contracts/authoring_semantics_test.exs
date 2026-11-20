@@ -33,7 +33,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
   end
 
   test "version and content hash are stable for identical canonical text" do
-    assert AuthoringSemantics.version() == "b27-semantics-v4"
+    assert AuthoringSemantics.version() == "b27-semantics-v5"
     assert AuthoringSemantics.content_hash() == AuthoringSemantics.content_hash()
     assert String.length(AuthoringSemantics.content_hash()) == 64
   end
@@ -50,7 +50,13 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert rules =~ "当前已有充分原文证据时不重复读取"
     assert task().semantic_version == AuthoringSemantics.version()
 
-    for version <- ["b27-semantics-v3", "b27-semantics-v2", "b27-semantics-v1", nil] do
+    for version <- [
+          "b27-semantics-v4",
+          "b27-semantics-v3",
+          "b27-semantics-v2",
+          "b27-semantics-v1",
+          nil
+        ] do
       expected_version = version || "b27-semantics-v1"
       map = AuthoringTask.to_map(task())
 
@@ -65,7 +71,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
       assert {:error,
               {:authoring_task_invalid,
-               {:semantic_version_mismatch, "b27-semantics-v4", ^expected_version}}} =
+               {:semantic_version_mismatch, "b27-semantics-v5", ^expected_version}}} =
                AuthoringSemantics.validate(restored)
     end
   end
@@ -92,6 +98,8 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
     assert block =~ "创作协作共同规则"
     assert block =~ "作者是唯一裁决者"
+    assert block =~ "以实际作品和材料名称指明对象"
+    assert length(String.split(block, "本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行")) == 2
     assert block =~ "首稿创作"
     assert block =~ "输出契约纪律"
     assert block =~ "items"
@@ -286,7 +294,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
     expected =
       {:authoring_task_invalid,
-       {:semantic_version_mismatch, "b27-semantics-v4", "b27-semantics-v0"}}
+       {:semantic_version_mismatch, "b27-semantics-v5", "b27-semantics-v0"}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end

@@ -390,7 +390,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       provider_run_ref: "prun-discard-judgment",
       provider_output_ref: "prun-discard-judgment",
       tool_call_name: "judgment_decision",
-      tool_call_narrative_field: "reason",
+      tool_call_narrative_field: "author_reasoning",
       source_byte_range: %{start: 0, length: 48},
       source_hash: "f36293a052297b0e4f889576594154527ae836105a1e33d9d380242f3d7cebd5",
       narrative_hash: "f36293a052297b0e4f889576594154527ae836105a1e33d9d380242f3d7cebd5"
@@ -1681,7 +1681,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
           %{
             "action" => "explore",
             "dialogue_goal" => run.goal.text,
-            "reason" => "核对已有候选的真实 ref 与来源",
+            "author_reasoning" => "核对已有候选及其来源",
             "explore_request" => %{
               "tool" => "session_adoptions",
               "query" => artifact_ref

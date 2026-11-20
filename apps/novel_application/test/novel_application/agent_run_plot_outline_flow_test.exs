@@ -371,7 +371,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     # WR01c：推理成功即落暂定（写端口收到 persisted_map）。
     assert_receive {:planning_mission_persisted, @work, persisted_map}, 500
     assert persisted_map["statement"] == "接下来的章节必须给超期伏笔安排回收。"
-    assert turn_result.trace_summary.provider_call_budget.writer == 1
+    assert turn_result.trace_summary.provider_call_budget.writer == 2
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
   end
 

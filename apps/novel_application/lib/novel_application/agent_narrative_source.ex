@@ -53,7 +53,7 @@ defmodule NovelApplication.AgentNarrativeSource do
   @doc """
   绑定原生工具响应中的作者叙事（如强制 tool_choice 时 assistant content 为空）。
   ProviderOutput 保留原始 tool calls，叙事必须与指定调用的指定字段逐字一致。
-  默认兼容 author_reasoning；判断协议显式使用 author_narrative，校验时沿同一字段回查。
+  默认绑定 author_reasoning；ask_author 显式绑定 question，校验时沿同一字段回查。
   """
   @spec from_tool_call_narrative(map(), String.t(), String.t()) ::
           {:ok, source()} | {:error, term()}
@@ -95,7 +95,8 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   Canonical call IDs may differ from provider IDs; an explicit nil mapping retains
   the provider’s missing ID. Argument keys share the IR JSON boundary while every
-  string value remains byte-for-byte unchanged.
+  string value and the response content remain byte-for-byte unchanged; nil and
+  an empty string both represent absent content.
   """
   @spec verify_tool_call(map(), map()) :: :ok | {:error, term()}
   def verify_tool_call(provider_result, call) when is_map(call) do
@@ -103,6 +104,7 @@ defmodule NovelApplication.AgentNarrativeSource do
       Map.get(call, :provider_call_id, Map.get(call, "provider_call_id", map_get(call, :id)))
 
     with {:ok, output} <- provider_output(provider_result),
+         :ok <- result_content_matches_output(provider_result, map_get(output.content, :text)),
          [original] <- provider_tool_calls(output),
          {:ok, ^original} <- provider_tool_call(output, map_get(call, :name)),
          true <- original_id == map_get(original, :id),
@@ -174,10 +176,12 @@ defmodule NovelApplication.AgentNarrativeSource do
   defp provider_output_text(_output), do: {:error, :provider_output_text_required}
 
   defp result_content_matches_output(provider_result, source_text) do
-    case map_get(provider_result, :content) do
-      content when is_binary(content) and content == source_text -> :ok
-      content when is_binary(content) -> {:error, :provider_result_content_mismatch}
-      _ -> :ok
+    content = map_get(provider_result, :content)
+
+    cond do
+      content in [nil, ""] and source_text in [nil, ""] -> :ok
+      is_binary(content) and content == source_text -> :ok
+      true -> {:error, :provider_result_content_mismatch}
     end
   end
 

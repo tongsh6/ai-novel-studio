@@ -54,14 +54,14 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
             {:ok,
              %NovelAgent.Provider.Result{
-               content: "我会按你的要求修订候选，不自动保存。",
+               content: "",
                tool_calls:
                  TestAgenticLoopFixtures.native_tool_calls("judgment_decision", %{
                    "action" => "execute",
                    "capability" => "revise_pending_artifact",
                    "pending_artifact_ref" => artifact_id,
                    "dialogue_goal" => goal,
-                   "reason" => "作者要求修订已有候选。"
+                   "author_reasoning" => "我会按你的要求修订候选，不自动保存。"
                  }),
                provider_call_ref: "pcall-run-judgment"
              }}
@@ -238,14 +238,14 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
             {:ok,
              %NovelAgent.Provider.Result{
-               content: "我会按你的要求修订候选，不自动保存。",
+               content: "",
                tool_calls:
                  TestAgenticLoopFixtures.native_tool_calls("judgment_decision", %{
                    "action" => "execute",
                    "capability" => "revise_pending_artifact",
                    "pending_artifact_ref" => artifact_id,
                    "dialogue_goal" => goal,
-                   "reason" => "作者要求修订已有候选。"
+                   "author_reasoning" => "我会按你的要求修订候选，不自动保存。"
                  }),
                provider_call_ref: "pcall-failure-judgment"
              }}

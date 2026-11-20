@@ -368,7 +368,7 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
            "action" => "execute",
            "capability" => "prose_writing",
            "dialogue_goal" => author_text,
-           "reason" => "请求写正文"
+           "author_reasoning" => "请求写正文"
          }}
       end)
 
@@ -463,7 +463,7 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
          "capability" => "revise_character_profile",
          "character_ref" => ref,
          "dialogue_goal" => "把历史观察人物设为主角",
-         "reason" => "修改作者指定角色的叙事身份"
+         "author_reasoning" => "修改作者指定角色的叙事身份"
        }}
     end)
   end
@@ -523,7 +523,8 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
           "judgment_decision",
           %{
             action: "explore",
-            reason: "读取真实角色详情",
+            author_reasoning: "读取真实角色详情",
+            dialogue_goal: "核对历史角色的当前设定",
             explore_request: %{tool: "archive_read", query: query}
           },
           call_id

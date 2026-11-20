@@ -90,10 +90,9 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     broken = Map.put(plan_arguments(), "plan", "not-an-object")
 
     responses = [
-      {:ok, provider_result_with_arguments("需要纠正计划结构。", broken)},
-      {:ok, provider_result(@narrative)},
-      {:ok,
-       provider_result_with_arguments("保留已有步骤，更新计划。", plan_arguments(), "agent_plan_revision")}
+      {:ok, provider_result_with_arguments("", broken)},
+      {:ok, provider_result("")},
+      {:ok, provider_result_with_arguments("", plan_arguments(), "agent_plan_revision")}
     ]
 
     execution = sequence_execution(responses)
@@ -165,9 +164,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     broken = Map.put(plan_arguments(), "plan", "not-an-object")
 
     execution =
-      sequence_execution(
-        List.duplicate({:ok, provider_result_with_arguments("结构仍不合法。", broken)}, 2)
-      )
+      sequence_execution(List.duplicate({:ok, provider_result_with_arguments("", broken)}, 2))
 
     assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}, meta} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(run, execution, snapshot(prior))
@@ -242,7 +239,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         do: block.name
   end
 
-  test "empty assistant content falls back to author_reasoning tool argument with tool-narrative source binding" do
+  test "计划只从 author_reasoning 交付说明并绑定原工具字段" do
     execution = %Execution{result_fn: fn _prompt -> {:ok, provider_result("")} end}
 
     assert {:ok, plan, meta} =
@@ -260,14 +257,14 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert act.target_chapter == "第01章：开端"
   end
 
-  test "non-empty assistant content stays the preferred narrative source" do
+  test "非空 content 是第二份正文，即使与工具说明相同也必须拒绝" do
     execution = %Execution{result_fn: fn _prompt -> {:ok, provider_result(@narrative)} end}
 
-    assert {:ok, _plan, meta} =
+    assert {:error, {:agent_plan_protocol_violation, :author_narrative_content_conflict}, meta} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
 
-    assert meta.summary == @narrative
-    assert meta.author_narrative_source.source_type == "provider_output"
+    assert meta.provider_call_count == 2
+    assert validation_statuses(meta.judgment_transcript) == ["failed", "failed"]
   end
 
   test "单调用 auto 同时携计划与说明，不再请求前置叙事" do
@@ -276,7 +273,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     execution = %Execution{
       result_fn: fn prompt ->
         send(parent, {:prompt, prompt})
-        {:ok, provider_result(@narrative)}
+        {:ok, provider_result("")}
       end
     }
 
@@ -338,11 +335,9 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       "confidence" => 0.9
     }
 
-    bad_tool_calls = [%{"name" => "agent_plan_draft", "arguments" => bad_arguments}]
-
     result_fn = fn prompt ->
       send(test_pid, {:plan_prompt, prompt})
-      {:ok, %{content: "", tool_calls: bad_tool_calls}}
+      {:ok, provider_result_with_arguments("", bad_arguments)}
     end
 
     assert {:error,
@@ -1100,7 +1095,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       assert JudgmentToolContract.valid?(args, AgentPlanToolContract.schema()),
              "#{profile} #{tool}"
 
-      assert args.author_reasoning == result.content
+      assert is_binary(args.author_reasoning) and String.trim(args.author_reasoning) != ""
+      assert result.content == ""
     end
   end
 
@@ -1122,8 +1118,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       send(test_pid, {:plan_prompt, n, prompt})
 
       case n do
-        1 -> {:ok, provider_result_with_arguments("第一次计划。", invalid)}
-        _ -> {:ok, provider_result("第二次计划。")}
+        1 -> {:ok, provider_result_with_arguments("", invalid)}
+        _ -> {:ok, provider_result("")}
       end
     end
 
@@ -1155,7 +1151,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
       case n do
         1 -> {:ok, %{content: "这是文本而不是工具调用。", tool_calls: [], provider_output: nil}}
-        _ -> {:ok, provider_result("第二次计划。")}
+        _ -> {:ok, provider_result("")}
       end
     end
 
@@ -1175,7 +1171,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     [s1, s2] = valid["plan"]["steps"]
     invalid = Map.put(valid, "plan", %{"steps" => [Map.delete(s1, "target_tool_ref"), s2]})
 
-    result_fn = fn _prompt -> {:ok, provider_result_with_arguments("仍非法。", invalid)} end
+    result_fn = fn _prompt -> {:ok, provider_result_with_arguments("", invalid)} end
 
     assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments},
             %{provider_call_count: 2}} =
@@ -1248,8 +1244,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       send(test_pid, {:plan_prompt, n, prompt})
 
       case n do
-        1 -> {:ok, provider_result_with_arguments("第一次只给了 plan。", only_plan)}
-        _ -> {:ok, provider_result("第二次补齐顶层字段。")}
+        1 -> {:ok, provider_result_with_arguments("", only_plan)}
+        _ -> {:ok, provider_result("")}
       end
     end
 
@@ -1302,8 +1298,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       send(test_pid, {:plan_prompt, n, prompt})
 
       case n do
-        1 -> {:ok, provider_result_with_arguments("第一次只给 plan。", only_plan)}
-        _ -> {:ok, provider_result("第二次补齐。")}
+        1 -> {:ok, provider_result_with_arguments("", only_plan)}
+        _ -> {:ok, provider_result("")}
       end
     end
 
@@ -1344,8 +1340,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       send(test_pid, {:plan_prompt, n, prompt})
 
       case n do
-        1 -> {:ok, provider_result_with_arguments("修订只给 plan。", only_plan, "agent_plan_revision")}
-        _ -> {:ok, provider_result_with_arguments("修订补齐。", valid, "agent_plan_revision")}
+        1 -> {:ok, provider_result_with_arguments("", only_plan, "agent_plan_revision")}
+        _ -> {:ok, provider_result_with_arguments("", valid, "agent_plan_revision")}
       end
     end
 

@@ -7,6 +7,8 @@ defmodule NovelCommon.RequestIR.Scope do
   """
 
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.Projection
 
   @doc "当前应用范围的纯结构值；事实来源校验仍由读取它们的应用 owner 负责。"
   def block(content) when is_map(content) do
@@ -37,10 +39,25 @@ defmodule NovelCommon.RequestIR.Scope do
 
   def goal(content), do: content
 
-  def validate_owner(%{role: role, provenance: provenance, blocks: blocks}) do
+  def validate_owner(%{role: role, provenance: provenance, blocks: blocks} = message) do
     types = Enum.map(blocks, &Map.fetch!(&1, :type))
+    base_refs = Map.get(message, :base_refs, [])
 
     cond do
+      not scope_source_refs?(base_refs) ->
+        {:error, :invalid_base_binding}
+
+      base_refs != [] and
+          (role not in ["application_base", "scope_update"] or provenance != "application") ->
+        {:error, :invalid_base_binding_owner}
+
+      base_refs != [] and
+          (types == [] or
+             (role == "application_base" and
+                (Enum.any?(types, &(&1 != "text")) or
+                   String.trim(Projection.text_of(blocks)) == ""))) ->
+        {:error, :invalid_base_binding_content}
+
       "scope" in types and {role, provenance, types} != {"scope_update", "application", ["scope"]} ->
         {:error, :invalid_scope_owner}
 
@@ -146,16 +163,58 @@ defmodule NovelCommon.RequestIR.Scope do
 
   defp valid_scope_count_range?(_coverage), do: true
 
+  @doc "本次可见材料消息的显式 Base 绑定；累计目录只用于核对登记，不恢复隐藏材料。"
+  @spec usable_refs(RequestIR.t()) :: [map() | String.t()]
+  def usable_refs(%{messages: messages, refs: refs}) do
+    registered = refs |> Map.get(:base_refs, []) |> MapSet.new(&ref_key/1)
+
+    messages
+    |> Compaction.project()
+    |> Enum.flat_map(fn
+      %{role: role, provenance: "application"} = message
+      when role in ["application_base", "scope_update"] ->
+        Map.get(message, :base_refs, [])
+
+      _ ->
+        []
+    end)
+    |> Enum.filter(&MapSet.member?(registered, ref_key(&1)))
+    |> Enum.uniq()
+  end
+
   def validate_bindings(%{refs: refs} = ir) when is_map(refs) do
-    for message <- ir.messages,
-        %{type: "scope", content: content} <- message.blocks,
-        reduce: :ok do
-      :ok -> validate_scope_binding(ir, message, content)
-      error -> error
+    with :ok <- validate_base_bindings(ir) do
+      for message <- ir.messages,
+          %{type: "scope", content: content} <- message.blocks,
+          reduce: :ok do
+        :ok -> validate_scope_binding(ir, message, content)
+        error -> error
+      end
     end
   end
 
   def validate_bindings(_ir), do: {:error, :invalid_refs}
+
+  defp validate_base_bindings(%{messages: messages, refs: refs}) do
+    base_refs = Map.get(refs, :base_refs, [])
+
+    if scope_source_refs?(base_refs) do
+      registered = MapSet.new(base_refs, &ref_key/1)
+
+      unregistered =
+        messages
+        |> Enum.flat_map(&Map.get(&1, :base_refs, []))
+        |> Enum.map(&ref_key/1)
+        |> Enum.reject(&MapSet.member?(registered, &1))
+        |> Enum.uniq()
+
+      if unregistered == [],
+        do: :ok,
+        else: {:error, {:base_binding_not_registered, unregistered}}
+    else
+      {:error, :invalid_refs}
+    end
+  end
 
   defp validate_scope_binding(ir, message, content) do
     with :ok <- validate_scope_metadata(message, ir.refs),
@@ -254,17 +313,22 @@ defmodule NovelCommon.RequestIR.Scope do
     end)
   end
 
-  @doc "追加当前运行事实；旧 scope 只保留为证据。"
-  @spec append_update(map(), map(), map(), [map()]) :: map()
-  def append_update(ir, content, versions \\ %{}, source_refs \\ [])
-      when is_map(ir) and is_map(content) do
+  @doc "追加当前运行事实并绑定实际供应的 Base；旧 Scope 与累计目录只保留为历史证据。"
+  @spec append_update(map(), map(), map(), [map()], [map()]) :: map()
+  def append_update(ir, content, versions, source_refs, base_refs)
+      when is_map(ir) and is_map(content) and is_list(base_refs) do
     message =
       RequestIR.message(:scope_update, :application, [block(content)], %{
         versions: versions,
-        source_refs: source_refs
+        source_refs: source_refs,
+        base_refs: base_refs
       })
 
-    %{ir | messages: ir.messages ++ [message]}
+    %{
+      ir
+      | messages: ir.messages ++ [message],
+        refs: Map.update(ir.refs, :base_refs, base_refs, &Enum.uniq(&1 ++ base_refs))
+    }
   end
 
   defp valid_source_id?(id) when is_binary(id), do: String.valid?(id) and String.trim(id) != ""

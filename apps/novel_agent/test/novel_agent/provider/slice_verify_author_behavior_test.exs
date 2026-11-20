@@ -42,16 +42,22 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     )
 
     prompt =
-      TestRequestIR.ir([
-        TestRequestIR.base("创作判断器"),
-        TestRequestIR.author(expression)
-      ])
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("当前判断请求材料"),
+          TestRequestIR.author(expression)
+        ],
+        tools: [TestRequestIR.tool("judgment_decision")]
+      )
 
     assert System.get_env("AUTHOR_BEHAVIOR_CORPUS_JSON") == corpus
     assert %{"fixtures" => [%{"action" => "execute"}]} = corpus |> File.read!() |> Jason.decode!()
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
+    assert result.content == ""
+    assert is_binary(arguments["author_reasoning"])
+    refute Map.has_key?(arguments, "reason")
     assert (arguments[:action] || arguments["action"]) == "execute"
     assert (arguments[:capability] || arguments["capability"]) == "prose_writing"
     assert (arguments[:dialogue_goal] || arguments["dialogue_goal"]) == expression
@@ -109,14 +115,20 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     )
 
     prompt =
-      TestRequestIR.ir([
-        TestRequestIR.base("创作判断器\n## 历史消息\n#{prose_expression}"),
-        TestRequestIR.author(world_expression)
-      ])
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("## 历史消息\n#{prose_expression}"),
+          TestRequestIR.author(world_expression)
+        ],
+        tools: [TestRequestIR.tool("judgment_decision")]
+      )
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
+    assert result.content == ""
+    assert is_binary(arguments["author_reasoning"])
+    refute Map.has_key?(arguments, "reason")
     assert (arguments[:capability] || arguments["capability"]) == "world_building"
   end
 
@@ -140,30 +152,38 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     )
 
     prompt =
-      TestRequestIR.ir([
-        TestRequestIR.base("创作判断器"),
-        TestRequestIR.author(expression),
-        TestRequestIR.scope(%{
-          context: %{
-            interaction_state: %{
-              pending_adoptions: [
-                %{
-                  artifact_ref: "as_original",
-                  artifact_type: "world_setting",
-                  status: "TENTATIVE",
-                  title: "沈砚旧书铺设定",
-                  body_preview: "沈砚经营旧书铺。"
-                }
-              ]
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("当前判断请求材料"),
+          TestRequestIR.author(expression),
+          TestRequestIR.scope(%{
+            context: %{
+              interaction_state: %{
+                pending_adoptions: [
+                  %{
+                    artifact_ref: "as_original",
+                    artifact_type: "world_setting",
+                    status: "TENTATIVE",
+                    title: "沈砚旧书铺设定",
+                    body_preview: "沈砚经营旧书铺。"
+                  }
+                ]
+              }
+            },
+            operation: %{
+              pending_artifact_targets: %{"as_original" => ["revise_pending_artifact"]}
             }
-          },
-          operation: %{pending_artifact_targets: %{"as_original" => ["revise_pending_artifact"]}}
-        })
-      ])
+          })
+        ],
+        tools: [TestRequestIR.tool("judgment_decision")]
+      )
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
+    assert result.content == ""
+    assert is_binary(arguments["author_reasoning"])
+    refute Map.has_key?(arguments, "reason")
     assert (arguments[:capability] || arguments["capability"]) == "revise_pending_artifact"
 
     assert (arguments[:pending_artifact_ref] || arguments["pending_artifact_ref"]) ==
@@ -189,10 +209,13 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     )
 
     prompt =
-      TestRequestIR.ir([
-        TestRequestIR.base("创作判断器"),
-        TestRequestIR.author(expression)
-      ])
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("当前判断请求材料"),
+          TestRequestIR.author(expression)
+        ],
+        tools: [TestRequestIR.tool("judgment_decision")]
+      )
 
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert result.content == "当前已写 99 章。"

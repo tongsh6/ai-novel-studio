@@ -96,6 +96,58 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     assert {:ok, nil} = ToolOutputContract.normalize_creative_self_report("not-a-map")
   end
 
+  test "引用声明的坏形状整体拒绝，合法引用不裁剪或丢项" do
+    for refs <- [
+          nil,
+          false,
+          7,
+          "chapter:one",
+          %{"ref" => "chapter:one"},
+          ["chapter:one", nil],
+          ["chapter:one", 7],
+          ["chapter:one", ""],
+          ["chapter:one", "  "]
+        ] do
+      assert {:error, %{code: "invalid_used_context_refs"}} =
+               ToolOutputContract.normalize_creative_self_report(%{"used_context_refs" => refs})
+    end
+
+    assert {:ok, %{used_context_refs: [" chapter:one ", "chapter:one"]}} =
+             ToolOutputContract.normalize_creative_self_report(%{
+               used_context_refs: [" chapter:one ", "chapter:one"]
+             })
+
+    assert {:ok, nil} =
+             ToolOutputContract.normalize_creative_self_report(%{used_context_refs: []})
+  end
+
+  test "候选说明使用作者语言契约；正文不套用说明校验且逐字保留" do
+    body = "铭牌上刻着 chapter:story-object。\n原文不改。"
+    item = %{item_id: "prose", title: "铭牌", body: body, rationale: "保留迟疑。\n让动作承接对白。"}
+
+    assert {:ok, [^item]} = ToolOutputContract.validate_creative_items([item])
+
+    assert {:error, %{code: "author_visible_narrative_invalid"}} =
+             ToolOutputContract.validate_creative_items([
+               %{item | rationale: "采用 chapter:internal-target 的材料。"}
+             ])
+
+    for rationale <- [false, 7, %{}, []] do
+      assert {:error, %{code: "invalid_item_field"}} =
+               ToolOutputContract.validate_creative_items([%{item | rationale: rationale}])
+    end
+
+    assert {:ok, [%{rationale: nil}]} =
+             ToolOutputContract.validate_creative_items([Map.delete(item, :rationale)])
+
+    assert {:error, %{code: "author_visible_narrative_invalid"}} =
+             ToolOutputContract.validate_prose_companion_artifacts([
+               item
+               |> Map.put(:artifact_type, "character_seed")
+               |> Map.put(:rationale, "来自 character:private-source。")
+             ])
+  end
+
   test "maps risk flags to quality actions" do
     assert ToolOutputContract.self_report_quality_action([]) == :proceed
     assert ToolOutputContract.self_report_quality_action(["节奏偏弱"]) == :warn

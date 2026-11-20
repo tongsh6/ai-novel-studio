@@ -125,6 +125,7 @@ defmodule NovelApplication.AuthoringTranscriptTest do
     assert transcript.base_refs == before.base_refs ++ supplied
     assert transcript.observation_refs == before.observation_refs
     assert AuthoringTranscript.current_scope(transcript).source_refs == provenance
+    assert AuthoringTranscript.current_scope(transcript).base_refs == supplied
 
     assert {:ok, _ir} =
              transcript
@@ -137,6 +138,72 @@ defmodule NovelApplication.AuthoringTranscriptTest do
                |> AuthoringTranscript.declare_used_refs([ref])
                |> AuthoringTranscript.to_request_ir()
     end
+  end
+
+  @tag :r05_base_bindings
+  test "JSON恢复保留逐消息材料绑定，历史声明有效不等于当前仍供应旧正文" do
+    old = %{ref: "material:old", version: 1}
+    current = %{ref: "material:current", version: 2}
+
+    transcript =
+      AuthoringTranscript.new(run(),
+        base_text: RequestIR.application_base_text(),
+        author_text: "先核对旧材料。",
+        author_turn_ref: "author_turn:old-material"
+      )
+      |> AuthoringTranscript.append_scope_update(
+        %{work_id: "work-1", context: %{material: %{text: "旧材料的真实正文。"}}},
+        %{"scope_revision" => 1},
+        [old],
+        [old]
+      )
+      |> AuthoringTranscript.append_author_turn("继续当前材料。", "author_turn:current-material")
+      |> AuthoringTranscript.append_scope_update(
+        %{work_id: "work-1", context: %{material: %{text: "当前实际供应的正文。"}}},
+        %{"scope_revision" => 2},
+        [current],
+        [current]
+      )
+      |> AuthoringTranscript.declare_used_refs([old.ref])
+
+    covers = %{
+      call_ids: [],
+      message_refs: [
+        %{
+          run_id: "run-ir-1",
+          run_sequence: 3,
+          role: "scope_update",
+          source_refs: [old],
+          versions: %{"scope_revision" => 1}
+        }
+      ]
+    }
+
+    assert {:ok, compacted} =
+             AuthoringTranscript.compact(
+               transcript,
+               covers,
+               [old, %{ref: "session_message:run-ir-1:3", version: 1}],
+               %{},
+               ["旧材料正文已省略。"],
+               "旧轮完成了材料核对；本摘要不含旧正文。"
+             )
+
+    assert {:ok, restored} =
+             compacted
+             |> AuthoringCheckpoint.checkpoint()
+             |> Jason.encode!()
+             |> Jason.decode!()
+             |> AuthoringTranscript.restore()
+
+    assert {:ok, request} = AuthoringTranscript.to_request_ir(restored)
+    assert request.refs.used_refs == [old.ref]
+    assert request.refs.base_refs == [old, current]
+    assert Enum.at(request.messages, 2).base_refs == [old]
+    assert :ok = RequestIR.validate(request)
+    assert RequestIR.usable_base_refs(request) == [current]
+    assert :ok = RequestIR.validate_used_refs(request, [current.ref])
+    assert {:error, _reason} = RequestIR.validate_used_refs(request, [old.ref])
   end
 
   test "G7 scope 只追加且带版本，G8 JSON 检查点恢复保持请求语义" do
@@ -196,6 +263,9 @@ defmodule NovelApplication.AuthoringTranscriptTest do
              Projection.project(second_ir, "chat_completions")
 
     assert AuthoringTranscript.current_scope(restored_transcript).versions["scope_revision"] == 2
+
+    assert Enum.map(restored_ir.messages, & &1.base_refs) ==
+             Enum.map(second_ir.messages, & &1.base_refs)
   end
 
   test "原始工具参数与 opaque Provider 私有状态在恢复后保持，默认投影不泄漏" do

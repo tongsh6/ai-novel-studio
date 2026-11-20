@@ -3,6 +3,7 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   Validation helpers for creative tool output contracts.
   """
 
+  alias NovelCommon.AuthorVisible.Text
   alias NovelFoundation.Enums.NarrativeRole
 
   @creative_artifact_types [
@@ -162,25 +163,33 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   @doc """
   Normalize optional prose-writing self-report fields.
 
-  The report is a non-authoritative quality signal. Invalid or empty fields are
-  dropped; invalid report shape does not invalidate otherwise valid creative
-  items.
+  Quality opinions remain non-authoritative signals. Material-use declarations
+  must retain every supplied reference; malformed declarations are rejected,
+  then the receiving operation checks them against its actual Request IR.
   """
-  @spec normalize_creative_self_report(term()) :: {:ok, map() | nil}
+  @spec normalize_creative_self_report(term()) :: {:ok, map() | nil} | {:error, map()}
   def normalize_creative_self_report(nil), do: {:ok, nil}
 
   def normalize_creative_self_report(report) when is_map(report) do
-    normalized = %{
-      assumptions: string_list(map_get(report, :assumptions)),
-      intended_reader_effect: optional_string(map_get(report, :intended_reader_effect)),
-      used_context_refs: string_list(map_get(report, :used_context_refs)),
-      risk_flags: string_list(map_get(report, :risk_flags))
-    }
+    refs = Map.get(report, :used_context_refs, Map.get(report, "used_context_refs", []))
 
-    if empty_self_report?(normalized) do
-      {:ok, nil}
+    if is_list(refs) and Enum.all?(refs, &(is_binary(&1) and String.trim(&1) != "")) do
+      normalized = %{
+        assumptions: string_list(map_get(report, :assumptions)),
+        intended_reader_effect: optional_string(map_get(report, :intended_reader_effect)),
+        used_context_refs: refs,
+        risk_flags: string_list(map_get(report, :risk_flags))
+      }
+
+      if empty_self_report?(normalized),
+        do: {:ok, nil},
+        else: {:ok, Map.put(normalized, :quality_action, self_report_quality_action(normalized))}
     else
-      {:ok, Map.put(normalized, :quality_action, self_report_quality_action(normalized))}
+      {:error,
+       %{
+         code: "invalid_used_context_refs",
+         message: "used_context_refs must be a list of non-empty reference strings"
+       }}
     end
   end
 
@@ -221,15 +230,10 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     with {:ok, item_id} <- fetch_string(raw, :item_id),
          {:ok, title} <- fetch_string(raw, :title),
          {:ok, body} <- fetch_string(raw, :body),
+         {:ok, rationale} <-
+           validate_rationale(Map.get(raw, :rationale, Map.get(raw, "rationale"))),
          {:ok, changes} <- normalize_line_break_changes(map_get(raw, :line_break_changes)) do
-      rationale = map_get(raw, :rationale)
-
-      item = %{
-        item_id: item_id,
-        title: title,
-        body: body,
-        rationale: if(is_binary(rationale), do: rationale, else: nil)
-      }
+      item = %{item_id: item_id, title: title, body: body, rationale: rationale}
 
       item = if is_nil(changes), do: item, else: Map.put(item, :line_break_changes, changes)
       {:ok, item |> put_optional_fields(raw) |> put_skeleton_suggestion(raw)}
@@ -239,6 +243,25 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   defp normalize_item(_raw) do
     {:error, %{code: "invalid_item", message: "creative item must be a map"}}
   end
+
+  defp validate_rationale(nil), do: {:ok, nil}
+
+  defp validate_rationale(text) when is_binary(text) do
+    case Text.validate_narrative(text) do
+      :ok ->
+        {:ok, text}
+
+      {:error, :author_visible_narrative_invalid} ->
+        {:error,
+         %{
+           code: "author_visible_narrative_invalid",
+           message: "creative item rationale must use author-visible language"
+         }}
+    end
+  end
+
+  defp validate_rationale(_),
+    do: {:error, %{code: "invalid_item_field", message: "invalid field: rationale"}}
 
   defp normalize_line_break_changes(nil), do: {:ok, nil}
 

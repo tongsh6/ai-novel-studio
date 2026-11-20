@@ -159,6 +159,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     end
   end
 
+  @tag :r05_base_bindings
   test "new/2 的 initial_scope 一次构造 base → scope → author，保留作者原字节与 turn 元数据" do
     transcript =
       AuthoringTranscript.new(
@@ -167,6 +168,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
         author_text: @author_a,
         author_turn_ref: "author-turn-a",
         author_turn: %{origin: "author_choice", question_ref: "question-1"},
+        base_refs: @refs,
         initial_scope: %{
           content: @scope,
           versions: %{"scope_revision" => 1, "work" => 3, "change_reason" => "initial_scope"},
@@ -178,6 +180,10 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert base.role == "application_base"
     assert base.provenance == "application"
     assert Projection.text_of(base.blocks) == "稳定 Base"
+    assert base.base_refs == []
+    assert scope.base_refs == @refs
+    assert {:ok, initial_request} = AuthoringTranscript.to_request_ir(transcript)
+    assert RequestIR.usable_base_refs(initial_request) == @refs
 
     assert scope.role == "scope_update"
     assert scope.provenance == "application"
@@ -360,7 +366,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       # 只声明应用数据职责与来源边界。
       system_text = Projection.system_text(ir.system)
       assert system_text =~ "## 决策与输出契约"
-      assert system_text =~ "本次你承担创作判断器的角色"
+      assert system_text =~ "本次你直接与作者讨论作品"
       assert TestAgenticLoopFixtures.message_text(application_base) =~ "应用数据"
       refute TestAgenticLoopFixtures.message_text(application_base) =~ "## 决策与输出契约"
       refute Enum.any?(application_base.blocks, &(&1.type == "scope"))
@@ -511,6 +517,48 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       {_repeated, repeated} =
         production_request(Map.put(supplied_input, :transcript, next))
 
+      assert repeated == next
+    end
+
+    @tag :r05_base_bindings
+    test "累计目录已有同 ref 时当前 Scope 首次实际供应仍须追加绑定" do
+      initial_input =
+        input()
+        |> Map.put(:supplied_context_refs, [])
+        |> Map.put(:scope_source_refs, ["chapter:one"])
+
+      {_initial, transcript} = production_request(initial_input)
+      current_scope = AuthoringTranscript.current_scope(transcript)
+      supplied = [%{ref: "chapter:one"}]
+
+      transcript =
+        transcript
+        |> AuthoringTranscript.append_scope_update(
+          %{work_id: transcript.run.work_id, context: %{material: %{text: "较早实际供应的章节正文。"}}},
+          %{"scope_revision" => 2},
+          supplied,
+          supplied
+        )
+        |> AuthoringTranscript.append_scope_update(
+          current_scope.content,
+          Map.put(current_scope.versions, "scope_revision", 3),
+          current_scope.source_refs,
+          []
+        )
+
+      assert transcript.base_refs == supplied
+      assert AuthoringTranscript.current_scope(transcript).base_refs == []
+
+      supplied_input =
+        initial_input
+        |> Map.put(:transcript, transcript)
+        |> Map.put(:supplied_context_refs, ["chapter:one"])
+
+      {_request, next} = production_request(supplied_input)
+      assert length(next.messages) == length(transcript.messages) + 1
+      assert AuthoringTranscript.current_scope(next).base_refs == supplied
+
+      {_request, repeated} = production_request(Map.put(supplied_input, :transcript, next))
       assert repeated == next
     end
 

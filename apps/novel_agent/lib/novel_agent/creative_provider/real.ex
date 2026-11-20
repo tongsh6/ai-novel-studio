@@ -150,7 +150,9 @@ defmodule NovelAgent.CreativeProvider.Real do
           ir,
           result_fn,
           "submit_tentative_artifact",
-          fn result -> parse_native_result(result, request) end,
+          fn result, _attempt, actual_request ->
+            parse_native_result(result, request, actual_request)
+          end,
           &exchange_error/2,
           Keyword.take(opts, [:validate_result, :max_provider_calls])
         )
@@ -219,7 +221,7 @@ defmodule NovelAgent.CreativeProvider.Real do
                 type: "array",
                 items: %{type: "string"},
                 description:
-                  "仅列本次实际使用的材料。成功工具观察使用 content.observation_ref，底座用本次已声明来源。目标定位、版本、调用编号不能作为观察身份；没有使用可省略，引用只留自报字段。"
+                  "仅列本次实际使用的材料。成功工具观察使用 content.observation_ref，底座只用本次实际供应材料的已声明来源；作者消息来源不授信。目标定位、版本、调用编号不能作为观察身份；没有使用可省略，引用只留自报字段。"
               }
             },
             additionalProperties: true
@@ -238,11 +240,29 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp exchange_error(code, reason),
     do: provider_error(code, inspect(reason), provider_error_type(reason))
 
-  defp parse_native_result(result, request) do
+  defp parse_native_result(result, request, actual_request) do
     result
     |> decode_native_result()
     |> enforce_parsed_companion_scope(request)
+    |> validate_used_context_refs(actual_request)
   end
+
+  defp validate_used_context_refs(%CreativeProviderResult{status: :ok} = result, actual_request) do
+    used = Map.get(result.self_report || %{}, :used_context_refs, [])
+
+    case RequestIR.validate_used_refs(actual_request, used) do
+      :ok ->
+        result
+
+      {:error, _reason} ->
+        provider_error(
+          "used_context_refs_invalid",
+          "used_context_refs 必须来自本次实际供应的 Base 或 Observation；作者消息来源、未读及其它调用的引用不具备资格"
+        )
+    end
+  end
+
+  defp validate_used_context_refs(result, _actual_request), do: result
 
   # 单工具交换由 NativeToolExchange 的允许响应门保证（恰好一个具名 tool call）；
   # 这里不再保留「无 tool call → 解析纯文本 JSON」的退役 fallback。

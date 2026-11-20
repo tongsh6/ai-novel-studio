@@ -71,7 +71,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
             "kind" => "act",
             "description" => "写正文",
             "success_criteria" => ["done"],
-            "target_tool_ref" => "prose_writing"
+            "target_tool_ref" => "prose_writing",
+            "authoring_intent" => nil
           }
         ]
       },
@@ -85,7 +86,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     call("judgment_decision", %{
       "action" => "plan",
       "dialogue_goal" => "分步执行",
-      "reason" => "需要计划"
+      "author_reasoning" => "需要计划"
     })
   end
 
@@ -131,35 +132,216 @@ defmodule NovelApplication.JudgmentProtocolTest do
     |> Map.put(:provider_run_ref, run_ref)
   end
 
-  test "判断与计划通过协议校验后闭合全部调用，但不授予执行或采纳权限" do
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([response("分步完成。", plan_pair())]),
-               %{},
-               input()
-             )
+  test "单个完整计划通过校验即闭合，但不授予执行或采纳权限" do
+    result = response("", [call("agent_plan_draft", plan_args())])
 
-    assert {:ok, proposed_ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
-    assert {:ok, ["tool-judgment_decision"]} = RequestIR.pending_call_ids(proposed_ir)
-    transcript = JudgmentProtocol.complete_validation(judgment.transcript)
-    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+
+    assert judgment.action == "plan"
+    assert judgment.provider_call_count == 1
+    assert judgment.narrative == "先取证再写"
+    assert judgment.narrative_source.tool_call_narrative_field == "author_reasoning"
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
     assert {:ok, []} = RequestIR.pending_call_ids(ir)
     assert {:ok, _prompt} = RequestIR.prepare_request(ir)
+    assert JudgmentProtocol.complete_validation(judgment.transcript) == judgment.transcript
 
-    validations =
-      for message <- ir.messages,
-          block <- message.blocks,
-          block.type == "validation_result",
-          do: block
+    assert [receipt] = validation_blocks(judgment.transcript)
+    assert receipt.call_id == "tool-agent_plan_draft"
+    assert receipt.reason_code == "agent_plan_validated"
+    assert receipt.status == "passed"
+    assert receipt.detail["execution_authorized"] == false
+    assert receipt.detail["canon_written"] == false
 
-    assert length(validations) == 2
+    assert :ok =
+             AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
+               "run-call-1" => result.provider_output
+             })
+  end
+
+  for {label, tools, total, open?, targets, reason_code} <- [
+        {"探索已关闭", [], 2, false, ["chapter_read"], "exploration_not_available"},
+        {"超过剩余读取额度", ["chapter_read", "archive_read"], 1, true, ["chapter_read", "archive_read"],
+         "exploration_budget_exceeded"},
+        {"请求未开放工具", ["archive_read"], 0, true, ["chapter_read"], "exploration_not_available"}
+      ] do
+    test "单个只读计划不能绕过当前 Scope：#{label}" do
+      targets = unquote(Macro.escape(targets))
+
+      steps =
+        targets
+        |> Enum.with_index(1)
+        |> Enum.map(fn {target, index} ->
+          %{
+            "step_id" => "read-#{index}",
+            "kind" => "explore",
+            "description" => "核对已有作品材料。",
+            "success_criteria" => ["source_checked"],
+            "target_tool_ref" => target,
+            "exploration_query" => if(target == "chapter_read", do: "第一章", else: "profile")
+          }
+        end)
+
+      args = put_in(plan_args(), ["plan", "steps"], steps)
+      bad = response("", [call("agent_plan_draft", args)], "read-plan")
+      good = response("现有材料不足以核实整章；本轮先说明已知范围与尚未核实之处。", [], "bounded-reply")
+
+      options = [
+        explore: unquote(open?),
+        explore_tools: unquote(Macro.escape(tools)),
+        exploration_budget: %{
+          total: unquote(total),
+          open?: unquote(open?),
+          normal_open?: unquote(open?),
+          continuation_open?: false,
+          continuation_only?: false,
+          continuation: nil
+        }
+      ]
+
+      assert :ok = JudgmentToolContract.validate(bad.tool_calls, :judgment)
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input(options))
+
+      assert judgment.action == "reply"
+      assert judgment.provider_call_count == 2
+      assert judgment.narrative == good.content
+
+      assert [%{status: "failed", reason_code: reason_code}] =
+               validation_blocks(judgment.transcript)
+
+      assert reason_code == unquote(reason_code)
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
+      assert {:ok, []} = RequestIR.pending_call_ids(ir)
+    end
+  end
+
+  test "只读计划不能预支未来观察的续页，纠正后只接受当前真实下一页" do
+    chapter_ref = "chapter:00000000-0000-0000-0000-000000000042"
+    base_step = hd(plan_args()["plan"]["steps"])
+
+    steps =
+      for offset <- [6000, 12_000] do
+        Map.merge(base_step, %{
+          "step_id" => "page-#{offset}",
+          "kind" => "explore",
+          "description" => "继续核对章节正文。",
+          "target_tool_ref" => "chapter_read",
+          "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: offset})
+        })
+      end
+
+    bad_args = put_in(plan_args(), ["plan", "steps"], steps)
+    good_args = put_in(bad_args, ["plan", "steps"], [hd(steps)])
+
+    options = [
+      explore: true,
+      explore_tools: ["chapter_read"],
+      exploration_budget: %{
+        total: 2,
+        open?: true,
+        normal_open?: false,
+        continuation_open?: true,
+        continuation_only?: true,
+        continuation: %{tool: "chapter_read", chapter_ref: chapter_ref, next_offset: 6000}
+      }
+    ]
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [call("agent_plan_draft", bad_args)], "future-page"),
+                 response("", [call("agent_plan_draft", good_args)], "observed-page")
+               ]),
+               %{},
+               input(options)
+             )
+
+    assert judgment.provider_call_count == 2
+    assert [accepted] = judgment.plan_result.plan.steps
+    assert accepted.exploration_query == hd(steps)["exploration_query"]
+
+    assert [
+             %{status: "failed", reason_code: "exploration_continuation_mismatch"},
+             %{status: "passed", reason_code: "agent_plan_validated"}
+           ] = validation_blocks(judgment.transcript)
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+  end
+
+  test "已准备的上下文和阵容不占用只读计划的实际读取额度" do
+    steps =
+      for target <- ["context_assemble", "character_roster", "chapter_read", "archive_read"] do
+        Map.merge(hd(plan_args()["plan"]["steps"]), %{
+          "step_id" => target,
+          "kind" => "explore",
+          "description" => "按已有材料核对当前范围。",
+          "target_tool_ref" => target,
+          "exploration_query" => if(target == "chapter_read", do: "第一章", else: "profile")
+        })
+      end
+
+    args = put_in(plan_args(), ["plan", "steps"], steps)
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [call("agent_plan_draft", args)])]),
+               %{},
+               input(
+                 explore: true,
+                 explore_tools: ["chapter_read", "archive_read"],
+                 exploration_budget: %{total: 0, open?: true, continuation_only?: false}
+               )
+             )
+
+    assert judgment.action == "plan"
+    assert judgment.provider_call_count == 1
+    assert length(judgment.plan_result.plan.steps) == 4
+
+    assert [%{status: "passed", reason_code: "agent_plan_validated"}] =
+             validation_blocks(judgment.transcript)
+  end
+
+  test "关闭探索后反复提交同一只读计划必须有界拒绝" do
+    step =
+      Map.merge(hd(plan_args()["plan"]["steps"]), %{
+        "kind" => "explore",
+        "target_tool_ref" => "chapter_read",
+        "exploration_query" => "第一章"
+      })
+
+    args = put_in(plan_args(), ["plan", "steps"], [step])
+    result = response("", [call("agent_plan_draft", args)])
+
+    assert {:error, {:judgment_protocol_violation, :exploration_not_available}, meta} =
+             JudgmentProtocol.request_judgment(
+               execution([result]),
+               %{},
+               input(
+                 explore: false,
+                 explore_tools: [],
+                 exploration_budget: %{total: 2, open?: false, continuation_only?: false}
+               )
+             )
+
+    assert meta.provider_call_count == 3
+    receipts = validation_blocks(meta.judgment_transcript)
+    assert length(receipts) == 3
 
     assert Enum.all?(
-             validations,
-             &(&1.status == "passed" and
-                 &1.detail["execution_authorized"] == false and
-                 &1.detail["canon_written"] == false)
+             receipts,
+             &(&1.status == "failed" and &1.reason_code == "exploration_not_available")
            )
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    for _ <- 1..3, do: assert_receive({:provider_request, _})
+    refute_receive {:provider_request, _}, 20
   end
 
   test "非法多调用纠错逐一关闭本次调用，不遗留 pending 或覆盖历史结果" do
@@ -433,9 +615,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
           [ask, reg],
           [ask, ask],
           [call("chapter_read", %{query: "one"})],
-          [call("judgment_decision", %{action: "reply", reason: "回复", dialogue_goal: "问答"})],
           [
-            call("judgment_decision", %{action: "await_author", reason: "提问", dialogue_goal: "判断"})
+            call("judgment_decision", %{
+              action: "reply",
+              author_reasoning: "回复",
+              dialogue_goal: "问答"
+            })
+          ],
+          [
+            call("judgment_decision", %{
+              action: "await_author",
+              author_reasoning: "提问",
+              dialogue_goal: "判断"
+            })
           ],
           [call("ask_author", %{question: "选择？", options: [], record_only: true})]
         ] do
@@ -496,16 +688,105 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(execution([response("", [gap])]), %{}, input())
   end
 
+  test "判断工具只交付 author_reasoning；相同或空白的第二正文也不能被吞掉" do
+    text = "  只核对已有资料，不会保存或写入作品。\n"
+
+    args = %{
+      action: "execute",
+      capability: "work_archive_read",
+      dialogue_goal: "核对资料",
+      author_reasoning: text
+    }
+
+    tool = call("judgment_decision", args)
+    protocol_input = input(capabilities: ["work_archive_read"])
+
+    for content <- [text, "另一份说明。", "  "] do
+      assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, state} =
+               JudgmentProtocol.request_judgment(
+                 execution([response(content, [tool])]),
+                 %{},
+                 protocol_input
+               )
+
+      assert state.provider_call_count == 2
+      assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
+    end
+
+    source = response("", [tool])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([source]), %{}, protocol_input)
+
+    assert judgment.narrative == text
+    assert judgment.capability == "work_archive_read"
+    assert judgment.narrative_source.tool_call_narrative_field == "author_reasoning"
+
+    assert :ok =
+             AgentNarrativeSource.verify(text, judgment.narrative_source, %{
+               "run-call-1" => source.provider_output
+             })
+  end
+
+  test "判断与续行的旧 reason 参数无兼容入口，即使同时提供新正文也拒绝" do
+    cases = [
+      {:request_judgment, "judgment_decision",
+       %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"},
+       input(capabilities: ["character_design"])},
+      {:request_continuation, "continuation_decision", %{action: "continue", guidance: "补足结尾"},
+       %{deviation_summary: "尚缺结尾", observation_block: "已有前半章", options: input().options}}
+    ]
+
+    for {function, name, fields, protocol_input} <- cases,
+        args <- [
+          Map.put(fields, :reason, "旧说明。"),
+          fields |> Map.put(:reason, "旧说明。") |> Map.put(:author_reasoning, "新说明。")
+        ] do
+      assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
+               apply(JudgmentProtocol, function, [
+                 execution([response("", [call(name, args)])]),
+                 %{},
+                 protocol_input
+               ])
+
+      assert state.provider_call_count == 2
+    end
+  end
+
+  test "相同作者说明不能掩盖判断能力参数被替换，完整调用必须绑定原输出" do
+    args = %{
+      action: "execute",
+      capability: "character_design",
+      dialogue_goal: "设计人物",
+      author_reasoning: "根据现有材料提出候选。"
+    }
+
+    original = response("", [call("judgment_decision", args)])
+    changed = Map.put(args, :capability, "world_building")
+    result = %{original | tool_calls: [call("judgment_decision", changed)]}
+
+    assert {:error, {:judgment_protocol_violation, :tool_call_not_bound_to_provider_output},
+            state} =
+             JudgmentProtocol.request_judgment(
+               execution([result]),
+               %{},
+               input(capabilities: ["character_design", "world_building"])
+             )
+
+    assert state.provider_call_count == 2
+    assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
+  end
+
   test "能力、已有候选与探索目录按本次事实校验" do
     args = %{
       action: "execute",
       capability: "revise_pending_artifact",
       pending_artifact_ref: "foreign",
       dialogue_goal: "修订",
-      reason: "保留原稿。"
+      author_reasoning: "保留原稿。"
     }
 
-    result = response("说明", [call("judgment_decision", args)])
+    result = response("", [call("judgment_decision", args)])
 
     opts = [
       capabilities: ["revise_pending_artifact"],
@@ -519,7 +800,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       call("judgment_decision", %{
         action: "explore",
         dialogue_goal: "读章",
-        reason: "核对全文。",
+        author_reasoning: "核对全文。",
         explore_request: %{tool: "chapter_read", query: "chapter:one"}
       })
 
@@ -544,8 +825,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     bad_responses = [
       response("错误说明", [call("judgment_decision", %{action: "reply"})], "bad"),
       response(leak, [], "bad"),
-      response("", [call("judgment_decision", Map.put(execute, :reason, leak))], "bad"),
-      response(leak, [call("judgment_decision", Map.put(execute, :reason, "安全说明"))], "bad"),
+      response("", [call("judgment_decision", Map.put(execute, :author_reasoning, leak))], "bad"),
+      response(
+        leak,
+        [call("judgment_decision", Map.put(execute, :author_reasoning, "安全说明"))],
+        "bad"
+      ),
       response("", [call("ask_author", %{question: leak, options: []})], "bad"),
       response(
         "",
@@ -610,8 +895,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     }
 
     good =
-      response("按已指出的缺口补写。", [
-        call("continuation_decision", %{action: "continue", guidance: "补足结尾", reason: "已有明确修正依据。"})
+      response("", [
+        call("continuation_decision", %{
+          action: "continue",
+          guidance: "补足结尾",
+          author_reasoning: "按已指出的缺口补写。"
+        })
       ])
 
     assert {:ok, %{action: "continue", provider_call_count: 1}} =
@@ -622,7 +911,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         call("continuation_decision", %{
           action: "continue",
           guidance: "补足结尾",
-          reason: "候选 as_mwnwwxoe_11"
+          author_reasoning: "候选 as_mwnwwxoe_11"
         })
       ])
 
@@ -714,8 +1003,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
         )
 
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
-      assert result.content =~ expected
-      refute result.content =~ "已经采纳入档"
+
+      narrative =
+        case result.tool_calls do
+          [] ->
+            result.content
+
+          [%{"arguments" => %{author_reasoning: narrative}}] ->
+            assert result.content == ""
+            narrative
+        end
+
+      assert narrative =~ expected
+      refute narrative =~ "已经采纳入档"
     end
   end
 
@@ -986,24 +1286,26 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute_receive {:provider_request, _third}, 10
   end
 
-  test "判断 prompt 的合法工具组合规则唯一且明确" do
+  test "判断计划契约只暴露一个完整计划工具，不再要求判断枚举或额外目标字段" do
     prompt = JudgmentProtocol.request_for_production(input())
     content = first_text(prompt)
     guidance = JudgmentToolContract.legal_combination_guidance()
 
-    # 规则只出现一次（单一真源，不允许别处再手写一份）
     assert String.split(content, guidance) |> length() == 2
-    assert content =~ "单独返回 agent_plan_draft 是非法响应"
+    refute content =~ "judgment_decision.plan"
 
     plan_tool = Enum.find(prompt.tools, &(&1.name == "agent_plan_draft"))
-    assert plan_tool.description =~ "必须与 judgment_decision(action=plan) 同一响应同批返回"
-    # schema/名称不变
     assert plan_tool.input_schema == NovelApplication.AgentPlanToolContract.schema()
+    refute Map.has_key?(plan_tool.input_schema.properties, :dialogue_goal)
+    refute Map.has_key?(plan_tool.input_schema.properties, "dialogue_goal")
+    assert JudgmentProtocol.actions() == ["execute", "explore"]
   end
 
-  test "单独 agent_plan_draft：纠错回执携带合法组合指引且一次纠正可修复" do
-    bad = response("先给计划。", [call("agent_plan_draft", plan_args())])
-    good = response("按计划分步执行。", plan_pair())
+  test "多个合法工具调用也必须纠错，单个计划可在同一请求历史修复" do
+    first_call = call("agent_plan_draft", plan_args())
+    second_call = %{first_call | id: "tool-second-plan"}
+    bad = response("", [first_call, second_call])
+    good = response("", [first_call], "corrected-plan")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
@@ -1015,54 +1317,55 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, second}
     refute_receive {:provider_request, _}, 10
 
-    # 保留原输入/工具集；IR 以 assistant tool_call → tool 校验结果回流，不追加 user 纠错。
     assert message_text(hd(second.messages)) == message_text(hd(first.messages))
     assert second.tools == first.tools
-    assert length(second.messages) == length(first.messages) + 2
-    assert Enum.at(second.messages, -2).role == "assistant"
-    assert List.last(second.messages).role == "tool"
-    assert has_block?(List.last(second.messages), "validation_result", "tool-agent_plan_draft")
+
+    failed = validation_blocks(second)
+    assert Enum.map(failed, & &1.call_id) == [first_call.id, second_call.id]
+
+    assert Enum.all?(
+             failed,
+             &(&1.status == "failed" and &1.reason_code == "invalid_tool_combination")
+           )
 
     correction = validation_text(List.last(second.messages))
-    assert correction =~ "invalid_tool_combination"
-    assert correction =~ "agent_plan_draft 只能与 judgment_decision(action=plan)"
     assert correction =~ JudgmentToolContract.legal_combination_guidance()
     assert correction =~ "保留同一作者输入、来源、目标、范围与权限"
   end
 
-  test "单独 agent_plan_draft 重试后仍非法 → 终局拒绝且调用计数正确" do
+  test "计划的第二份正文重试后仍存在则拒绝，不选一份继续" do
     bad = response("先给计划。", [call("agent_plan_draft", plan_args())])
-    still_bad = response("还是只有计划。", [call("agent_plan_draft", plan_args())])
+    still_bad = response("还是附带另一份说明。", [call("agent_plan_draft", plan_args())])
 
-    assert {:error, {:judgment_protocol_violation, :invalid_tool_combination}, _state} =
+    assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, state} =
              JudgmentProtocol.request_judgment(execution([bad, still_bad]), %{}, input())
 
+    assert state.provider_call_count == 2
+    assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, second}
-    assert validation_text(List.last(second.messages)) =~ "invalid_tool_combination"
+    assert validation_text(List.last(second.messages)) =~ "content 必须为 null 或空字符串"
     refute_receive {:provider_request, _}, 10
   end
 
-  test "合法组合（双工具 plan / 单 judgment_decision plan / 普通回复）不回归" do
+  test "单计划、普通回复和执行分别成立，旧计划枚举与双工具协议彻底拒绝" do
     assert {:ok, %{action: "plan", provider_call_count: 1}} =
              JudgmentProtocol.request_judgment(
-               execution([response("", plan_pair())]),
+               execution([response("", [call("agent_plan_draft", plan_args())])]),
                %{},
                input()
              )
 
-    # 单 judgment_decision(action=plan) 仍合法（不带 inline plan）
-    assert {:ok, %{action: "plan"}} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [plan_decision_call()])]),
-               %{},
-               input()
-             )
+    for calls <- [[plan_decision_call()], plan_pair()] do
+      assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
+               JudgmentProtocol.request_judgment(execution([response("", calls)]), %{}, input())
+
+      assert state.provider_call_count == 2
+    end
 
     assert {:ok, %{action: "reply"}} =
              JudgmentProtocol.request_judgment(execution([response("普通答复", [])]), %{}, input())
 
-    # 单 judgment_decision execute / 其它单工具仍合法
     assert {:ok, %{action: "execute"}} =
              JudgmentProtocol.request_judgment(
                execution([
@@ -1071,7 +1374,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "action" => "execute",
                      "capability" => "prose_writing",
                      "dialogue_goal" => "写章",
-                     "reason" => "作者明确要求"
+                     "author_reasoning" => "作者明确要求"
                    })
                  ])
                ]),
@@ -1168,7 +1471,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     correction = validation_text(List.last(corrected.messages))
     assert correction =~ "judgment_narrative_required"
     assert correction =~ "必须给出非空 content"
-    assert correction =~ "仅标点占位"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(
@@ -1226,7 +1528,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, %{action: "capability_gap", provider_call_count: 1}} =
              JudgmentProtocol.request_judgment(
-               execution([response("说明", [gap])]),
+               execution([response("", [gap])]),
                %{},
                input(explore: true, explore_tools: ["chapter_read"])
              )
@@ -1319,7 +1621,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "capability" => "revise_pending_artifact",
       "pending_artifact_ref" => "as_ghost",
       "dialogue_goal" => "修改候选",
-      "reason" => "按作者要求修改。"
+      "author_reasoning" => "按作者要求修改。"
     }
 
     first_call = %{call("judgment_decision", arguments) | id: "tool-ghost-1"}
@@ -1406,7 +1708,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     call(
       "judgment_decision",
       Map.merge(
-        %{"action" => "execute", "dialogue_goal" => "修改候选", "reason" => "按作者要求修改。"},
+        %{"action" => "execute", "dialogue_goal" => "修改候选", "author_reasoning" => "按作者要求修改。"},
         overrides
       )
     )
@@ -1416,9 +1718,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
     assert content =~ "最终答复收束"
-    assert content =~ "不得只写内部推理、计划或过渡语"
-    assert content =~ "工具参数不能替代作者可见答复"
-    assert content =~ "用 propose_creative_directions 时 content 必须逐条写出每个方向的标题与一句话走向"
+    assert content =~ "作者正文必须给出可直接阅读的结论"
+    assert content =~ "实际方向内容"
+    assert content =~ "用 propose_creative_directions 时 author_reasoning"
+    refute content =~ "用 propose_creative_directions 时 content 必须"
     assert content =~ "作者只要求收下资料/只聊不展开时"
     assert content =~ "零方向菜单、零候选/登记"
 
@@ -1490,7 +1793,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       call("judgment_decision", %{
         "action" => "explore",
         "dialogue_goal" => "查找正文中的灯油配方原文",
-        "reason" => "作者指代历史原文，先取证。",
+        "author_reasoning" => "作者指代历史原文，先取证。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
 
@@ -1556,14 +1859,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "action" => "explore",
         "capability" => "work_archive_read",
         "dialogue_goal" => "核对章节事实",
-        "reason" => "需要取证。"
+        "author_reasoning" => "需要取证。"
       })
 
     good =
       call("judgment_decision", %{
         "action" => "explore",
         "dialogue_goal" => "核对章节事实",
-        "reason" => "需要取证。",
+        "author_reasoning" => "需要取证。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
 
@@ -1593,7 +1896,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "action" => "execute",
         "capability" => "prose_writing",
         "dialogue_goal" => "写章",
-        "reason" => "作者要求。",
+        "author_reasoning" => "作者要求。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
       })
 
@@ -1602,7 +1905,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "action" => "execute",
         "capability" => "prose_writing",
         "dialogue_goal" => "写章",
-        "reason" => "作者要求。"
+        "author_reasoning" => "作者要求。"
       })
 
     opts = [capabilities: ["prose_writing"]]
@@ -1697,7 +2000,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_receive {:provider_request, corrected}
     correction = validation_text(List.last(corrected.messages))
     assert correction =~ "judgment_narrative_required"
-    assert correction =~ "仅标点占位"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
              JudgmentProtocol.request_judgment(execution([dash, dash]), %{}, input())
@@ -1766,35 +2068,40 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
   end
 
-  test "task-36：探索不可用时降级为基于已有文本的 reply，不硬终局" do
+  test "探索不可用时只接受模型纠正后的普通回复，不从错误工具响应提取正文" do
     explore =
       call("judgment_decision", %{
         "action" => "explore",
         "dialogue_goal" => "继续读末页",
-        "reason" => "还需覆盖末页。",
+        "author_reasoning" => "还需覆盖末页。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
       })
 
-    transitional = "已读到 1–30000/34357；本轮探索预算已用尽，无法继续读取末页。"
-
-    results =
-      for _ <- 1..3 do
-        response(transitional, [explore])
-      end
+    conclusion = "已读到 1–30000/34357；本轮探索预算已用尽，未读末页不纳入结论。"
+    invalid = response("", [explore], "unavailable")
+    corrected = response(conclusion, [], "corrected-reply")
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution(results), %{}, input(explore: false))
+             JudgmentProtocol.request_judgment(
+               execution([invalid, corrected]),
+               %{},
+               input(explore: false)
+             )
 
     assert judgment.action == "reply"
-    assert judgment.degraded_reason == "exploration_budget_exhausted"
-    assert judgment.narrative == transitional
-    assert judgment.provider_call_count == 3
+    assert judgment.narrative == conclusion
+    assert judgment.narrative_source.provider_call_ref == "corrected-reply"
+    assert judgment.provider_call_count == 2
 
-    leaked =
-      response("基线 c993629b64db85ef763f5ca2c4a69f85579edd898d2d4b8b2ce73d7e335ec47e", [explore])
+    assert {:error, {:judgment_protocol_violation, :exploration_not_available}, exhausted} =
+             JudgmentProtocol.request_judgment(execution([invalid]), %{}, input(explore: false))
 
-    assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, failed} =
-             JudgmentProtocol.request_judgment(execution([leaked]), %{}, input(explore: false))
+    assert exhausted.provider_call_count == 3
+
+    conflict = response(conclusion, [explore])
+
+    assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, failed} =
+             JudgmentProtocol.request_judgment(execution([conflict]), %{}, input(explore: false))
 
     assert failed.provider_call_count == 2
   end
@@ -1908,7 +2215,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       call("judgment_decision", %{
         "action" => "explore",
         "dialogue_goal" => "读第二章正文判断质量与矛盾",
-        "reason" => "需要正文才能判断质量。",
+        "author_reasoning" => "需要正文才能判断质量。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第02章：井底回声"}
       })
 
@@ -1997,7 +2304,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "action" => "execute",
       "capability" => "maintain_chapter_structure",
       "dialogue_goal" => "把第2卷章节编号理顺，内容不要动",
-      "reason" => "章节结构维护"
+      "author_reasoning" => "章节结构维护"
     })
   end
 
@@ -2066,11 +2373,37 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("先制定计划，分别核对正文、调整大纲和更新状态。", [
-                   call("judgment_decision", %{
-                     "action" => "plan",
-                     "dialogue_goal" => author,
-                     "reason" => "跨能力请求"
+                 response("", [
+                   call("agent_plan_draft", %{
+                     "plan" => %{
+                       "steps" => [
+                         %{
+                           "step_id" => "read",
+                           "kind" => "explore",
+                           "description" => "核对正文",
+                           "success_criteria" => ["已有正文依据"],
+                           "target_tool_ref" => "chapter_read",
+                           "exploration_query" => "第01章"
+                         },
+                         %{
+                           "step_id" => "outline",
+                           "kind" => "act",
+                           "description" => "调整大纲",
+                           "success_criteria" => ["大纲候选"],
+                           "target_tool_ref" => "plot_outline"
+                         },
+                         %{
+                           "step_id" => "state",
+                           "kind" => "act",
+                           "description" => "更新人物状态",
+                           "success_criteria" => ["状态候选"],
+                           "target_tool_ref" => "character_evolution"
+                         }
+                       ]
+                     },
+                     "author_reasoning" => "先核对正文，再调整大纲与主角当前状态。",
+                     "reason_codes" => ["planned"],
+                     "confidence" => 0.9
                    })
                  ])
                ]),
@@ -2100,7 +2433,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "capability" => "revise_character_profile",
                      "character_ref" => nil,
                      "dialogue_goal" => author,
-                     "reason" => "绑定"
+                     "author_reasoning" => "绑定"
                    })
                  ]),
                  response("", [
@@ -2141,7 +2474,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "action" => "execute",
                      "capability" => "character_design",
                      "dialogue_goal" => design_author,
-                     "reason" => "设计新角色"
+                     "author_reasoning" => "设计新角色"
                    })
                  ])
                ]),
@@ -2317,7 +2650,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                    call("judgment_decision", %{
                      "action" => "explore",
                      "dialogue_goal" => author,
-                     "reason" => "先读章计划",
+                     "author_reasoning" => "先读章计划",
                      "explore_request" => %{"tool" => "chapter_read", "query" => "第02章"}
                    })
                  ])
@@ -2345,7 +2678,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "action" => "execute",
         "capability" => "revise_adopted_content",
         "dialogue_goal" => author,
-        "reason" => "章级修订",
+        "author_reasoning" => "章级修订",
         "target_chapter_ref" => "chapter:real03",
         "modification_scope" => "target_segments"
       })
@@ -2356,7 +2689,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "capability" => "revise_adopted_content",
         "adopted_content_ref" => "as_chapter_three",
         "dialogue_goal" => author,
-        "reason" => "按作者指定的第一段范围修订"
+        "author_reasoning" => "按作者指定的第一段范围修订"
       })
 
     assert {:ok, judgment} =
@@ -2406,7 +2739,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "action" => "execute",
         "capability" => "revise_adopted_content",
         "dialogue_goal" => author,
-        "reason" => "章级修订",
+        "author_reasoning" => "章级修订",
         "target_chapter_ref" => "chapter:real03",
         "modification_scope" => "target_segments"
       })
@@ -2488,7 +2821,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "action" => "execute",
                      "capability" => "prose_writing",
                      "dialogue_goal" => "写第02章首稿",
-                     "reason" => "按章计划生成首稿"
+                     "author_reasoning" => "按章计划生成首稿"
                    })
                  ])
                ]),
@@ -2511,7 +2844,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "action" => "execute",
                      "capability" => "character_design",
                      "dialogue_goal" => "设计一个配角",
-                     "reason" => "角色候选"
+                     "author_reasoning" => "角色候选"
                    })
                  ])
                ]),
@@ -2538,7 +2871,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "capability" => "revise_adopted_content",
                      "adopted_content_ref" => "as_chapter_three",
                      "dialogue_goal" => "只改第一段，其余保持原样",
-                     "reason" => "局部修订"
+                     "author_reasoning" => "局部修订"
                    })
                  ])
                ]),
@@ -2618,8 +2951,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
       assert prompt.ir_version == RequestIR.ir_version()
       assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
-      assert [%{name: "judgment_decision", arguments: arguments}] = result.tool_calls
-      assert arguments.action == "plan"
+      assert [%{"name" => "agent_plan_draft", "arguments" => arguments}] = result.tool_calls
+      assert is_list(arguments.plan.steps)
+      assert arguments.author_reasoning != ""
+      assert result.content in [nil, ""]
+      refute Map.has_key?(arguments, :dialogue_goal)
     end
 
     test "IR 判断请求保留角色设计执行路由" do
@@ -2695,10 +3031,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
   # 判断规则在 canonical system instructions，应用数据在 native Scope：
   # 文本断言必须读与 provider 同源的完整投影视图，而不是只看第一条消息。
   defp first_text(ir), do: NovelTest.TestProviderPrompt.text(ir)
-
-  defp has_block?(message, type, call_id) do
-    Enum.any?(message.blocks, &(&1.type == type and &1.call_id == call_id))
-  end
 
   # 协议纠错事实既可能是 tool 原生 validation_result，也可能是无 pending call 时的
   # application_notice 文本消息；两种形态都从实际请求消息读取，不合成内容。

@@ -180,7 +180,7 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
     @plan_operation operation
     @plan_tool_name tool_name
 
-    test "#{tool_name} 跨片段内部身份在验收前不公开，原始 Provider 证据仍完整持久" do
+    test "#{tool_name} 冲突正文中的跨片段内部身份不公开，原始 Provider 证据仍完整持久" do
       run = %{
         agent_run(unique("run-plan-narrative"))
         | profile_ref: "judgment_plan_v1",
@@ -269,7 +269,7 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
 
       refute_receive {:plan_progress, _, _, _}, 10
 
-      assert {:error, {:agent_plan_protocol_violation, :author_visible_narrative_invalid}, meta} =
+      assert {:error, {:agent_plan_protocol_violation, :author_narrative_content_conflict}, meta} =
                result
 
       assert meta.provider_call_count == 2

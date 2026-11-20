@@ -84,7 +84,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -204,8 +204,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert is_list(context_step.payload.plan_steps)
 
     NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      context_step.payload.author_narrative_source
+      context_step.payload.author_narrative_source,
+      "provider_output_tool_narrative"
     )
+
+    assert context_step.payload.author_narrative_source.tool_call_name == "agent_plan_draft"
+
+    assert context_step.payload.author_narrative_source.tool_call_narrative_field ==
+             "author_reasoning"
 
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "正文写作上下文"
@@ -380,8 +386,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert turn_result.quality_review.findings != []
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-prose-writer"
     assert turn_result.trace_summary.evaluator_provider_call_ref == "pc-agent-prose-evaluator"
-    assert turn_result.trace_summary.provider_call_budget.writer == 1
-    assert turn_result.trace_summary.provider_call_budget.evaluator == 1
+    assert turn_result.trace_summary.provider_call_budget.writer == 2
+    assert turn_result.trace_summary.provider_call_budget.evaluator == 2
     assert Enum.any?(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
   end
 
@@ -425,7 +431,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -562,7 +568,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -710,7 +716,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -829,7 +835,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -1131,7 +1137,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "压迫感",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: []
                    }
                  }
@@ -1325,7 +1331,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                    self_report: %{
                      assumptions: [],
                      intended_reader_effect: "规则冲突",
-                     used_context_refs: ["prose_execution_brief"],
+                     used_context_refs: [],
                      risk_flags: ["rule_conflict"]
                    }
                  }
@@ -1405,7 +1411,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     source = continued.payload.author_narrative_source
     assert source.source_type == "provider_output_tool_narrative"
     assert source.tool_call_name == "continuation_decision"
-    assert source.tool_call_narrative_field == "reason"
+    assert source.tool_call_narrative_field == "author_reasoning"
 
     assert source.narrative_hash ==
              :crypto.hash(:sha256, "松灯408\n我会保留原有线索，再补足这次复活的代价。")
@@ -1633,7 +1639,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       if action == "continue",
         do:
           {"continuation_decision",
-           %{"action" => "continue", "guidance" => guidance, "reason" => text}},
+           %{"action" => "continue", "guidance" => guidance, "author_reasoning" => text}},
         else: {"ask_author", %{"question" => text, "options" => []}}
 
     calls = [%{"name" => name, "arguments" => args}]
@@ -1662,6 +1668,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     {:ok, work} = NovelApplication.WorkService.create(%{title: "R05 专业计划读取"})
     {:ok, session} = NovelPersistence.WorkSessionRepo.ensure_active_for_work(work.id)
     work_id = work.id
+    {:ok, writer_counter} = Agent.start_link(fn -> 0 end)
 
     evaluator = fn _prompt ->
       {:ok,
@@ -1704,12 +1711,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            )}
 
         true ->
+          attempt = Agent.get_and_update(writer_counter, &{&1 + 1, &1 + 1})
+          provider_call_id = TestAgenticLoopFixtures.unique_provider_call_id("pc-b39-cp1-writer")
+          send(parent, {:writer_attempt, attempt, provider_call_id})
           send(parent, {:writer_prompt, prompt})
 
           {:ok,
            with_provider_call(
              %{
-               provider_call_id: "pc-b39-cp1-writer",
                content: "",
                tool_calls:
                  TestAgenticLoopFixtures.native_tool_calls(
@@ -1726,13 +1735,17 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                      self_report: %{
                        assumptions: [],
                        intended_reader_effect: "克制",
-                       used_context_refs: [read_ref, "chapter:b39-invented"],
+                       used_context_refs:
+                         if(attempt == 1,
+                           do: [read_ref, "chapter:b39-invented"],
+                           else: [read_ref]
+                         ),
                        risk_flags: []
                      }
                    }
                  )
              },
-             "pc-b39-cp1-writer"
+             provider_call_id
            )}
       end
     end
@@ -1787,6 +1800,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert ready_event.payload.observation_count >= 1
 
     assert_receive {:writer_prompt, writer_prompt}, 1_000
+    assert_receive {:writer_prompt, corrected_prompt}, 1_000
+    assert_receive {:writer_attempt, 1, rejected_call_ref}
+    assert_receive {:writer_attempt, 2, accepted_call_ref}
+    refute rejected_call_ref == accepted_call_ref
+    refute_receive {:writer_attempt, 3, _}, 20
+
+    assert [_failure] =
+             for(
+               %{role: "tool", blocks: blocks} <- corrected_prompt.messages,
+               %{
+                 type: "validation_result",
+                 status: "failed",
+                 reason_code: "used_context_refs_invalid"
+               } = failure <- blocks,
+               do: failure
+             )
+
     assert_receive {:mission_prompt, mission_prompt}, 1_000
     assert explore_event.payload.summary == read_text
 
@@ -1836,7 +1866,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert length(state.run.completed_step_refs) == 4
     assert state.run.consumed_budget.steps == 4
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+
+    # 起草1 + 使命1 + Writer2（非法引用纠错）+ 质量复核1，读取本身仍为0调用。
+    assert state.run.consumed_budget.provider_calls == 5
 
     assert Enum.any?(
              state.observations,
@@ -1844,18 +1876,21 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                  &1.source_ref == "explore:archive_read:2")
            )
 
-    # CP1c：自报 used refs 与同一请求 Base/observation 集合对账；越界只进 trace unbound，
-    # 不授予证据信用、不修改已生成 artifact 字节。
+    # CP1c / R05：越界引用先被拒绝并留真实回执；纠正响应只绑定本次供应的材料。
+    # 失败调用不能授予证据信用，最终候选保留纠正调用的字节与来源。
     artifact_event = find_event!(events, :artifact_created)
     turn_result = artifact_event.payload.turn_result
     summary = turn_result.trace_summary
 
-    assert summary.used_context_refs_validation == "partial"
+    assert summary.used_context_refs_validation == "ok"
     assert summary.used_context_refs == [read_ref]
-    assert summary.unbound_context_refs == ["chapter:b39-invented"]
+    assert summary.unbound_context_refs == []
     refute read_ref in summary.request_observation_refs
     assert read_ref in summary.request_base_refs
-    assert summary.used_context_refs_provider_call_ref == "pc-b39-cp1-writer"
+    assert summary.used_context_refs_provider_call_ref == accepted_call_ref
+    assert summary.execution_counts.provider_calls == 3
+    assert summary.provider_call_budget.writer == 2
+    TestAgenticLoopFixtures.assert_provider_fact_pairs(run_id)
     assert Enum.any?(turn_result.adoption_state.pending, &(&1.artifact_type == :prose_fragment))
   end
 

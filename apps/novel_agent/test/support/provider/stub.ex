@@ -130,11 +130,16 @@ defmodule NovelAgent.Provider.Stub do
 
   defp native_stage_result(_tool, _text), do: nil
 
-  # 同次返回 content 与明确工具输出，不再按有无 tools 生成两段应答。
-  defp judgment_family_result(_prompt, text) do
+  # 当前工具目录决定阶段；历史正文或工具描述里的名称不能改写本次路由。
+  defp judgment_family_result(prompt, text) do
+    names =
+      if WireToolFacts.tool_call?(prompt),
+        do: Enum.map(WireToolFacts.specs(prompt), & &1.name),
+        else: []
+
     cond do
-      continuation_prompt?(text) -> continuation_decision_result(text)
-      judgment_prompt?(text) -> judgment_decision_result(text)
+      "continuation_decision" in names -> continuation_decision_result(text)
+      "judgment_decision" in names -> judgment_decision_result(prompt, text)
       true -> nil
     end
   end
@@ -260,8 +265,6 @@ defmodule NovelAgent.Provider.Stub do
   defp mission_statement(false, _foreshadow),
     do: "本章按计划推进，不引入新的主导冲突。"
 
-  defp judgment_prompt?(text), do: String.contains?(text, "创作判断器")
-
   defp judgment_narrative_content(text) do
     {action, _capability} = judgment_action(text)
     {action, _extra} = shape_judgment_action(action, text)
@@ -277,9 +280,6 @@ defmodule NovelAgent.Provider.Stub do
         judgment_narrative(action)
     end
   end
-
-  defp continuation_prompt?(text),
-    do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
 
   defp continuation_direction(text) do
     cond do
@@ -311,11 +311,11 @@ defmodule NovelAgent.Provider.Stub do
     {name, args} =
       if action == "continue",
         do:
-          {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
+          {"continuation_decision",
+           %{action: "continue", guidance: guidance, author_reasoning: narrative}},
         else: {"ask_author", %{question: narrative, options: []}}
 
-    content = if name == "ask_author", do: "", else: narrative
-    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
+    Result.new("", nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp creative_output_prompt?(text) do
@@ -360,7 +360,7 @@ defmodule NovelAgent.Provider.Stub do
     Result.new(Jason.encode!(payload))
   end
 
-  defp judgment_decision_result(text) do
+  defp judgment_decision_result(prompt, text) do
     {action, capability} = judgment_action(text)
     {action, extra} = shape_judgment_action(action, text)
     narrative = judgment_narrative_content(text)
@@ -383,11 +383,15 @@ defmodule NovelAgent.Provider.Stub do
         action == "reply" ->
           []
 
+        action == "plan" ->
+          packet = agent_plan_draft_response_for_profile("judgment_plan_v1", prompt)
+          [%{name: "agent_plan_draft", arguments: plan_tool_arguments(packet)}]
+
         action == "await_author" ->
           [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
 
         true ->
-          args = %{action: action, dialogue_goal: goal, reason: judgment_reason(action)}
+          args = %{action: action, dialogue_goal: goal, author_reasoning: narrative}
           args = if action == "execute", do: Map.put(args, :capability, capability), else: args
 
           args =
@@ -398,11 +402,7 @@ defmodule NovelAgent.Provider.Stub do
           [%{name: "judgment_decision", arguments: args}]
       end
 
-    content =
-      case calls do
-        [%{name: "ask_author"}] -> ""
-        _ -> narrative
-      end
+    content = if calls == [], do: narrative, else: ""
 
     Result.new(content, nil, tool_calls: calls)
   end
@@ -574,16 +574,6 @@ defmodule NovelAgent.Provider.Stub do
     end
   end
 
-  defp judgment_reason(action) do
-    case action do
-      "reply" -> "context_sufficient_for_direct_reply"
-      "execute" -> "single_capability_satisfies_request"
-      "plan" -> "multi_step_dependencies_require_plan"
-      "explore" -> "missing_work_facts_require_retrieval"
-      "await_author" -> "author_intent_unclear"
-    end
-  end
-
   defp judgment_reply_body do
     "从当前作品状态看，这个问题可以直接回答：结构摘要里已经列出了章节与角色现状，" <>
       "你可以基于它继续推进创作方向。"
@@ -715,7 +705,7 @@ defmodule NovelAgent.Provider.Stub do
         agent_plan_draft_response(prompt_text)
       end
 
-    Result.new(Map.fetch!(response, :reasoning), nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           "name" => tool,
@@ -758,6 +748,17 @@ defmodule NovelAgent.Provider.Stub do
         prose_writing_plan_step(prompt_text)
       ],
       reason_codes: ["agent_plan_drafted", "prose_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_response_for_profile("judgment_plan_v1", prompt) do
+    %{
+      reasoning: judgment_narrative("plan"),
+      steps: [
+        plan_step("context_assemble", "explore", "先核对已有作品材料。", ["context_observation_created"]),
+        prose_writing_plan_step(prompt)
+      ],
+      reason_codes: ["agent_plan_drafted"]
     }
   end
 

@@ -148,7 +148,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
           {:decision,
            %{
              "action" => "explore",
-             "reason" => "verify_source",
+             "dialogue_goal" => "核对本轮作者指定的作品事实",
+             "author_reasoning" => "先核对正文来源。",
              "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
            }}
         else
@@ -194,12 +195,17 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert result.stage_state.judgment_settled == "completed"
   end
 
-  test "explore_request 缺失且探索不可用时有界降级 reply（不伪造检索或提问）" do
+  test "缺失 explore_request 持续违反协议时三次调用后拒绝，不把非法工具改写为回复" do
     work_id = seed_work_with_prose()
 
     provider_execution =
       scripted_judgment_execution(fn _prompt, _prompt_text ->
-        {:decision, %{"action" => "explore", "reason" => "missing_facts"}}
+        {:decision,
+         %{
+           "action" => "explore",
+           "dialogue_goal" => "核对本轮作者指定的作品事实",
+           "author_reasoning" => "还需要核对作品事实。"
+         }}
       end)
 
     assert {:ok, spec} =
@@ -225,11 +231,21 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     snapshot = %{empty | stage_state: context_result.stage_state}
     assert {:execute, judgment_step, _dj, _mj} = spec.next_step_planner.(run, 2, snapshot)
 
-    # 探索不可用不再硬终局：有界重试后降级为基于已有内容的 reply 收束（不伪造检索）。
-    assert {:ok, result} = judgment_step.(run, 2, snapshot)
-    assert result.provider_call_count == 3
-    assert result.stage_state.judgment_settled == "completed"
-    assert Map.get(result.stage_state, :judgment_explorations, []) == []
+    # 模型没有给出合法回复；有限纠错耗尽后保留拒绝与原调用，不制造作者正文。
+    assert {:error, {:judgment_protocol_violation, :exploration_not_available}, state} =
+             judgment_step.(run, 2, snapshot)
+
+    assert state.provider_call_count == 3
+    refute Map.has_key?(state, :turn_result)
+
+    blocks = Enum.flat_map(state.judgment_transcript.messages, & &1.blocks)
+    calls = Enum.filter(blocks, &(&1.type == "tool_call"))
+    receipts = Enum.filter(blocks, &(&1.type == "validation_result"))
+    assert length(calls) == 3
+    assert length(receipts) == 3
+    assert Enum.all?(receipts, &(&1.status == "failed"))
+    assert Enum.map(receipts, & &1.call_id) == Enum.map(calls, & &1.call_id)
+    refute Enum.any?(blocks, &(&1.type == "observation"))
   end
 
   test "探索续读全回环：作者点名 → page1 → 同源 page2（JSON offset）→ reply 引用末页独有事实" do
@@ -579,7 +595,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
       case observation_blocks(prompt) do
         [] ->
-          explore_chapter_decision("need_full_chapter", @full_read_title)
+          explore_chapter_decision("先读取完整章节的第一页。", @full_read_title)
 
         [page] ->
           assert is_integer(page.next_offset)
@@ -590,7 +606,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
               offset: page.next_offset
             })
 
-          explore_chapter_decision("need_remaining_pages", query)
+          explore_chapter_decision("继续读取章节剩余正文。", query)
 
         pages ->
           assert Enum.any?(pages, &String.contains?(&1.content["summary"], @last_page_anchor))
@@ -599,11 +615,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     end)
   end
 
-  defp explore_chapter_decision(reason, query) do
+  defp explore_chapter_decision(narrative, query) do
     {:decision,
      %{
        "action" => "explore",
-       "reason" => reason,
+       "dialogue_goal" => "核对本轮作者指定的作品事实",
+       "author_reasoning" => narrative,
        "explore_request" => %{"tool" => "chapter_read", "query" => query}
      }}
   end
@@ -619,7 +636,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       {:decision,
        %{
          "action" => "explore",
-         "reason" => "missing_work_facts_require_retrieval",
+         "dialogue_goal" => "核对本轮作者指定的作品事实",
+         "author_reasoning" => "先读取缺少的作品事实。",
          "explore_request" => %{"tool" => tool, "query" => query}
        }}
     end)
@@ -649,7 +667,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
         {:decision,
          %{
            "action" => "explore",
-           "reason" => "missing_work_facts_require_retrieval",
+           "dialogue_goal" => "核对本轮作者指定的作品事实",
+           "author_reasoning" => "先读取缺少的作品事实。",
            "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
          }}
       end
@@ -685,22 +704,19 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
              }}
 
           {:decision, arguments} ->
+            calls = [
+              %{
+                "name" => "judgment_decision",
+                "arguments" => arguments
+              }
+            ]
+
             {:ok,
              %{
-               content: "先核对作品事实。",
-               tool_calls: [
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" =>
-                     Map.put_new(
-                       Map.drop(arguments, ["reply_included", "frame_type", "record_only"]),
-                       "dialogue_goal",
-                       "核对作品事实"
-                     )
-                 }
-               ],
+               content: "",
+               tool_calls: calls,
                provider_output:
-                 provider_output("pcall-dec-#{System.unique_integer([:positive])}", "先核对作品事实。")
+                 provider_output("pcall-dec-#{System.unique_integer([:positive])}", "", calls)
              }}
         end
       end
@@ -710,14 +726,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   defp prompt_to_text(%RequestIR{messages: _messages} = prompt),
     do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
-  defp provider_output(call_ref, content) do
+  defp provider_output(call_ref, content, tool_calls \\ []) do
     {:ok, output} =
       ProviderOutput.new(%{
         provider_run_ref: "prun-#{call_ref}",
         provider_call_ref: call_ref,
         status: :ok,
         output_type: :text,
-        content: %{text: content},
+        content: %{text: content, tool_calls: tool_calls},
         refs: [call_ref]
       })
 

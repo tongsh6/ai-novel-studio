@@ -58,6 +58,94 @@ defmodule NovelAgent.Provider.StubTest do
     refute item["body"] =~ "application_base"
   end
 
+  test "判断阶段由当前工具目录识别，历史或描述中的续行名称不能改写路由", %{stub: stub} do
+    prompt =
+      TestRequestIR.ir(
+        [
+          TestRequestIR.base("旧说明曾提及 continuation_decision 和 AgentRun 计划起草器。"),
+          TestRequestIR.author("先看看现有角色阵容，然后设计一个反派")
+        ],
+        tools: [
+          TestRequestIR.tool("judgment_decision"),
+          TestRequestIR.tool("agent_plan_draft"),
+          TestRequestIR.tool("ask_author")
+        ],
+        projection: %{tool_choice: "auto"}
+      )
+
+    assert {:ok, result} = Stub.complete(stub, nil, prompt, %InferenceParams{})
+    assert [%{name: "judgment_decision", arguments: arguments}] = result.tool_calls
+    assert arguments.action == "execute"
+    assert arguments.capability == "character_design"
+    assert arguments.author_reasoning != ""
+    refute Map.has_key?(arguments, :reason)
+    assert result.content == ""
+  end
+
+  test "复杂判断直接给一个完整计划，作者说明只有 author_reasoning", %{stub: stub} do
+    author = "梳理伏笔并重写第01章正文"
+
+    prompt =
+      TestRequestIR.ir(
+        [
+          TestRequestIR.author(author),
+          TestRequestIR.scope(%{
+            goal: %{text: author, version: 1},
+            facts: %{chapters: [%{id: "chapter-one", title: "第01章：开端"}]}
+          })
+        ],
+        tools: [
+          TestRequestIR.tool("judgment_decision"),
+          TestRequestIR.tool("agent_plan_draft"),
+          TestRequestIR.tool("ask_author")
+        ],
+        projection: %{tool_choice: "auto"}
+      )
+
+    assert {:ok, result} = Stub.complete(stub, nil, prompt, %InferenceParams{})
+    assert [%{name: "agent_plan_draft", arguments: arguments}] = result.tool_calls
+    assert result.content == ""
+
+    assert Enum.sort(Map.keys(arguments)) == [
+             "author_reasoning",
+             "confidence",
+             "plan",
+             "reason_codes"
+           ]
+
+    assert arguments["author_reasoning"] != ""
+    assert [read, write] = arguments["plan"]["steps"]
+    assert read["target_tool_ref"] == "context_assemble"
+    assert write["target_tool_ref"] == "prose_writing"
+    assert write["authoring_intent"] == "rewrite"
+    assert write["target_chapter"] == "第01章：开端"
+  end
+
+  test "续行工具只有作者说明，普通判断回复只有 content", %{stub: stub} do
+    continuation =
+      TestRequestIR.ir(
+        [TestRequestIR.base("旧创作判断器材料"), TestRequestIR.author("质量复核发现结尾缺失")],
+        tools: [TestRequestIR.tool("continuation_decision"), TestRequestIR.tool("ask_author")]
+      )
+
+    assert {:ok, result} = Stub.complete(stub, nil, continuation, %InferenceParams{})
+    assert [%{name: "continuation_decision", arguments: arguments}] = result.tool_calls
+    assert arguments.action == "continue"
+    assert arguments.author_reasoning != ""
+    refute Map.has_key?(arguments, :reason)
+    assert result.content == ""
+
+    reply =
+      TestRequestIR.ir(
+        [TestRequestIR.author("只聊人物的选择")],
+        tools: [TestRequestIR.tool("judgment_decision"), TestRequestIR.tool("ask_author")]
+      )
+
+    assert {:ok, result} = Stub.complete(stub, nil, reply, %InferenceParams{})
+    assert result.tool_calls == []
+    assert result.content != ""
+  end
+
   for tool <- ["agent_plan_draft", "agent_plan_revision"] do
     test "#{tool} 按当前单工具进入专业阶段，不被旧判断与续行历史覆盖", %{stub: stub} do
       tool = unquote(tool)
@@ -71,6 +159,8 @@ defmodule NovelAgent.Provider.StubTest do
                Stub.complete(stub, nil, operation_prompt(tool, scope), %InferenceParams{})
 
       assert [%{"name" => ^tool, "arguments" => arguments}] = result.tool_calls
+      assert result.content == ""
+      assert arguments["author_reasoning"] != ""
       assert Enum.any?(arguments["plan"]["steps"], &(&1["target_tool_ref"] == "character_design"))
       refute Enum.any?(arguments["plan"]["steps"], &(&1["target_tool_ref"] == "fact_inventory"))
 

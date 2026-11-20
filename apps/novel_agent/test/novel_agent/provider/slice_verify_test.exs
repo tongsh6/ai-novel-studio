@@ -473,6 +473,9 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
       tool = unquote(tool)
       assert {:ok, result} = complete(native_prompt(tool, @plan_scope))
       assert [%{"name" => ^tool, "arguments" => arguments}] = result.tool_calls
+      assert result.content == ""
+      assert is_binary(arguments.author_reasoning)
+      refute Map.has_key?(arguments, :reason)
       steps = arguments.plan.steps
       assert prose = Enum.find(steps, &(&1.target_tool_ref == "prose_writing"))
       assert prose.authoring_intent == "continuation"
@@ -1020,6 +1023,9 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
 
   defp arguments_of(result) do
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    assert result.content == ""
+    assert is_binary(args["author_reasoning"])
+    refute Map.has_key?(args, "reason")
     args
   end
 
@@ -1543,6 +1549,9 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
   defp args(prompt) do
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
     assert [%{"name" => "judgment_decision", "arguments" => arguments}] = result.tool_calls
+    assert result.content == ""
+    assert is_binary(arguments["author_reasoning"])
+    refute Map.has_key?(arguments, "reason")
     arguments
   end
 
@@ -1839,7 +1848,8 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
              }
            ] = adopted.tool_calls
 
-    assert adopted.content =~ "待采纳"
+    assert adopted.content == ""
+    assert hd(adopted.tool_calls).arguments["author_reasoning"] =~ "待采纳"
   end
 
   test "B37 CP5：author_question options 回复“保留悬念”→ prose_writing 续写第01章" do
@@ -1849,7 +1859,8 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
     assert args["action"] == "execute"
     assert args["capability"] == "prose_writing"
     assert args["dialogue_goal"] =~ "第01章"
-    assert result.content =~ "保留悬念"
+    assert result.content == ""
+    assert args["author_reasoning"] =~ "保留悬念"
   end
 
   test "真实语料 delegation/chitchat_noise：不自动执行/采纳，零写入" do

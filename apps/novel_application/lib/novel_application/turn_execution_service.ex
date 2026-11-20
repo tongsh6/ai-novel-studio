@@ -12,6 +12,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.NativeToolExchange
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.AuthoringTaskBuilder
@@ -33,6 +34,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelCommon.Contracts.QualityEvaluationResult
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelCommon.RequestIR
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.DialogueContext
@@ -449,7 +451,7 @@ defmodule NovelApplication.TurnExecutionService do
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
           provider_call_budget:
-            provider_call_budget(provider_execution, quality_provider_execution, nil),
+            provider_call_budget(provider_execution, quality_provider_execution),
           quality_policy_action: quality_policy_action(quality),
           quality_review_status: quality_review_status(quality),
           memory_window:
@@ -734,27 +736,28 @@ defmodule NovelApplication.TurnExecutionService do
     |> Map.put("request_ir", sections[:request_ir])
   end
 
-  # B39 CP1c/D1：本次真实 writer 调用的 Base/observation 可见集合与模型自报 used refs
-  # 同一事实派生做集合校验；越界 ref 只在 trace 记 unbound，不改 artifact 字节、不授信。
+  # R05：trace 与 Writer 接收共用同次 IR 的 Base / Observation 资格投影；
+  # 材料绑定与原生观察保持各自来源，不由任务目录或历史引用恢复授信。
   defp evidence_usage(
-         %AuthoringTask{} = task,
+         %AuthoringTask{},
          %ToolResult{} = result,
          request_ir,
          provider_call_ref
        ) do
-    {application_reads, native_reads} =
-      request_ir
-      |> AuthoringTaskBuilder.request_read_materials()
-      |> Enum.split_with(&(&1.provenance == "application"))
+    {base_refs, observation_refs} =
+      case request_ir do
+        %RequestIR{} ->
+          ref_value = fn ref -> if is_map(ref), do: map_value(ref, :ref), else: ref end
 
-    base_refs =
-      task.materials
-      |> List.wrap()
-      |> Enum.reject(&(Map.get(&1, :kind) in [:observation, "observation"]))
-      |> Enum.map(&(Map.get(&1, :ref) || Map.get(&1, "ref")))
-      |> Kernel.++(Enum.map(application_reads, & &1.ref))
+          {
+            Enum.map(RequestIR.usable_base_refs(request_ir), ref_value),
+            Enum.map(RequestIR.usable_observation_refs(request_ir), ref_value)
+          }
 
-    observation_refs = Enum.map(native_reads, & &1.ref)
+        nil ->
+          {[], []}
+      end
+
     used_refs = get_in(result.output || %{}, [:self_report, :used_context_refs]) || []
 
     NovelDomain.EvidenceUsage.validate(used_refs, base_refs, observation_refs)
@@ -2579,22 +2582,28 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp writer_provider_call_ref(_tool_result), do: nil
 
-  defp provider_call_budget(writer_fn, evaluator_fn, revision_fn) do
+  defp provider_call_budget(writer_execution, evaluator_execution) do
     %{
       frame_planning: 0,
       micro_planning: 0,
-      writer: provider_call_count(writer_fn),
-      evaluator: provider_call_count(evaluator_fn),
-      revision_writer: provider_call_count(revision_fn),
+      writer: provider_call_limit(writer_execution),
+      evaluator: provider_call_limit(evaluator_execution),
+      revision_writer: 0,
       step_planning: 0,
       final_synthesizer: 0
     }
   end
 
-  defp provider_call_count(provider_execution) do
+  # 本调用链的 Writer/评审都使用缺省交换选项；预算取同一执行 owner 的有效上限，
+  # 实际消耗另从 session.provider_call_count 汇总为 execution_counts，不回填预算。
+  defp provider_call_limit(provider_execution) do
     case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) -> 1
-      _ -> 0
+      result_fn when is_function(result_fn, 1) ->
+        {:ok, limit} = NativeToolExchange.validate_options([])
+        limit
+
+      _ ->
+        0
     end
   end
 

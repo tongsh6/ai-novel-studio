@@ -2,8 +2,12 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AuthoringCheckpoint
+  alias NovelApplication.AuthoringTranscript
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.MessageCoverage
   alias NovelCommon.RequestIR.Projection
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -91,7 +95,12 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
     provider =
       %Execution{
         result_fn: fn prompt ->
-          send(parent, {:r05_creative_prompt, tool, prompt})
+          provider_call_ref =
+            NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("pc-r05-" <> tool)
+
+          send(parent, {:r05_creative_prompt, tool, prompt, provider_call_ref})
+          declaration = Keyword.get(opts, :used_refs, [])
+          used_refs = if is_function(declaration, 1), do: declaration.(prompt), else: declaration
 
           {:ok,
            NovelApplication.TestAgenticLoopFixtures.native_artifact_result(
@@ -103,11 +112,12 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
                  rationale: nil
                }
              ],
-             provider_call_id: "pc-r05-" <> tool
+             provider_call_id: provider_call_ref,
+             call_id: "tool-" <> provider_call_ref
            )
            |> update_in([:tool_calls, Access.at(0), :arguments], fn arguments ->
              Map.put(arguments, :self_report, %{
-               used_context_refs: Keyword.get(opts, :used_refs, [])
+               used_context_refs: used_refs
              })
            end)}
         end
@@ -135,7 +145,7 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
         )
       )
 
-    assert_receive {:r05_creative_prompt, ^tool, prompt}
+    assert_receive {:r05_creative_prompt, ^tool, prompt, _provider_call_ref}
     {result, prompt}
   end
 
@@ -208,6 +218,11 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
     assert result.tool_result.status == :succeeded
     task = NovelTest.TestProviderPrompt.scope_content(prompt)["authoring_task"]
     materials = task["materials"]
+    # 一次成功只消耗一次调用；允许的原生纠错上限独立保留。
+    assert result.trace_summary.execution_counts.provider_calls == 1
+    assert result.trace_summary.provider_call_budget.writer == 2
+    assert result.trace_summary.provider_call_budget.evaluator == 0
+
     partial = Enum.find(materials, &(&1["ref"] == "chapter:visible-page"))
     assert partial
     assert partial["complete?"] == false
@@ -243,6 +258,27 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
       "turn:turn-session"
     ]
 
+    valid_claims = ["chapter:visible-page", "memory:application-read"]
+
+    declaration = fn prompt ->
+      corrected? =
+        Enum.any?(prompt.messages, fn message ->
+          Enum.any?(message.blocks, fn
+            %{
+              type: "validation_result",
+              status: "failed",
+              reason_code: "used_context_refs_invalid"
+            } ->
+              true
+
+            _ ->
+              false
+          end)
+        end)
+
+      if corrected?, do: valid_claims, else: claims
+    end
+
     {result, _prompt} =
       execute_r05_creative("prose_writing", "生成本章候选", @author_text,
         input: %{
@@ -251,8 +287,29 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
           observations: [raw_observation()],
           source_turn_ref: "lineage:only"
         },
-        used_refs: claims
+        used_refs: declaration
       )
+
+    assert_receive {:r05_creative_prompt, "prose_writing", corrected, accepted_call_ref}
+
+    rejected =
+      for %{role: "assistant", blocks: blocks} <- corrected.messages,
+          %{type: "tool_call", name: "submit_tentative_artifact", arguments: arguments} <- blocks,
+          do: arguments
+
+    assert [original] = rejected
+    assert original["self_report"]["used_context_refs"] == claims
+
+    assert [_failure] =
+             for(
+               %{role: "tool", blocks: blocks} <- corrected.messages,
+               %{
+                 type: "validation_result",
+                 status: "failed",
+                 reason_code: "used_context_refs_invalid"
+               } = failure <- blocks,
+               do: failure
+             )
 
     trace = result.trace_summary
     assert "memory:application-read" in trace.request_base_refs
@@ -265,10 +322,148 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
              "memory:application-read"
            ]
 
-    assert Enum.sort(trace.unbound_context_refs) ==
-             Enum.sort(claims -- ["chapter:visible-page", "memory:application-read"])
+    assert trace.unbound_context_refs == []
+    assert trace.used_context_refs_validation == "ok"
+    assert trace.execution_counts.provider_calls == 2
+    assert trace.provider_call_budget.writer == 2
+    assert trace.used_context_refs_provider_call_ref == accepted_call_ref
+  end
 
-    assert trace.used_context_refs_validation == "partial"
+  @tag :r05_observation_identity
+  test "R05: 真实原生观察身份在 Writer 接收与证据归属中保持同一资格" do
+    observation_ref = "observation:chapter-read-identity"
+    source_ref = "chapter:identity-source"
+    call_id = "call-native-identity"
+    {:ok, transcript} = AuthoringTranscript.from_request_ir(observation_ir())
+
+    transcript =
+      transcript
+      |> AuthoringTranscript.append_provider_result(%{
+        provider_call_id: "pc-native-identity",
+        tool_calls: [
+          %{id: call_id, name: "chapter_read", arguments: %{query: "第01章"}}
+        ]
+      })
+      |> AuthoringTranscript.append_observation(call_id, %{
+        status: "ok",
+        source_refs: [%{ref: source_ref}],
+        coverage: %{complete?: true},
+        content: %{
+          tool: "chapter_read",
+          observation_ref: observation_ref,
+          summary: "IDENTITYREAD91：她在本章末尾发现账本少了一页。",
+          facts: %{chapter_ref: source_ref, body: "账本末页留下了一道整齐的撕痕。"}
+        }
+      })
+
+    assert observation_ref in transcript.observation_refs
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+
+    {result, prompt} =
+      execute_r05_creative("prose_writing", "生成本章候选", @author_text,
+        input: %{request_ir: ir, agent_run: @run},
+        used_refs: [observation_ref]
+      )
+
+    assert observation_ref in RequestIR.usable_observation_refs(prompt)
+    assert result.tool_result.status == :succeeded
+    assert result.trace_summary.execution_counts.provider_calls == 1
+    assert result.tool_result.output.self_report.used_context_refs == [observation_ref]
+
+    task = NovelTest.TestProviderPrompt.scope_content(prompt)["authoring_task"]
+    refute Enum.any?(task["materials"], &(&1["ref"] == observation_ref))
+
+    trace = result.trace_summary
+    refute observation_ref in trace.request_base_refs
+    assert source_ref in trace.request_observation_refs
+    assert observation_ref in trace.request_observation_refs
+    assert trace.used_context_refs == [observation_ref]
+    assert trace.unbound_context_refs == []
+    assert trace.used_context_refs_validation == "ok"
+  end
+
+  @tag :r05_base_scope_trace
+  test "R05: 可见 Scope 的实际 Base 在 JSON 恢复后仍由同次请求归属" do
+    for mode <- [:visible, :json_restored] do
+      {ir, ref} = base_scope_ir(mode)
+
+      {result, prompt} =
+        execute_r05_creative("prose_writing", "生成本章候选", @author_text,
+          input: %{request_ir: ir, agent_run: @run},
+          used_refs: [ref]
+        )
+
+      assert result.tool_result.status == :succeeded
+      assert result.trace_summary.execution_counts.provider_calls == 1
+      task = NovelTest.TestProviderPrompt.scope_content(prompt)["authoring_task"]
+      refute Enum.any?(task["materials"], &(&1["ref"] == ref))
+
+      trace = result.trace_summary
+      assert ref in trace.request_base_refs
+      refute ref in trace.request_observation_refs
+      assert trace.used_context_refs == [ref]
+      assert trace.unbound_context_refs == []
+      assert trace.used_context_refs_validation == "ok"
+    end
+  end
+
+  @tag :r05_base_scope_trace
+  test "R05: 已隐藏 Base 不能由累计目录或新 Scope 的来源引用恢复资格" do
+    for mode <- [:hidden, :source_only] do
+      {ir, ref} = base_scope_ir(mode)
+
+      {result, prompt} =
+        execute_r05_creative("prose_writing", "生成本章候选", @author_text,
+          input: %{request_ir: ir, agent_run: @run},
+          used_refs: [ref]
+        )
+
+      assert result.tool_result.status == :failed
+      assert result.trace_summary.execution_counts.provider_calls == 2
+      assert_receive {:r05_creative_prompt, "prose_writing", corrected, _call_ref}
+
+      assert Enum.any?(corrected.messages, fn message ->
+               Enum.any?(message.blocks, fn
+                 %{
+                   type: "validation_result",
+                   status: "failed",
+                   reason_code: "used_context_refs_invalid"
+                 } ->
+                   true
+
+                 _ ->
+                   false
+               end)
+             end)
+
+      refute ref in result.trace_summary.request_base_refs
+      refute ref in result.trace_summary.request_observation_refs
+      assert {:ok, wire} = Projection.project(prompt, "chat_completions")
+      refute Jason.encode!(wire) =~ "BASEORIGINAL91"
+    end
+  end
+
+  @tag :r05_base_scope_trace
+  test "R05: 同一 ref 被新 Scope 实际重新供应后按新消息恢复 Base 资格" do
+    {ir, ref} = base_scope_ir(:resupplied)
+
+    {result, prompt} =
+      execute_r05_creative("prose_writing", "生成本章候选", @author_text,
+        input: %{request_ir: ir, agent_run: @run},
+        used_refs: [ref]
+      )
+
+    assert result.tool_result.status == :succeeded
+    assert result.trace_summary.execution_counts.provider_calls == 1
+    assert ref in result.trace_summary.request_base_refs
+    refute ref in result.trace_summary.request_observation_refs
+    assert result.trace_summary.used_context_refs == [ref]
+    assert result.trace_summary.unbound_context_refs == []
+    assert result.trace_summary.used_context_refs_validation == "ok"
+
+    assert {:ok, wire} = Projection.project(prompt, "chat_completions")
+    refute Jason.encode!(wire) =~ "BASEORIGINAL91"
+    assert Jason.encode!(wire) =~ "BASERESUPPLIED91"
   end
 
   test "R05: 写前使命只绑定本次可见读叶，隐藏和纯引用不成为依据" do
@@ -328,6 +523,84 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
     end
   end
 
+  defp base_scope_ir(mode) do
+    ref = "memory:scope-body"
+    refs = [%{ref: ref, version: 1}]
+
+    transcript =
+      AuthoringTranscript.new(@run,
+        base_text: RequestIR.application_base_text(),
+        base_refs: refs,
+        author_text: "先核对已供应的连续性材料。",
+        author_turn_ref: "turn-base-prior",
+        system: RequestIR.system_envelope(instructions: "按实际供应材料创作。"),
+        initial_scope: %{
+          content: %{
+            work_id: @run.work_id,
+            operation: %{
+              role: "creative_execution",
+              context_text: "BASEORIGINAL91：她此前把账本藏在书架后。"
+            }
+          },
+          versions: %{"scope_revision" => 1},
+          source_refs: refs
+        }
+      )
+
+    assert {:ok, original} = AuthoringTranscript.to_request_ir(transcript)
+    old_scope = Enum.find(original.messages, &(&1.role == "scope_update"))
+
+    text =
+      if mode == :resupplied,
+        do: "BASERESUPPLIED91：本次重新供应的材料明确账本已移到抽屉。",
+        else: "本轮写作目标已受理。"
+
+    transcript =
+      transcript
+      |> AuthoringTranscript.append_author_turn(@author_text, "turn-session")
+      |> AuthoringTranscript.append_scope_update(
+        %{work_id: @run.work_id, operation: %{role: "creative_execution", context_text: text}},
+        %{"scope_revision" => 2},
+        if(mode in [:source_only, :resupplied], do: refs, else: []),
+        if(mode == :resupplied, do: refs, else: [])
+      )
+
+    transcript =
+      if mode in [:hidden, :source_only, :resupplied] do
+        covers = %{call_ids: [], message_refs: [MessageCoverage.selector(old_scope)]}
+        {source_refs, versions} = Compaction.evidence(transcript.messages, covers)
+
+        assert {:ok, compacted} =
+                 AuthoringTranscript.compact(
+                   transcript,
+                   covers,
+                   source_refs,
+                   versions,
+                   ["旧材料已压缩，原文可按来源回查。"],
+                   "早先供应过连续性材料。"
+                 )
+
+        compacted
+      else
+        transcript
+      end
+
+    transcript =
+      if mode == :json_restored do
+        encoded =
+          transcript |> AuthoringCheckpoint.checkpoint() |> Jason.encode!() |> Jason.decode!()
+
+        assert {:ok, restored} = AuthoringTranscript.restore(encoded)
+        restored
+      else
+        transcript
+      end
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert %{ref: ref, version: 1} in ir.refs.base_refs
+    {ir, ref}
+  end
+
   defp observation_ir do
     hidden = %{
       status: "ok",
@@ -385,6 +658,7 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
             ],
             %{
               source_refs: application.source_refs,
+              base_refs: application.source_refs,
               versions: %{"scope_revision" => 1},
               canonical_ref: coordinate("run-session", 6, "running")
             }

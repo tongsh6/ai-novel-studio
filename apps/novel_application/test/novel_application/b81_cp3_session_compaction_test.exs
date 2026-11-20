@@ -375,7 +375,7 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
   describe "B81 ADR-0035：判断请求组装会话历史" do
     @history_author_text "第一轮作者原话"
     @current_author_text "本轮作者原话：继续判断"
-    @old_judgment_call_id "tool-judgment_decision"
+    @old_plan_call_id "tool-agent_plan_draft"
 
     test "跨段 checkpoint 覆盖历史已闭合调用时，判断出站成功且保存段不含历史作者原话" do
       seed_run!(first_round_transcript(), "completed")
@@ -443,20 +443,20 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
              )
     end
 
-    test "历史已闭合同名 judgment_decision 复用时 canonical 化并保留 provider_call_id" do
+    test "历史已闭合同名 agent_plan_draft 复用时 canonical 化并保留 provider_call_id" do
       history_transcript =
         base_transcript("run-cp3-b81-history-2", "历史作者原话：上一轮计划")
-        |> AuthoringTranscript.append_assistant("上一轮判断。", [
+        |> AuthoringTranscript.append_assistant("", [
           RequestIR.tool_call_block(
-            "judgment_decision",
-            %{"action" => "plan", "reason" => "旧计划"},
-            @old_judgment_call_id
+            "agent_plan_draft",
+            plan_args(),
+            @old_plan_call_id
           )
         ])
         |> AuthoringTranscript.append_validation(
-          @old_judgment_call_id,
+          @old_plan_call_id,
           "passed",
-          "judgment_validated"
+          "agent_plan_validated"
         )
 
       seed_run!(history_transcript, "completed")
@@ -467,28 +467,38 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
-                 execution([response("分步完成。", plan_pair())]),
+                 execution([response("", plan_calls())]),
                  %{},
                  b81_input(segment, history, current_author_text)
                )
 
       decision =
-        Enum.find(tool_call_blocks(judgment.transcript), &(&1.name == "judgment_decision"))
+        Enum.find(tool_call_blocks(judgment.transcript), &(&1.name == "agent_plan_draft"))
 
       # 返回值与落段使用同一 canonical id；原 id 只作来源标记，旧 id 不写回本 run 段。
       assert decision.call_id == judgment.tool_call_id
-      assert judgment.tool_call_id == @old_judgment_call_id <> ":2"
-      assert Map.get(decision, :provider_call_id) == @old_judgment_call_id
-      refute @old_judgment_call_id in judgment.transcript.call_ids
+      assert judgment.tool_call_id == @old_plan_call_id <> ":2"
+      assert Map.get(decision, :provider_call_id) == @old_plan_call_id
+      refute @old_plan_call_id in judgment.transcript.call_ids
     end
 
     defp b81_input(segment, history, author_text) do
+      {:ok, run} =
+        segment.run
+        |> Map.merge(%{
+          origin_frame_ref: "frame-#{segment.run.run_id}",
+          profile_ref: "judgment_plan_v1",
+          goal: %{text: author_text, version: 1},
+          authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+        })
+        |> AgentRun.new()
+
       %{
         author_text: author_text,
         scope: %{work_id: segment.run.work_id, facts: %{}, context: %{}, coverage: %{}},
         source_input_ref: segment.run.parent_turn_ref,
         supplied_context_refs: ["chapter:one"],
-        options: [],
+        options: [plan_run: run],
         transcript: segment,
         session_history: history
       }
@@ -509,8 +519,8 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
 
     defp call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
 
-    defp plan_pair do
-      [call("agent_plan_draft", plan_args()), call("judgment_decision", plan_decision_args())]
+    defp plan_calls do
+      [call("agent_plan_draft", plan_args())]
     end
 
     defp plan_args do
@@ -529,14 +539,6 @@ defmodule NovelApplication.B81Cp3SessionCompactionTest do
         "author_reasoning" => "先取证再写",
         "reason_codes" => ["planned"],
         "confidence" => 0.9
-      }
-    end
-
-    defp plan_decision_args do
-      %{
-        "action" => "plan",
-        "dialogue_goal" => "分步执行",
-        "reason" => "需要计划"
       }
     end
 

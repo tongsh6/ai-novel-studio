@@ -87,6 +87,8 @@ defmodule NovelCommon.RequestIRTest do
       assert [base, author] = request.messages
       assert base.role == "application_base"
       assert base.source_refs == material_refs
+      assert base.base_refs == material_refs
+      assert RequestIR.usable_base_refs(request) == material_refs
 
       assert author ==
                RequestIR.message(:user, :author, [RequestIR.text_block(raw)], %{
@@ -140,6 +142,145 @@ defmodule NovelCommon.RequestIRTest do
         assert_raise ArgumentError, "invalid text operation author input", fn ->
           Operation.text_operation(Map.merge(attrs, %{author_text: text, source_input_ref: ref}))
         end
+      end
+    end
+  end
+
+  describe "Base 材料绑定的实际可投影内容" do
+    @tag :r05_base_binding_content
+    test "空字符串操作保留既有文本块拒绝分类" do
+      assert_raise ArgumentError, ~r/invalid_text_block/, fn ->
+        Operation.text_operation(%{
+          profile_ref: "result_narration",
+          text: "",
+          source_refs: [%{ref: "tool:actual-result"}]
+        })
+      end
+    end
+
+    @tag :r05_base_binding_content
+    test "纯空白文本只在声明供应 Base 时拒绝，不改写通用文本字节" do
+      raw = " \r\n\t "
+      attrs = %{profile_ref: "result_narration", text: raw}
+
+      unbound = Operation.text_operation(attrs)
+      assert :ok = RequestIR.validate(unbound)
+      assert hd(unbound.messages).blocks == [RequestIR.text_block(raw)]
+
+      assert_raise ArgumentError, ~r/invalid_base_binding_content/, fn ->
+        Operation.text_operation(Map.put(attrs, :source_refs, [%{ref: "tool:actual-result"}]))
+      end
+    end
+
+    @tag :r05_base_binding_content
+    test "application_base 未投影的非文本块不能为绑定的材料提供正文" do
+      artifact = RequestIR.tentative_artifact_block(:prose_fragment, [%{body: "未投影的材料正文"}])
+
+      for blocks <- [[], [artifact], [RequestIR.text_block("可见文本"), artifact]] do
+        base =
+          message(:application_base, :application, blocks, %{
+            source_refs: base_refs(),
+            base_refs: base_refs()
+          })
+
+        assert {:error, :invalid_base_binding_content} = RequestIR.validate(ir([base]))
+      end
+
+      empty_scope =
+        message(:scope_update, :application, [], %{
+          source_refs: base_refs(),
+          base_refs: base_refs()
+        })
+
+      assert {:error, :invalid_base_binding_content} = RequestIR.validate(ir([empty_scope]))
+    end
+
+    @tag :r05_base_binding_content
+    test "合法多文本 Base 保留逐字正文，绑定元数据不增加任何 wire 内容" do
+      parts = ["  前段 Ω\r\n", "后段 é\t "]
+      raw = Enum.join(parts, "")
+
+      base =
+        message(:application_base, :application, Enum.map(parts, &RequestIR.text_block/1), %{
+          source_refs: base_refs(),
+          base_refs: base_refs()
+        })
+
+      request = ir([base])
+      unbound = %{request | messages: [Map.delete(base, :base_refs)]}
+      assert :ok = RequestIR.validate(request)
+      assert RequestIR.usable_base_refs(request) == base_refs()
+      assert RequestIR.usable_base_refs(unbound) == []
+      assert Projection.text_of(base.blocks) == raw
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = Projection.project(request, target)
+        assert {:ok, ^body} = Projection.project(unbound, target)
+
+        texts =
+          body
+          |> Map.get(:messages, Map.get(body, :input, []))
+          |> Enum.flat_map(fn message ->
+            case Map.get(message, :content) do
+              text when is_binary(text) -> [text]
+              blocks when is_list(blocks) -> Enum.map(blocks, &Map.get(&1, :text, ""))
+              _ -> []
+            end
+          end)
+
+        assert Enum.any?(texts, &String.ends_with?(&1, raw))
+      end
+    end
+  end
+
+  describe "R05 逐消息 Base 绑定" do
+    @tag :r05_base_bindings
+    test "累计目录和普通来源本身不授信，只有已登记的显式消息绑定可用" do
+      [source_only | authors] = g1_messages()
+      request = ir([source_only | authors])
+      assert :ok = RequestIR.validate(request)
+      assert RequestIR.usable_base_refs(request) == []
+      assert {:error, _reason} = RequestIR.validate_used_refs(request, ["work:work-1"])
+
+      bound = %{request | messages: [Map.put(source_only, :base_refs, base_refs()) | authors]}
+      assert :ok = RequestIR.validate_used_refs(bound, ["work:work-1"])
+      assert RequestIR.usable_base_refs(bound) == base_refs()
+
+      missing = %{bound | refs: %{bound.refs | base_refs: []}}
+
+      assert {:error, {:base_binding_not_registered, ["work:work-1"]}} =
+               RequestIR.validate(missing)
+
+      assert RequestIR.usable_base_refs(missing) == []
+    end
+
+    @tag :r05_base_bindings
+    test "非应用材料消息不能伪造 Base 绑定，坏绑定形状明确拒绝" do
+      for {role, provenance} <- [
+            {:user, :author},
+            {:assistant, :model},
+            {:tool, :tool_result},
+            {:checkpoint, :application},
+            {:application_notice, :application},
+            {:application_base, :model},
+            {:scope_update, :model}
+          ] do
+        forged =
+          message(role, provenance, [RequestIR.text_block("关联目录不是实际材料。")], %{
+            base_refs: base_refs()
+          })
+
+        assert {:error, :invalid_base_binding_owner} = RequestIR.Scope.validate_owner(forged)
+        assert RequestIR.usable_base_refs(ir([forged])) == []
+      end
+
+      for refs <- [nil, false, %{}, "work:work-1", [nil], [" "], [%{}]] do
+        invalid =
+          message(:application_base, :application, [RequestIR.text_block("已供正文")], %{
+            base_refs: refs
+          })
+
+        assert {:error, :invalid_base_binding} = RequestIR.validate(ir([invalid]))
       end
     end
   end

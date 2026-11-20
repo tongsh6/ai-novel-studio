@@ -52,7 +52,12 @@ defmodule NovelApplication.AgenticPlanNarrativeTest do
              response(content, @tool_name, call_ref: ref, author_reasoning: author_reasoning)}
           end
 
-        assert {:error, {:agent_plan_protocol_violation, :author_visible_narrative_invalid}, meta} =
+        reason =
+          if origin == :content,
+            do: :author_narrative_content_conflict,
+            else: :author_visible_narrative_invalid
+
+        assert {:error, {:agent_plan_protocol_violation, ^reason}, meta} =
                  apply(AgenticPlanDraftPlanner, @operation, [run, execution(calls), %{}])
 
         assert meta.provider_call_count == 2
@@ -88,8 +93,8 @@ defmodule NovelApplication.AgenticPlanNarrativeTest do
 
       provider =
         execution([
-          {:ok, response(leaked, @tool_name, call_ref: "bad-call")},
-          {:ok, response(accepted, @tool_name, call_ref: "good-call")}
+          {:ok, response("", @tool_name, call_ref: "bad-call", author_reasoning: leaked)},
+          {:ok, response("", @tool_name, call_ref: "good-call", author_reasoning: accepted)}
         ])
 
       assert {:ok, _plan, meta} =
@@ -111,28 +116,49 @@ defmodule NovelApplication.AgenticPlanNarrativeTest do
       assert Process.get(:plan_narrative_responses) == []
     end
 
-    test "#{tool_name} 校验选中的正文并保持原字节，不把私有字段套到公开正文", %{run: run} do
-      accepted = "  她的工作过程体现了迟疑。\n\n**先查账，再追问。**\n"
-      result = response(accepted, @tool_name, author_reasoning: "request_ir")
+    test "#{tool_name} 说明相同也不能接纳被替换的计划步骤", %{run: run} do
+      original = response("", @tool_name)
+      [tool] = original.tool_calls
+      [step] = tool["arguments"]["plan"]["steps"]
 
-      assert {:ok, _plan, meta} =
+      changed =
+        put_in(tool, ["arguments", "plan", "steps"], [
+          Map.put(step, "description", "未经模型返回的另一个读取步骤")
+        ])
+
+      result = %{original | tool_calls: [changed]}
+
+      assert {:error, {:agent_plan_protocol_violation, :tool_call_not_bound_to_provider_output},
+              meta} =
                apply(AgenticPlanDraftPlanner, @operation, [
                  run,
-                 execution([{:ok, result}]),
+                 execution(List.duplicate({:ok, result}, 2)),
                  %{}
                ])
 
-      assert meta.summary == accepted
-      assert meta.author_narrative_source.source_type == "provider_output"
+      assert meta.provider_call_count == 2
+      assert validation_statuses(meta.judgment_transcript) == ["failed", "failed"]
+    end
+
+    test "#{tool_name} 拒绝第二份正文，即使两份相同也不能按优先级吞掉", %{run: run} do
+      accepted = "  她的工作过程体现了迟疑。\n\n**先查账，再追问。**\n"
+
+      for content <- [accepted, "另一份干净说明", "  "] do
+        results =
+          for _ <- 1..2, do: {:ok, response(content, @tool_name, author_reasoning: accepted)}
+
+        assert {:error, {:agent_plan_protocol_violation, :author_narrative_content_conflict},
+                meta} =
+                 apply(AgenticPlanDraftPlanner, @operation, [run, execution(results), %{}])
+
+        assert meta.provider_call_count == 2
+        assert validation_statuses(meta.judgment_transcript) == ["failed", "failed"]
+      end
 
       result = response("", @tool_name, author_reasoning: accepted)
 
       assert {:ok, _plan, meta} =
-               apply(AgenticPlanDraftPlanner, @operation, [
-                 run,
-                 execution([{:ok, result}]),
-                 %{}
-               ])
+               apply(AgenticPlanDraftPlanner, @operation, [run, execution([{:ok, result}]), %{}])
 
       assert meta.summary == accepted
       assert meta.author_narrative_source.source_type == "provider_output_tool_narrative"
@@ -140,27 +166,18 @@ defmodule NovelApplication.AgenticPlanNarrativeTest do
     end
   end
 
-  test "同批 inline plan 也在唯一选中来源处校验，不能从另一字段补合格正文", %{run: run} do
+  test "inline plan 与独立计划共用唯一作者正文，缺失或冲突都不执行", %{run: run} do
     leaked = "内部目标 chapter:550e8400-e29b-41d4-a716-446655440000"
-
-    for result <- [
-          response(leaked),
-          response("", "agent_plan_draft", author_reasoning: leaked)
-        ] do
-      assert {:error, :author_visible_narrative_invalid} =
-               AgenticPlanDraftPlanner.plan_from_result(run, result)
-    end
-
     accepted = "  先核对第一章的线索。\n\n随后说明判断。\n"
 
-    assert {:ok, _plan, meta} =
+    assert {:error, :author_narrative_content_conflict} =
+             AgenticPlanDraftPlanner.plan_from_result(run, response(accepted))
+
+    assert {:error, :author_visible_narrative_invalid} =
              AgenticPlanDraftPlanner.plan_from_result(
                run,
-               response(accepted, "agent_plan_draft", author_reasoning: leaked)
+               response("", "agent_plan_draft", author_reasoning: leaked)
              )
-
-    assert meta.summary == accepted
-    assert meta.author_narrative_source.source_type == "provider_output"
 
     assert {:ok, _plan, meta} =
              AgenticPlanDraftPlanner.plan_from_result(

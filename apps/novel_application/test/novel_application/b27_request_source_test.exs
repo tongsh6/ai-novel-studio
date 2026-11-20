@@ -92,6 +92,8 @@ defmodule NovelApplication.B27RequestSourceTest do
               "judgment_decision",
               %{
                 action: "explore",
+                dialogue_goal: "核对当前作品已有事实",
+                author_reasoning: "先读取当前作品的来源资料。",
                 explore_request: %{tool: observation.tool, query: observation.query}
               },
               call_id

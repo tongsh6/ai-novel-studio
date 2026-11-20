@@ -192,13 +192,13 @@ defmodule NovelApplication.JudgmentPagedSourcesTest do
         {text, calls} =
           case script.(request) do
             {:explore, tool, query} ->
-              {"先读取当前来源。",
+              {"",
                [
                  %{
                    "name" => "judgment_decision",
                    "arguments" => %{
                      "action" => "explore",
-                     "reason" => "read_actual_source",
+                     "author_reasoning" => "先读取当前来源。",
                      "dialogue_goal" => "核对实际来源及覆盖",
                      "explore_request" => %{"tool" => tool, "query" => query}
                    }
@@ -217,7 +217,7 @@ defmodule NovelApplication.JudgmentPagedSourcesTest do
             provider_call_ref: call_ref,
             status: :ok,
             output_type: :text,
-            content: %{text: text},
+            content: %{text: text, tool_calls: calls},
             refs: [call_ref]
           })
 

@@ -619,6 +619,32 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert spec.run_attrs.parent_turn_ref == "turn-q"
   end
 
+  test "只读操作按能力授权，不因作者说明含否定保存或写入而误拒" do
+    narrative = "只核对已有资料，不会保存或写入作品"
+    provider = judgment_execution("execute", "work_archive_read", narrative: narrative)
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "核对已有作品资料，保持内容不变。",
+                 workspace_id: "ws-readonly-narrative",
+                 work_id: "work-readonly-narrative",
+                 session_id: "session-readonly-narrative",
+                 turn_id: "turn-readonly-narrative"
+               },
+               nil,
+               provider
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    {_context, judgment} = drive_judgment(spec, run, fn _event -> :ok end)
+
+    assert judgment.provider_call_count == 1
+    routed = apply_run_patch(run, judgment.run_patch)
+    assert routed.profile_ref == "readonly_batch_context_v1"
+    assert routed.authority_scope.production_write == false
+  end
+
   test "空文本被拒绝，不走非 agent 回退" do
     assert DialoguePlanningService.agent_run_candidate?("测试") == true
     assert DialoguePlanningService.agent_run_candidate?("") == false
@@ -711,11 +737,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
             }
           }
 
-          {narrative,
-           if(action == "execute", do: [registration, registration], else: [registration])}
+          {"", if(action == "execute", do: [registration, registration], else: [registration])}
 
         opts[:frame_type] == "capability_gap" ->
-          {narrative,
+          {"",
            [
              %{
                name: "report_capability_gap",
@@ -728,7 +753,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
            ]}
 
         action == "reply" and opts[:candidate_directions] not in [nil, []] ->
-          {narrative,
+          {"",
            [
              %{
                name: "propose_creative_directions",
@@ -746,7 +771,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
           {"", [%{name: "ask_author", arguments: %{question: narrative, options: []}}]}
 
         true ->
-          {narrative,
+          {"",
            [
              %{
                name: "judgment_decision",
@@ -754,7 +779,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
                  action: action,
                  capability: capability,
                  dialogue_goal: goal,
-                 reason: narrative
+                 author_reasoning: narrative
                }
              }
            ]}

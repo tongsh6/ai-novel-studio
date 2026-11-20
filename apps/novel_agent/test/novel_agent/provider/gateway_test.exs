@@ -1259,7 +1259,7 @@ defmodule NovelAgent.Provider.GatewayTest do
         refute item["body"] =~ "## 当前作品上下文"
         refute item["body"] =~ "用户创作简述"
         refute item["title"] =~ "候选内容"
-        assert "reader_effect_brief" in self_report["used_context_refs"]
+        assert self_report["used_context_refs"] == ["target_structure:test"]
       after
         Application.put_env(:novel_agent, :provider, old)
       end

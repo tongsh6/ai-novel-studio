@@ -62,7 +62,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
     assert is_binary(ref) and String.starts_with?(ref, "brief:")
     assert turn_result.trace_summary[:creative_decision_packet_ref] == "cdp_turn-cp1"
     assert turn_result.trace_summary[:writer_provider_call_ref] == "pc-cp1-writer"
-    assert turn_result.trace_summary[:provider_call_budget].writer == 1
+    assert turn_result.trace_summary[:provider_call_budget].writer == 2
     assert turn_result.trace_summary[:provider_call_budget].evaluator == 0
 
     # 4. brief 不是作品事实：待采纳产物正文是模型内容，不含执行简述结构
@@ -99,6 +99,12 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
     complete = fn prompt ->
       Agent.update(agent, &[prompt | &1])
 
+      materials =
+        get_in(TestProviderPrompt.scope_content(prompt), ["authoring_task", "materials"])
+
+      assert %{"ref" => brief_ref} = Enum.find(materials, &(&1["kind"] == "execution_brief"))
+      assert Enum.any?(prompt.refs.base_refs, &(&1.ref == brief_ref))
+
       {:ok,
        %{
          provider_call_id: "pc-cp1-writer",
@@ -109,7 +115,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
              self_report: %{
                assumptions: [],
                intended_reader_effect: nil,
-               used_context_refs: ["prose_execution_brief"],
+               used_context_refs: [brief_ref],
                risk_flags: []
              }
            })

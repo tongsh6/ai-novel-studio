@@ -16,7 +16,7 @@ defmodule NovelApplication.JudgmentPlanMaterialTest do
   alias NovelPersistence.WorkSessionRepo
 
   @tag :r05_mixed_plan_material
-  test "真实同批计划只读结果进入后续Writer并与原计划调用和持久段绑定" do
+  test "单调用混合计划的只读结果进入后续Writer并与原计划调用和持久段绑定" do
     parent = self()
     {:ok, work} = WorkService.create(%{title: "混合计划材料"})
     {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
@@ -121,17 +121,14 @@ defmodule NovelApplication.JudgmentPlanMaterialTest do
           do: block
 
     assert Enum.count(validations, &(&1.call_id == "inline-plan-call")) == 1
-    assert Enum.count(validations, &(&1.call_id == "inline-route-call")) == 1
+    assert length(validations) == 1
     plan_validation = Enum.find(validations, &(&1.call_id == "inline-plan-call"))
     assert plan_validation.status == "passed"
     assert plan_validation.reason_code == "agent_plan_validated"
     assert plan_validation.detail["plan_ref"] == state.run.plan_ref
     assert plan_validation.detail["plan_version"] == state.run.plan_version
 
-    assert RequestIR.call_ids(writer_request.messages) == [
-             "inline-route-call",
-             "inline-plan-call"
-           ]
+    assert RequestIR.call_ids(writer_request.messages) == ["inline-plan-call"]
 
     for target <- ~w(chat_completions responses_api anthropic_messages) do
       assert {:ok, wire} = Projection.project(writer_request, target)
@@ -162,17 +159,8 @@ defmodule NovelApplication.JudgmentPlanMaterialTest do
             send(parent, {:mixed_plan_request, :judgment, request})
 
             response(
-              "先读取真实规则，再生成待采纳设定。",
+              "",
               [
-                %{
-                  id: "inline-route-call",
-                  name: "judgment_decision",
-                  arguments: %{
-                    action: "plan",
-                    reason: "先取证后创作",
-                    dialogue_goal: "核对资料后生成世界设定"
-                  }
-                },
                 %{
                   id: "inline-plan-call",
                   name: "agent_plan_draft",

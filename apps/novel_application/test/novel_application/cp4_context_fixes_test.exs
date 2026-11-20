@@ -172,46 +172,126 @@ defmodule NovelApplication.CP4ContextFixesTest do
              &(get_in(&1, [:run_patch, :profile_ref]) == "judgment_plan_v1")
            )
 
-    # 下一次 provider 请求：计划内的多次真实读取以**单一**同 call_id 聚合观察回流。
-    prompt_maps = drain_prompt_maps([])
-    next_prompt_map = Enum.find(prompt_maps, &has_observation?/1)
-    assert next_prompt_map
-    assert [aggregate] = observation_blocks(next_prompt_map)
+    # 两次计划分别消耗普通读取和真实续读；后续请求只接收已执行的应用材料。
+    assert [initial_prompt, continuation_prompt, final_prompt] = drain_prompt_maps([])
+    assert RequestIR.visible_observations(initial_prompt) == []
+    assert observation_blocks(continuation_prompt) == []
+    assert observation_blocks(final_prompt) == []
 
-    judgment_call =
-      next_prompt_map.messages
-      |> Enum.flat_map(&Map.get(&1, :blocks, []))
-      |> Enum.find(&(&1.type == "tool_call" and &1.name == "judgment_decision"))
+    first_leaves = RequestIR.visible_observations(continuation_prompt)
+    assert Enum.map(first_leaves, & &1.content["tool"]) == ["archive_read", "chapter_read"]
+    assert Enum.all?(first_leaves, &(&1.provenance == "application"))
+    first_page = List.last(first_leaves)
 
-    assert judgment_call
-    assert aggregate.call_id == judgment_call.call_id
-    assert aggregate.content["tool"] == "planned_exploration"
+    continuation_budget =
+      get_in(TestProviderPrompt.scope_content(continuation_prompt), [
+        "operation",
+        "exploration",
+        "budget"
+      ])
 
-    # 汇总只留简洁说明，不把正文/叶 summary 作为顶层 summary 重复入线。
-    refute aggregate.content["summary"] =~ @first_page_anchor
+    assert continuation_budget["continuation_only?"] == true
 
-    leaves = aggregate.content["observations"]
-    assert is_list(leaves)
+    assert continuation_budget["continuation"] == %{
+             "tool" => "chapter_read",
+             "chapter_ref" => chapter_ref,
+             "next_offset" => 6000,
+             "read_end" => 6000,
+             "total" => 7000
+           }
+
+    continuation_blocks = Enum.flat_map(continuation_prompt.messages, & &1.blocks)
+    assert [first_plan_call] = Enum.filter(continuation_blocks, &(&1.type == "tool_call"))
+    assert first_plan_call.name == "agent_plan_draft"
+    first_plan_call_id = first_plan_call.call_id
+
+    assert [
+             %{
+               call_id: ^first_plan_call_id,
+               status: "passed",
+               reason_code: "agent_plan_validated"
+             }
+           ] =
+             Enum.filter(continuation_blocks, &(&1.type == "validation_result"))
+
+    assert [archive_step, chapter_step] = first_plan_call.arguments["plan"]["steps"]
+    assert archive_step["target_tool_ref"] == "archive_read"
+    assert chapter_step["target_tool_ref"] == "chapter_read"
+
+    assert Jason.decode!(chapter_step["exploration_query"]) == %{
+             "chapter_ref" => chapter_ref,
+             "offset" => 0
+           }
+
+    blocks = Enum.flat_map(final_prompt.messages, & &1.blocks)
+    assert [^first_plan_call, second_plan_call] = Enum.filter(blocks, &(&1.type == "tool_call"))
+    assert second_plan_call.name == "agent_plan_draft"
+    second_plan_call_id = second_plan_call.call_id
+    refute second_plan_call_id == first_plan_call_id
+
+    assert [
+             %{
+               call_id: ^first_plan_call_id,
+               status: "passed",
+               reason_code: "agent_plan_validated"
+             },
+             %{
+               call_id: ^second_plan_call_id,
+               status: "passed",
+               reason_code: "agent_plan_validated"
+             }
+           ] = Enum.filter(blocks, &(&1.type == "validation_result"))
+
+    assert [continuation_step] = second_plan_call.arguments["plan"]["steps"]
+    assert continuation_step["target_tool_ref"] == "chapter_read"
+
+    assert Jason.decode!(continuation_step["exploration_query"]) == %{
+             "chapter_ref" => first_page.coverage["chapter_ref"],
+             "offset" => first_page.next_offset
+           }
+
+    scopes =
+      for %{type: "scope", content: %{"operation" => %{"role" => "planned_exploration"}} = scope} <-
+            blocks,
+          do: scope
+
+    leaves = RequestIR.visible_observations(final_prompt)
     assert length(leaves) == 3
-    refute Enum.any?(leaves, &Map.has_key?(&1, "call_id"))
+    assert Enum.take(leaves, 2) == first_leaves
+    assert length(scopes) == 3
+    assert Enum.all?(leaves, &(&1.provenance == "application"))
+    refute Enum.any?(leaves, &Map.has_key?(&1, :call_id))
 
-    # 叶观察按执行顺序交还给 run：身份与 next request 的 observation_ref 逐字一致。
+    # 材料身份来自同一次实际执行；操作步必须和真实 AgentObservation 的所属运行步一致。
     planned_actors =
       Enum.filter(snapshot.observations, &String.starts_with?(&1.source_ref, "explore:"))
 
     assert length(planned_actors) == length(leaves)
 
-    assert Enum.map(leaves, & &1["content"]["observation_ref"]) ==
+    assert Enum.map(leaves, & &1.content["observation_ref"]) ==
              Enum.map(planned_actors, &"observation:#{&1.observation_id}")
 
-    leaf_refs = Enum.map(leaves, & &1["content"]["observation_ref"])
+    assert Enum.map(scopes, & &1["operation"]["observation_ref"]) ==
+             Enum.map(planned_actors, & &1.observation_id)
+
+    assert Enum.map(scopes, & &1["operation"]["step_ref"]) ==
+             Enum.map(planned_actors, & &1.step_ref)
+
+    assert Enum.map(scopes, & &1["operation"]["plan_call_id"]) ==
+             [first_plan_call_id, first_plan_call_id, second_plan_call_id]
+
+    [archive_actor, first_page_actor, last_page_actor] = planned_actors
+    assert archive_actor.step_ref == first_page_actor.step_ref
+    refute last_page_actor.step_ref == first_page_actor.step_ref
+
+    leaf_refs = Enum.map(leaves, & &1.content["observation_ref"])
     assert length(Enum.uniq(leaf_refs)) == length(leaf_refs)
 
     # 同章两页各自保留真实范围、原文与版本；叶子自身是版本/范围真源。
     raw_chapters =
       Enum.filter(snapshot.stage_state.judgment_explorations, &(&1.tool == "chapter_read"))
 
-    chapter_leaves = Enum.filter(leaves, &(&1["content"]["tool"] == "chapter_read"))
+    chapter_leaves = Enum.filter(leaves, &(&1.content["tool"] == "chapter_read"))
     assert length(chapter_leaves) == 2
 
     raw_ranges =
@@ -219,24 +299,22 @@ defmodule NovelApplication.CP4ContextFixesTest do
         Map.new(observation.prose_range, fn {key, value} -> {to_string(key), value} end)
       end)
 
-    assert Enum.map(chapter_leaves, & &1["coverage"]["prose_range"]) == raw_ranges
-
-    assert Enum.map(chapter_leaves, & &1["versions"]) ==
-             Enum.map(raw_chapters, & &1.versions)
-
-    assert Enum.all?(chapter_leaves, &(map_size(&1["versions"]) > 0))
+    assert Enum.map(chapter_leaves, & &1.coverage["prose_range"]) == raw_ranges
+    assert Enum.map(chapter_leaves, & &1.versions) == Enum.map(raw_chapters, & &1.versions)
+    assert Enum.all?(chapter_leaves, &(map_size(&1.versions) > 0))
 
     [page1_leaf, page2_leaf] = chapter_leaves
-    assert page1_leaf["coverage"]["prose_range"] == %{"start" => 1, "end" => 6000}
-    assert page2_leaf["coverage"]["prose_range"] == %{"start" => 6001, "end" => 7000}
-    assert page1_leaf["next_offset"] == 6000
-    assert page2_leaf["next_offset"] == nil
-    assert page1_leaf["content"]["summary"] =~ @first_page_anchor
-    assert page2_leaf["content"]["summary"] =~ @long_tail_anchor
+    assert page1_leaf.coverage["prose_range"] == %{"start" => 1, "end" => 6000}
+    assert page2_leaf.coverage["prose_range"] == %{"start" => 6001, "end" => 7000}
+    assert page1_leaf.next_offset == 6000
+    assert page2_leaf.next_offset == nil
+    assert page1_leaf.content["summary"] =~ @first_page_anchor
+    assert page2_leaf.content["summary"] =~ @long_tail_anchor
 
-    # transcript refs 跟随聚合形状：叶身份与真实底层来源进入 observation_refs。
-    assert Enum.all?(leaf_refs, &(&1 in next_prompt_map.refs.observation_refs))
-    assert Enum.all?(chapter_leaves, &(chapter_ref in &1["source_refs"]))
+    # 已执行计划材料沿既有 Base 来源登记，不冒充原生工具 Observation。
+    assert final_prompt.refs.observation_refs == []
+    assert Enum.all?(chapter_leaves, &(chapter_ref in &1.source_refs))
+    assert chapter_ref in final_prompt.refs.base_refs
   end
 
   @tag :scope_continuation
@@ -586,7 +664,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
       {:decision,
        %{
          "action" => "explore",
-         "reason" => "继续真实来源的后续页",
+         "author_reasoning" => "继续读取同一来源的后续页。",
+         "dialogue_goal" => "继续读取上一页的后续内容",
          "explore_request" => %{"tool" => tool, "query" => Jason.encode!(selector)}
        }}
     end)
@@ -634,6 +713,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
             "judgment_decision",
             %{
               action: "explore",
+              author_reasoning: "读取当前来源的正文。",
+              dialogue_goal: text,
               explore_request: %{tool: observation.tool, query: observation.query}
             },
             call_id
@@ -648,10 +729,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
   end
 
   defp has_observation?(prompt_map) do
-    Enum.any?(prompt_map.messages, fn
-      %{role: "tool", blocks: blocks} -> Enum.any?(blocks, &(&1.type == "observation"))
-      _ -> false
-    end)
+    RequestIR.visible_observations(prompt_map) != []
   end
 
   # 长章脚本：按观察页数逐页续读；读满 6 页（34357 字符）后收束引用末页锚点。
@@ -668,7 +746,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
         {:decision,
          %{
            "action" => "explore",
-           "reason" => "need_full_chapter",
+           "author_reasoning" => "继续读取完整章节正文。",
+           "dialogue_goal" => "完整读取本章正文并核对末页内容",
            "explore_request" => %{"tool" => "chapter_read", "query" => query}
          }}
       end
@@ -689,54 +768,81 @@ defmodule NovelApplication.CP4ContextFixesTest do
     end
   end
 
-  # M17 脚本：首轮 judgment_decision(plan)+agent_plan_draft（只读 archive_read +
-  # 同章两页 chapter_read），内联执行后第二轮基于观察给出最终对比结论。
+  # M17：首计划只读 archive 与章首页；第二计划依据实际 next_offset 续读，最后收束。
   defp planned_reads_then_reply_execution(test_pid, chapter_ref) do
     scripted_judgment_execution(fn prompt ->
       send(test_pid, {:prompt_map, prompt})
 
-      if has_observation?(prompt) do
-        {:narrative,
-         "两份候选的真实差异：A 更冷峻克制，B 更热闹外放；建议先说明取舍再修订。\n\n" <>
-           @long_tail_anchor}
-      else
-        {:plan_pair,
-         %{
-           "action" => "plan",
-           "dialogue_goal" => "比较两个待采纳候选",
-           "reason" => "需要先取证再比较",
-           "plan" => %{
-             "steps" => [
-               %{
-                 "step_id" => "s1",
-                 "kind" => "explore",
-                 "description" => "读取两个候选与作品档案。",
-                 "success_criteria" => ["candidates_read"],
-                 "target_tool_ref" => "archive_read",
-                 "exploration_query" => "profile"
-               },
-               %{
-                 "step_id" => "s2",
-                 "kind" => "explore",
-                 "description" => "读取第01章当前正文首页。",
-                 "success_criteria" => ["chapter_read"],
-                 "target_tool_ref" => "chapter_read",
-                 "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: 0})
-               },
-               %{
-                 "step_id" => "s3",
-                 "kind" => "explore",
-                 "description" => "续读第01章第二页。",
-                 "success_criteria" => ["chapter_read"],
-                 "target_tool_ref" => "chapter_read",
-                 "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: 6000})
-               }
-             ]
-           },
-           "author_reasoning" => "先读候选与正文，再给比较建议。",
-           "reason_codes" => ["agent_plan_drafted"],
-           "confidence" => 0.9
-         }}
+      case RequestIR.visible_observations(prompt) do
+        [] ->
+          {:plan,
+           %{
+             "plan" => %{
+               "steps" => [
+                 %{
+                   "step_id" => "s1",
+                   "kind" => "explore",
+                   "description" => "读取两个候选与作品档案。",
+                   "success_criteria" => ["candidates_read"],
+                   "target_tool_ref" => "archive_read",
+                   "exploration_query" => "profile"
+                 },
+                 %{
+                   "step_id" => "s2",
+                   "kind" => "explore",
+                   "description" => "读取第01章当前正文首页。",
+                   "success_criteria" => ["chapter_read"],
+                   "target_tool_ref" => "chapter_read",
+                   "exploration_query" => Jason.encode!(%{chapter_ref: chapter_ref, offset: 0})
+                 }
+               ]
+             },
+             "author_reasoning" => "先读候选与正文首页，再核对是否需要续读。",
+             "reason_codes" => ["agent_plan_drafted"],
+             "confidence" => 0.9
+           }}
+
+        [
+          %{content: %{"tool" => "archive_read"}},
+          %{content: %{"tool" => "chapter_read"}, next_offset: offset, coverage: coverage}
+        ]
+        when is_integer(offset) and offset > 0 ->
+          {:plan,
+           %{
+             "plan" => %{
+               "steps" => [
+                 %{
+                   "step_id" => "s3",
+                   "kind" => "explore",
+                   "description" => "按已读章页给出的下一位置续读。",
+                   "success_criteria" => ["chapter_read"],
+                   "target_tool_ref" => "chapter_read",
+                   "exploration_query" =>
+                     Jason.encode!(%{
+                       chapter_ref: Map.fetch!(coverage, "chapter_ref"),
+                       offset: offset
+                     })
+                 }
+               ]
+             },
+             "author_reasoning" => "首页之后仍有未读正文，读完同章下一页再给比较建议。",
+             "reason_codes" => ["agent_plan_drafted"],
+             "confidence" => 0.9
+           }}
+
+        [
+          %{content: %{"tool" => "archive_read"}},
+          %{content: %{"tool" => "chapter_read"}},
+          %{content: %{"tool" => "chapter_read"} = content, next_offset: nil}
+        ] ->
+          assert content["summary"] =~ @long_tail_anchor
+
+          {:narrative,
+           "两份候选的真实差异：A 更冷峻克制，B 更热闹外放；建议先说明取舍再修订。\n\n" <>
+             @long_tail_anchor}
+
+        observations ->
+          flunk("unexpected M17 planned observations: #{inspect(observations)}")
       end
     end)
   end

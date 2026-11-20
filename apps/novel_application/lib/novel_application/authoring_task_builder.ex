@@ -808,10 +808,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   def request_read_materials(%RequestIR{} = request) do
     request
-    |> RequestIR.visible_observations()
-    |> Enum.filter(fn observation ->
-      observation[:status] in ["ok", "partial"] and read_content?(observation[:content])
-    end)
+    |> RequestIR.usable_observations()
     |> Enum.flat_map(&read_observation_materials/1)
     |> Enum.uniq_by(&{&1.ref, &1[:version], &1[:complete?], &1.provenance})
   end
@@ -861,18 +858,6 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     |> request_read_materials()
     |> Enum.map(&Map.delete(&1, :provenance))
   end
-
-  defp read_content?(content) when is_binary(content), do: not blank?(content)
-
-  defp read_content?(content) when is_map(content) do
-    summary = content[:summary] || content["summary"]
-    facts = content[:facts] || content["facts"]
-
-    not blank?(summary) or (is_map(facts) and map_size(facts) > 0) or
-      (is_list(facts) and facts != [])
-  end
-
-  defp read_content?(_content), do: false
 
   defp read_source_identity(ref) when is_binary(ref), do: {ref, nil}
 

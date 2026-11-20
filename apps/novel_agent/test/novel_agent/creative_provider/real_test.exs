@@ -392,7 +392,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
         self_report: %{
           assumptions: ["按章计划处理"],
           intended_reader_effect: "紧张、期待",
-          used_context_refs: ["reader_effect_brief"],
+          used_context_refs: ["target_structure:test"],
           risk_flags: ["章尾钩子需作者确认"]
         }
       })

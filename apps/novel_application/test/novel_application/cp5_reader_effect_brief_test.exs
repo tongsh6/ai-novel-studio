@@ -12,6 +12,7 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelTest.TestProviderPrompt
 
   @work "work-cp5"
 
@@ -69,6 +70,12 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
     complete = fn prompt ->
       Agent.update(agent, &[prompt | &1])
 
+      materials =
+        get_in(TestProviderPrompt.scope_content(prompt), ["authoring_task", "materials"])
+
+      assert %{"ref" => structure_ref} = Enum.find(materials, &(&1["kind"] == "target_structure"))
+      assert Enum.any?(prompt.refs.base_refs, &(&1.ref == structure_ref))
+
       {:ok,
        %{
          content: "",
@@ -85,7 +92,7 @@ defmodule NovelApplication.CP5ReaderEffectBriefTest do
              self_report: %{
                assumptions: ["按 ReaderEffectBrief 生成"],
                intended_reader_effect: "紧张中带兴奋",
-               used_context_refs: ["target_structure", "reader_effect_brief"],
+               used_context_refs: [structure_ref],
                risk_flags: ["章尾钩子强度需复核"]
              }
            })
