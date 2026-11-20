@@ -699,7 +699,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     on_prompt = Keyword.get(opts, :on_prompt, fn _ -> :ok end)
     goal = Keyword.get(opts, :dialogue_goal, "推进作者本轮创作目标")
 
-    calls =
+    {content, calls} =
       cond do
         opts[:author_content_registration] ->
           registration = %{
@@ -711,55 +711,53 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
             }
           }
 
-          if action == "execute", do: [registration, registration], else: [registration]
+          {narrative,
+           if(action == "execute", do: [registration, registration], else: [registration])}
 
         opts[:frame_type] == "capability_gap" ->
-          [
-            %{
-              name: "report_capability_gap",
-              arguments: %{
-                dialogue_goal: goal,
-                missing_effect: narrative,
-                author_reasoning: narrative
-              }
-            }
-          ]
+          {narrative,
+           [
+             %{
+               name: "report_capability_gap",
+               arguments: %{
+                 dialogue_goal: goal,
+                 missing_effect: narrative,
+                 author_reasoning: narrative
+               }
+             }
+           ]}
 
         action == "reply" and opts[:candidate_directions] not in [nil, []] ->
-          [
-            %{
-              name: "propose_creative_directions",
-              arguments: %{
-                candidate_directions: opts[:candidate_directions],
-                author_reasoning: narrative
-              }
-            }
-          ]
+          {narrative,
+           [
+             %{
+               name: "propose_creative_directions",
+               arguments: %{
+                 candidate_directions: opts[:candidate_directions],
+                 author_reasoning: narrative
+               }
+             }
+           ]}
 
         action == "reply" ->
-          []
+          {narrative, []}
 
         action == "await_author" ->
-          [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
+          {"", [%{name: "ask_author", arguments: %{question: narrative, options: []}}]}
 
         true ->
-          [
-            %{
-              name: "judgment_decision",
-              arguments: %{
-                action: action,
-                capability: capability,
-                dialogue_goal: goal,
-                reason: narrative
-              }
-            }
-          ]
-      end
-
-    content =
-      case calls do
-        [%{name: "ask_author"}] -> ""
-        _ -> narrative
+          {narrative,
+           [
+             %{
+               name: "judgment_decision",
+               arguments: %{
+                 action: action,
+                 capability: capability,
+                 dialogue_goal: goal,
+                 reason: narrative
+               }
+             }
+           ]}
       end
 
     %Execution{

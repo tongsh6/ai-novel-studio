@@ -427,23 +427,26 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              CharacterProfile.validate_presentation(target, desired_role, author_text, roster) do
         case CharacterProfile.build_candidate(target, desired_role, author_text, roster) do
           {:ok, payload} ->
-            with :ok <- CharacterProfile.validate_changes(payload),
-                 {:ok, presentation} <-
-                   Presenter.character_profile_candidate(payload, target, roster) do
-              build_character_profile_candidate(
-                judgment,
-                payload,
-                presentation,
-                input,
-                run,
-                context
-              )
-            end
+            build_character_profile_candidate(
+              judgment,
+              payload,
+              target,
+              roster,
+              input,
+              run,
+              context
+            )
 
           {:no_change, facts} ->
-            with {:ok, message} <- Presenter.character_profile_no_change(facts, target, roster) do
-              build_character_profile_no_change(judgment, message, target, input, run, context)
-            end
+            build_character_profile_no_change(
+              judgment,
+              facts,
+              target,
+              roster,
+              input,
+              run,
+              context
+            )
 
           {:error, _reason} = error ->
             error
@@ -457,110 +460,115 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   # 无变化也是已完成的身份核对：模型说明保持原文，系统事实独立随结果持久化。
-  defp build_character_profile_no_change(judgment, message, target, input, run, context) do
-    frame = frame(judgment, input, run, :reply_only, nil)
+  defp build_character_profile_no_change(judgment, facts, target, roster, input, run, context) do
+    with {:ok, message} <- Presenter.character_profile_no_change(facts, target, roster) do
+      frame = frame(judgment, input, run, :reply_only, nil)
 
-    decision =
-      OrchestratorDecision.reply_only(frame.turn_id, frame.frame_id, [
-        "character_profile_no_change"
-      ])
+      decision =
+        OrchestratorDecision.reply_only(frame.turn_id, frame.frame_id, [
+          "character_profile_no_change"
+        ])
 
-    {trace, _summary} =
-      TraceWriter.record(frame, %{turn_id: frame.turn_id}, context, decision: decision)
+      {trace, _summary} =
+        TraceWriter.record(frame, %{turn_id: frame.turn_id}, context, decision: decision)
 
-    trace = %{
-      trace
-      | decision_type: :character_profile_revision,
-        event_order: [
-          :author_input_received,
-          :dialogue_context_attached,
-          :character_profile_identity_checked,
-          :character_profile_revision_no_change,
-          :turn_result_emitted
-        ]
-    }
+      trace = %{
+        trace
+        | decision_type: :character_profile_revision,
+          event_order: [
+            :author_input_received,
+            :dialogue_context_attached,
+            :character_profile_identity_checked,
+            :character_profile_revision_no_change,
+            :turn_result_emitted
+          ]
+      }
 
-    # B48 CP2 / ADR-0004 #3：统一裁决闭合——TurnResult 必须引用本轮 DecisionTrace，
-    # 作者经 Why/replay 可回查“身份已核对、无需修改”。
-    decision = %{decision | decision_trace_ref: trace.trace_id}
+      # B48 CP2 / ADR-0004 #3：统一裁决闭合——TurnResult 必须引用本轮 DecisionTrace，
+      # 作者经 Why/replay 可回查“身份已核对、无需修改”。
+      decision = %{decision | decision_trace_ref: trace.trace_id}
 
-    result =
-      TurnResultBuilder.build(frame, %{}, [], decision)
-      |> Map.put(:ui_cards, [
-        %{
-          card_type: "result_card",
-          priority: "normal",
-          visibility: "always",
-          title: "系统核对结果",
-          body: message
-        }
-      ])
+      result =
+        TurnResultBuilder.build(frame, %{}, [], decision)
+        |> Map.put(:ui_cards, [
+          %{
+            card_type: "result_card",
+            priority: "normal",
+            visibility: "always",
+            title: "系统核对结果",
+            body: message
+          }
+        ])
 
-    finish(
-      result,
-      trace,
-      context,
-      input,
-      run,
-      "revise_character_profile",
-      target.character_ref,
-      %{}
-    )
+      finish(
+        result,
+        trace,
+        context,
+        input,
+        run,
+        "revise_character_profile",
+        target.character_ref,
+        %{}
+      )
+    end
   end
 
-  defp build_character_profile_candidate(judgment, payload, presentation, input, run, context) do
-    frame = frame(judgment, %{}, run, :execution_candidate, payload.character_ref)
-    title = presentation.title
+  defp build_character_profile_candidate(judgment, payload, target, roster, input, run, context) do
+    with :ok <- CharacterProfile.validate_changes(payload),
+         {:ok, presentation} <- Presenter.character_profile_candidate(payload, target, roster) do
+      frame = frame(judgment, %{}, run, :execution_candidate, payload.character_ref)
+      title = presentation.title
 
-    item = %{
-      item_id:
-        "character_profile_revision_#{:erlang.phash2({payload.character_ref, payload.changes, frame.turn_id})}",
-      title: title,
-      body: presentation.body,
-      rationale: "只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆。"
-    }
+      item = %{
+        item_id:
+          "character_profile_revision_#{:erlang.phash2({payload.character_ref, payload.changes, frame.turn_id})}",
+        title: title,
+        body: presentation.body,
+        rationale: "只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆。"
+      }
 
-    artifact = %NovelDomain.TentativeArtifactSet{
-      artifact_set_id: NovelFoundation.ID.unique("as"),
-      artifact_type: :character_profile_revision,
-      items: [item],
-      source_turn_ref: frame.turn_id,
-      source_tool_result_ref: "character_profile_revision",
-      target_chapter: nil,
-      target_chapter_ref: nil
-    }
+      artifact = %NovelDomain.TentativeArtifactSet{
+        artifact_set_id: NovelFoundation.ID.unique("as"),
+        artifact_type: :character_profile_revision,
+        items: [item],
+        source_turn_ref: frame.turn_id,
+        source_tool_result_ref: "character_profile_revision",
+        target_chapter: nil,
+        target_chapter_ref: nil
+      }
 
-    result =
-      TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
-        candidate_title: title,
-        pending_payload: Map.put(payload, :title, title)
-      })
+      result =
+        TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+          candidate_title: title,
+          pending_payload: Map.put(payload, :title, title)
+        })
 
-    # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
-    # DialogueGateway.trace_to_attrs badkey（frame_ref 等）。
-    {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+      # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
+      # DialogueGateway.trace_to_attrs badkey（frame_ref 等）。
+      {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
 
-    trace = %{
-      trace
-      | decision_type: :character_profile_revision,
-        event_order: [
-          :author_input_received,
-          :dialogue_context_attached,
-          :character_profile_revision_candidate_built,
-          :turn_result_emitted
-        ]
-    }
+      trace = %{
+        trace
+        | decision_type: :character_profile_revision,
+          event_order: [
+            :author_input_received,
+            :dialogue_context_attached,
+            :character_profile_revision_candidate_built,
+            :turn_result_emitted
+          ]
+      }
 
-    finish(
-      result,
-      trace,
-      context,
-      input,
-      run,
-      "revise_character_profile",
-      payload.character_ref,
-      %{}
-    )
+      finish(
+        result,
+        trace,
+        context,
+        input,
+        run,
+        "revise_character_profile",
+        payload.character_ref,
+        %{}
+      )
+    end
   end
 
   defp chapter_revision_target?(judgment) do
