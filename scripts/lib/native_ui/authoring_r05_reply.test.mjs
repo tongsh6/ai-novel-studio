@@ -462,3 +462,120 @@ test("R05 reader 拒绝未绑定的回复视图文件，篡改前合法副本必
     scope.close();
   }
 });
+
+
+// 明确 hard break 保留自己的证据边界：同组相邻叶须真实跨行，或正文含实际换行。
+test("R05 两空格 hard break 的三行统计按同组真实跨行叶签收，首末可见另验", () => {
+  const reply = "总章数：2  \n有正文：1  \n还没写正文：1";
+  const body = [
+    { path: ROOT + "/20", role: "AXGroup", frame: [424, 506, 90, 75] },
+    { path: ROOT + "/20/0", role: "AXStaticText", value: "总章数：2", frame: [424, 510, 64, 18] },
+    { path: ROOT + "/20/1", role: "AXStaticText", value: "有正文：1", frame: [424, 535, 62, 17] },
+    { path: ROOT + "/20/2", role: "AXStaticText", value: "还没写正文：1", frame: [424, 559, 90, 18] },
+  ];
+  const nodes = page(body), before = JSON.stringify(nodes);
+  const report = r05.r05ReplyMatch({ reply, nodes, message: MESSAGE });
+  assert.equal(report.ok, true, JSON.stringify(report));
+  assert.deepEqual(report.surface.leaves.map((node) => node.value), ["总章数：2", "有正文：1", "还没写正文：1"]);
+  assert.equal(report.surface.first.path, ROOT + "/20/0");
+  assert.equal(report.surface.last.path, ROOT + "/20/2");
+  assert.equal(JSON.stringify(nodes), before);
+  const input = visibleInput(reply, nodes, "总章数：2\n有正文：1\n还没写正文：1");
+  assert.equal(r05.r05VisibleEvidence(input).ok, true);
+  const end = structuredClone(nodes);
+  end.find((node) => node.path === ROOT + "/20/2").frame = [424, 1200, 90, 18];
+  assert.equal(r05.r05ReplyMatch({ reply, nodes: end, message: MESSAGE }).ok, true);
+  input.reply_views = replyViews(nodes, end);
+  assert.equal(r05.r05VisibleEvidence(input).ok, false);
+});
+
+test("R05 单叶实际 LF 可证明两种明确 hard break，普通空格不能代替", () => {
+  assert.equal(match("总章数：2  \n有正文：1  \n还没写正文：1",
+    group(20, "总章数：2\n有正文：1\n还没写正文：1")).ok, true);
+  for (const reply of ["甲  \n乙", "甲\\\n乙"]) {
+    assert.equal(match(reply, group(20, "甲\n乙")).ok, true, reply);
+    assert.equal(match(reply, group(20, "甲 乙")).ok, false, reply);
+    assert.equal(match(reply, group(20, "甲乙")).ok, false, reply);
+  }
+});
+
+test("R05 AX 分叶本身不足以证明 hard break，必须有合法且不重叠的跨行 frame", () => {
+  const reply = "甲  \n乙";
+  const body = [
+    { path: ROOT + "/20", role: "AXGroup", frame: [100, 190, 100, 70] },
+    { path: ROOT + "/20/0", role: "AXStaticText", value: "甲", frame: [100, 200, 20, 18] },
+    { path: ROOT + "/20/1", role: "AXStaticText", value: "乙", frame: [100, 230, 20, 18] },
+  ];
+  for (const [label, change] of [
+    ["同行", (nodes) => { nodes[2].frame = [130, 200, 20, 18]; }],
+    ["垂直重叠", (nodes) => { nodes[2].frame = [100, 210, 20, 18]; }],
+    ["逆向行序", (nodes) => { nodes[2].frame = [100, 180, 20, 18]; }],
+    ["缺前叶 frame", (nodes) => { delete nodes[1].frame; }],
+    ["缺后叶 frame", (nodes) => { delete nodes[2].frame; }],
+    ["零宽 frame", (nodes) => { nodes[2].frame = [100, 230, 0, 18]; }],
+    ["负高 frame", (nodes) => { nodes[2].frame = [100, 230, 20, -18]; }],
+    ["非有限 frame", (nodes) => { nodes[2].frame = [100, NaN, 20, 18]; }],
+  ]) {
+    const changed = structuredClone(body); change(changed);
+    assert.equal(match(reply, changed).ok, false, label);
+  }
+});
+
+test("R05 hard break 只能位于对应字节边界，不能补普通词间空格", () => {
+  const body = [
+    { path: ROOT + "/20", role: "AXGroup", frame: [100, 190, 100, 70] },
+    { path: ROOT + "/20/0", role: "AXStaticText", value: "a", frame: [100, 200, 20, 18] },
+    { path: ROOT + "/20/1", role: "AXStaticText", value: "bcd", frame: [100, 230, 50, 18] },
+  ];
+  assert.equal(match("ab  \ncd", body).ok, false);
+  body[2].value = "b";
+  assert.equal(match("a b", body).ok, false);
+  assert.equal(match("ab", body).ok, true);
+});
+
+test("R05 hard break 同组多叶仍保完整内容、顺序与次数", () => {
+  const reply = "总章数：2  \n有正文：1  \n还没写正文：1";
+  for (const [label, lines] of [
+    ["缺首", ["有正文：1", "还没写正文：1"]],
+    ["缺中", ["总章数：2", "还没写正文：1"]],
+    ["缺尾", ["总章数：2", "有正文：1"]],
+    ["改值", ["总章数：2", "有正文：2", "还没写正文：1"]],
+    ["错序", ["有正文：1", "总章数：2", "还没写正文：1"]],
+    ["重复", ["总章数：2", "有正文：1", "有正文：1", "还没写正文：1"]],
+    ["尾句前缀", ["总章数：2", "有正文：1", "还没写正文"]],
+  ]) {
+    const body = [{ path: ROOT + "/20", role: "AXGroup", frame: [100, 190, 200, 130] },
+      ...lines.map((value, index) => ({ path: ROOT + "/20/" + index,
+        role: "AXStaticText", value, frame: [100, 200 + index * 25, 150, 18] }))];
+    assert.equal(match(reply, body).ok, false, label);
+  }
+});
+
+test("R05 hard break 邻 inline code 时保留 code 双空格，普通首尾空白不移动边界", () => {
+  const reply = "`a  b`  \n尾句";
+  const body = [
+    { path: ROOT + "/20", role: "AXGroup", frame: [100, 190, 100, 70] },
+    { path: ROOT + "/20/0", role: "AXStaticText", value: "a  b", frame: [100, 200, 50, 18] },
+    { path: ROOT + "/20/1", role: "AXStaticText", value: "尾句", frame: [100, 230, 50, 18] },
+  ];
+  assert.equal(match(reply, body).ok, true);
+  body[1].value = "a b";
+  assert.equal(match(reply, body).ok, false);
+  body[1].value = " \t甲";
+  body[2].value = "乙 \t";
+  assert.equal(match("甲  \n乙", body).ok, true);
+});
+
+test("R05 连续 hard break 各自需要证据，文字 LF 和同次跨行边界不能重复计数", () => {
+  const reply = "甲\\\n\\\n乙";
+  assert.equal(match(reply, group(20, "甲\n\n乙")).ok, true);
+  assert.equal(match(reply, group(20, "甲\n乙")).ok, false);
+  const body = [
+    { path: ROOT + "/20", role: "AXGroup", frame: [100, 190, 100, 80] },
+    { path: ROOT + "/20/0", role: "AXStaticText", value: "甲", frame: [100, 200, 20, 18] },
+    { path: ROOT + "/20/1", role: "AXStaticText", value: "乙", frame: [100, 250, 20, 18] },
+  ];
+  assert.equal(match(reply, body).ok, false);
+  body[1].value = "甲\n";
+  assert.equal(match(reply, body).ok, false);
+});

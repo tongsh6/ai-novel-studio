@@ -426,7 +426,7 @@ function replyInline(node, definitions) {
   switch (node.type) {
     case "text": case "html": return flow(node.value);
     case "inlineCode": return [{ literal: true, text: node.value }];
-    case "break": return flow("\n");
+    case "break": return [{ hardBreak: true }];
     case "strong": case "emphasis": case "delete": return children();
     case "image": return flow(node.alt ?? "");
     case "imageReference":
@@ -446,13 +446,13 @@ function replyParts(parts) {
   const merged = [];
   for (const part of parts) {
     const previous = merged.at(-1);
-    if (previous?.literal === part.literal) previous.text += part.text;
+    if (!part.hardBreak && previous?.literal === part.literal) previous.text += part.text;
     else merged.push({ ...part });
   }
-  for (const part of merged) if (!part.literal) part.text = replyFlowText(part.text);
+  for (const part of merged) if (part.literal === false) part.text = replyFlowText(part.text);
   if (merged[0]?.literal === false) merged[0].text = merged[0].text.replace(/^ +/u, "");
   if (merged.at(-1)?.literal === false) merged.at(-1).text = merged.at(-1).text.replace(/ +$/u, "");
-  return merged.filter((part) => part.text !== "");
+  return merged.filter((part) => part.hardBreak || part.text !== "");
 }
 function replyExpectedUnits(reply) {
   const tree = replyMarkdown.runSync(replyMarkdown.parse(reply));
@@ -489,35 +489,67 @@ function replyActualUnits(nodes, surface) {
     const parent = groups.filter((node) => replyDescendant(leaf.path, node.path) &&
       replyDescendant(node.path, surface.container)).sort((a, b) => b.path.split("/").length - a.path.split("/").length)[0];
     const path = parent?.path ?? leaf.path;
-    if (units.at(-1)?.path === path) units.at(-1).text += leaf.value;
-    else units.push({ path, text: leaf.value });
+    const unit = units.at(-1);
+    if (unit?.path === path) {
+      unit.boundaries.push({ offset: unit.text.length, before: unit.lastLeaf, after: leaf });
+      unit.text += leaf.value;
+      unit.lastLeaf = leaf;
+    } else units.push({ path, text: leaf.value, lastLeaf: leaf, boundaries: [] });
   }
   return units;
 }
 const replyWhitespace = (character) => character !== undefined && /[ \t\r\n\f]/u.test(character);
-function replyUnitMatches(parts, value) {
-  let actual = value;
-  if (!parts[0].literal) actual = actual.replace(/^[ \t\r\n\f]+/u, "");
-  if (!parts.at(-1).literal) actual = actual.replace(/[ \t\r\n\f]+$/u, "");
-  let positions = [0];
+function replyUnitMatches(parts, unit) {
+  const actual = unit.text;
+  // 仅移动普通 flow 的首尾界限；文本与叶边界始终使用原 offset。
+  let start = 0, end = actual.length;
+  if (parts[0].literal === false) while (start < end && replyWhitespace(actual[start])) start += 1;
+  if (parts.at(-1).literal === false) while (end > start && replyWhitespace(actual[end - 1])) end -= 1;
+  const hardBreaks = new Set(unit.boundaries.filter(({ offset, before, after }) => {
+    if (!validRect(before.frame) || !validRect(after.frame) ||
+        after.frame[1] < before.frame[1] + before.frame[3]) return false;
+    let left = offset, right = offset;
+    while (replyWhitespace(actual[left - 1])) left -= 1;
+    while (replyWhitespace(actual[right])) right += 1;
+    // 已有文字换行是同一份换行证据，不能再把相邻几何边界计一次。
+    return !/[\r\n]/u.test(actual.slice(left, right));
+  }).map((boundary) => boundary.offset));
+  let positions = [{ at: start, breakUsed: false }];
   for (const part of parts) {
+    if (part.hardBreak) {
+      const next = [];
+      for (const position of positions) {
+        const at = position.at;
+        const width = actual.startsWith("\r\n", at) ? 2 : actual[at] === "\n" ? 1 : 0;
+        if (width > 0 && at + width <= end) next.push({ at: at + width, breakUsed: false });
+        else if (!position.breakUsed && hardBreaks.has(at)) next.push({ at, breakUsed: true });
+      }
+      positions = next;
+      if (positions.length === 0) return false;
+      continue;
+    }
     if (part.literal) {
-      positions = positions.filter((at) => actual.startsWith(part.text, at)).map((at) => at + part.text.length);
+      positions = positions.filter(({ at }) => at + part.text.length <= end && actual.startsWith(part.text, at))
+        .map((position) => part.text.length === 0 ? position : { at: position.at + part.text.length, breakUsed: false });
       continue;
     }
     for (const character of part.text) {
-      const next = new Set();
-      for (const at of positions) {
+      const next = new Map();
+      for (const { at } of positions) {
         if (character === " ") {
-          // 普通 CSS 空白允许折叠；保留每个边界，以免吞掉相邻 code 的字面空白。
-          for (let end = at; replyWhitespace(actual[end]); end += 1) next.add(end + 1);
-        } else if (actual.startsWith(character, at)) next.add(at + character.length);
+          // 普通 CSS 空白仍须消费至少一个实际字符，不使用 hard break 的叶边界。
+          for (let cursor = at; cursor < end && replyWhitespace(actual[cursor]); cursor += 1) {
+            next.set(cursor + 1, { at: cursor + 1, breakUsed: false });
+          }
+        } else if (at + character.length <= end && actual.startsWith(character, at)) {
+          next.set(at + character.length, { at: at + character.length, breakUsed: false });
+        }
       }
-      positions = [...next];
+      positions = [...next.values()];
       if (positions.length === 0) return false;
     }
   }
-  return positions.includes(actual.length);
+  return positions.some(({ at }) => at === end);
 }
 export function r05ReplyMatch({ reply, nodes, message, baselineAuthorCount = 0 } = {}) {
   const surface = r05ReplySurface(nodes, { message, baselineAuthorCount });
@@ -528,7 +560,7 @@ export function r05ReplyMatch({ reply, nodes, message, baselineAuthorCount = 0 }
   catch (error) { return { ok: false, reason: "reply_markdown_unsupported", detail: error.message, surface }; }
   const actual = replyActualUnits(nodes, surface);
   const ok = expected.length > 0 && expected.length === actual.length &&
-    expected.every((parts, index) => replyUnitMatches(parts, actual[index].text));
+    expected.every((parts, index) => replyUnitMatches(parts, actual[index]));
   return { ok, reason: ok ? null : "reply_text_mismatch", surface,
     expected_units: expected.length, actual_units: actual.length };
 }
