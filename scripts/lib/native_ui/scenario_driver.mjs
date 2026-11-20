@@ -31,6 +31,7 @@ import {
 } from "./driver.mjs";
 import { cleanupNativeApp } from "../native_app_ownership.mjs";
 import { sha256, shaFile } from "./scenario_evidence.mjs";
+import { writeUiComplete } from "./workbench.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -883,11 +884,9 @@ export class NativeScenarioHarness {
 
   // ── 收尾 ─────────────────────────────────────────────────────────────────
   writeUiComplete(scope) {
-    this.writeJson("native-ui-complete.json", {
-      harness_run_ref: this.ready.run_ref,
-      driver: "ax-native-system-ui",
-      app_bundle: this.target.bundle_identifier,
-      input_target: this.target,
+    writeUiComplete(this.dir, {
+      target: this.target,
+      runRef: this.ready.run_ref,
       screenshots: this.screenshots,
       scope,
     });

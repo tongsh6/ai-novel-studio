@@ -867,6 +867,7 @@ async function runDeterministicScenario() {
     captures, log, inputs, run_ref: ready.run_ref,
   });
   writeUiComplete(dir, {
+    target: APP,
     runRef: ready.run_ref,
     screenshots,
     driver: "ax-native-system-ui",
@@ -931,6 +932,7 @@ async function runStrataScopedScenario() {
     captures, log, inputs, run_ref: ready.run_ref,
   });
   writeUiComplete(dir, {
+    target: APP,
     runRef: ready.run_ref,
     screenshots,
     driver: "ax-native-system-ui",
@@ -964,8 +966,13 @@ async function runR03CandidateScenario(config) {
     model: config.model, runtime: config.runtime, scope: config.scope,
     finished_at: nowIso(), captures, log, inputs, run_ref: ready.run_ref,
   });
-  writeUiComplete(dir, { runRef: ready.run_ref, screenshots,
-    driver: "ax-native-system-ui", scope: config.slice_id });
+  writeUiComplete(dir, {
+    target: APP,
+    runRef: ready.run_ref,
+    screenshots,
+    driver: "ax-native-system-ui",
+    scope: config.slice_id,
+  });
 }
 
 async function main() {

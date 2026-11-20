@@ -15,6 +15,7 @@ import {
   ensureWorkSelected,
   evidenceText,
 } from "./scenario_driver.mjs";
+import { writeUiComplete } from "./workbench.mjs";
 
 function makeHarness(io) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "native-scenario-"));
@@ -35,6 +36,88 @@ function makeHarness(io) {
   );
   return { dir, harness: new NativeScenarioHarness(dir, io) };
 }
+
+test("workbench 完成文件真实落盘保留传入 target 与六字段协议", (t) => {
+  const { dir } = makeHarness();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const artifactDir = fs.realpathSync(dir);
+  const target = Object.freeze({
+    schema: "native-input-target/v1",
+    artifact_dir: artifactDir,
+    run_ref: "run",
+    bundle_identifier: "com.example.direct",
+    app_path: path.join(artifactDir, "Test.app"),
+    executable_path: path.join(
+      artifactDir,
+      "Test.app",
+      "Contents",
+      "MacOS",
+      "app",
+    ),
+    native_executable: "app",
+    pid: 31415,
+    generation: 2,
+  });
+  const file = path.join(dir, "native-ui-complete.json");
+  assert.equal(fs.existsSync(file), false);
+
+  writeUiComplete(dir, {
+    target,
+    runRef: "run",
+    screenshots: ["direct-start.jpg", "direct-end.jpg"],
+    scope: "completion-direct",
+  });
+
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {
+    harness_run_ref: "run",
+    driver: "ax-native-system-ui",
+    app_bundle: "com.example.direct",
+    input_target: target,
+    screenshots: ["direct-start.jpg", "direct-end.jpg"],
+    scope: "completion-direct",
+  });
+});
+
+test("Harness 完成文件真实落盘保留实例 target 的 bundle 和完整身份", (t) => {
+  const { dir, harness } = makeHarness();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const artifactDir = fs.realpathSync(dir);
+  const target = Object.freeze({
+    schema: "native-input-target/v1",
+    artifact_dir: artifactDir,
+    run_ref: "run",
+    bundle_identifier: "com.example.app",
+    app_path: path.join(artifactDir, "Test.app"),
+    executable_path: path.join(
+      artifactDir,
+      "Test.app",
+      "Contents",
+      "MacOS",
+      "app",
+    ),
+    native_executable: "app",
+    pid: 27182,
+    generation: 3,
+  });
+  harness.target = target;
+  harness.screenshots = ["harness-start.jpg", "harness-end.jpg"];
+
+  harness.writeUiComplete("completion-harness");
+
+  assert.deepEqual(
+    JSON.parse(
+      fs.readFileSync(path.join(dir, "native-ui-complete.json"), "utf8"),
+    ),
+    {
+      harness_run_ref: "run",
+      driver: "ax-native-system-ui",
+      app_bundle: "com.example.app",
+      input_target: target,
+      screenshots: ["harness-start.jpg", "harness-end.jpg"],
+      scope: "completion-harness",
+    },
+  );
+});
 
 function countingInput() {
   const calls = [];

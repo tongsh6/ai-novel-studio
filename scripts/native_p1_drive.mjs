@@ -1186,6 +1186,7 @@ async function run() {
   });
   writeJson("p1-native-driver-log.json", payload);
   writeUiComplete(dir, {
+    target: APP,
     runRef: ready.run_ref,
     screenshots,
     driver: "ax-native-system-ui",

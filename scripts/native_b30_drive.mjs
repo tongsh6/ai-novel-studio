@@ -1361,6 +1361,7 @@ async function main() {
   else if (sliceId === S2) await runBlueprintScenario();
   else throw new Error(`unknown slice: ${sliceId}`);
   writeUiComplete(dir, {
+    target: APP,
     runRef: ready.run_ref,
     screenshots,
     driver: "ax-native-system-ui",
