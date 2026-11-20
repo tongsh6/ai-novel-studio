@@ -1,6 +1,7 @@
 defmodule NovelCommon.Contracts.ToolOutputContractTest do
   use ExUnit.Case, async: true
 
+  alias NovelCommon.Contracts.CreativeItemAttributes
   alias NovelCommon.Contracts.ToolOutputContract
 
   test "validates prose companion artifacts and preserves existing seed semantics" do
@@ -166,16 +167,25 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     end
 
     test "把中文角色类型同义词归一化到枚举" do
-      assert ToolOutputContract.normalize_narrative_role("主角") == "PROTAGONIST"
-      assert ToolOutputContract.normalize_narrative_role("反派") == "ANTAGONIST"
-      assert ToolOutputContract.normalize_narrative_role("配角") == "SUPPORTING"
-      assert ToolOutputContract.normalize_narrative_role("群像视角") == "ENSEMBLE_POV"
-      assert ToolOutputContract.normalize_narrative_role("protagonist") == "PROTAGONIST"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "主角"})[:narrative_role] ==
+               "PROTAGONIST"
+
+      assert CreativeItemAttributes.normalize(%{narrative_role: "反派"})[:narrative_role] ==
+               "ANTAGONIST"
+
+      assert CreativeItemAttributes.normalize(%{narrative_role: "配角"})[:narrative_role] ==
+               "SUPPORTING"
+
+      assert CreativeItemAttributes.normalize(%{narrative_role: "群像视角"})[:narrative_role] ==
+               "ENSEMBLE_POV"
+
+      assert CreativeItemAttributes.normalize(%{narrative_role: "protagonist"})[:narrative_role] ==
+               "PROTAGONIST"
     end
 
     test "无法识别的叙事角色与缺省时为 nil，不写入 item" do
-      assert ToolOutputContract.normalize_narrative_role("不知道") == nil
-      assert ToolOutputContract.normalize_narrative_role(nil) == nil
+      assert CreativeItemAttributes.normalize(%{narrative_role: "不知道"})[:narrative_role] == nil
+      assert CreativeItemAttributes.normalize(%{narrative_role: nil})[:narrative_role] == nil
 
       assert {:ok, [item]} =
                ToolOutputContract.validate_creative_items([
@@ -277,12 +287,20 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     end
 
     test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
-      assert ToolOutputContract.normalize_memory_subtype("relationship") == "RELATIONSHIP"
-      assert ToolOutputContract.normalize_memory_subtype("结盟反目") == "RELATIONSHIP"
-      assert ToolOutputContract.normalize_memory_subtype("当前状态") == "CURRENT_STATE"
-      assert ToolOutputContract.normalize_memory_subtype("黑化") == "CHARACTER_PROFILE"
-      assert ToolOutputContract.normalize_memory_subtype("不知道") == nil
-      assert ToolOutputContract.normalize_memory_subtype(nil) == nil
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "relationship"})[:memory_subtype] ==
+               "RELATIONSHIP"
+
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "结盟反目"})[:memory_subtype] ==
+               "RELATIONSHIP"
+
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "当前状态"})[:memory_subtype] ==
+               "CURRENT_STATE"
+
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "黑化"})[:memory_subtype] ==
+               "CHARACTER_PROFILE"
+
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "不知道"})[:memory_subtype] == nil
+      assert CreativeItemAttributes.normalize(%{memory_subtype: nil})[:memory_subtype] == nil
 
       assert {:ok, [item]} =
                ToolOutputContract.validate_creative_items([
