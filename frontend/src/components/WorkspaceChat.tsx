@@ -4989,14 +4989,6 @@ export function WorkspaceChat() {
                           </div>
                         ) : null;
                       })()}
-                    {msg.role === "assistant" && msg.turnResult?.author_question ? (
-                      <AuthorQuestionRecord question={msg.turnResult.author_question} />
-                    ) : msg.role === "assistant" ? (
-                      <MarkdownText text={msg.text} />
-                    ) : (
-                      <div className={styles.text}>{msg.text}</div>
-                    )}
-
                     {msg.role === "assistant" && messageAgentRun && (
                       <AgentRunDialogueFlow
                         run={messageAgentRun}
@@ -5007,6 +4999,14 @@ export function WorkspaceChat() {
                           void handleOpenHistoryTurn(target);
                         }}
                       />
+                    )}
+
+                    {msg.role === "assistant" && msg.turnResult?.author_question ? (
+                      <AuthorQuestionRecord question={msg.turnResult.author_question} />
+                    ) : msg.role === "assistant" ? (
+                      <MarkdownText text={msg.text} />
+                    ) : (
+                      <div className={styles.text}>{msg.text}</div>
                     )}
 
                     {msg.role === "assistant" && msg.turnResult && (

@@ -1,4 +1,4 @@
-// Design: docs/design/ui/46-state-and-feedback.md §9.7（提问正文唯一所有者）
+// Design: docs/design/ui/46-state-and-feedback.md §9.4.2 / §9.5 / §9.7（叙述时序与提问正文唯一所有者）
 // Design: docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md §6（模型说明与系统结果来源分立）
 // Render the actual whole workbench, not a hand-rebuilt message composition.
 import { renderToStaticMarkup } from "react-dom/server";
@@ -159,25 +159,41 @@ describe("WorkspaceChat author-visible semantic ownership", () => {
       expect(html).not.toContain('aria-label="回答当前问题"');
     },
   );
-  it.each([false, true])(
-    "keeps accepted earlier judgments beside one final question, history=%s",
-    (history) => {
+  it.each([
+    ["question", false],
+    ["question", true],
+    ["reply", false],
+    ["reply", true],
+  ] as const)(
+    "keeps accepted earlier judgments before one final %s, history=%s",
+    (kind, history) => {
       state.history = history;
-      const question = "请确认要调整哪一位沈砚？";
-      const value = result(question, history ? "answered" : "open", "with-judgments");
-      const questionSource = {
-        source_type: "provider_output_tool_narrative",
-        provider_run_ref: "provider-question",
-        provider_call_ref: "call-question",
-        provider_output_ref: "provider-question",
-        tool_call_name: "ask_author",
-        tool_call_narrative_field: "question",
-        source_hash: "question-source-hash",
-        narrative_hash: "question-body-hash",
+      const finalText =
+        kind === "question"
+          ? "请确认要调整哪一位沈砚？"
+          : "这些差异足以区分两位沈砚，现有身份保持不变。";
+      const value = result(finalText, history ? "answered" : "open", "with-judgments");
+      if (kind === "reply") {
+        value.author_question = undefined;
+        value.phase = "completed";
+        value.status = "completed";
+        value.next_action = "continue";
+      }
+      const finalSource = {
+        source_type: kind === "question" ? "provider_output_tool_narrative" : "provider_output",
+        provider_run_ref: "provider-final",
+        provider_call_ref: "call-final",
+        provider_output_ref: "provider-final",
+        ...(kind === "question"
+          ? { tool_call_name: "ask_author", tool_call_narrative_field: "question" }
+          : {}),
+        source_hash: "final-source-hash",
+        narrative_hash: "final-body-hash",
         source_byte_range: { start: 0, length: 42 },
       };
       const earlierSource = {
-        ...questionSource,
+        ...finalSource,
+        source_type: "provider_output_tool_narrative",
         provider_run_ref: "provider-earlier",
         provider_call_ref: "call-earlier",
         provider_output_ref: "provider-earlier",
@@ -187,15 +203,16 @@ describe("WorkspaceChat author-visible semantic ownership", () => {
         narrative_hash: "earlier-body-hash",
       };
       const runId = "run-with-judgments";
+      const completed = history || kind === "reply";
       value.agent_run = {
         run_id: runId,
-        status: history ? "completed" : "awaiting_author",
-        phase: history ? "completed" : "awaiting_author",
+        status: completed ? "completed" : "awaiting_author",
+        phase: completed ? "completed" : "awaiting_author",
       };
       value.trace_summary = {
         reply_record: {
-          provider_call_ref: "call-question",
-          author_narrative_source: questionSource,
+          provider_call_ref: "call-final",
+          author_narrative_source: finalSource,
         },
       };
       state.events = [
@@ -229,13 +246,13 @@ describe("WorkspaceChat author-visible semantic ownership", () => {
           },
         },
         {
-          event_id: "question-accepted",
+          event_id: "final-accepted",
           run_ref: runId,
           sequence: 3,
           event_type: "judgment_decided",
           visibility: "author",
-          summary: "等待作者回答",
-          payload: { author_narrative: question, author_narrative_source: questionSource },
+          summary: "已接受最终回应",
+          payload: { author_narrative: finalText, author_narrative_source: finalSource },
         },
         {
           event_id: "private-attempt",
@@ -251,9 +268,13 @@ describe("WorkspaceChat author-visible semantic ownership", () => {
       messages = upsertAssistantTurnResultMessage(messages, value);
       expect(messages).toHaveLength(1);
       const html = render([], messages);
-      for (const text of ["我已核对同名角色资料。", "这两份角色资料仍有身份差异。", question]) {
+      for (const text of ["我已核对同名角色资料。", "这两份角色资料仍有身份差异。", finalText]) {
         expect(html.split(text).length - 1).toBe(1);
       }
+      expect(html.indexOf("我已核对同名角色资料。")).toBeLessThan(
+        html.indexOf("这两份角色资料仍有身份差异。"),
+      );
+      expect(html.indexOf("这两份角色资料仍有身份差异。")).toBeLessThan(html.indexOf(finalText));
       expect(html).not.toContain("不得出现的未校验正文");
       if (history) expect(html).toContain("历史会话");
     },
