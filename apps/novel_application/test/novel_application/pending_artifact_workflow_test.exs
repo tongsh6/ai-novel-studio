@@ -1680,7 +1680,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
           "judgment_decision",
           %{
             "action" => "explore",
-            "dialogue_goal" => run.goal.text,
             "author_reasoning" => "核对已有候选及其来源",
             "explore_request" => %{
               "tool" => "session_adoptions",

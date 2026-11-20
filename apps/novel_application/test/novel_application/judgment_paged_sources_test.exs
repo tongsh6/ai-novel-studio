@@ -199,7 +199,6 @@ defmodule NovelApplication.JudgmentPagedSourcesTest do
                    "arguments" => %{
                      "action" => "explore",
                      "author_reasoning" => "先读取当前来源。",
-                     "dialogue_goal" => "核对实际来源及覆盖",
                      "explore_request" => %{"tool" => tool, "query" => query}
                    }
                  }

@@ -410,10 +410,9 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     assert args["action"] == "explore"
     assert args["explore_request"] == %{"tool" => "archive_read", "query" => "chapters"}
 
-    assert Enum.sort(Map.keys(args)) ==
-             ~w(action author_reasoning dialogue_goal explore_request)
+    assert Enum.sort(Map.keys(args)) == ~w(action author_reasoning explore_request)
 
-    assert args["dialogue_goal"] == @author_text
+    refute Map.has_key?(args, "dialogue_goal")
     assert result.content == ""
     assert is_binary(args["author_reasoning"])
   end

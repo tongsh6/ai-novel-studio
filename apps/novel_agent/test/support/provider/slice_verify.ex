@@ -1278,9 +1278,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       )
 
     filtered =
-      if args["action"] != "execute", do: Map.delete(filtered, "capability"), else: filtered
+      if args["action"] == "execute",
+        do: Map.put_new(filtered, "dialogue_goal", "推进当前创作请求"),
+        else: Map.delete(filtered, "capability")
 
-    {"judgment_decision", Map.put_new(filtered, "dialogue_goal", "推进当前创作请求")}
+    {"judgment_decision", filtered}
   end
 
   # 判断②（ADR-0025 CP3a）：单调用续行——计划耗尽（D6 语义）判 continue
@@ -4830,7 +4832,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     arguments = %{
       "action" => "explore",
       "author_reasoning" => reasoning,
-      "dialogue_goal" => judgment_dialogue_goal(prompt),
       "explore_request" => request
     }
 

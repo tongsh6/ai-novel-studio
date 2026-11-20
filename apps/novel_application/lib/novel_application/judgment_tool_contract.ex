@@ -4,7 +4,7 @@ defmodule NovelApplication.JudgmentToolContract do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
 
-  @version "b26-tools-v2"
+  @version "b26-tools-v3"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
@@ -70,86 +70,164 @@ defmodule NovelApplication.JudgmentToolContract do
   end
 
   def invalid_arguments_guidance(detail) do
-    disallowed =
-      case Map.get(detail, :disallowed, []) do
-        [] -> "无"
-        fields -> Enum.join(fields, "、")
-      end
+    disallowed = format_fields(Map.get(detail, :disallowed, []))
+    missing = format_fields(Map.get(detail, :missing, []))
+    allowed = format_fields(Map.get(detail, :allowed, []))
 
-    missing =
-      case Map.get(detail, :missing, []) do
-        [] -> "无"
-        fields -> Enum.join(fields, "、")
-      end
+    "本次响应的工具参数未通过 schema 校验：只填该工具当前分支声明的字段。参数类型和非空要求也须符合契约。" <>
+      "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；#{Map.get(detail, :tool)} 允许字段：#{allowed}。" <>
+      decision_arguments_guidance(detail) <>
+      "保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
 
+  defp format_fields([]), do: "无"
+  defp format_fields(fields), do: Enum.join(fields, "、")
+
+  defp decision_arguments_guidance(%{tool: "judgment_decision"} = detail) do
+    case decision_contract(Map.get(detail, :action)) do
+      nil ->
+        "action 缺失或不受支持，必须依据原任务选择当前支持的动作：#{Enum.join(Map.get(detail, :allowed_actions, []), "、")}。"
+
+      schema ->
+        example = hd(schema.examples)
+        {guidance, example} = decision_example(detail, example)
+        guidance <> "合法最小示例：#{Jason.encode!(example)}。"
+    end
+  end
+
+  defp decision_arguments_guidance(_detail), do: ""
+
+  defp decision_example(%{action: "explore"}, example) do
+    {"explore 只表达本次实际读取请求和作者说明；不提供 dialogue_goal。", example}
+  end
+
+  defp decision_example(%{action: "execute"} = detail, example) do
     revision? =
-      Map.get(detail, :tool) == "judgment_decision" and
-        (Map.get(detail, :capability) == "revise_adopted_content" or
-           Enum.any?(
-             ["target_chapter_ref", "modification_scope"],
-             &(&1 in Map.get(detail, :disallowed, []))
-           ))
+      Map.get(detail, :capability) == "revise_adopted_content" or
+        Enum.any?(
+          ["target_chapter_ref", "modification_scope"],
+          &(&1 in Map.get(detail, :disallowed, []))
+        )
 
-    example =
-      if revision? do
-        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","author_reasoning":"..."})
-      else
-        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","author_reasoning":"..."})
-      end
-
-    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
-      "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；judgment_decision 允许字段：#{Enum.join(Map.get(detail, :allowed, []), "、")}。" <>
-      if revision? do
+    if revision? do
+      guidance =
         "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
-          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。" <>
-          "target_segment_ids 仅在作者要求按本轮读取发现选段时填写，且只能从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
-      else
-        ""
-      end <>
-      "合法最小示例：#{example}。" <>
-      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
-      "ask_author 只填 question、options（optional reason_codes）；" <>
-      "judgment_decision 按 action 填对应字段。保留原任务、目标、来源与范围，只纠正工具参数结构。"
+          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要填 target_chapter_ref/modification_scope。" <>
+          "target_segment_ids 仅从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
+
+      {guidance,
+       Map.merge(example, %{
+         capability: "revise_adopted_content",
+         adopted_content_ref: "<本轮可选目标里的真实章级/pending ref>",
+         dialogue_goal: "只改第一段，其余段落保持原样"
+       })}
+    else
+      {"execute 必须提供非空的创作目标与范围 dialogue_goal，以及本轮允许的 capability。", example}
+    end
+  end
+
+  # 工具描述的字段说明由实际接收分支派生。
+  defp decision_fields_guidance do
+    Enum.map_join(decision_contracts(), "\n", fn schema ->
+      action = Enum.join(schema.properties.action.enum, "、")
+      allowed = schema.properties |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+
+      "judgment_decision 的 #{action} 只允许字段 #{Enum.join(allowed, "、")}；" <>
+        "必填字段为 #{Enum.join(schema.required, "、")}。"
+    end)
   end
 
   defp decision do
+    [first | rest] = contracts = decision_contracts()
+    properties = Enum.reduce(contracts, %{}, &Map.merge(&2, &1.properties))
+    actions = Enum.flat_map(contracts, & &1.properties.action.enum)
+    properties = put_in(properties, [:action, :enum], actions)
+
+    required =
+      Enum.reduce(rest, first.required, fn schema, fields ->
+        Enum.filter(fields, &(&1 in schema.required))
+      end)
+
     tool(
       "judgment_decision",
-      "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。",
-      %{
-        action: %{type: "string", enum: ~w(execute explore)},
-        dialogue_goal: @text,
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "本次判断的唯一作者说明原文，content 必须为空；说明为何需要所提的取材或创作动作，不把尚未执行的动作说成已完成。" <>
-              AuthoringSemantics.author_narrative_rules()
-          ),
-        capability: Map.put(@nullable_text, :description, "仅 execute 时提供；explore 时省略或为 null。"),
-        pending_artifact_ref: @nullable_text,
-        adopted_content_ref: @nullable_text,
-        target_segment_ids: %{
-          type: "array",
-          items: @text,
-          description:
-            "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选。只从本轮成功 chapter_read 观察的 target_segments 原样复制 segment_id；作者显式段号/字面目标时省略。"
-        },
-        character_ref:
-          Map.put(
-            @nullable_text,
-            :description,
-            "仅 revise_character_profile 时提供：先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
-          ),
-        explore_request: %{
-          anyOf: [
-            object(%{tool: @text, query: %{type: "string"}}, ~w(tool query)),
-            %{type: "null"}
-          ]
-        }
-      },
-      ~w(action dialogue_goal author_reasoning)
+      "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。" <>
+        "\n" <> decision_fields_guidance(),
+      properties,
+      required
     )
+  end
+
+  # 完整分支同时拥有字段、必填项和示例；平面 wire 只供应并集，接收仍按原 action 校验。
+  defp decision_contracts do
+    narrative =
+      Map.put(
+        @text,
+        :description,
+        "本次判断直接面向作者的唯一说明原文，content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。" <>
+          AuthoringSemantics.author_narrative_rules()
+      )
+
+    [
+      object(
+        %{
+          action: %{type: "string", enum: ["execute"]},
+          dialogue_goal:
+            Map.put(
+              @text,
+              :description,
+              "仅 execute 时必填：依据作者原话与上下文确定本次创作目标和范围；explore 不提供。"
+            ),
+          author_reasoning: narrative,
+          capability: Map.put(@text, :description, "仅 execute 时必填；explore 不提供。"),
+          pending_artifact_ref:
+            Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
+          adopted_content_ref:
+            Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
+          target_segment_ids: %{
+            type: "array",
+            items: @text,
+            description:
+              "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选。只从本轮成功 chapter_read 观察的 target_segments 原样复制 segment_id；作者显式段号/字面目标时省略。"
+          },
+          character_ref:
+            Map.put(
+              @nullable_text,
+              :description,
+              "仅 execute + revise_character_profile 时提供，explore 不提供：先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
+            )
+        },
+        ~w(action dialogue_goal author_reasoning capability)
+      )
+      |> Map.put(:examples, [
+        %{
+          action: "execute",
+          capability: "<本轮可用能力>",
+          dialogue_goal: "...",
+          author_reasoning: "..."
+        }
+      ]),
+      object(
+        %{
+          action: %{type: "string", enum: ["explore"]},
+          author_reasoning: narrative,
+          explore_request:
+            object(%{tool: @text, query: %{type: "string"}}, ~w(tool query))
+            |> Map.put(:description, "仅 explore 时必填的实际读取请求；execute 不提供。")
+        },
+        ~w(action author_reasoning explore_request)
+      )
+      |> Map.put(:examples, [
+        %{
+          action: "explore",
+          explore_request: %{tool: "<本轮允许的读取工具>", query: "..."},
+          author_reasoning: "..."
+        }
+      ])
+    ]
+  end
+
+  defp decision_contract(action) do
+    Enum.find(decision_contracts(), &valid?(action, &1.properties.action))
   end
 
   defp continuation do
@@ -299,15 +377,67 @@ defmodule NovelApplication.JudgmentToolContract do
   defp validation_step(error), do: {:halt, error}
 
   defp validate_call(call, schemas) do
-    case Map.fetch(schemas, field(call, :name)) do
+    name = field(call, :name)
+    args = field(call, :arguments)
+
+    case Map.fetch(schemas, name) do
       {:ok, schema} ->
-        if valid?(field(call, :arguments), schema),
+        schema = argument_schema(name, args, schema)
+
+        if is_map(schema) and valid?(args, schema),
           do: :ok,
           else: {:error, :invalid_tool_arguments}
 
       :error ->
         {:error, :tool_not_in_profile}
     end
+  end
+
+  defp argument_schema("judgment_decision", args, _wire_schema),
+    do: decision_contract(field(args, :action))
+
+  defp argument_schema(_name, _args, schema), do: schema
+
+  @doc "字段级纠错消费与实际接收相同的 action 分支；未知 action 不选择默认分支。"
+  def invalid_tool_arguments_detail(calls, profile) do
+    schemas = Map.new(tools(profile), &{&1.name, &1.input_schema})
+
+    call =
+      Enum.find(calls, &(field(&1, :name) == "judgment_decision")) ||
+        List.first(calls)
+
+    name = field(call, :name)
+    args = field(call, :arguments)
+    wire_schema = Map.get(schemas, name)
+    schema = argument_schema(name, args, wire_schema)
+
+    # 无合法 action 时仅呈现公开字段与可选动作；该 wire schema 不用于接收。
+    detail =
+      with %{properties: properties, required: required} <- schema || wire_schema,
+           true <- is_map(args) do
+        allowed = properties |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+        present = args |> Map.keys() |> Enum.map(&to_string/1)
+
+        %{
+          tool: name,
+          allowed: allowed,
+          required: required,
+          disallowed: Enum.reject(present, &(&1 in allowed)),
+          missing: Enum.reject(required, &(&1 in present)),
+          action: field(args, :action),
+          capability: field(args, :capability)
+        }
+      else
+        _ -> %{tool: name, allowed: [], required: [], disallowed: [], missing: []}
+      end
+
+    detail =
+      case wire_schema do
+        %{properties: %{action: %{enum: actions}}} -> Map.put(detail, :allowed_actions, actions)
+        _ -> detail
+      end
+
+    {:error, {:invalid_tool_arguments, detail}}
   end
 
   def valid?(value, %{anyOf: schemas}), do: Enum.any?(schemas, &valid?(value, &1))
@@ -345,5 +475,6 @@ defmodule NovelApplication.JudgmentToolContract do
   def valid?(_, %{type: _}), do: false
   def valid?(_, schema), do: map_size(schema) == 0
 
-  defp field(map, key), do: Map.get(map, key, Map.get(map, to_string(key)))
+  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))
+  defp field(_map, _key), do: nil
 end

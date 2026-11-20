@@ -210,7 +210,6 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
           "judgment_decision",
           %{
             "action" => "explore",
-            "dialogue_goal" => author_text,
             "author_reasoning" => "读取第一章正文，核对已写内容。",
             "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
           },

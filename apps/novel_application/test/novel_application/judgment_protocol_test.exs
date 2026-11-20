@@ -541,6 +541,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
   end
 
+  @tag :r05_explore_contract
   test "能力、已有候选与探索目录按本次事实校验" do
     args = %{
       action: "execute",
@@ -563,22 +564,26 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         action: "explore",
-        dialogue_goal: "读章",
         author_reasoning: "核对全文。",
         explore_request: %{tool: "chapter_read", query: "chapter:one"}
       })
 
-    assert {:ok, %{action: "explore"}} =
+    assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([response("", [explore])]),
                %{},
                input(explore: true, explore_tools: ["chapter_read"])
              )
 
+    assert judgment.action == "explore"
+    refute Map.has_key?(judgment, :dialogue_goal)
+    assert judgment.narrative == "核对全文。"
+
     assert {:error, {:judgment_protocol_violation, :exploration_not_available}, _state} =
              JudgmentProtocol.request_judgment(execution([response("", [explore])]), %{}, input())
   end
 
+  @tag :r05_explore_contract
   test "非法叙述仅纠错一次，不换用干净字段，最终字节只绑定纠正响应" do
     leak = "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
     execute = %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"}
@@ -631,6 +636,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
       assert_receive {:provider_request, _}
       assert_receive {:provider_request, corrected}
+
+      if match?([%{arguments: %{action: "reply"}}], bad.tool_calls) do
+        refute List.last(validation_blocks(corrected)).detail["message"] =~ ~s("action":"execute")
+      end
 
       if bad.tool_calls == [] do
         assert validation_text(List.last(corrected.messages)) =~ "作者叙述"
@@ -1459,7 +1468,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "dialogue_goal" => "查找正文中的灯油配方原文",
         "author_reasoning" => "作者指代历史原文，先取证。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
@@ -1513,50 +1521,73 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(execution([response("", [ask])]), %{}, observed)
   end
 
-  test "M16：action 专属字段互斥在 prompt 中明确，explore 带 capability 被具体纠错后可修复" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+  @tag :r05_explore_contract
+  test "M16：explore 的旧目标与执行字段沿原调用纠错，最终只接受纠正来源" do
+    request = JudgmentProtocol.request_for_production(input())
+    decision = Enum.find(request.tools, &(&1.name == "judgment_decision"))
+    assert decision.input_schema.type == "object"
+    assert Enum.sort(decision.input_schema.required) == ~w(action author_reasoning)
 
-    assert content =~ "judgment_decision 各 action 的专属字段互斥"
-    assert content =~ "explore 只带 explore_request"
-    assert content =~ "execute 只带 capability 与一个目标 ref"
-    assert String.split(content, "judgment_decision 各 action 的专属字段互斥") |> length() == 2
+    assert decision.description =~
+             "judgment_decision 的 explore 只允许字段 action、author_reasoning、explore_request"
 
-    bad =
-      call("judgment_decision", %{
-        "action" => "explore",
-        "capability" => "work_archive_read",
-        "dialogue_goal" => "核对章节事实",
-        "author_reasoning" => "需要取证。"
-      })
+    assert decision.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
+    assert decision.description =~ "execute 只填一个目标 ref 字段"
 
     good =
       call("judgment_decision", %{
         "action" => "explore",
-        "dialogue_goal" => "核对章节事实",
-        "author_reasoning" => "需要取证。",
+        "author_reasoning" => "  核对《灯楼夜雨》的完整正文，再判断代价是否充分。\n",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
+      |> Map.put(:id, "corrected-explore")
 
     opts = [explore: true, explore_tools: ["chapter_read"], capabilities: ["work_archive_read"]]
 
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [bad]), response("", [good])]),
-               %{},
-               input(opts)
-             )
+    for {field, value} <- [{"capability", "work_archive_read"}, {"dialogue_goal", "取得章节引用"}] do
+      bad =
+        good
+        |> Map.put(:id, "rejected-explore")
+        |> Map.update!(:arguments, &Map.put(&1, field, value))
 
-    assert judgment.action == "explore"
+      corrected_result = response("", [good], "corrected-provider")
 
-    assert_receive {:provider_request, _first}
-    assert_receive {:provider_request, corrected}
-    correction = validation_text(List.last(corrected.messages))
-    assert correction =~ "incompatible_operation_fields"
-    assert correction =~ "explore 只填 explore_request"
-    assert correction =~ "不得携带 capability"
-    assert correction =~ "execute 才填 capability"
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([response("", [bad], "rejected-provider"), corrected_result]),
+                 %{},
+                 input(opts)
+               )
+
+      assert judgment.action == "explore"
+      assert judgment.provider_call_count == 2
+      refute Map.has_key?(judgment, :dialogue_goal)
+      assert judgment.narrative == good.arguments["author_reasoning"]
+      assert judgment.narrative_source.provider_call_ref == "corrected-provider"
+
+      assert :ok =
+               AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
+                 "run-corrected-provider" => corrected_result.provider_output
+               })
+
+      assert_receive {:provider_request, _first}
+      assert_receive {:provider_request, corrected}
+      assert [failed] = validation_blocks(corrected)
+      assert failed.status == "failed"
+      assert failed.reason_code == "invalid_tool_arguments"
+      assert failed.call_id == bad.id
+      assert [original] = tool_call_blocks(corrected)
+      assert original.arguments == bad.arguments
+      assert {:ok, []} = RequestIR.pending_call_ids(corrected)
+
+      correction = failed.detail["message"]
+      assert correction =~ field
+      assert correction =~ ~s("action":"explore")
+      refute correction =~ ~s("action":"execute")
+    end
   end
 
+  @tag :r05_explore_contract
   test "M16：execute 带 explore_request 被具体纠错后可修复" do
     bad =
       call("judgment_decision", %{
@@ -1586,12 +1617,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert judgment.action == "execute"
     assert judgment.capability == "prose_writing"
+    assert judgment.dialogue_goal == "写章"
+    assert judgment.provider_call_count == 2
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = validation_text(List.last(corrected.messages))
-    assert correction =~ "execute 只填 capability 与一个目标 ref"
-    assert correction =~ "explore_request 只用于 explore"
+    correction = List.last(validation_blocks(corrected)).detail["message"]
+    assert correction =~ ~s("action":"execute")
+    assert correction =~ "explore_request"
   end
 
   test "task-28 补充：直接回答/唯一候选直接执行/参数 schema 指引在 prompt 中明确" do
@@ -1630,10 +1663,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, corrected}
-    correction = validation_text(List.last(corrected.messages))
+    correction = List.last(validation_blocks(corrected)).detail["message"]
     assert correction =~ "工具参数未通过 schema 校验"
-    assert correction =~ "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning"
-    assert correction =~ "不要添加 action/capability/body"
+    assert correction =~ "report_capability_gap 允许字段：alternative_operation_refs、author_reasoning、"
+    assert correction =~ "dialogue_goal、missing_effect"
+    assert correction =~ "上次未允许字段：capability"
   end
 
   test "task-34 prompt：M02 质量边界/M03 占位收束/M06 未答不推进/M16 多意图/M18 探索优先" do
@@ -1739,7 +1773,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "dialogue_goal" => "继续读末页",
         "author_reasoning" => "还需覆盖末页。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
       })
@@ -1881,7 +1914,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     quality_explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "dialogue_goal" => "读第二章正文判断质量与矛盾",
         "author_reasoning" => "需要正文才能判断质量。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第02章：井底回声"}
       })
@@ -2316,7 +2348,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
                  response("", [
                    call("judgment_decision", %{
                      "action" => "explore",
-                     "dialogue_goal" => author,
                      "author_reasoning" => "先读章计划",
                      "explore_request" => %{"tool" => "chapter_read", "query" => "第02章"}
                    })
@@ -2386,7 +2417,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "modification_scope"
     assert correction =~ "内容修订的 execute 必须用 adopted_content_ref"
     assert correction =~ "范围（第一段/整章/仅排版）写在 dialogue_goal"
-    assert correction =~ "不要在 judgment_decision 里填 target_chapter_ref/modification_scope"
+    assert correction =~ "不要填 target_chapter_ref/modification_scope"
     assert correction =~ ~s("capability":"revise_adopted_content")
     assert correction =~ ~s("adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>")
   end

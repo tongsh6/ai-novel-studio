@@ -135,6 +135,27 @@ defmodule NovelCommon.RequestIRProjectionTest do
       assert [%{type: "function", function: %{name: "read_character"}}] = body.tools
     end
 
+    test "Responses 函数工具显式非严格，保留必填与可选字段的原 schema" do
+      schema = %{
+        type: "object",
+        properties: %{query: %{type: "string"}, offset: %{type: "integer"}},
+        required: ["query"],
+        additionalProperties: false
+      }
+
+      request =
+        ir(g1_messages(),
+          tools: [%{name: "read_character", description: "读取角色", input_schema: schema}]
+        )
+
+      assert {:ok, body} = Projection.project(request, "responses_api")
+      assert [%{type: "function", name: "read_character"} = tool] = body.tools
+      assert Map.fetch(tool, :strict) == {:ok, false}
+      assert tool.parameters == RequestIR.json_value(schema)
+      assert tool.parameters["required"] == ["query"]
+      assert Map.has_key?(tool.parameters["properties"], "offset")
+    end
+
     test "G2 观察后：tool call 与 observation 按 call_id 关联进入下一请求" do
       {:ok, chat} =
         Projection.project(ir(g2_messages(), refs: observed_refs()), "chat_completions")

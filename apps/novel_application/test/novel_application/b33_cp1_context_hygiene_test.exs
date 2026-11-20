@@ -524,7 +524,6 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
           %{
             action: "explore",
             author_reasoning: "读取真实角色详情",
-            dialogue_goal: "核对历史角色的当前设定",
             explore_request: %{tool: "archive_read", query: query}
           },
           call_id

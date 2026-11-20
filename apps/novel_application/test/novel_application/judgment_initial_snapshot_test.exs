@@ -150,6 +150,25 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     for target <- @projection_targets do
       assert {:ok, projected} = Projection.project(request, target)
       assert Projection.project(restored_request, target) == {:ok, projected}
+
+      assert [decision] =
+               Enum.filter(projected.tools, fn tool ->
+                 (get_in(tool, [:function, :name]) || tool[:name]) == "judgment_decision"
+               end)
+
+      schema =
+        get_in(decision, [:function, :parameters]) || decision[:parameters] ||
+          decision[:input_schema]
+
+      assert %{"type" => "object", "additionalProperties" => false} = schema
+      assert Enum.sort(schema["required"]) == ~w(action author_reasoning)
+      assert schema["properties"]["dialogue_goal"]["type"] == "string"
+      refute Map.has_key?(schema, "anyOf")
+
+      if target == "responses_api" do
+        assert Map.fetch(decision, :strict) == {:ok, false}
+      end
+
       wire = Jason.encode!(projected)
       assert wire =~ "chapter_statistics"
 

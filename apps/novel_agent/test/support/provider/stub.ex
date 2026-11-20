@@ -391,8 +391,12 @@ defmodule NovelAgent.Provider.Stub do
           [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
 
         true ->
-          args = %{action: action, dialogue_goal: goal, author_reasoning: narrative}
-          args = if action == "execute", do: Map.put(args, :capability, capability), else: args
+          args = %{action: action, author_reasoning: narrative}
+
+          args =
+            if action == "execute",
+              do: Map.merge(args, %{capability: capability, dialogue_goal: goal}),
+              else: args
 
           args =
             if action == "explore",

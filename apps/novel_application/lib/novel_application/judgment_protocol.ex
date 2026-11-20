@@ -435,14 +435,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "narrative_role 只能取 PROTAGONIST/ANTAGONIST/SUPPORTING/MINOR/ENSEMBLE_POV；请用 ask_author 澄清或按作者原话选择合法值。"
   end
 
-  defp correction_content({:incompatible_operation_fields, detail}) do
-    "本次响应未通过契约校验：incompatible_operation_fields（动作与字段不匹配）。" <>
-      to_string(detail) <>
-      "\n规则：explore 只填 explore_request（tool/query），不得携带 capability/pending_artifact_ref/adopted_content_ref；" <>
-      "execute 才填 capability 与一个目标 ref，不得携带 explore_request；完整计划只调用 agent_plan_draft。" <>
-      "保留取证意图与目标，只纠正字段。"
-  end
-
   defp correction_content(:exploration_continuation_mismatch) do
     "本次响应未通过契约校验：exploration_continuation_mismatch。剩余额度只允许最新 Scope 中 continuation 指定来源的精确下一页；" <>
       "保持同一工具、对象和档案面并使用 next_offset，不得重复或跳页。也可按已有证据收束并说明未读范围。"
@@ -789,9 +781,7 @@ defmodule NovelApplication.JudgmentProtocol do
     不能只概述“我给出三个方向”，也不能用“你的请求属于创作方向讨论”这类元描述代替实际内容。
     作者只要求收下资料/只聊不展开时：只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
     （零方向菜单、零候选/登记）。
-    judgment_decision 各 action 的专属字段互斥：explore 只带 explore_request（tool/query），不得带
-    capability/pending_artifact_ref/adopted_content_ref；execute 只带 capability 与一个目标 ref，
-    不得带 explore_request；完整计划由 agent_plan_draft 的独立参数契约承载。
+    完整计划由 agent_plan_draft 的独立参数契约承载。
     能力缺口判断只看“是否存在能产出目标效果的最接近可行操作”：存在可产出的修订/生成候选（只是不能保证
     某些属性，如仅排版的字句不变）时，应执行该操作并在可见文本如实说明限制，不得用 report_capability_gap
     或“没有能力”拒绝；确实没有任何可行操作时才报缺口。
@@ -902,47 +892,12 @@ defmodule NovelApplication.JudgmentProtocol do
          field(args, :author_content_source_ref) in [nil, ""] do
       {:error, {:author_content_registration_invalid, :source_required}}
     else
-      invalid_tool_arguments_detail([call], profile)
+      JudgmentToolContract.invalid_tool_arguments_detail([call], profile)
     end
   end
 
   defp registration_schema_error(calls, profile) when is_list(calls) do
-    invalid_tool_arguments_detail(calls, profile)
-  end
-
-  # B35 CP3/task-94：invalid_tool_arguments 的字段级可达反馈（只读 schema 解释，
-  # 不改变 schema 允许字段/additionalProperties）。
-  defp invalid_tool_arguments_detail(calls, profile) do
-    schemas = Map.new(JudgmentToolContract.tools(profile), &{&1.name, &1.input_schema})
-
-    call =
-      Enum.find(calls, &(field(&1, :name) == "judgment_decision")) ||
-        List.first(calls)
-
-    args = field(call, :arguments)
-
-    detail =
-      with name when is_binary(name) <- field(call, :name),
-           %{properties: properties, required: required} <- Map.get(schemas, name),
-           true <- is_map(args) do
-        allowed = properties |> Map.keys() |> Enum.map(&to_string/1)
-        required = Enum.map(required, &to_string/1)
-        present = args |> Map.keys() |> Enum.map(&to_string/1)
-
-        %{
-          tool: name,
-          allowed: allowed,
-          required: required,
-          disallowed: Enum.reject(present, &(&1 in allowed)),
-          missing: Enum.reject(required, &(&1 in present)),
-          action: field(args, :action),
-          capability: field(args, :capability)
-        }
-      else
-        _ -> %{tool: field(call, :name), allowed: [], required: [], disallowed: [], missing: []}
-      end
-
-    {:error, {:invalid_tool_arguments, detail}}
+    JudgmentToolContract.invalid_tool_arguments_detail(calls, profile)
   end
 
   defp validate_inline_plan(judgment, input) do
@@ -1010,20 +965,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_operation("explore", args, options) do
     request = field(args, :explore_request)
-
-    cond do
-      # 字段互斥先于读取资格，保持普通探索现有的字段级纠错。
-      not empty_targets?(args) ->
-        {:error,
-         {:incompatible_operation_fields,
-          "explore 只提供 explore_request；capability/候选目标仅用于 execute，请保留取证意图并纠正字段。"}}
-
-      not is_map(request) ->
-        {:error, :exploration_not_available}
-
-      true ->
-        ExplorationPolicy.validate_requests([explore_request(request)], options)
-    end
+    ExplorationPolicy.validate_requests([explore_request(request)], options)
   end
 
   defp validate_operation("creative_directions", _args, options) do
@@ -1106,17 +1048,10 @@ defmodule NovelApplication.JudgmentProtocol do
         Keyword.get(options, :adopted_content_targets, %{})
       )
 
-    cond do
-      capability not in Keyword.get(options, :capabilities, []) ->
-        {:error, :capability_not_available}
-
-      not is_nil(field(args, :explore_request)) ->
-        {:error,
-         {:incompatible_operation_fields,
-          "execute 只填 capability 与一个目标 ref（pending_artifact_ref 或 adopted_content_ref）；explore_request 只用于 explore，请移除该字段。"}}
-
-      true ->
-        validate_execute_targets(args, targets)
+    if capability in Keyword.get(options, :capabilities, []) do
+      validate_execute_targets(args, targets)
+    else
+      {:error, :capability_not_available}
     end
   end
 
@@ -1136,13 +1071,6 @@ defmodule NovelApplication.JudgmentProtocol do
         PendingArtifactWorkflow.validate(args, targets)
     end
   end
-
-  defp empty_targets?(args),
-    do:
-      Enum.all?(
-        [:capability, :pending_artifact_ref, :adopted_content_ref, :character_ref],
-        &is_nil(field(args, &1))
-      )
 
   defp narrative(result, nil, _args), do: content_narrative(result, field(result, :content))
 
@@ -1251,11 +1179,10 @@ defmodule NovelApplication.JudgmentProtocol do
   defp nonblank?(text), do: is_binary(text) and String.trim(text) != ""
 
   defp normalized(operation, args, call, result, text, source, input) do
-    %{
+    judgment = %{
       action: operation,
       capability: field(args, :capability),
       frame_type: frame_type(operation),
-      dialogue_goal: field(args, :dialogue_goal),
       pending_artifact_ref: field(args, :pending_artifact_ref),
       adopted_content_ref: field(args, :adopted_content_ref),
       target_segment_ids: field(args, :target_segment_ids),
@@ -1278,6 +1205,11 @@ defmodule NovelApplication.JudgmentProtocol do
       model_interpretation_status: if(operation == "reply", do: "not_provided", else: "provided"),
       reply_record: reply_record(operation, args, text, source, input)
     }
+
+    case operation do
+      "explore" -> judgment
+      _ -> Map.put(judgment, :dialogue_goal, field(args, :dialogue_goal))
+    end
   end
 
   defp reply_record(operation, args, text, source, input) do

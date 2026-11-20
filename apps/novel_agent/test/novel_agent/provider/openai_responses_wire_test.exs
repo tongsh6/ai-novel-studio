@@ -123,7 +123,9 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
           tools: [
             TestRequestIR.tool("read_character", %{
               type: "object",
-              properties: %{query: %{type: "string"}}
+              properties: %{query: %{type: "string"}, offset: %{type: "integer"}},
+              required: ["query"],
+              additionalProperties: false
             })
           ],
           projection: %{tool_choice: "read_character"}
@@ -149,6 +151,9 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert [tool] = body.tools
       assert tool.type == "function"
       assert tool.name == "read_character"
+      assert Map.fetch(tool, :strict) == {:ok, false}
+      assert tool.parameters["required"] == ["query"]
+      assert Map.has_key?(tool.parameters["properties"], "offset")
       assert body.tool_choice == %{type: "function", name: "read_character"}
     end
 

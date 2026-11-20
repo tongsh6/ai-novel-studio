@@ -469,7 +469,6 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp explore_call(query, narrative) do
     call("judgment_decision", %{
       "action" => "explore",
-      "dialogue_goal" => "读取章节正文核对",
       "author_reasoning" => narrative,
       "explore_request" => %{"tool" => "chapter_read", "query" => query}
     })

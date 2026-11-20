@@ -478,7 +478,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
        %{
          "action" => "explore",
          "author_reasoning" => "继续读取同一来源的后续页。",
-         "dialogue_goal" => "继续读取上一页的后续内容",
          "explore_request" => %{"tool" => tool, "query" => Jason.encode!(selector)}
        }}
     end)
@@ -527,7 +526,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
             %{
               action: "explore",
               author_reasoning: "读取当前来源的正文。",
-              dialogue_goal: text,
               explore_request: %{tool: observation.tool, query: observation.query}
             },
             call_id
@@ -560,7 +558,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
          %{
            "action" => "explore",
            "author_reasoning" => "继续读取完整章节正文。",
-           "dialogue_goal" => "完整读取本章正文并核对末页内容",
            "explore_request" => %{"tool" => "chapter_read", "query" => query}
          }}
       end

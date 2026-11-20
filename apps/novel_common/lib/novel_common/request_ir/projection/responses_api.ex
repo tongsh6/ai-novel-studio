@@ -130,9 +130,11 @@ defmodule NovelCommon.RequestIR.Projection.ResponsesAPI do
     end
   end
 
+  # 禁止 Responses 默认 strict 规范化把可选字段变成必填；实际接收由应用契约校验。
   defp tool_schema(tool) do
     %{
       type: "function",
+      strict: false,
       name: Projection.tool_name(tool),
       description: Projection.tool_description(tool),
       parameters: Projection.tool_schema(tool)

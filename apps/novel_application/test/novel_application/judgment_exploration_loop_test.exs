@@ -24,11 +24,13 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   @prose "陈九斤蹲在矿区的出气口边上，把今天的灵气账单摊开在膝盖上。宗门的抽成又涨到了七成。"
 
-  test "explore 内部翼全回环：判断 explore → 真实检索观察（0 调用）→ 回环再判断（带观察）→ reply 收束" do
+  @tag :r05_explore_contract
+  test "explore 先纠错闭合原调用再发布，真实检索后仍完整回环并 reply 收束" do
     work_id = seed_work_with_prose()
     test_pid = self()
 
-    provider_execution = explore_then_reply_execution(test_pid)
+    narrative = "  先读账单段落，再判断代价是否充分。\n"
+    provider_execution = explore_then_reply_execution(test_pid, narrative)
 
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
@@ -53,11 +55,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     snapshot1 = %{empty | stage_state: context_result.stage_state}
 
-    # 判断① 第一轮：explore（单调用 1 次；检索本身 0 调用）
+    # 判断①：旧目标字段先失败并闭合调用，纠正响应才读取（2 次判断；检索本身 0 调用）。
     assert {:execute, judgment_step1, _d1, _m1} = spec.next_step_planner.(run, 2, snapshot1)
     assert {:ok, explore_result} = judgment_step1.(run, 2, snapshot1)
 
-    assert explore_result.provider_call_count == 1
+    assert explore_result.provider_call_count == 2
     refute Map.has_key?(explore_result, :turn_result)
     assert [observation] = explore_result.stage_state.judgment_explorations
     assert observation.tool == "prose_search"
@@ -69,7 +71,16 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert ref =~ "chapter:"
 
     # 当前 Scope 只给允许名称；固定工具定义在初始 Base 中保持一次。
-    [first_prompt_map] = drain_prompt_maps([])
+    [first_prompt_map, corrected_prompt] = drain_prompt_maps([])
+    corrected_blocks = Enum.flat_map(corrected_prompt.messages, & &1.blocks)
+    assert [failed] = Enum.filter(corrected_blocks, &(&1.type == "validation_result"))
+    assert failed.status == "failed"
+    assert failed.reason_code == "invalid_tool_arguments"
+    assert [rejected] = Enum.filter(corrected_blocks, &(&1.type == "tool_call"))
+    assert failed.call_id == rejected.call_id
+    assert rejected.arguments["dialogue_goal"] == "取得章节引用"
+    assert rejected.arguments["author_reasoning"] == "旧探索说明。"
+    assert {:ok, []} = RequestIR.pending_call_ids(corrected_prompt)
 
     first_exploration =
       TestProviderPrompt.scope_content(first_prompt_map)["operation"]["exploration"]
@@ -86,6 +97,13 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
     assert stage_event.payload.tool == "prose_search"
     assert stage_event.payload.summary =~ "第01章"
+    assert_received {:stage_event, %{event_type: :judgment_decided, payload: payload}}
+    assert payload.author_narrative == narrative
+    source = payload.author_narrative_source
+    assert source.source_type == "provider_output_tool_narrative"
+    assert source.tool_call_narrative_field == "author_reasoning"
+    assert source.source_hash == :crypto.hash(:sha256, narrative) |> Base.encode16(case: :lower)
+    refute_received {:stage_event, %{event_type: :judgment_decided}}
 
     # 回环：planner 未见 settle → 再入判断步
     snapshot2 = %{
@@ -109,9 +127,16 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert Enum.take(observed_prompt.messages, length(first_prompt_map.messages)) ==
              first_prompt_map.messages
 
-    tool_message = Enum.find(observed_prompt.messages, &(&1.role == "tool"))
-    observation_block = Enum.find(tool_message.blocks, &(&1.type == "observation"))
-    assert is_binary(observation_block.call_id)
+    [observation_block] = observation_blocks(observed_prompt)
+
+    accepted =
+      Enum.find(observed_prompt.messages, &(&1[:provider_call_ref] == source.provider_call_ref))
+
+    assert accepted.provider_run_ref == source.provider_run_ref
+    assert [accepted_call] = accepted.blocks
+    assert accepted_call.arguments["author_reasoning"] == narrative
+    refute Map.has_key?(accepted_call.arguments, "dialogue_goal")
+    assert observation_block.call_id == accepted_call.call_id
     assert Jason.encode!(observation_block.content) =~ "灵气账单"
 
     application_base = Enum.find(observed_prompt.messages, &(&1.role == "application_base"))
@@ -148,7 +173,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
           {:decision,
            %{
              "action" => "explore",
-             "dialogue_goal" => "核对本轮作者指定的作品事实",
              "author_reasoning" => "先核对正文来源。",
              "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
            }}
@@ -195,7 +219,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert result.stage_state.judgment_settled == "completed"
   end
 
-  test "缺失 explore_request 持续违反协议时三次调用后拒绝，不把非法工具改写为回复" do
+  test "缺失 explore_request 持续违反协议时两次调用后拒绝，不把非法工具改写为回复" do
     work_id = seed_work_with_prose()
 
     provider_execution =
@@ -203,7 +227,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
         {:decision,
          %{
            "action" => "explore",
-           "dialogue_goal" => "核对本轮作者指定的作品事实",
            "author_reasoning" => "还需要核对作品事实。"
          }}
       end)
@@ -232,17 +255,17 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert {:execute, judgment_step, _dj, _mj} = spec.next_step_planner.(run, 2, snapshot)
 
     # 模型没有给出合法回复；有限纠错耗尽后保留拒绝与原调用，不制造作者正文。
-    assert {:error, {:judgment_protocol_violation, :exploration_not_available}, state} =
+    assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
              judgment_step.(run, 2, snapshot)
 
-    assert state.provider_call_count == 3
+    assert state.provider_call_count == 2
     refute Map.has_key?(state, :turn_result)
 
     blocks = Enum.flat_map(state.judgment_transcript.messages, & &1.blocks)
     calls = Enum.filter(blocks, &(&1.type == "tool_call"))
     receipts = Enum.filter(blocks, &(&1.type == "validation_result"))
-    assert length(calls) == 3
-    assert length(receipts) == 3
+    assert length(calls) == 2
+    assert length(receipts) == 2
     assert Enum.all?(receipts, &(&1.status == "failed"))
     assert Enum.map(receipts, & &1.call_id) == Enum.map(calls, & &1.call_id)
     refute Enum.any?(blocks, &(&1.type == "observation"))
@@ -619,7 +642,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     {:decision,
      %{
        "action" => "explore",
-       "dialogue_goal" => "核对本轮作者指定的作品事实",
        "author_reasoning" => narrative,
        "explore_request" => %{"tool" => "chapter_read", "query" => query}
      }}
@@ -636,7 +658,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       {:decision,
        %{
          "action" => "explore",
-         "dialogue_goal" => "核对本轮作者指定的作品事实",
          "author_reasoning" => "先读取缺少的作品事实。",
          "explore_request" => %{"tool" => tool, "query" => query}
        }}
@@ -657,20 +678,28 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   # ── 脚本执行 ──
 
   # 单调用判断循环脚本：首轮检索，原生 tool observation 回流后用实际观察收束。
-  defp explore_then_reply_execution(test_pid) do
+  defp explore_then_reply_execution(test_pid, narrative) do
     scripted_judgment_execution(fn prompt, _text ->
       send(test_pid, {:prompt_map, prompt})
+      blocks = Enum.flat_map(prompt.messages, & &1.blocks)
+      corrected? = Enum.any?(blocks, &(&1.type == "validation_result"))
 
-      if observation_blocks(prompt) != [] do
-        {:narrative, "我检索了正文，依据如下：\n\n#{native_cited_observation(prompt)}"}
-      else
-        {:decision,
-         %{
-           "action" => "explore",
-           "dialogue_goal" => "核对本轮作者指定的作品事实",
-           "author_reasoning" => "先读取缺少的作品事实。",
-           "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
-         }}
+      arguments = %{
+        "action" => "explore",
+        "author_reasoning" => narrative,
+        "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+      }
+
+      case {observation_blocks(prompt), corrected?} do
+        {[_ | _], _} ->
+          {:narrative, "我检索了正文，依据如下：\n\n#{native_cited_observation(prompt)}"}
+
+        {[], true} ->
+          {:decision, arguments}
+
+        {[], false} ->
+          {:decision,
+           Map.merge(arguments, %{"dialogue_goal" => "取得章节引用", "author_reasoning" => "旧探索说明。"})}
       end
     end)
   end

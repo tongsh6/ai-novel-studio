@@ -228,6 +228,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
                 action: "execute",
                 capability: "revise_character_profile",
                 character_ref: ref,
+                dialogue_goal: "按作者要求处理老沈的叙事身份",
                 author_reasoning: @role_narrative
               }
 
@@ -235,7 +236,6 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
               flunk("确定性角色步骤不应追加 provider 调用：#{count}")
           end
 
-        args = Map.put(args, :dialogue_goal, "按作者要求处理老沈的叙事身份")
         call_ref = TestAgenticLoopFixtures.unique_provider_call_id("pcall-role")
         run_ref = TestAgenticLoopFixtures.unique_provider_call_id("prun-role")
         send(parent, {:role_source, :counters.get(calls, 1), call_ref, run_ref})
