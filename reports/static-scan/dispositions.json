@@ -127,5 +127,19 @@
     "updated_at": "2026-11-14",
     "handling": "B84 首批全仓扫描复核：命中位于 R01 既有未提交测试。firstRecord 来自同文件 makeSource 创建的本地合成日志，Object.assign 的源对象是四个固定字段的零值字面量，目标为测试自己的 response.usage；不存在不受信任字段合并、HTTP 响应写入或产品权限边界。这是验证合法零值的用例设置，不是 mass assignment 漏洞。不为消除扫描命中改写受保护的测试语义。",
     "recommendation": "保留 Semgrep 原规则；后续 fixture 拆分或输入来源改变时按实际来源重新审核，不用本条为产品 Object.assign 或其他行号放行。"
+  },
+  "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/lib/native_ui/authoring_request_facts.test.mjs|112|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-11-20",
+    "handling": "B87 R05 full-static-01逐条复核：header是本测试内固定应用Base段头字面量，只有一个换行；replace将它变为含附加指令的非法段头，作为独立负例验证applicationBaseText返回null。这里既不转义外部输入，也不生产安全过滤后的文本；只替换首个换行是反例构造的明确语义，不是遗漏全局清洗。",
+    "recommendation": "保留原Semgrep规则和负例字节，不为消除告警改用全局替换或削弱断言；若该表达式被迁入产品处理或输入改为外部值，必须重新审核。"
+  },
+  "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/native_b29_evidence.test.mjs|428|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-11-20",
+    "handling": "B87 R05 full-static-01逐条复核：originalText是本测试预置且仅含一个换行的模型原文字面量；replace把该换行改为空格，故意制造下一请求回放字节被改写，随后断言model_execute_matches_source为false。表达式不承担清洗/转义职责，没有不受信任输入流入安全输出。",
+    "recommendation": "保留原Semgrep规则与真实原文字节拒绝测试，不重写历史或为了告警更改反例；后续行号或输入来源变化时按实际表达式重新登记，不据此豁免产品文本处理。"
   }
 }
