@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractRefTokens, liveRefsCheck } from "./authoring_live_refs.mjs";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
 const AUTHOR = "请为第01章写一段约300字的开篇正文。";
 const AUTHOR_INPUT = "继续：按你刚才的判断，把下一个场景的开头写出来。";
@@ -75,7 +76,7 @@ function assistantToolCall({ callId = "call_1" } = {}) {
   };
 }
 
-function nativeObservation({ callId = "call_1", outerCallId = callId, type = "observation", status = "ok", sourceRefs = [], content = null } = {}) {
+function nativeObservation({ callId = "call_1", outerCallId = callId, type = "observation", status = "ok", sourceRefs = [], content = { summary: "已读取本页材料。", facts: {} } } = {}) {
   return {
     role: "tool",
     tool_call_id: outerCallId,
@@ -131,7 +132,7 @@ function nativePlannedObservation({ callId = "call_1", outerCallId = callId, sta
   };
 }
 
-function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", messages, baseRefs } = {}) {
+function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", messages, baseRefs, observationRefs = [] } = {}) {
   return {
     provider: "slice_verify",
     provider_call_ref: providerCallRef,
@@ -142,7 +143,7 @@ function irRecord({ providerCallRef = "pcall_ir", providerRunRef = "prun_ir", me
       messages,
       tools: [],
       projection: { tool_choice: null },
-      refs: baseRefs === undefined ? {} : { base_refs: baseRefs },
+      refs: { ...(baseRefs === undefined ? {} : { base_refs: baseRefs }), observation_refs: observationRefs },
     },
   };
 }
@@ -187,6 +188,123 @@ function assertViolation(messages, ref, label) {
 }
 
 
+test("R05 成功状态与引用不能替代实际材料，真实空读摘要或零计数仍可使用", () => {
+  const ref = "chapter:read-result";
+  const check = (content) => resultOf({
+    messages: [system(), author(), assistantToolCall(), nativeObservation({ sourceRefs: [ref], content })],
+    usedRefs: [ref],
+  });
+  for (const content of [null, {}, { tool: "chapter_read", query: "仅索引", facts: {} }]) {
+    assert.equal(check(content).ok, false);
+  }
+  for (const content of ["本页实际正文", { summary: "这一章尚未保存正文。", facts: {} }, { facts: { saved_count: 0 } }]) {
+    assert.equal(check(content).ok, true);
+  }
+});
+
+test("R05 现役 Scope 的实际成功观察还须在同次引用目录登记", () => {
+  const ref = "chapter:registered-read";
+  const scope = realScope();
+  const record = nativeRecord({ messages: [scope, assistantToolCall(), nativeObservation({ sourceRefs: [ref] })] });
+  const call = assistantCall({ refs: [ref] });
+  const messages = [scope, call];
+  const check = (observationRefs) => {
+    record.request.refs = { base_refs: [], observation_refs: observationRefs, used_refs: [] };
+    return liveRefsCheck({ llmRecords: [record], transcript: { messages }, sessionMessages: messages });
+  };
+  assert.equal(check([ref]).ok, true);
+  assert.equal(check([{ ref }]).ok, true);
+  assert.equal(check([]).ok, false);
+});
+
+test("R05 IR压缩覆盖的旧观察仍留历史目录，但不得作为同次已供应材料授信", () => {
+  const sourceRef = "chapter:covered-read";
+  const observationRef = "observation:covered-read";
+  const baseRef = "chapter:current-base";
+  const coordinate = (runId, sequence) => ({
+    workspace_id: "work-ref-coverage", work_id: "work-ref-coverage", session_id: "session-ref-coverage",
+    parent_turn_ref: "turn-" + runId, run_id: runId, run_sequence: sequence,
+    run_status: runId === "old" ? "completed" : "running",
+  });
+  const scope = realScope({ sourceRefs: [baseRef] });
+  scope.canonical_ref = coordinate("current", 2);
+  const original = [
+    irMessage("user", "author", [{ type: "text", text: "读取旧章。" }], {
+      source_refs: [{ ref: "turn-old", version: 1 }], canonical_ref: coordinate("old", 1),
+    }),
+    irMessage("assistant", "model", [{
+      type: "tool_call", call_id: "covered-call", name: "judgment_decision",
+      arguments: { action: "explore", explore_request: { tool: "chapter_read", query: "旧章" } },
+    }], { canonical_ref: coordinate("old", 2) }),
+    irMessage("tool", "tool_result", [{
+      type: "observation", call_id: "covered-call", status: "ok",
+      source_refs: [sourceRef], versions: { "draft:old": 1 }, coverage: {}, omissions: [], next_offset: null,
+      content: { summary: "旧请求实际读取的正文。", observation_ref: observationRef },
+    }], { canonical_ref: coordinate("old", 3) }),
+    irMessage("user", "author", [{ type: "text", text: "处理当前章节。" }], {
+      source_refs: [{ ref: "turn-current", version: 1 }], canonical_ref: coordinate("current", 1),
+    }),
+    scope,
+  ];
+  const checkpointMessage = irMessage("checkpoint", "application", [{
+    type: "checkpoint", covers: { call_ids: ["covered-call"], message_refs: [] },
+    source_refs: [sourceRef], versions: { "draft:old": 1 },
+    omissions: ["旧工具交换由本 checkpoint 覆盖；原始历史保留。"],
+  }], { canonical_ref: coordinate("current", 3) });
+  const messages = [...original, checkpointMessage];
+  const originalBytes = JSON.stringify(messages);
+  const coverage = auditCanonicalCoverage(messages);
+  assert.equal(coverage.ok, true, coverage.reason);
+  assert.deepEqual(coverage.coveredCallIds, ["covered-call"]);
+  assert.equal(coverage.retainedMessages.includes(original[2]), false);
+
+  const check = (requestMessages, usedRefs) => {
+    const report = assistantCall({ pcall: "pcall_ir", prun: "prun_ir", refs: usedRefs });
+    return liveRefsCheck({
+      llmRecords: [irRecord({ messages: requestMessages, baseRefs: [baseRef],
+        observationRefs: [sourceRef, observationRef] })],
+      transcript: { messages: [report] }, sessionMessages: [...requestMessages, report],
+    });
+  };
+  assert.equal(check(original, [sourceRef, observationRef]).ok, true);
+  const covered = check(messages, [sourceRef, observationRef]);
+  assert.equal(covered.ok, false);
+  assert.deepEqual(covered.reports[0].observation_refs, []);
+  assert.deepEqual(covered.reports[0].violations.map(entry => entry.ref).sort(), [sourceRef, observationRef].sort());
+  assert.equal(check(messages, [baseRef]).ok, true);
+  assert.equal(JSON.stringify(messages), originalBytes);
+
+  const malformedCoverage = structuredClone(messages);
+  malformedCoverage.at(-1).blocks[0].covers.call_ids = ["absent-call"];
+  const unknown = check(malformedCoverage, [baseRef]);
+  assert.equal(unknown.ok, null);
+  assert.equal(unknown.reason, "request_coverage_invalid");
+});
+
+test("R05观察身份按完整字符串精确匹配，不修剪后替同次登记兑现引用", () => {
+  const ref = "observation:exact-read";
+  const scope = realScope();
+  const check = (identity, registeredRef = ref) => {
+    const report = assistantCall({ refs: [registeredRef] });
+    const record = nativeRecord({ messages: [
+      scope, assistantToolCall(), nativeObservation({
+        content: { summary: "本次实际读取的正文。", observation_ref: identity },
+      }),
+    ] });
+    record.request.refs = { base_refs: [], observation_refs: [registeredRef], used_refs: [] };
+    return liveRefsCheck({ llmRecords: [record], transcript: { messages: [report] },
+      sessionMessages: [scope, report] });
+  };
+  assert.equal(check(ref).ok, true);
+  for (const identity of [" " + ref, ref + " "]) {
+    const result = check(identity);
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.reports[0].violations, [{ ref }]);
+  }
+  assert.equal(check(ref + " ", ref + " ").ok, true);
+  assert.equal(check(" " + ref, " " + ref).ok, false);
+});
+
 test("R05 partial真实观察可被引用但仍保留partial，不声称完整全文", () => {
   const messages = [
     system(), author(), assistantToolCall({ callId: "call-partial" }),
@@ -203,6 +321,74 @@ test("R05 partial真实观察可被引用但仍保留partial，不声称完整�
   assert.deepEqual(report.observation_refs, ["memory:page", "observation:memory-page"]);
   for (const entry of report.matched_refs) {
     assert(entry.sources.some((source) => source.call_id === "call-partial" && source.status === "partial"));
+  }
+});
+
+test("R05 truncated观察仅授已供应部分，保留截断状态与原始覆盖", () => {
+  const observed = nativeObservation({
+    callId: "call-truncated", status: "truncated", sourceRefs: ["memory:truncated-page"],
+    content: { tool: "memory_recall", summary: "只提供前半段",
+      observation_ref: "observation:truncated-page" },
+  });
+  const payload = JSON.parse(observed.content);
+  payload.coverage = { offset: 0, "complete?": false, returned_chars: 6, total_chars: 12 };
+  payload.omissions = ["后半段尚未提供"];
+  payload.next_offset = 6;
+  observed.content = JSON.stringify(payload);
+  const messages = [system(), author(), assistantToolCall({ callId: "call-truncated" }), observed];
+  const before = JSON.stringify(messages);
+
+  const result = resultOf({
+    messages, usedRefs: ["memory:truncated-page", "observation:truncated-page"],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.reports[0].observation_refs,
+    ["memory:truncated-page", "observation:truncated-page"]);
+  for (const match of result.reports[0].matched_refs) {
+    assert(match.sources.every((source) =>
+      source.call_id === "call-truncated" && source.status === "truncated"));
+  }
+  assertViolation(messages, "memory:unread-remainder", "截断不授未提供的后半段");
+  assert.equal(JSON.stringify(messages), before);
+  assert.equal(JSON.parse(observed.content).coverage["complete?"], false);
+  assert.equal(JSON.parse(observed.content).next_offset, 6);
+});
+
+test("R05 truncated聚合父叶各自检查，stale或unavailable不能借另一层授信", () => {
+  const usedRefs = ["chapter:truncated-leaf", "observation:truncated-leaf"];
+  const messagesFor = (parentStatus, leafStatus) => [
+    system(), author(), assistantToolCall({ callId: "call-truncated-parent" }),
+    nativePlannedObservation({
+      callId: "call-truncated-parent", status: parentStatus,
+      leaves: [observationLeaf({
+        status: leafStatus, sourceRefs: ["chapter:truncated-leaf"],
+        observationRef: "observation:truncated-leaf",
+      })],
+    }),
+  ];
+
+  for (const parentStatus of ["ok", "partial", "truncated"]) {
+    for (const leafStatus of ["ok", "partial", "truncated"]) {
+      const messages = messagesFor(parentStatus, leafStatus);
+      const before = JSON.stringify(messages);
+      const result = resultOf({ messages, usedRefs });
+      assert.equal(result.ok, true, `parent=${parentStatus}, leaf=${leafStatus}`);
+      assert.deepEqual(result.reports[0].observation_refs, usedRefs);
+      assert(result.reports[0].matched_refs.every((match) =>
+        match.sources.every((source) => source.status === leafStatus)));
+      assert.equal(JSON.stringify(messages), before);
+    }
+  }
+
+  for (const unavailable of ["stale", "unavailable"]) {
+    for (const [parentStatus, leafStatus] of [
+      [unavailable, "truncated"], ["truncated", unavailable],
+    ]) {
+      for (const ref of usedRefs) {
+        assertViolation(messagesFor(parentStatus, leafStatus), ref,
+          `parent=${parentStatus}, leaf=${leafStatus}`);
+      }
+    }
   }
 });
 
@@ -371,6 +557,15 @@ test("L7 缺证/坏自报：空自报仍 null，越界优先 false，合法报�
   const malformedMerged = check({ messages: [bad("chapter:ch-1"), assistantCall({ refs: ["chapter:ch-1"] })] });
   assert.equal(malformedMerged.reason, "self_report_malformed");
   assert.deepEqual(malformedMerged.reports[0].message_indexes, [0, 1]);
+  for (const invalid of [null, "", " ", 7, {}, { ref: "chapter:ch-1" }, ["chapter:ch-1"]]) {
+    const result = check({ messages: [bad(["chapter:ch-1", invalid])] });
+    assert.equal(result.ok, null, JSON.stringify(invalid));
+    assert.equal(result.reason, "self_report_malformed");
+    assert.deepEqual(result.reports[0].matched_refs.map(({ ref }) => ref), ["chapter:ch-1"]);
+    const outside = check({ messages: [bad(["chapter:outside", invalid])] });
+    assert.equal(outside.ok, false);
+    assert.equal(outside.reason, "used_ref_out_of_boundary");
+  }
 });
 
 test("L7 不授信来源：system/author/history assistant/失败 observation/validation_result/call 不一致/无前序调用/content 文本", () => {
@@ -394,7 +589,7 @@ test("L7 native Scope 只消费同 pcall/prun 的 request.refs，保留真实 Sc
   const record = nativeRecord({ messages: [scope] });
   record.provider = "splash";
   record.request.refs = { base_refs: [{ ref: "chapter:actual", version: 2 }],
-    observation_refs: [{ ref: "observation:metadata-only" }], used_refs: ["chapter:actual"] };
+    observation_refs: ["observation:metadata-only"], used_refs: ["chapter:actual"] };
   const check = (used, records = [record], scopes = [scope]) => {
     const call = assistantCall({ refs: used });
     const messages = [...scopes, call];
@@ -406,6 +601,10 @@ test("L7 native Scope 只消费同 pcall/prun 的 request.refs，保留真实 Sc
   assert.deepEqual(result.reports[0].observation_refs, []);
   assert.equal(check(["chapter:source-only"]).ok, false);
   assert.equal(check(["observation:metadata-only"]).ok, false);
+  record.request.refs.base_refs = ["chapter:actual"];
+  record.request.refs.used_refs = [{ ref: "chapter:actual" }];
+  assert.equal(check(["chapter:actual"]).ok, true);
+  assert.equal(check(["chapter:source-only"]).reason, "used_ref_out_of_boundary");
   const altered = structuredClone(scope);
   altered.versions.scope_revision += 1;
   assert.equal(check(["chapter:actual"], [record], [altered]).reason, "scope_provenance_unbound");
@@ -592,7 +791,7 @@ test("L7 会话前缀绑定 Scope，当前段自报不混入历史 run；缺前�
   assert.equal(missingBase.ok, null);
   assert.equal(missingBase.reason, "request_base_refs_unavailable");
   assert.deepEqual(missingBase.reports[0].base_refs, []);
-  record.request_body.refs = { base_refs: [] };
+  record.request_body.refs = { base_refs: [], observation_refs: [] };
   assert.equal(check(sessionMessages).ok, false);
 });
 
@@ -602,6 +801,7 @@ test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；S
     { source_refs: [{ ref: "chapter:legacy" }] });
   const record = irRecord({
     baseRefs: [{ ref: "chapter:ch-ir" }, { ref: "plan:ir" }],
+    observationRefs: ["chapter:obs-ir"],
     messages: [
       irMessage("system", "application", [{ type: "text", text: "chapter:sys-ir" }]),
       legacy,
@@ -620,7 +820,7 @@ test("L7 canonical IR：当前请求 Base 登记与真实 observation 分账；S
       irMessage("user", "author", [{ type: "text", text: AUTHOR }]),
       irMessage("assistant", "model", [{ type: "tool_call", call_id: "call-ir", name: "read_chapter", arguments: {} }]),
       irMessage("tool", "tool_result", [
-        { type: "observation", call_id: "call-ir", status: "ok", source_refs: ["chapter:obs-ir"], content: { text: "chapter:content-ir" } },
+        { type: "observation", call_id: "call-ir", status: "ok", source_refs: ["chapter:obs-ir"], content: { summary: "已读取本页。", text: "chapter:content-ir" } },
       ]),
     ],
   });
@@ -747,7 +947,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
     nativeObservation({
       callId: "call_page",
       sourceRefs: ["chapter:ch-1"],
-      content: { observation_ref: "observation:obs_page_1" },
+      content: { summary: "已读取本页。", observation_ref: "observation:obs_page_1" },
     }),
   ];
   const result = resultOf({ messages, usedRefs: ["observation:obs_page_1"] });
@@ -778,7 +978,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
               call_id: "call-ir-page",
               status: "ok",
               source_refs: [],
-              content: { observation_ref: "observation:obs-ir-page" },
+              content: { summary: "已读取本页。", observation_ref: "observation:obs-ir-page" },
             },
           ]),
         ],
@@ -809,7 +1009,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
           assistantToolCall({ callId: "call_other" }),
           nativeObservation({
             callId: "call_other",
-            content: { observation_ref: "observation:obs_other" },
+            content: { summary: "另一请求的真实材料。", observation_ref: "observation:obs_other" },
           }),
         ],
       }),

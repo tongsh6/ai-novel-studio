@@ -10,16 +10,18 @@
 // Scope.source_refs 只是来源，prose、目标、引用和历史 text 块都不扩充 Base/observation。
 // 原生调用未记录同次 Base 元数据时如实缺证，最终段头的累计 refs 不能代签。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
-// 与同请求原生 content.observation_ref 身份。ok/partial 叶只证明该页真实可用引用，
-// 不证明全文完整；planned_exploration 父块也须 ok/partial，叶沿用真实父 call_id。
+// 与同请求原生 content.observation_ref 身份。ok/partial/truncated 叶只证明已供应部分可用，
+// 不证明全文完整；还须实际供应内容并在同次目录登记。planned_exploration 父块也须有效，叶沿用真实父 call_id。
 // 应用计划叶保持 Base；父块或不可用叶的合并来源不代签。checkpoint/notice、“省略：”、作者
 // 原文、段头 used_refs、decision_traces、agent_events 不授信，不做跨调用并集；ref 按
 // EvidenceUsage.validate 的完整字符串精确匹配。
 import {
+  AUTHORING_REQUEST_IR,
   observationRefOf,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
 import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
 export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
 
@@ -82,37 +84,50 @@ function collectApplication(boundary, messages) {
   }
 }
 
-function suppliedBaseRefs(facts) {
-  const refs = facts.refs?.base_refs;
+function suppliedRefs(facts, kind) {
+  const refs = facts.refs?.[kind];
   if (!Array.isArray(refs)) return null;
   const values = refValues(refs);
   return values.length === refs.length ? values : null;
 }
 
-function scopeBaseEvidence(record, sessionMessages, facts) {
+function scopeRefEvidence(record, sessionMessages, facts) {
   if (scopeForProviderCall(record, { messages: sessionMessages }) === null) {
     return { ok: false, reason: "scope_provenance_unbound" };
   }
-  const refs = suppliedBaseRefs(facts);
-  if (refs === null) return { ok: false, reason: "request_base_refs_unavailable" };
-  return { ok: true, refs };
+  const baseRefs = suppliedRefs(facts, "base_refs");
+  if (baseRefs === null) return { ok: false, reason: "request_base_refs_unavailable" };
+  const observationRefs = suppliedRefs(facts, "observation_refs");
+  if (observationRefs === null) return { ok: false, reason: "request_observation_refs_unavailable" };
+  return { ok: true, baseRefs, observationRefs };
+}
+
+function observationContentSupplied(content) {
+  if (nonBlank(content)) return true;
+  if (!isObject(content)) return false;
+  return nonBlank(content.summary) ||
+    (isObject(content.facts) && Object.keys(content.facts).length > 0) ||
+    (Array.isArray(content.facts) && content.facts.length > 0);
 }
 
 // 实际请求的观察归一由 request facts 唯一负责。应用计划读取属于明确 Base；
-// 本处只把同次原生工具结果的 ok/partial 叶登记为 Observation，不推定全文覆盖。
-function collectToolObservations(boundary, facts) {
+// 本处只认实际材料及有效父/叶状态；现役 Scope 还须与同次登记目录相交。
+function collectToolObservations(boundary, facts, registeredRefs, retainedMessages) {
+  const supplied = (ref) => registeredRefs === null || registeredRefs.has(ref);
   for (const unit of facts.observations) {
+    if (retainedMessages !== null && !retainedMessages.has(facts.messages[unit.messageIndex])) continue;
     if (unit.provenance !== "tool" ||
-        !["ok", "partial"].includes(String(unit.parentStatus ?? "")) ||
-        !["ok", "partial"].includes(String(unit.payload.status ?? ""))) continue;
-    for (const ref of refValues(unit.payload.source_refs)) {
+        !["ok", "partial", "truncated"].includes(String(unit.parentStatus ?? "")) ||
+        !["ok", "partial", "truncated"].includes(String(unit.payload.status ?? "")) ||
+        !observationContentSupplied(unit.payload.content)) continue;
+    for (const ref of refValues(unit.payload.source_refs).filter(supplied)) {
       pushRef(boundary.observation, ref, {
         message_index: unit.messageIndex, channel: "source_refs",
         call_id: unit.callId, status: unit.payload.status,
       });
     }
     const identity = observationRefOf(unit.payload);
-    if (identity !== null) {
+    if (identity !== null && supplied(identity)) {
       pushRef(boundary.observation, identity, {
         message_index: unit.messageIndex, channel: "content_observation_ref",
         call_id: unit.callId, status: unit.payload.status,
@@ -129,16 +144,28 @@ function requestBoundary(record, sessionMessages) {
       request_reason: facts.reason ?? null, request_status: facts.status ?? null,
     };
   }
+  // IR 保留追加式原历史；只复用覆盖 oracle 的保留消息判据，不重建 wire 或改写事实。
+  // native wire 已是实际发送视图，不根据历史意图再过滤一次。
+  let retainedMessages = null;
+  if (facts.format === AUTHORING_REQUEST_IR) {
+    const coverage = auditCanonicalCoverage(facts.messages);
+    if (!coverage.ok) {
+      return { ok: false, reason: "request_coverage_invalid", request_reason: coverage.reason };
+    }
+    retainedMessages = new Set(coverage.retainedMessages);
+  }
   const hasNativeScope = facts.scopeMessages.some((message) => isObject(message.scopeContent));
   const boundary = { base: new Map(), observation: new Map() };
+  let registeredObservationRefs = null;
   if (hasNativeScope) {
-    const evidence = scopeBaseEvidence(record, sessionMessages, facts);
+    const evidence = scopeRefEvidence(record, sessionMessages, facts);
     if (!evidence.ok) return evidence;
-    for (const ref of evidence.refs) pushRef(boundary.base, ref, { channel: "canonical_base_refs" });
+    for (const ref of evidence.baseRefs) pushRef(boundary.base, ref, { channel: "canonical_base_refs" });
+    registeredObservationRefs = new Set(evidence.observationRefs);
   } else {
     collectApplication(boundary, facts.applicationMessages);
   }
-  collectToolObservations(boundary, facts);
+  collectToolObservations(boundary, facts, registeredObservationRefs, retainedMessages);
   return { ok: true, boundary };
 }
 
@@ -159,7 +186,7 @@ function readToolReport(block) {
   const callId = nonBlank(block.call_id) ? block.call_id : null;
   const used = report.used_context_refs;
   if (!Array.isArray(used)) return { malformed: true, refs: [], callId };
-  return { malformed: false, refs: used.filter(nonBlank), callId };
+  return { malformed: !used.every(nonBlank), refs: used.filter(nonBlank), callId };
 }
 
 // 一条 assistant(model) 消息的自报；多个 tool_call 的 report 属于同一次调用，合并。
@@ -310,8 +337,8 @@ export function liveRefsCheck({ llmRecords = [], transcript = null, sessionMessa
       pairing: ["canonical assistant.provider_call_ref + provider_run_ref ↔ llm_calls 同名两键"],
       base: ["现役 Scope：同次请求 IR.refs.base_refs；其余请求：application_base.source_refs（优先）/ text"],
       observation: [
-        "成功且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref；Scope.source_refs 不授信",
-        "planned_exploration 聚合父块 status=ok/partial 时，取各自 ok/partial 叶的 source_refs 与身份；沿用父 call_id，partial不证明全文完整",
+        "实际供应材料且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref；现役 Scope 须在同请求 observation_refs 登记",
+        "planned_exploration 聚合父块与叶均为 ok/partial/truncated 时取已供应内容的来源与身份；沿用父 call_id，部分读取不证明全文完整",
       ],
       excluded: ["段头累计 base_refs / used_refs / Scope.source_refs / decision_traces / agent_events / checkpoint / notice / 省略 / 作者输入"],
       self_report_count,

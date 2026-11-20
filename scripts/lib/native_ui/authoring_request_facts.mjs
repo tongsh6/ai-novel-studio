@@ -430,10 +430,10 @@ function wireShapeReason(body) {
 function nativeRequestRefs(record) {
   const refs = record?.request?.refs;
   if (!isRecord(refs)) return null;
+  // RequestIR.ref_key 同时接受原始 ref 字符串和带版本的 {ref}；只读保留真实形状。
   const sources = (value) => Array.isArray(value) &&
-    value.every((source) => isRecord(source) && nonBlank(source.ref));
-  return sources(refs.base_refs) && sources(refs.observation_refs) &&
-    Array.isArray(refs.used_refs) && refs.used_refs.every(nonBlank) ? refs : null;
+    value.every((source) => nonBlank(source) || (isRecord(source) && nonBlank(source.ref)));
+  return sources(refs.base_refs) && sources(refs.observation_refs) && sources(refs.used_refs) ? refs : null;
 }
 
 function wireFacts(record, body) {
@@ -555,11 +555,11 @@ export function proseObservationBodyReason(block, expected) {
 }
 
 // 原生 observation 身份只在 content.observation_ref，且必须是完整 observation: token；
-// content 的其它字段与文本不参与。证据消费者共用这一处读取。
+// 保留原始完整字符串，不修剪或补写；content 其它字段与文本不参与。
 export function observationRefOf(payload) {
   const content = isRecord(payload) && isRecord(payload.content) ? payload.content : null;
   const ref = content && typeof content.observation_ref === "string"
-    ? content.observation_ref.trim()
+    ? content.observation_ref
     : "";
   return ref.startsWith(OBSERVATION_REF_PREFIX) ? ref : null;
 }

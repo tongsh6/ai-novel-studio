@@ -228,6 +228,41 @@ test("R05 AX 容器的汇总和标题不重复记文本，数值路径顺序与�
   assert.equal(match("重复。\n\n重复。", group(20, "重复。")).ok, false);
 });
 
+test("R05 助手紧邻的帧标签不是模型正文，同文正文仍完整保留且决定首末视口", () => {
+  const reply = "生成草稿\n\n我已核对首尾线索，候选等你决定。";
+  for (const desc of ["生成草稿", "生成草稿：整章修订"]) {
+    const badge = group(13, "生成草稿");
+    badge[0].desc = desc;
+    const nodes = page([...badge, ...group(20, "生成草稿"),
+      ...group(21, "我已核对首尾线索，候选等你决定。")]);
+    const before = JSON.stringify(nodes);
+    const report = r05.r05ReplyMatch({ reply, nodes, message: MESSAGE });
+    assert.equal(report.ok, true, desc);
+    assert.deepEqual(report.surface.leaves.map((node) => [node.path, node.value]), [
+      [ROOT + "/20/0", "生成草稿"], [ROOT + "/21/0", "我已核对首尾线索，候选等你决定。"],
+    ]);
+    assert.equal(report.surface.first.path, ROOT + "/20/0");
+    assert.equal(report.surface.last.path, ROOT + "/21/0");
+    assert.equal(JSON.stringify(nodes), before);
+  }
+});
+
+test("R05 正文关键词、非紧邻标签及坏结构不能被当作帧标签删除", () => {
+  const reply = "完整回复。";
+  for (const change of [
+    (badge) => { delete badge[0].desc; },
+    (badge) => { badge[0].desc = "另一个标签：目标"; },
+    (badge) => { badge[0].role = "AXHeading"; },
+    (badge) => { badge.push({ path: ROOT + "/13/1", role: "AXStaticText", value: "额外内容" }); },
+    (badge) => { badge.forEach((node) => { node.path = node.path.replace("/13", "/30"); }); },
+  ]) {
+    const badge = group(13, "生成草稿"); badge[0].desc = "生成草稿：整章修订"; change(badge);
+    assert.equal(match(reply, [...badge, ...group(20, reply)]).ok, false);
+  }
+  const badgeOnly = group(13, "生成草稿"); badgeOnly[0].desc = "生成草稿：整章修订";
+  assert.equal(r05.r05ReplySurface(page(badgeOnly), { message: MESSAGE }).ok, false);
+});
+
 test("R05 完整回复必须保全中段、末句、顺序及数量，不接受前缀或散落子序列", () => {
   const reply = "第一段。\n\n第二段。\n\n最后一句限定。";
   const correct = ["第一段。", "第二段。", "最后一句限定。"];

@@ -47,8 +47,9 @@ function irRecord(body) {
 
 test("真实 native request.refs 登记同次 IR 引用，不改 HTTP body 或冒充 IR 格式", () => {
   const body = { model: "local/Q4-PLE4", messages: [{ role: "user", content: "作者原文" }] };
-  const refs = { base_refs: [{ ref: "chapter:actual", version: 2 }],
-    observation_refs: [{ ref: "observation:actual" }], used_refs: ["chapter:actual"] };
+  const refs = { base_refs: [{ ref: "chapter:actual", version: 2 }, "plan:exact"],
+    observation_refs: ["observation:actual", { ref: "observation:page", version: 3 }],
+    used_refs: ["chapter:actual", { ref: "plan:exact" }] };
   const record = { provider: "splash", provider_call_ref: "pcall-refs", provider_run_ref: "prun-refs",
     request: { body, refs } };
   const facts = requestFactsFromRecord(record);
@@ -65,7 +66,8 @@ test("native 引用缺失或未知格式保持 unknown，body.refs 与顶层 ref
   const body = { messages: [{ role: "user", content: "作者原文" }], refs: valid };
   for (const refs of [undefined, null, [], "unknown", { base_refs: [] },
     { ...valid, observation_refs: {} }, { ...valid, used_refs: null },
-    { ...valid, base_refs: [{ ref: "" }] }, { ...valid, used_refs: [null] }]) {
+    ...["base_refs", "observation_refs", "used_refs"].flatMap((key) =>
+      [null, "", " ", 7, {}, { ref: "" }, { ref: 7 }].map((value) => ({ ...valid, [key]: [value] })))]) {
     const facts = requestFactsFromRecord({ provider: "splash", refs: valid, request: { body, refs } });
     assert.equal(facts.ok, true);
     assert.equal(facts.refs, null);

@@ -353,6 +353,15 @@ function replySurfaceFailure(reason) {
   return { ok: false, reason, leaves: [], first: null, last: null,
     assistant_path: null, why_path: null };
 }
+// WorkspaceChat 的帧标签是助手角色之后紧邻的 group，desc 为 label[:goal]。
+// 只识别该可见结构，不按正文词语删文本，也不复制产品的帧类型/文案表。
+function replyFrameBadge(entries, node) {
+  if (node?.role !== "AXGroup" || !nonBlank(node.desc)) return false;
+  const children = entries.filter((child) => replyParent(child.path) === node.path);
+  if (children.length !== 1 || children[0].role !== "AXStaticText" || !nonBlank(children[0].value)) return false;
+  const label = children[0].value;
+  return node.desc === label || node.desc.startsWith(`${label}：`);
+}
 export function r05ReplySurface(nodes, { message = "", baselineAuthorCount = 0 } = {}) {
   const entries = list(nodes);
   if (!nonBlank(message) || !Number.isInteger(baselineAuthorCount) || baselineAuthorCount < 0 ||
@@ -380,8 +389,10 @@ export function r05ReplySurface(nodes, { message = "", baselineAuthorCount = 0 }
     return replySurfaceFailure("reply_why_ambiguous");
   }
   const why = whys[0];
-  const blocks = peers.filter((node) => replyPathOrder(node, assistant) > 0 &&
-    replyPathOrder(node, why) < 0 && !(node.role === "AXGroup" && REPLY_NON_CONTENT.has(node.title)));
+  const between = peers.filter((node) => replyPathOrder(node, assistant) > 0 && replyPathOrder(node, why) < 0);
+  const badge = replyFrameBadge(entries, between[0]) ? between[0] : null;
+  const blocks = between.filter((node) => node !== badge &&
+    !(node.role === "AXGroup" && REPLY_NON_CONTENT.has(node.title)));
   const inReply = entries.filter((node) => blocks.some((block) =>
     node.path === block.path || replyDescendant(node.path, block.path)));
   const texts = inReply.filter((node) => node.role === "AXStaticText");
