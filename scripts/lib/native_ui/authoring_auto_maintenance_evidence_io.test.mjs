@@ -292,7 +292,9 @@ test("跨 run A3 场景：C11 不判，C7/C8 仍判", () => {
 
 test("C5 正例（真实目录下 C5 与 wire 覆盖）", () => {
   const template = fixture();
-  const messages = afterWireMessages({ summary: `已整理的较早记录（原文含 ${CALL_ID}）` });
+  const messages = afterWireMessages();
+  assert(messages.some((message) => typeof message.content === "string" &&
+    message.content.endsWith(`已整理的较早记录（覆盖 ${CALL_ID}）`)));
   const result = evaluateIn(template.dir, {
     llmRecords: logs(path.join(template.dir, "llm-calls")).map((record) => record.provider_call_ref === "pcall-after" ? afterRecord({ messages }) : record),
   });

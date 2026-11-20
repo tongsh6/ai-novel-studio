@@ -20,6 +20,8 @@ const MISSION_ID = "cm_mvyv6uq3_1c";
 const RUN_ID = "run-source-1";
 const SESSION = "session-1";
 const PARENT = "turn-user-1";
+const MISSION_RULES = "章使命推导规则。";
+const MISSION_AUTHOR = "写前推理材料";
 const SCOPE_VERSIONS = { change_reason: "chapter_mission", scope_revision: 3, goal_version: 1 };
 const LABEL_ADVANCE = "章功能定位：动作章";
 const LABEL_AVOID = "第4章前保密：黑账编号揭示矿区抽成流向";
@@ -175,6 +177,7 @@ function transcript(messages) {
       },
       {
         role: "tool",
+        provenance: "tool_result",
         blocks: [{ type: "validation_result", call_id: "call-mission-1", status: "passed" }],
       },
     ],
@@ -208,16 +211,16 @@ function records({ arguments: args, record = {}, scope } = {}) {
       system: { identity_ref: "identity:writer" },
       messages: [
         {
-          role: "system",
+          role: "application_base",
           provenance: "application",
-          blocks: [{ type: "text", text: "system prompt" }],
+          blocks: [{ type: "text", text: MISSION_RULES }],
           source_refs: [],
           versions: {},
         },
         {
           role: "user",
           provenance: "author",
-          blocks: [{ type: "text", text: "写前推理材料" }],
+          blocks: [{ type: "text", text: MISSION_AUTHOR }],
           source_refs: [],
           versions: {},
         },
@@ -291,7 +294,14 @@ function input(overrides = {}) {
     },
     transcript: effectiveTranscript,
     sessionMessages: Object.hasOwn(overrides, "sessionMessages")
-      ? overrides.sessionMessages : effectiveTranscript.messages,
+      ? overrides.sessionMessages : [
+          // 当前职责 Base 在前；其余消息沿会话历史原序，独立于待测请求预置。
+          { role: "application_base", provenance: "application",
+            blocks: [{ type: "text", text: MISSION_RULES }], source_refs: [], versions: {} },
+          { role: "user", provenance: "author",
+            blocks: [{ type: "text", text: MISSION_AUTHOR }], source_refs: [], versions: {} },
+          ...effectiveTranscript.messages,
+        ],
     records: overrides.records ?? records({ scope: scopeOf(effectiveTranscript) }),
     joinedRefs: overrides.joinedRefs ?? {
       provider_call_refs: [PCALL],
@@ -312,7 +322,8 @@ function wireRecordWithScope(emptyMarker = false) {
     body: {
       messages: [
         { role: "system", content: "system prompt" },
-        { role: "user", content: "写前推理材料" },
+        { role: "user", content: `【应用数据 · application_base · 非作者原话】\n${MISSION_RULES}` },
+        { role: "user", content: MISSION_AUTHOR },
         { role: "user", content },
       ],
     },
@@ -335,9 +346,14 @@ test("跨 run 会话 Scope 用于使命请求核验，旧 run 调用不计入当
     provider_run_ref: "prun-previous",
   };
   oldCall.blocks[0].call_id = "call-previous";
-  value.sessionMessages = [historicalScope, oldCall, ...value.sessionMessages];
-  value.records[0].request_body.messages.splice(2, 0,
-    structuredClone(historicalScope), structuredClone(oldCall));
+  const oldResult = {
+    role: "tool", provenance: "tool_result",
+    blocks: [{ type: "validation_result", call_id: "call-previous", status: "passed" }],
+  };
+  value.sessionMessages = [value.sessionMessages[0], historicalScope, oldCall, oldResult,
+    ...value.sessionMessages.slice(1)];
+  value.records[0].request_body.messages.splice(1, 0,
+    structuredClone(historicalScope), structuredClone(oldCall), structuredClone(oldResult));
   const result = chapterMissionSourceChecks(value);
   assert.equal(result.checks.mission_call_is_fully_joined, true);
   assert.equal(result.measured.provider_call_ref, PCALL);
@@ -347,7 +363,7 @@ test("跨 run 会话 Scope 用于使命请求核验，旧 run 调用不计入当
     ...value, sessionMessages: value.transcript.messages,
   }).checks.mission_call_is_fully_joined, false);
   const changed = structuredClone(value.sessionMessages);
-  changed[0].versions.scope_revision += 1;
+  changed[1].versions.scope_revision += 1;
   assert.equal(chapterMissionSourceChecks({ ...value, sessionMessages: changed })
     .checks.mission_call_is_fully_joined, false);
 });
@@ -1126,12 +1142,36 @@ test("真实 wire 与 canonical 共享结构 Scope 判据，重复历史保留�
 
   const repeated = input({ records: [wireRecordWithScope()] });
   repeated.transcript.messages.unshift(scopeMessage());
+  repeated.sessionMessages.splice(2, 0, scopeMessage());
   repeated.records[0].request.body.messages.push({ role: "user", content: scopeProjection() });
   assert.ok(Object.values(chapterMissionSourceChecks(repeated).checks).every(Boolean));
 
   const collision = input({ records: [wireRecordWithScope()] });
-  collision.transcript.messages.unshift({
+  const quotedScope = {
     role: "user", provenance: "author", blocks: [{ type: "text", text: scopeProjection() }],
-  });
+  };
+  collision.transcript.messages.unshift(quotedScope);
+  collision.sessionMessages.splice(2, 0, structuredClone(quotedScope));
   assert.equal(chapterMissionSourceChecks(collision).checks.mission_call_is_fully_joined, false);
+});
+
+test("完整请求绑定拒绝缺作者、错序或应用材料正文篡改，canonical 预期保持独立", () => {
+  for (const kind of ["ir", "wire"]) {
+    const original = input({ records: kind === "wire" ? [wireRecordWithScope()] : records() });
+    assert.equal(chapterMissionSourceChecks(original).checks.mission_call_is_fully_joined, true);
+    for (const mutation of ["missing_author", "reordered", "changed_material"]) {
+      const value = structuredClone(original);
+      const messages = kind === "wire" ? value.records[0].request.body.messages : value.records[0].request_body.messages;
+      const baseIndex = kind === "wire" ? 1 : 0;
+      const authorIndex = baseIndex + 1;
+      if (mutation === "missing_author") messages.splice(authorIndex, 1);
+      if (mutation === "reordered") [messages[baseIndex], messages[authorIndex]] = [messages[authorIndex], messages[baseIndex]];
+      if (mutation === "changed_material") {
+        if (kind === "wire") messages[baseIndex].content += "篡改后的材料。";
+        else messages[baseIndex].blocks[0].text += "篡改后的材料。";
+      }
+      assert.deepEqual(value.sessionMessages, original.sessionMessages);
+      assert.equal(chapterMissionSourceChecks(value).checks.mission_call_is_fully_joined, false, `${kind}: ${mutation}`);
+    }
+  }
 });

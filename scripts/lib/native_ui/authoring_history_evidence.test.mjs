@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
+import { authoringScope, composeSessionMessages, readAuthoringHistory } from "./authoring_history_evidence.mjs";
 import { openTestRunScope } from "../test_env.mjs";
 import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { assistant, exchange } from "./fixtures/authoring_call_fixture.mjs";
@@ -148,6 +148,34 @@ function sessionHistorySpec() {
     },
   };
 }
+
+test("composeSessionMessages 按当前 run 身份保留唯一职责，重复正文与来源不能消重", () => {
+  const oldBase = { role: "application_base", provenance: "application",
+    blocks: [{ type: "text", text: "同文职责" }], base_refs: ["chapter:old"],
+    canonical_ref: { run_id: "early", run_sequence: 1 } };
+  const oldAuthor = { role: "user", provenance: "author",
+    blocks: [{ type: "text", text: "原文  \\n" }], canonical_ref: { run_id: "early", run_sequence: 2 } };
+  const currentBase = { role: "application_base", provenance: "application",
+    blocks: [{ type: "text", text: "同文职责" }], base_refs: ["chapter:current"],
+    canonical_ref: { run_id: "current", run_sequence: 1 } };
+  const currentAuthor = { role: "user", provenance: "author",
+    blocks: [{ type: "text", text: "原文  \\n" }], canonical_ref: { run_id: "current", run_sequence: 2 } };
+  const repeatedRead = { role: "tool", provenance: "tool",
+    blocks: [{ type: "observation", source_refs: ["chapter:current"] }],
+    canonical_ref: { run_id: "current", run_sequence: 3 } };
+  const messages = [oldBase, oldAuthor, currentBase, currentAuthor, repeatedRead];
+  const original = structuredClone(messages);
+
+  assert.deepEqual(composeSessionMessages(messages, "current"),
+    [currentBase, oldAuthor, currentAuthor, repeatedRead]);
+  assert.deepEqual(composeSessionMessages([oldBase, oldAuthor, currentAuthor, repeatedRead], "current"),
+    [oldAuthor, currentAuthor, repeatedRead]);
+  assert.deepEqual(messages, original);
+  assert.throws(() => composeSessionMessages([...messages, currentBase], "current"), /application_base 重复/);
+  assert.throws(() => composeSessionMessages(
+    [oldBase, oldAuthor, currentAuthor, currentBase, repeatedRead], "current",
+  ), /application_base 必须位于首位/);
+});
 
 test("sessionMessages 保留同会话前 run 全序、只用当前 base，原 transcript/预算仍限当前 run", () => {
   const spec = sessionHistorySpec();

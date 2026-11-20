@@ -17,6 +17,10 @@ export const BEFORE_STARTED_AT = "2026-11-04T09:59:20.000Z";
 export const AFTER_STARTED_AT = "2026-11-04T10:00:00.500Z";
 export const READY_AT = "2026-11-04T09:00:00.000Z";
 
+// 两次响应先按独立 recipe 固定；canonical 与后续 wire 共用原文，不从请求反造回复。
+const AFTER_REPLY_TEXT = "继续核对第03章。";
+const RECOVERY_REPLY_TEXT = "继续核对恢复后的来源。";
+
 export const AUTO_EXECUTABLE = "/fixture/AI Novel Studio.app/Contents/MacOS/app";
 
 export function autoMaintenanceConfig() {
@@ -96,14 +100,15 @@ export function wireCheckpointMessage({
     content:
       "【应用数据 · checkpoint · 非作者原话】\n" +
       `【应用数据 · checkpoint · 覆盖 ${covers}】\n` +
-      "来源：[]\n版本：{}\n省略：未闭合交换不折叠\n" +
+      "来源：[\"source-1\"]\n版本：{}\n省略：未闭合交换不折叠\n" +
       summary,
   };
 }
 
 export function afterWireMessages({ replayCall = false, replayResult = false, summary } = {}) {
   const messages = [
-    { role: "application_base", content: "base" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\nbase" },
+    { role: "user", content: "先读一下第01章的正文和章计划。" },
     { role: "user", content: "继续读第03章" },
     wireCheckpointMessage({ summary }),
   ];
@@ -182,8 +187,11 @@ function canonicalRow(runId, sequence, runSequence, message) {
 }
 
 export function dbFactsFor({ afterSession = SESSION, afterEmittedAt = AFTER_STARTED_AT } = {}) {
-  const baseMessages = transcriptRecord().transcript.messages.map((message, index) =>
-    canonicalRow(RUN, index + 1, index + 1, message));
+  const baseMessages = [
+    ...transcriptRecord().transcript.messages,
+    { role: "assistant", provenance: "model", provider_call_ref: "pcall-after", provider_run_ref: "prun-after",
+      blocks: [{ type: "text", text: AFTER_REPLY_TEXT }] },
+  ].map((message, index) => canonicalRow(RUN, index + 1, index + 1, message));
   const recoveryCall = "call_recovery_1";
   const recoveryMessages = [
     { role: "user", provenance: "author", blocks: [{ type: "text", text: "核对恢复来源" }] },
@@ -191,6 +199,8 @@ export function dbFactsFor({ afterSession = SESSION, afterEmittedAt = AFTER_STAR
     { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: recoveryCall, status: "ok", source_refs: ["source-1"], versions: {} }] },
     { role: "user", provenance: "author", blocks: [{ type: "text", text: "新工作回合核对恢复后的来源" }] },
     checkpointMessage({ callIds: [recoveryCall], summary: "恢复后的整理记录" }),
+    { role: "assistant", provenance: "model", provider_call_ref: "pcall-after-recovery", provider_run_ref: "prun-after-recovery",
+      blocks: [{ type: "text", text: RECOVERY_REPLY_TEXT }] },
   ].map((message, index) => canonicalRow(RECOVERY_RUN, baseMessages.length + index + 1, index + 1, message));
   return {
     agent_events: [
@@ -244,6 +254,7 @@ export function afterRecord({
   providerCallRef = "pcall-after",
   ts = "2026-11-04T10:00:05.000Z",
   inputTokens = 23000,
+  responseText = AFTER_REPLY_TEXT,
 } = {}) {
   return {
     ts,
@@ -253,7 +264,8 @@ export function afterRecord({
     provider_run_ref: providerRunRef,
     provider_call_ref: providerCallRef,
     request: { body: { messages } },
-    response: { status: 200, usage: { input_tokens: inputTokens, output_tokens: 40 } },
+    response: { status: 200, usage: { input_tokens: inputTokens, output_tokens: 40 },
+      body: { choices: [{ index: 0, message: { role: "assistant", content: responseText }, finish_reason: "stop" }] } },
   };
 }
 
@@ -283,7 +295,13 @@ export function beforeRecord() {
 
 export function llmRecords() {
   return [beforeRecord(), afterRecord(), afterRecord({ providerRunRef: "prun-after-recovery", providerCallRef: "pcall-after-recovery",
-    ts: "2026-11-04T10:05:02.000Z", messages: [...afterWireMessages(), wireCheckpointMessage({ callIds: ["call_recovery_1"] })] })];
+    ts: "2026-11-04T10:05:02.000Z", responseText: RECOVERY_REPLY_TEXT, messages: [
+      ...afterWireMessages().slice(1),
+      { role: "assistant", content: AFTER_REPLY_TEXT },
+      { role: "user", content: "核对恢复来源" },
+      { role: "user", content: "新工作回合核对恢复后的来源" },
+      wireCheckpointMessage({ callIds: ["call_recovery_1"], summary: "恢复后的整理记录" }),
+    ] })];
 }
 
 export function driverLogFor() {
@@ -413,8 +431,7 @@ export function interleavedResumeFacts() {
         { role: "assistant", content: "", tool_calls: [{ id: keepCall, type: "function", function: { name: "chapter_read", arguments: "{}" } }] },
         { role: "tool", tool_call_id: keepCall, content: JSON.stringify(observation) },
         scopeWireMessage(bScope.blocks[0].content, { versions: bScope.versions, sourceRefs }),
-        { role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " +
-          JSON.stringify(checkpoint.blocks[0].covers) + "】\n风险表和结尾问题待解。" },
+        early.checkpointWire,
         { role: "user", content: answerText },
         scopeWire,
       ], tools: [] } },

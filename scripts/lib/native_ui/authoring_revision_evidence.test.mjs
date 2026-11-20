@@ -1051,15 +1051,23 @@ test("修订请求核验完整会话 Scope，调用计数保持当前 run", () =
   const call = (suffix) => ({
     role: "assistant", provenance: "model",
     provider_call_ref: "pcall-" + suffix, provider_run_ref: "prun-" + suffix,
-    blocks: [{ type: "tool_call", call_id: "call-" + suffix, name: "submit_tentative_artifact" }],
+    blocks: [{ type: "tool_call", call_id: "call-" + suffix, name: "submit_tentative_artifact", arguments: {} }],
   });
   const currentCall = call("current");
   const transcript = { messages: [currentScope, currentCall] };
-  const sessionMessages = [oldScope, call("previous"), ...transcript.messages, scope("未来原文", 3)];
+  const previousResult = { type: "validation_result", call_id: "call-previous", status: "failed", reason_code: "invalid_tool_arguments" };
+  const sessionMessages = [oldScope, call("previous"),
+    { role: "tool", provenance: "tool_result", blocks: [previousResult] },
+    ...transcript.messages, scope("未来原文", 3)];
   const record = {
     provider_call_ref: "pcall-current", provider_run_ref: "prun-current",
-    request: { body: { messages: [oldScope, currentScope].map((message) =>
-      scopeWireMessage(message.blocks[0].content, { versions: message.versions })) } },
+    request: { body: { messages: [
+      scopeWireMessage(oldScope.blocks[0].content, { versions: oldScope.versions }),
+      { role: "assistant", content: "", tool_calls: [{ id: "call-previous", type: "function",
+        function: { name: "submit_tentative_artifact", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "call-previous", content: JSON.stringify(previousResult) },
+      scopeWireMessage(currentScope.blocks[0].content, { versions: currentScope.versions }),
+    ] } },
     response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: {} }] } },
   };
   const check = (messages) => retryExchangeChecks({
@@ -1073,6 +1081,12 @@ test("修订请求核验完整会话 Scope，调用计数保持当前 run", () =
   const changed = structuredClone(sessionMessages);
   changed[0].versions.scope_revision += 1;
   assert.equal(check(changed).checks.revision_request_carries_source_bytes_and_findings, false);
+  const originalWire = structuredClone(record.request.body.messages);
+  record.request.body.messages[1].tool_calls[0].function.arguments = '{"injected":true}';
+  assert.equal(check(sessionMessages).checks.revision_request_carries_source_bytes_and_findings, false);
+  record.request.body.messages = originalWire;
+  [record.request.body.messages[1], record.request.body.messages[2]] = [record.request.body.messages[2], record.request.body.messages[1]];
+  assert.equal(check(sessionMessages).checks.revision_request_carries_source_bytes_and_findings, false);
 });
 
 test("requestCarries 把空白 findingInstruction 视为无要求，非空缺失时关闭", () => {

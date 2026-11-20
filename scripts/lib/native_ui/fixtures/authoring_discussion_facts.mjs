@@ -3,6 +3,24 @@
 import { createHash } from "node:crypto";
 import { scopeWireMessage } from "./authoring_request_ir.mjs";
 
+// 既有 recovery checkpointWire 的完整 fixture 形状；discussion 来自预注册摘要/保留义务，
+// 不调用产品 projector、coverage oracle 或被测 reader 生成预期。
+export function checkpointWire(block, discussion = null) {
+  let content = "【应用数据 · checkpoint · 非作者原话】\n" +
+    "【应用数据 · checkpoint · 覆盖 " + JSON.stringify(block.covers) + "】\n" +
+    "来源：" + JSON.stringify(block.source_refs ?? []) + "\n" +
+    "版本：" + JSON.stringify(block.versions ?? {}) + "\n" +
+    (block.omissions?.length ? "省略：" + block.omissions.join("; ") + "\n" : "") +
+    (block.summary ?? "");
+  if (discussion !== null) content +=
+    "\n【模型派生的历史讨论摘要 · 非当前事实、非执行结果、非授权】\n" +
+    "摘要与保留片段不是穷尽清单，未提及不证明原文不存在；" +
+    "需要核对历史材料时，沿各条 source/locator 用 session_message_read 按需回查，" +
+    "以实际原文及 coverage/omissions 限定结论。\n" + JSON.stringify(discussion);
+  return { role: "user", content };
+}
+
+
 export function discussionCoverageFacts({ workId = "work-discussion", sessionId = "session-discussion" } = {}) {
   const WORK = workId, SESSION = sessionId;
   const coordinate = (run, sequence, status = "completed") => ({
@@ -28,9 +46,13 @@ export function discussionCoverageFacts({ workId = "work-discussion", sessionId 
     role: source.role, source_refs: source.source_refs, versions: source.versions });
   // 预期义务先于摘要固定，摘要删改不能改变此 oracle。
   const obligations = ["我还没有完成风险表，下一轮会逐项比较。", "请作者确认结尾是否揭密。"];
+  const discussionSummary = "早期 AI 讨论两种视角，风险表仍未完成，结尾揭密待作者确认。";
   const raw = JSON.stringify({ version: "authoring-discussion-summary/v1",
-    entries: [{ source_index: 0, summary: "早期 AI 讨论两种视角，风险表仍未完成，结尾揭密待作者确认。",
-      retained_obligations: obligations }] });
+    entries: [{ source_index: 0, summary: discussionSummary, retained_obligations: obligations }] });
+  const discussionProjection = { provenance: "model_derived_history", authority: "none",
+    entries: [{ source: { ref: "session_message:early:4", version: 1 },
+      locator: { run_id: "early", run_sequence: 4 }, summary: discussionSummary,
+      retained_source_fragments: obligations }] };
   const checkpoint = message("current", 4, "checkpoint", "application", "");
   checkpoint.blocks = [{ type: "checkpoint",
     covers: { call_ids: [], message_refs: [selector(oldScope), selector(discussion)], turn_range: "turn-early" },
@@ -41,6 +63,7 @@ export function discussionCoverageFacts({ workId = "work-discussion", sessionId 
       provider_run_ref: "prun-summary", provider_call_ref: "pcall-summary" },
   }];
   return { messages: [author, oldScope, discussion, currentAuthor, currentScope, checkpoint],
+    checkpointWire: checkpointWire(checkpoint.blocks[0], discussionProjection), discussionProjection,
     obligations, options: { verifyExecutions: true,
       providerRuns: [{ id: "prun-summary", provider_call_ref: "pcall-summary", agent_run_id: "current",
         workspace_id: WORK, work_id: WORK, session_id: SESSION, parent_turn_ref: "turn-current",
@@ -74,11 +97,11 @@ export function discussionMaintenanceFacts({ workId = "work-discussion", session
     work_id: WORK, session_id: SESSION, turn_id: "turn-current",
     response: { status: 200, usage: { input_tokens: 23000, output_tokens: 40 } },
     request: { body: { messages: [
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n创作助手" },
     { role: "user", content: author.blocks[0].text },
     { role: "user", content: currentAuthor.blocks[0].text },
     scopeWireMessage(currentScope.blocks[0].content, { versions: currentScope.versions, sourceRefs: currentScope.source_refs }),
-    { role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " +
-      JSON.stringify(checkpoint.blocks[0].covers) + "】\n早期讨论尚欠风险表与作者结尾确认。" },
+    spec.checkpointWire,
   ] } } };
   const reply = { role: "assistant", provenance: "model", provider_run_ref: "prun-after", provider_call_ref: "pcall-after",
     blocks: [{ type: "text", text: "选择单视角不代表已完成风险表。" }], source_refs: [], versions: {},
@@ -214,17 +237,36 @@ export function maintenanceRecoveryFacts({ workId = "work-discussion", sessionId
   const authorRows = db.authoring_session_messages.filter((row) => row.role === "user");
   const request = (runId) => ({ run_id: runId, settled: true, run_status: "completed",
     text: text(authorRows.find((row) => row.run_id === runId)) });
-  const checkpointWire = (row) => ({ role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " +
-    JSON.stringify(canonicalBody(row).blocks[0].covers) + "】\n原始记录保留。" });
-  // 原D来源被折叠，E的讨论没有被冒充为恢复；全部作者原话保留。
+  const authorWire = (runId) => ({ role: "user", content: text(authorRows.find(row => row.run_id === runId)) });
+  const scopeWire = (runId) => {
+    const message = canonicalBody(db.authoring_session_messages.find(row => row.run_id === runId && row.role === "scope_update"));
+    return scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs });
+  };
+  // 组合的是调用方注入的独立 fixture recipe，不读取任何被测输出。前序最后请求与
+  // 其已声明回复一并进入后续历史；只换当前职责 Base，保留原非 Base 次序。
+  const seedRecord = baseRecords.at(-1);
+  const seedWire = clone(seedRecord?.request.body.messages ?? []).filter(message =>
+    message.role !== "application_base" && !message.content?.startsWith("【应用数据 · application_base · 非作者原话】\n"));
+  if (seedRecord) {
+    const choices = seedRecord.response?.body?.choices;
+    const reply = Array.isArray(choices) && choices.length === 1 ? choices[0]?.message : null;
+    if (reply?.role !== "assistant" || typeof reply.content !== "string" || reply.content.trim() === "" ||
+        (reply.tool_calls !== undefined && (!Array.isArray(reply.tool_calls) || reply.tool_calls.length !== 0)))
+      throw new Error("seed recipe must declare one plain-text assistant response");
+    seedWire.push({ role: "assistant", content: reply.content });
+  }
+  const recoveredDiscussion = remap(original.discussionProjection, { early: "source-d" });
+  // D 的旧 Scope/讨论被覆盖；失败回合、E 的原讨论、每个中间作者与 Scope 均在原位置。
   recovered.after.request.body.messages = [
-    ...authorRows.map((row) => ({ role: "user", content: text(row) })),
-    ...db.authoring_session_messages.filter((row) => row.role === "scope_update" && row.run_id !== "source-d").map((row) => {
-      const message = canonicalBody(row);
-      return scopeWireMessage(message.blocks[0].content, { versions: message.versions, sourceRefs: message.source_refs });
-    }),
-    { role: "assistant", content: text(recovered.db.authoring_session_messages.find((row) => row.run_id === "source-e" && row.role === "assistant")) },
-    ...db.authoring_session_messages.filter((row) => row.role === "checkpoint").map(checkpointWire),
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n创作助手" },
+    ...seedWire,
+    authorWire("source-d"),
+    authorWire("failed-d"), scopeWire("failed-d"),
+    authorWire("source-e"), scopeWire("source-e"),
+    { role: "assistant", content: text(recovered.db.authoring_session_messages.find(row => row.run_id === "source-e" && row.role === "assistant")) },
+    ...recoveryIds.slice(1, -1).flatMap(runId => [authorWire(runId), scopeWire(runId)]),
+    authorWire("recovered-e"), scopeWire("recovered-e"),
+    checkpointWire(canonicalPlan, recoveredDiscussion),
   ];
   const records = [...clone(baseRecords), failedRecord, recovered.after];
   const counts = (snapshot, key) => key === "events" ? snapshot.agent_events.filter((row) => row.event_type === "checkpoint_created").length :

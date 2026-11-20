@@ -315,20 +315,25 @@ function readSessionSnapshot(db, record) {
 }
 
 // AuthoringSessionHistory.compose/2 的持久消息边界：当前 base 一次、非 base 会话原序。
-// 不读取请求反推 expected，也不把段头累计 refs 当成历史请求 refs。目标段之后的行不进入数组；
-// 同段各 call 仍由唯一 pcall/prun 截取自己的前缀并严格对账，不能用整个会话代签请求快照。
-function sessionMessagesFor({ rows, current }) {
-  const { transcript, segment } = current;
-  const bases = transcript.messages.filter((message) => message.role === "application_base");
+// 输入由现有 canonical decoder 验证；不按相同文本/refs 去重，不改变原始历史或来源坐标。
+export function composeSessionMessages(messages, currentRunId) {
+  assertNonBlankString(currentRunId, "currentRunId");
+  const current = messages.filter((message) => message.canonical_ref.run_id === currentRunId);
+  const bases = current.filter((message) => message.role === "application_base");
   assert(bases.length <= 1, "authoring_history: 当前 run application_base 重复");
   if (bases.length > 0) {
-    assert.equal(transcript.messages[0], bases[0], "authoring_history: 当前 run application_base 必须位于首位");
+    assert.equal(current[0], bases[0], "authoring_history: 当前 run application_base 必须位于首位");
   }
-  return [
-    ...bases,
-    ...rows.filter((row) => row.sequence <= segment.last_sequence && row.role !== "application_base")
-      .map(messageWithCoordinate),
-  ];
+  return [...bases, ...messages.filter((message) => message.role !== "application_base")];
+}
+
+// 不读取请求反推 expected，也不把段头累计 refs 当成历史请求 refs。目标段之后的行不进入数组；
+// 同段各 call 仍由唯一 pcall/prun 截取自己的前缀并严格对账，不能用整个会话代签请求快照。
+function sessionMessagesFor({ rows, current: { segment } }) {
+  return composeSessionMessages(
+    rows.filter((row) => row.sequence <= segment.last_sequence).map(messageWithCoordinate),
+    segment.run_id,
+  );
 }
 
 

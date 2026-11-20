@@ -24,8 +24,8 @@ import { readAutoMaintenanceInputs, readConfig } from "./authoring_capture_evide
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 import { assertHistoryPreserved, verifyStreamCancellationFacts, verifyCancelledRunFacts, verifyInterleavedResumeFacts } from "./authoring_interleaved_resume_evidence.mjs";
 import { readBackendRestartReceipt } from "../../native_ui_wait.mjs";
-import { canonicalCoverageForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
-import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
+import { canonicalCoverageForProviderCall, canonicalRequestBindingsForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalMessagesFromRows, composeSessionMessages } from "./authoring_history_evidence.mjs";
 import { auditCanonicalCoverage, auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { getRuntimeProfile, assertRuntimeFacts } from "./request_cost_runtime_recipe.mjs";
 import { nativeExecutablePath } from "../native_app_ownership.mjs";
@@ -803,16 +803,24 @@ export function evaluateAutoMaintenance({
     const sameSelection = (left, right) => { try { assert.deepEqual(left, right); return true; } catch { return false; } };
     if (!canonicalCovers.every((covers) => wireSelections.some((selection) => sameSelection(selection, covers))))
       return { ok: false, reason: "checkpoint_cover_mismatch", detail };
+    if (replayed.length > 0) return { ok: false, reason: "covered_call_ids_still_in_next_request", detail };
+    if (typeof run.agent_run_id !== "string" || run.agent_run_id.trim() === "")
+      return { ok: null, reason: "next_request_canonical_prefix_missing", detail };
+    const history = { messages: composeSessionMessages(
+      transcript.filter((row) => row.session_id === checkpoint.session_id), run.agent_run_id,
+    ) };
+    const next = canonicalCoverageForProviderCall(records[0], history);
+    if (!next?.ok) return { ok: null, reason: "next_request_canonical_prefix_missing", detail };
+    const bindings = canonicalRequestBindingsForProviderCall(records[0], history);
+    if (bindings === null)
+      return { ok: false, reason: "scope_projection_does_not_match_valid_coverage", detail };
+    const expectedAuthors = next.retainedMessages.filter((row) => row.role === "user" && row.provenance === "author")
+      .map((row) => row.blocks.map((block) => block.text ?? "").join(""));
+    const actualAuthors = bindings.filter(({ canonical }) => canonical.role === "user" && canonical.provenance === "author")
+      .map(({ actual }) => actual.text);
+    if (!sameSelection(actualAuthors, expectedAuthors))
+      return { ok: false, reason: "author_original_bytes_not_retained", detail };
     if (messageRefs.length > 0) {
-      const history = { messages: transcript.filter((row) => row.session_id === checkpoint.session_id) };
-      const next = canonicalCoverageForProviderCall(records[0], history);
-      if (!next?.ok) return { ok: null, reason: "next_request_canonical_prefix_missing", detail };
-      const expectedAuthors = next.retainedMessages.filter((row) => row.role === "user" && row.provenance === "author")
-        .map((row) => row.blocks.map((block) => block.text ?? "").join(""));
-      if (!sameSelection(facts.authorMessages.map((message) => message.text), expectedAuthors))
-        return { ok: false, reason: "author_original_bytes_not_retained", detail };
-      if (next.retainedMessages.some((row) => row.role === "scope_update") && !scopeForProviderCall(records[0], history))
-        return { ok: false, reason: "scope_projection_does_not_match_valid_coverage", detail };
       const retainedDiscussions = next.retainedMessages.filter((row) => row.role === "assistant" && row.provenance === "model" &&
         row.blocks.length > 0 && row.blocks.every((block) => block.type === "text")).map((row) => row.blocks.map((block) => block.text).join(""));
       const nativeDiscussions = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length)
@@ -828,7 +836,6 @@ export function evaluateAutoMaintenance({
       if (!sameSelection(nativeDiscussions, retainedDiscussions))
         return { ok: false, reason: "retained_discussion_bytes_not_preserved", detail };
     }
-    if (replayed.length > 0) return { ok: false, reason: "covered_call_ids_still_in_next_request", detail };
     return { ok: true, reason: null, detail };
   });
   const c5Detail = c5Checks.map((check) => ({ ok: check.ok, reason: check.reason, ...check.detail }));

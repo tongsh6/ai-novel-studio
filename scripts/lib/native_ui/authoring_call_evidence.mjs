@@ -5,7 +5,7 @@
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
-import { NATIVE_CHAT_WIRE, requestFactsFromRecord, scopeContentOf } from "./authoring_request_facts.mjs";
+import { AUTHORING_REQUEST_IR, NATIVE_CHAT_WIRE, bindRequestMessages, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
@@ -725,53 +725,35 @@ function canonicalPrefixForCall(record, transcript) {
   return reply === null ? null : transcript.messages.slice(0, transcript.messages.indexOf(reply));
 }
 
-function sameScope(message, canonical, content) {
-  return message.scopeContent !== null &&
-    jsonEqual(message.scopeContent, content) &&
-    jsonEqual(message.versions, canonical.versions) &&
-    jsonEqual(message.sourceRefs, canonical.source_refs);
-}
-
-function scopeIsAuthorText(scope, prefix) {
-  return prefix.some((message) => message?.role === "user" && message.provenance === "author" &&
-    canonicalText(message) === scope.text);
-}
-
-function sameScopeSequence(scopes, prefix) {
-  const canonicalScopes = prefix.filter((message) => scopeContentOf(message) !== null);
-  const projectedScopes = scopes.filter((message) => message.scopeContent !== null);
-  return canonicalScopes.length === projectedScopes.length && canonicalScopes.every(
-    (canonical, index) => sameScope(projectedScopes[index], canonical, scopeContentOf(canonical)),
-  );
-}
-
-function projectedScopeForPrefix(facts, prefix) {
-  const canonical = prefix.findLast((message) => message?.role === "scope_update");
-  const content = scopeContentOf(canonical);
-  const latest = facts.scopeMessages.at(-1);
-  if (content === null || !latest || !sameScope(latest, canonical, content)) return null;
-  // R03 只接受独立 canonical 审计通过的显式覆盖；最新 Scope 与原始字段仍逐项核对。
-  const coverage = auditCanonicalCoverage(prefix);
-  if (!coverage.ok) return null;
-  return sameScopeSequence(facts.scopeMessages, coverage.retainedMessages) ? latest : null;
-}
-
 export function canonicalCoverageForProviderCall(record, transcript) {
   const prefix = canonicalPrefixForCall(record, transcript);
   return prefix === null ? null : auditCanonicalCoverage(prefix);
 }
 
-export function scopeForProviderCall(record, transcript) {
+// 同一 pcall/prun 的完整可见消息序列只在此配对，Scope 与 Base 共用原身份。
+export function canonicalRequestBindingsForProviderCall(record, transcript) {
   const prefix = canonicalPrefixForCall(record, transcript);
   if (prefix === null) return null;
+  const coverage = auditCanonicalCoverage(prefix);
+  if (!coverage.ok) return null;
   const facts = requestFactsFromRecord(record);
   if (!facts.ok) return null;
-  const latest = projectedScopeForPrefix(facts, prefix);
-  if (latest === null) return null;
-  if (facts.format === NATIVE_CHAT_WIRE && scopeIsAuthorText(latest, prefix)) return null;
-  return latest;
+  let actualMessages = facts.messageFacts;
+  if (facts.format === AUTHORING_REQUEST_IR) {
+    const requestCoverage = auditCanonicalCoverage(facts.messages);
+    if (!requestCoverage.ok) return null;
+    const retained = new Set(requestCoverage.retainedMessages);
+    actualMessages = actualMessages.filter(message => retained.has(message.raw));
+  }
+  const checkpoints = new Map(coverage.checkpoints.map(checkpoint =>
+    [prefix[checkpoint.checkpoint_index], checkpoint]));
+  return bindRequestMessages(facts, coverage.retainedMessages, { actualMessages, checkpoints });
 }
 
+export function scopeForProviderCall(record, transcript) {
+  const bindings = canonicalRequestBindingsForProviderCall(record, transcript);
+  return bindings?.findLast(binding => binding.canonical.role === "scope_update")?.actual ?? null;
+}
 // SSE 日志不记录正文，只对账 decoder 交付的工具事实；fixture 仍核对完整正文。
 function compareSuccessBody(source, message, body, refs, add, nativeIdState) {
   if (source === RECORD_SOURCE.SSE_DECODER_TOOL_ONLY) {

@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { maintenanceRecoveryFacts } from "./authoring_discussion_facts.mjs";
+import { checkpointWire, maintenanceRecoveryFacts } from "./authoring_discussion_facts.mjs";
 import {
   AUTO_EXECUTABLE,
   autoMaintenanceConfig,
@@ -137,15 +137,30 @@ function currentAdmissionScenario(scenario) {
   ];
   application.content = application.content.slice(0, start) + JSON.stringify(material);
   const finalRequest = scenario.records.find(row => row.provider_run_ref === "prun-final-e").request.body.messages;
-  const firstDiscussion = finalRequest.findIndex(message => message.role === "assistant");
-  finalRequest.splice(firstDiscussion, 0, ...items.map(message => message.role === "tool"
-    ? { role: "tool", tool_call_id: message.blocks[0].call_id,
-      content: JSON.stringify({ type: "observation", call_id: message.blocks[0].call_id, status: "ok" }) }
+  const firstRecoveryText = scenario.injection.recovery_requests[0].text;
+  const recoveryIndices = finalRequest.flatMap((message, index) =>
+    message.role === "user" && message.content === firstRecoveryText ? [index] : []);
+  if (recoveryIndices.length !== 1) throw new Error("fixture must uniquely identify the first recovery author");
+  finalRequest.splice(recoveryIndices[0], 0, ...items.map(message => message.role === "tool"
+    ? { role: "tool", tool_call_id: message.blocks[0].call_id, content: JSON.stringify(message.blocks[0]) }
     : message.blocks[0].type === "tool_call"
       ? { role: "assistant", content: "", tool_calls: [{ id: message.blocks[0].call_id, type: "function",
         function: { name: "chapter_read", arguments: "{}" } }] }
       : { role: "assistant", content: message.blocks[0].text }));
   const run = scenario.facts.afterFailure.provider_runs.find(row => row.id === "prun-failed-d");
+  const plan = run.operation_checkpoint.plan;
+  const checkpointPrefix = "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " +
+    JSON.stringify(plan.covers) + "】\n";
+  const checkpointIndices = finalRequest.flatMap((message, index) =>
+    message.role === "user" && message.content.startsWith(checkpointPrefix) ? [index] : []);
+  if (checkpointIndices.length !== 1) throw new Error("fixture must uniquely identify the recovered checkpoint");
+  // 独立固定 V2 原文片段 1+2 连续，保留 CR/LF 原字节；不从被测解析结果回造预期。
+  finalRequest[checkpointIndices[0]] = checkpointWire(plan, {
+    provenance: "model_derived_history", authority: "none",
+    entries: [{ source: { ref: "session_message:source-d:4", version: 1 },
+      locator: { run_id: "source-d", run_sequence: 4 }, summary: "原建议仍待确认",
+      retained_source_fragments: ["仍欠风险表\r请作者确认\n"] }],
+  });
   scenario.injection.admission = {
     provider_run_ref: "prun-failed-d", provider_call_ref: "pcall-failed-d",
     source_keys: ["authoring-session-source/v1:" + JSON.stringify([WORK, WORK, SESSION, "source-d", 4])],

@@ -9,6 +9,8 @@
 // 工具调用/结果、scope 版本与来源）。不会重建一个 Chat body，也不会把缺测/未知格式
 // 当成空数组或 0 的有效证据；退役的 provider_prompt/v1 明确 unsupported。
 
+import { isDeepStrictEqual } from "node:util";
+
 export const AUTHORING_REQUEST_IR = "authoring-request-ir/v1";
 export const NATIVE_CHAT_WIRE = "native-chat-wire";
 export const RETIRED_PROVIDER_PROMPT = "provider_prompt/v1";
@@ -21,6 +23,13 @@ const SCOPE_HEADERS = new Set([
   "【应用数据 · scope_update · 以最新版本为准】",
 ]);
 const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";
+const APPLICATION_BASE_HEADER = "【应用数据 · application_base · 非作者原话】\n";
+
+// Common.RequestIR 的闭合 block type 契约；未知块不能因未投影文字而被忽略。
+const IR_BLOCK_TYPES = new Set([
+  "text", "scope", "tool_call", "observation", "validation_result",
+  "tentative_artifact", "author_exit", "checkpoint",
+]);
 
 const IR_APPLICATION_ROLES = new Set([
   "application_base",
@@ -34,6 +43,8 @@ const isRecord = (value) =>
 const list = (value) => (Array.isArray(value) ? value : []);
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
+const validRefValues = (value) => Array.isArray(value) &&
+  value.every((source) => nonBlank(source) || (isRecord(source) && nonBlank(source.ref)));
 
 function decodedJson(value) {
   try {
@@ -132,7 +143,7 @@ function irText(blocks) {
 }
 
 function parseIrBlock(block) {
-  if (!isRecord(block) || !nonBlank(block.type)) return { malformed: true };
+  if (!isRecord(block) || !IR_BLOCK_TYPES.has(block.type)) return { malformed: true };
   if (block.type === "text" && typeof block.text !== "string") return { malformed: true };
   return { malformed: false };
 }
@@ -183,7 +194,7 @@ function validIrMessageShape(message) {
     message.blocks.every((block) => !parseIrBlock(block).malformed);
 }
 
-function parseIrMessage(message, index) {
+export function parseIrMessage(message, index) {
   if (!validIrMessageShape(message)) return { malformed: true };
   const blocks = message.blocks;
   const scopeContent = scopeContentOf(message);
@@ -202,6 +213,9 @@ function parseIrMessage(message, index) {
       scopeContent,
       blocks,
       sourceRefs: list(message.source_refs),
+      baseRefs: validRefValues(message.base_refs) ? message.base_refs : null,
+      applicationBaseText: message.role === "application_base" && message.provenance === "application" &&
+        blocks.length > 0 && blocks.every(block => block.type === "text") ? irText(blocks) : null,
       versions: isRecord(message.versions) ? message.versions : {},
       raw: message,
       toolCalls: calls,
@@ -352,6 +366,8 @@ function emptyWireMessageFact(index, raw) {
     scopeContent: null,
     blocks: null,
     sourceRefs: [],
+    baseRefs: null,
+    applicationBaseText: null,
     versions: {},
     raw,
     toolCalls: [],
@@ -372,6 +388,8 @@ function wireMessageFact(raw, index) {
       ...emptyWireMessageFact(index, raw),
       role: raw.role,
       text,
+      applicationBaseText: raw.role === "user" && text.startsWith(APPLICATION_BASE_HEADER)
+        ? text.slice(APPLICATION_BASE_HEADER.length) : null,
       ...scope,
       toolCalls: calls.calls,
       toolResults: results.results,
@@ -431,9 +449,8 @@ function nativeRequestRefs(record) {
   const refs = record?.request?.refs;
   if (!isRecord(refs)) return null;
   // RequestIR.ref_key 同时接受原始 ref 字符串和带版本的 {ref}；只读保留真实形状。
-  const sources = (value) => Array.isArray(value) &&
-    value.every((source) => nonBlank(source) || (isRecord(source) && nonBlank(source.ref)));
-  return sources(refs.base_refs) && sources(refs.observation_refs) && sources(refs.used_refs) ? refs : null;
+  return validRefValues(refs.base_refs) && validRefValues(refs.observation_refs) &&
+    validRefValues(refs.used_refs) ? refs : null;
 }
 
 function wireFacts(record, body) {
@@ -520,6 +537,146 @@ export function checkpointSelectionsFromFacts(facts) {
     }
   }
   return covers;
+}
+
+
+// 已保留 canonical 消息与真实请求逐条绑定；不生成请求正文，也不从文字猜 provenance。
+// Provider system envelope 不属于会话消息，仅可占真实 wire 的额外首位；它不供应 Base。
+export function bindRequestMessages(facts, canonicalMessages, { actualMessages = facts.messageFacts, checkpoints = new Map() } = {}) {
+  const parsed = canonicalMessages.map(parseIrMessage);
+  if (parsed.some(entry => entry.malformed)) return null;
+  const canonical = parsed.map(entry => entry.message);
+  if (facts.format === AUTHORING_REQUEST_IR) {
+    if (actualMessages.length !== canonical.length) return null;
+    return actualMessages.every((actual, index) => sameIrRequestMessage(actual, canonical[index]))
+      ? actualMessages.map((actual, index) => ({ actual, canonical: canonical[index] })) : null;
+  }
+  if (facts.format !== NATIVE_CHAT_WIRE) return null;
+  const units = [];
+  for (const message of canonical) {
+    const current = nativeMessageUnits(message, checkpoints.get(message.raw));
+    if (current === null) return null;
+    units.push(...current);
+  }
+  const envelope = actualMessages.length === units.length + 1 &&
+    actualMessages[0]?.role === "system" ? 1 : 0;
+  const actual = actualMessages.slice(envelope);
+  if (actual.length !== units.length) return null;
+  return actual.every((message, index) => nativeMessageMatches(message, units[index]))
+    ? actual.map((message, index) => ({ actual: message, canonical: units[index].message })) : null;
+}
+
+function sameIrRequestMessage(actual, canonical) {
+  return actual.role === canonical.role && actual.provenance === canonical.provenance &&
+    isDeepStrictEqual(actual.blocks, canonical.blocks) &&
+    isDeepStrictEqual(actual.sourceRefs, canonical.sourceRefs) &&
+    isDeepStrictEqual(actual.versions, canonical.versions) &&
+    isDeepStrictEqual(actual.baseRefs, canonical.baseRefs);
+}
+
+function nativeMessageUnits(message, checkpoint) {
+  const role = message.role;
+  const allowedBlocks = {
+    system: ["text"], user: ["text"], application_base: ["text"], application_notice: ["text"],
+    scope_update: ["scope"], assistant: ["text", "tool_call"],
+    tool: ["observation", "validation_result"], checkpoint: ["text", "checkpoint"],
+    tentative_artifact: ["tentative_artifact"], author_exit: ["author_exit"],
+  }[role];
+  if (!allowedBlocks || message.blocks.some(block => !allowedBlocks.includes(block.type))) return null;
+  if (["tentative_artifact", "author_exit"].includes(role)) return [];
+  if (role === "tool" && message.provenance === "tool_result") {
+    return message.blocks.map(result => ({ message, result }));
+  }
+  const expectedProvenance = role === "user" ? "author" : role === "assistant" ? "model" : "application";
+  if (message.provenance !== expectedProvenance ||
+      !["system", "user", "assistant", "application_base", "application_notice", "scope_update", "checkpoint"].includes(role)) {
+    return null;
+  }
+  if (["system", "user", "application_base", "application_notice"].includes(role) && message.text === "") return [];
+  if (role === "checkpoint" && message.text === "" && !message.blocks.some(block => block.type === "checkpoint")) return [];
+  return [{ message, checkpoint }];
+}
+
+function sameRequestCall(actual, canonical) {
+  if (actual.callId !== canonical.callId || actual.name !== canonical.name) return false;
+  if (canonical.rawArguments !== null) return actual.rawArguments === canonical.rawArguments;
+  return isDeepStrictEqual(typeof actual.arguments === "string" ? decodedJson(actual.arguments) : actual.arguments,
+    canonical.arguments);
+}
+
+function nativeMessageMatches(actual, { message: canonical, result, checkpoint }) {
+  switch (canonical.role) {
+    case "system":
+    case "user":
+      return actual.role === canonical.role && typeof actual.raw.content === "string" &&
+        actual.text === canonical.text;
+    case "application_base":
+    case "application_notice":
+      return actual.role === "user" && typeof actual.raw.content === "string" &&
+        actual.text === "【应用数据 · " + canonical.role + " · 非作者原话】\n" + canonical.text;
+    case "scope_update":
+      return actual.role === "user" && actual.scopeContent !== null &&
+        isDeepStrictEqual(actual.scopeContent, canonical.scopeContent) &&
+        isDeepStrictEqual(actual.versions, canonical.versions) &&
+        isDeepStrictEqual(actual.sourceRefs, canonical.sourceRefs);
+    case "assistant":
+      return actual.role === "assistant" && typeof actual.raw.content === "string" && actual.text === canonical.text &&
+        actual.toolCalls.length === canonical.toolCalls.length &&
+        actual.toolCalls.every((call, index) => sameRequestCall(call, canonical.toolCalls[index]));
+    case "tool":
+      return actual.role === "tool" && actual.toolResults.length === 1 &&
+        actual.toolResults[0].toolCallId === result.call_id &&
+        isDeepStrictEqual(actual.toolResults[0].payload, result);
+    case "checkpoint":
+      return sameCheckpointMessage(actual, canonical, checkpoint);
+    default:
+      return false;
+  }
+}
+
+function sameCheckpointMessage(actual, canonical, checkpoint) {
+  if (actual.role !== "user" || typeof actual.raw.content !== "string") return false;
+  const header = "【应用数据 · checkpoint · 非作者原话】\n";
+  const block = canonical.blocks.find(candidate => candidate.type === "checkpoint");
+  if (!block) return actual.text === header + canonical.text;
+  // 当前 producer 每消息只有一个 checkpoint；未支持的多块/混合块不能截短核对。
+  if (canonical.blocks.length !== 1) return false;
+  if (!actual.text.startsWith(header)) return false;
+  const text = actual.text.slice(header.length);
+  const prefix = "【应用数据 · checkpoint · 覆盖 ";
+  if (!text.startsWith(prefix)) return false;
+  const end = text.indexOf("】\n", prefix.length);
+  if (end < 0 || !isDeepStrictEqual(decodedJson(text.slice(prefix.length, end)), block.covers)) return false;
+  const [sources, versions, ...tail] = text.slice(end + 2).split("\n");
+  if (!sources.startsWith("来源：") || !versions?.startsWith("版本：") ||
+      !isDeepStrictEqual(decodedJson(sources.slice(3)), block.source_refs ?? []) ||
+      !isDeepStrictEqual(decodedJson(versions.slice(3)), block.versions ?? {})) return false;
+  const omissions = list(block.omissions);
+  if (omissions.length > 0 && tail.shift() !== "省略：" + omissions.join("; ")) return false;
+  return sameCheckpointSummary(tail.join("\n"), block, checkpoint);
+}
+
+
+function sameCheckpointSummary(text, block, checkpoint) {
+  const summary = block.summary ?? "";
+  if (block.discussion == null) return text === summary;
+  if (!checkpoint || !Array.isArray(checkpoint.entries)) return false;
+  const notice = "\n【模型派生的历史讨论摘要 · 非当前事实、非执行结果、非授权】\n" +
+    "摘要与保留片段不是穷尽清单，未提及不证明原文不存在；" +
+    "需要核对历史材料时，沿各条 source/locator 用 session_message_read 按需回查，" +
+    "以实际原文及 coverage/omissions 限定结论。\n";
+  if (!text.startsWith(summary + notice)) return false;
+  const actual = decodedJson(text.slice(summary.length + notice.length));
+  const selected = checkpoint.selected.filter(source => source.role === "assistant");
+  if (selected.length !== checkpoint.entries.length) return false;
+  const expected = { provenance: "model_derived_history", authority: "none",
+    entries: selected.map((source, index) => ({
+      source: { ref: "session_message:" + source.run_id + ":" + source.run_sequence, version: 1 },
+      locator: { run_id: source.run_id, run_sequence: source.run_sequence },
+      summary: checkpoint.entries[index].summary,
+      retained_source_fragments: checkpoint.entries[index].retained_obligations,
+    })) };
+  return isDeepStrictEqual(actual, expected);
 }
 
 export function requestFactsOf(records) {

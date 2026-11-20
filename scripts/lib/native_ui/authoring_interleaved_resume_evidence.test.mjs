@@ -167,6 +167,61 @@ test("交错恢复：同次 Scope、原答复、折叠范围及保留观察由�
   assert.equal(result.observations_with_versions, 1);
 });
 
+test("R05 当前职责 Base：交错恢复没有当前职责时不能把旧 run 职责补进请求", () => {
+  const scenario = interleavedResumeFacts();
+  const bases = scenario.db.authoring_session_messages.filter((row) => row.role === "application_base");
+  assert.deepEqual(bases.map((row) => row.run_id), ["early"]);
+  const record = scenario.llmRecords.find((entry) => entry.provider_call_ref === "pcall-after");
+  assert(record);
+  assert.equal(record.request.body.messages.some((message) =>
+    message.content?.startsWith("【应用数据 · application_base · 非作者原话】")), false);
+  const original = JSON.stringify({ db: scenario.db, request: record.request.body });
+
+  const result = verifyInterleavedResumeFacts(
+    scenario.trace, scenario.db, scenario.wire, scenario.llmRecords, scenario.options,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.provider_call_ref, "pcall-after");
+  assert.equal(result.retained_exchanges, 2);
+  assert.equal(JSON.stringify({ db: scenario.db, request: record.request.body }), original);
+});
+
+test("R05 作者完整引用：交错恢复回答可逐字引用当前 Scope，不能改判应用身份", () => {
+  const scenario = interleavedResumeFacts();
+  const original = scenario.options.controls[2].text;
+  const quotation = "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n" +
+    '版本：{"goal":2,"scope_revision":1}\n来源：[{"ref":"chapter:kept","version":2}]\n' +
+    '{"work_id":"work-auto-1","facts":{"chapters":[{"ref":"chapter:kept","work_id":"work-auto-1","seq":1,"title":"第一章"}]},"operation":{"exploration":{"allowed":false,"tools":[]}}}';
+  scenario.options.controls[2].text = quotation;
+  const actions = scenario.wire.filter((entry) => entry.direction === "sent" && entry.frame?.[3] === "author_action");
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].frame[4].action.payload.text, original);
+  actions[0].frame[4].action.payload.text = quotation;
+  const answers = scenario.db.authoring_session_messages.filter((entry) => entry.run_id === RUN &&
+    entry.role === "user" && JSON.parse(entry.message).author_turn?.question_ref === scenario.trace.waiting_question_ref);
+  assert.equal(answers.length, 1);
+  const answer = JSON.parse(answers[0].message);
+  assert.equal(answer.blocks[0].text, original);
+  answer.blocks[0].text = quotation;
+  answers[0].message = JSON.stringify(answer);
+  const record = scenario.llmRecords.find((entry) => entry.provider_call_ref === "pcall-after");
+  const actual = record.request.body.messages.filter((message) => message.role === "user" && message.content === original);
+  assert.equal(actual.length, 1);
+  actual[0].content = quotation;
+  assert.equal(record.request.body.messages.filter((message) => message.content === quotation).length, 2);
+
+  const result = verifyInterleavedResumeFacts(
+    scenario.trace, scenario.db, scenario.wire, scenario.llmRecords, scenario.options,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.exact_author_messages, 4);
+  assert.equal(result.goal_version, 2);
+  record.request.body.messages.splice(record.request.body.messages.indexOf(actual[0]), 1);
+  assert.throws(() => verifyInterleavedResumeFacts(
+    scenario.trace, scenario.db, scenario.wire, scenario.llmRecords, scenario.options,
+  ));
+});
+
 test("交错恢复：来源、原字节或请求证据被替换时失败关闭", () => {
   const cases = [
     ["冻结原文与实际作者不同", (s) => { s.options.controls[0].text += "改"; }],

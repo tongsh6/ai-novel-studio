@@ -111,29 +111,15 @@ function dbFacts(overrides = {}) {
   };
 }
 
-function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [], usedRefs = null } = {}) {
+function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [] } = {}) {
   const llmRecords = toolCalls.length > 0 ? [toolRecord(toolCalls)] : [];
-  const messages = usedRefs ? [{
-    role: "assistant",
-    provenance: "model",
-    provider_call_ref: "pcall_1",
-    provider_run_ref: "prun_1",
-    blocks: [{ type: "tool_call", arguments: { self_report: { used_context_refs: usedRefs } } }],
-  }] : [];
-  const facts = usedRefs
-    ? {
-        ...db,
-        segment_transcript: { messages: structuredClone(messages), used_refs: [] },
-        sessionMessages: messages,
-      }
-    : db;
   return evaluateBehavior({
     caseRecord: caseRecordOf(caseId),
     evidence: {
       llmRecords,
       turnBody: turn,
       authorActionFrames: [],
-      dbFacts: facts,
+      dbFacts: db,
       startCanon: canonical.start,
       finalCanon: canonical.final,
       appLog,
@@ -282,13 +268,39 @@ test("unknown：canon 证据缺失 / HO5 used 不可提取 都不判 PASS", () =
 });
 
 test("HO5 越界：used 引用同次请求未提供的观察（C-F1-001）→ violation", () => {
-  const verdict = evaluate({
-    caseId: "C-F1-001",
-    toolCalls: [judgmentCall("explore")],
-    turn: turnBody({ assistantText: "第02章目前有正文。" }),
-    usedRefs: ["observation:obs_out_of_boundary"],
+  const declaration = { self_report: { used_context_refs: ["observation:obs_out_of_boundary"] } };
+  const messages = [
+    { role: "application_base", provenance: "application",
+      blocks: [{ type: "text", text: "规则" }], source_refs: [], versions: {}, base_refs: [] },
+    { role: "user", provenance: "author", blocks: [{ type: "text", text: AUTHOR }] },
+    { role: "scope_update", provenance: "application",
+      blocks: [{ type: "scope", content: { operation: { role: "writer" }, facts: {} } }],
+      source_refs: [], versions: {}, base_refs: [] },
+    { role: "assistant", provenance: "model", provider_call_ref: "pcall_1", provider_run_ref: "prun_1",
+      blocks: [{ type: "tool_call", call_id: "call_submit", name: "submit_tentative_artifact",
+        arguments: structuredClone(declaration) }] },
+  ];
+  // 两端来自预置事实；不从实际 wire 反读 canonical，也不把缺前缀误作已证明越界。
+  const record = toolRecord([submitCall(declaration)]);
+  record.request = { refs: { base_refs: [], observation_refs: [], used_refs: [] }, body: { messages: [
+    { role: "system", content: "system" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n规则" },
+    { role: "user", content: AUTHOR },
+    { role: "user", content: "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n" +
+      "版本：{}\n来源：[]\n" + '{"operation":{"role":"writer"},"facts":{}}' },
+  ] } };
+  const verdict = evaluateBehavior({
+    caseRecord: caseRecordOf("C-F1-001"),
+    evidence: {
+      llmRecords: [record],
+      turnBody: turnBody({ assistantText: "第02章目前有正文。" }),
+      authorActionFrames: [],
+      dbFacts: dbFacts({ segment_transcript: { messages: structuredClone(messages), used_refs: [] },
+        sessionMessages: messages }),
+      startCanon: canon(), finalCanon: canon(), appLog: [],
+    },
   });
-  assert.equal(verdict.hard_oracles.HO5.status, "fail");
+  assert.equal(verdict.hard_oracles.HO5.status, "fail", JSON.stringify(verdict.hard_oracles.HO5));
   assert(verdict.violations.some((violation) => violation.code.startsWith("HO5:")));
 });
 

@@ -3,12 +3,14 @@
 // 正判（VS-00L §7 G2/§16.9）：canonical assistant(model) 顶层 provider_call_ref +
 // provider_run_ref 配对唯一真实 llm record；used 只取当前 run transcript 中该消息
 // tool_call.arguments.self_report.used_context_refs。边界只从配对 record 经
-// requestFactsFromRecord 读取：application_base 沿用其来源边界；现役结构化 Scope
-// 必须经 sessionMessages 的同次 canonical 前缀逐项绑定，不能以当前 run 段代替
-// 会话前缀；历史 run 自报不计入当前 used。Base 只取该请求 IR.refs.base_refs 的明确登记，
-// 真实 wire 从同一 LLMLog request.refs 读取；HTTP body 与 pcall/prun 仍分别核对。
+// requestFactsFromRecord 读取；应用材料必须经 sessionMessages 的同次 canonical
+// 可见前缀与完整请求消息边界逐项绑定，不能以当前 run 段代替
+// 会话前缀；历史 run 自报不计入当前 used。Base 只取该请求可见应用消息的明确 base_refs
+// 供应绑定，并与同次 IR.refs / LLMLog request.refs 登记相交；完整 wire 消息顺序、字节
+// 与同 pcall/prun canonical 可见前缀分别核对，已覆盖消息不再授信。
 // Scope.source_refs 只是来源，prose、目标、引用和历史 text 块都不扩充 Base/observation。
-// 原生调用未记录同次 Base 元数据时如实缺证，最终段头的累计 refs 不能代签。
+// 原生调用未记录同次目录或 canonical 供应绑定时如实缺证；职责说明不供应材料，
+// 缺 binding 不从来源、正文 token 或段头累计 refs 补齐。
 // 成功 observation 只认前置唯一 assistant call、同请求唯一 result 的结构化 source_refs
 // 与同请求原生 content.observation_ref 身份。ok/partial/truncated 叶只证明已供应部分可用，
 // 不证明全文完整；还须实际供应内容并在同次目录登记。planned_exploration 父块也须有效，叶沿用真实父 call_id。
@@ -18,9 +20,10 @@
 import {
   AUTHORING_REQUEST_IR,
   observationRefOf,
+  parseIrMessage,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
-import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalCoverageForProviderCall, canonicalRequestBindingsForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
 export const LIVE_REFS_SCHEMA = "b71-live-refs/v1";
@@ -33,7 +36,6 @@ const REF_TOKEN = new RegExp(
 );
 const ARTIFACT_TOKEN = /(?<![A-Za-z0-9_])as_[A-Za-z0-9_]+(?![A-Za-z0-9_])/gu;
 const OBSERVATION_PREFIX = "observation:";
-const APPLICATION_BASE_PREFIX = "【应用数据 · application_base";
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
@@ -58,32 +60,6 @@ function pushRef(map, ref, source) {
   if (!map.has(ref)) map.set(ref, []);
   map.get(ref).push(source);
 }
-// 应用数据：observation: 条目归观察，其余归 Base；tool source_refs 全部归观察。
-function addApplicationRef(boundary, ref, source) {
-  pushRef(String(ref).startsWith(OBSERVATION_PREFIX) ? boundary.observation : boundary.base, ref, source);
-}
-
-function applicationKind(message) {
-  const text = String(message.text ?? "");
-  if (message.role === "application_base" || text.startsWith(APPLICATION_BASE_PREFIX)) {
-    return "base";
-  }
-  return null;
-}
-
-function collectApplication(boundary, messages) {
-  for (const message of messages) {
-    if (applicationKind(message) !== "base") continue;
-    const source = { message_index: message.index };
-    const structured = refValues(message.sourceRefs);
-    // 非原生 Scope 请求沿用 application_base 的既有证据；不扫描 Scope 文本或来源。
-    const refs = structured.length > 0
-      ? structured.map((ref) => [ref, "source_refs"])
-      : [...extractRefTokens(message.text)].map((ref) => [ref, "text"]);
-    for (const [ref, channel] of refs) addApplicationRef(boundary, ref, { ...source, channel });
-  }
-}
-
 function suppliedRefs(facts, kind) {
   const refs = facts.refs?.[kind];
   if (!Array.isArray(refs)) return null;
@@ -100,6 +76,51 @@ function scopeRefEvidence(record, sessionMessages, facts) {
   const observationRefs = suppliedRefs(facts, "observation_refs");
   if (observationRefs === null) return { ok: false, reason: "request_observation_refs_unavailable" };
   return { ok: true, baseRefs, observationRefs };
+}
+
+// 绑定字段不进入 HTTP 正文。现役 canonical 前缀提供供应身份，实际请求逐消息
+// 对账提供可见字节；只复用已有 coverage 留存结果，不由目录/来源/正文推 refs。
+function canonicalBaseProofs(record, sessionMessages, facts, retainedMessages) {
+  const actual = facts.messageFacts.filter(message =>
+    (retainedMessages === null || retainedMessages.has(message.raw)) &&
+    (message.scopeContent !== null || nonBlank(message.applicationBaseText)));
+  const provenanceReason = actual.some(message => message.scopeContent !== null)
+    ? "scope_provenance_unbound" : "base_provenance_unbound";
+  const coverage = canonicalCoverageForProviderCall(record, { messages: sessionMessages });
+  if (!coverage?.ok) {
+    if (coverage === null && actual.length === 0) return { ok: true, proofs: [], hasScope: false };
+    return { ok: false, reason: provenanceReason };
+  }
+  const parsed = coverage.retainedMessages.map(parseIrMessage);
+  if (parsed.some(entry => entry.malformed)) return { ok: false, reason: "base_provenance_unbound" };
+  const application = parsed.map(entry => entry.message).filter(message => message.provenance === "application" &&
+    ["application_base", "scope_update"].includes(message.role));
+  if (application.some(message => message.role === "application_base" &&
+      !nonBlank(message.applicationBaseText) && message.baseRefs?.length > 0)) {
+    return { ok: false, reason: "base_material_not_projectable" };
+  }
+  const canonical = application.filter(message =>
+    message.scopeContent !== null || nonBlank(message.applicationBaseText));
+  const bindings = canonicalRequestBindingsForProviderCall(record, { messages: sessionMessages });
+  if (bindings === null) return { ok: false, reason: provenanceReason };
+  const registered = suppliedRefs(facts, "base_refs");
+  if (registered === null && canonical.length > 0) {
+    return { ok: false, reason: "request_base_refs_unavailable" };
+  }
+  if (canonical.some(message => message.baseRefs === null)) {
+    return { ok: false, reason: "request_base_bindings_unavailable" };
+  }
+  const materials = bindings.filter(({ canonical: message }) => message.provenance === "application" &&
+    (message.scopeContent !== null || nonBlank(message.applicationBaseText)));
+  const directory = new Set(registered ?? []);
+  const proofs = materials.flatMap(({ actual: message, canonical: source }) => source.baseRefs.flatMap(binding => {
+    const ref = typeof binding === "string" ? binding : binding.ref;
+    return directory.has(ref) ? [{ ref, source: {
+      message_index: message.index, channel: "canonical_message_base_refs",
+      role: source.role, base_ref: binding,
+    } }] : [];
+  }));
+  return { ok: true, proofs, hasScope: materials.some(({ canonical: message }) => message.role === "scope_update") };
 }
 
 function observationContentSupplied(content) {
@@ -154,17 +175,16 @@ function requestBoundary(record, sessionMessages) {
     }
     retainedMessages = new Set(coverage.retainedMessages);
   }
-  const hasNativeScope = facts.scopeMessages.some((message) => isObject(message.scopeContent));
+  const base = canonicalBaseProofs(record, sessionMessages, facts, retainedMessages);
+  if (!base.ok) return base;
   const boundary = { base: new Map(), observation: new Map() };
   let registeredObservationRefs = null;
-  if (hasNativeScope) {
+  if (base.hasScope) {
     const evidence = scopeRefEvidence(record, sessionMessages, facts);
     if (!evidence.ok) return evidence;
-    for (const ref of evidence.baseRefs) pushRef(boundary.base, ref, { channel: "canonical_base_refs" });
     registeredObservationRefs = new Set(evidence.observationRefs);
-  } else {
-    collectApplication(boundary, facts.applicationMessages);
   }
+  for (const proof of base.proofs) pushRef(boundary.base, proof.ref, proof.source);
   collectToolObservations(boundary, facts, registeredObservationRefs, retainedMessages);
   return { ok: true, boundary };
 }
@@ -335,7 +355,7 @@ export function liveRefsCheck({ llmRecords = [], transcript = null, sessionMessa
     sources: {
       used: ["当前 run authoring_session_messages.message.blocks[tool_call].arguments.self_report.used_context_refs"],
       pairing: ["canonical assistant.provider_call_ref + provider_run_ref ↔ llm_calls 同名两键"],
-      base: ["现役 Scope：同次请求 IR.refs.base_refs；其余请求：application_base.source_refs（优先）/ text"],
+      base: ["同 pcall/prun 可见 canonical 消息的 base_refs，经完整请求消息序列对账后，与同次 IR.refs / request.refs 登记相交"],
       observation: [
         "实际供应材料且前置唯一 call/唯一 result 的 tool source_refs 与 content.observation_ref；现役 Scope 须在同请求 observation_refs 登记",
         "planned_exploration 聚合父块与叶均为 ok/partial/truncated 时取已供应内容的来源与身份；沿用父 call_id，部分读取不证明全文完整",

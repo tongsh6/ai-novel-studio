@@ -36,7 +36,7 @@ export function scopeWireMessage(content, { versions = {}, sourceRefs = [] } = {
   return {
     role: "user",
     content: [
-      "【应用数据 · scope_update · 以最新版本为准】",
+      "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】",
       `版本：${JSON.stringify(versions)}`,
       `来源：${JSON.stringify(sourceRefs)}`,
       JSON.stringify(content),
@@ -46,7 +46,7 @@ export function scopeWireMessage(content, { versions = {}, sourceRefs = [] } = {
 
 function scopeFromWire(text) {
   const [header, versions, sources, ...payload] = text.split("\n");
-  if (header !== "【应用数据 · scope_update · 以最新版本为准】" ||
+  if (header !== "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】" ||
       !versions?.startsWith("版本：") || !sources?.startsWith("来源：")) {
     throw new Error("scope fixture requires the current structured projection");
   }

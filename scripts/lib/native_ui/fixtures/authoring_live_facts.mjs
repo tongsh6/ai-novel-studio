@@ -98,6 +98,13 @@ export const appBase = () => ({
   content: "【应用数据 · application_base · 非作者原话】\n创作判断器规则。\n- [observation:obs_1]",
 });
 export const author = () => ({ role: "user", content: AUTHOR });
+// 固定事实分别供 canonical 与 wire 构造；不从实际请求反造会话历史。
+const canonicalInput = () => [
+  { role: "application_base", provenance: "application",
+    blocks: [{ type: "text", text: "创作判断器规则。\n- [observation:obs_1]" }], source_refs: [], base_refs: [], versions: {} },
+  { role: "user", provenance: "author",
+    blocks: [{ type: "text", text: AUTHOR }], source_refs: [], versions: {} },
+];
 const canonicalScope = () => ({
   role: "scope_update", provenance: "application",
   blocks: [{ type: "scope", content: { facts: {}, coverage: {}, omissions: [] } }],
@@ -151,6 +158,11 @@ export const SSE_TOOL_CALL = Object.freeze({
   arguments: { chapter_ref: "chapter_1" },
 });
 export const SSE_TOOL_ARGUMENTS = '{"chapter_ref":"chapter_1"}';
+const SSE_OBSERVATION = Object.freeze({
+  type: "observation", call_id: "call-1", tool_name: "read_chapter", status: "ok",
+  content: { observation_ref: "observation:obs_1", summary: "第01章正文：雨夜。" },
+  source_refs: [{ ref: "observation:obs_1" }], versions: {}, coverage: {}, omissions: [],
+});
 
 export function sseRecord({ ref, ts, turnId = TURN, messages = requestMessages, toolCalls = [] }) {
   return {
@@ -181,7 +193,7 @@ export function replayMessages() {
       content: null,
       tool_calls: [{ id: SSE_TOOL_CALL.id, type: "function", function: { name: SSE_TOOL_CALL.name, arguments: SSE_TOOL_ARGUMENTS } }],
     },
-    { role: "tool", tool_call_id: SSE_TOOL_CALL.id, content: "第01章正文：雨夜。" },
+    { role: "tool", tool_call_id: SSE_TOOL_CALL.id, content: JSON.stringify(SSE_OBSERVATION) },
   ];
 }
 
@@ -270,7 +282,7 @@ export function canonicalRunFacts({
     used_refs: [],
     call_ids: [],
   };
-  return { run, messages: [canonicalScope(), ...messages], header };
+  return { run, messages: [...canonicalInput(), canonicalScope(), ...messages], header };
 }
 
 // B82：两轮真实 SSE 执行的 canonical 段 + 同 run 的 ProviderRun 行。
@@ -284,7 +296,7 @@ export function nativeRunFacts() {
       provider_run_ref: SSE_CALL.first.prun,
       blocks: [{ type: "tool_call", call_id: SSE_TOOL_CALL.id, name: SSE_TOOL_CALL.name, arguments: SSE_TOOL_CALL.arguments }],
     },
-    { role: "tool", blocks: [{ type: "tool_result", call_id: SSE_TOOL_CALL.id, status: "ok" }] },
+    { role: "tool", provenance: "tool_result", blocks: [structuredClone(SSE_OBSERVATION)] },
     {
       role: "assistant",
       provenance: "model",
@@ -307,7 +319,7 @@ export function nativeRunFacts() {
   };
   return {
     run,
-    messages: [canonicalScope(), ...messages],
+    messages: [...canonicalInput(), canonicalScope(), ...messages],
     header,
     providerRuns: [SSE_CALL.first, SSE_CALL.second].map((ref) => ({
       id: ref.prun,

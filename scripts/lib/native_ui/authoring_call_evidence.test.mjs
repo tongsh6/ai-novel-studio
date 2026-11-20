@@ -26,6 +26,7 @@ import {
 } from "./fixtures/authoring_call_fixture.mjs";
 import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
 // 正式夹具一律携带真实 transcript.run 身份；缺/错 run 的负例仍直接调用纯入口。
 const result = (patch = {}) => {
@@ -137,6 +138,73 @@ test("Scope 按同次 pcall/prun 绑定 canonical 当前前缀，IR 与 wire 保
   }
 });
 
+test("原始 IR 的 Scope 对账复用明确覆盖，实际 wire 不再次压缩且原记录保真", () => {
+  const coordinate = (runId, sequence) => ({
+    run_id: runId, run_sequence: sequence, run_status: runId === "old" ? "completed" : "running",
+    workspace_id: WORKSPACE, work_id: WORK, session_id: SESSION, parent_turn_ref: "turn-" + runId,
+  });
+  const old = {
+    role: "scope_update", provenance: "application", canonical_ref: coordinate("old", 2),
+    blocks: [{ type: "scope", content: { material: "旧材料" } }],
+    source_refs: [{ ref: "chapter:old", version: 1 }], versions: { scope_revision: 1 },
+  };
+  const current = {
+    role: "scope_update", provenance: "application", canonical_ref: coordinate("current", 2),
+    blocks: [{ type: "scope", content: { material: "当前实际材料" } }],
+    source_refs: [{ ref: "chapter:current", version: 2 }], versions: { scope_revision: 2 },
+  };
+  const author = runId => ({
+    role: "user", provenance: "author", blocks: [{ type: "text", text: "作者：" + runId }],
+    source_refs: [{ ref: "turn-" + runId, version: 1 }], versions: {}, canonical_ref: coordinate(runId, 1),
+  });
+  const checkpoint = {
+    role: "checkpoint", provenance: "application", canonical_ref: coordinate("current", 3),
+    source_refs: [], versions: {}, blocks: [{
+      type: "checkpoint", covers: { call_ids: [], message_refs: [{
+        run_id: "old", run_sequence: 2, role: "scope_update", source_refs: old.source_refs, versions: old.versions,
+      }] },
+      source_refs: [...old.source_refs, { ref: "session_message:old:2", version: 1 }],
+      versions: {}, omissions: ["旧材料已明确省略。"],
+    }],
+  };
+  const messages = [author("old"), old, author("current"), current, checkpoint];
+  const coverage = auditCanonicalCoverage(messages);
+  assert.equal(coverage.ok, true);
+  assert.equal(coverage.retainedMessages.includes(old), false);
+  const canonical = exchange(1, {});
+  canonical.request_body.messages = structuredClone(messages);
+  const native = sseExchange(1);
+  const checkpointBlock = checkpoint.blocks[0];
+  native.request.body.messages = [
+    { role: "user", content: "作者：old" }, { role: "user", content: "作者：current" },
+    scopeWireMessage(current.blocks[0].content, { versions: current.versions, sourceRefs: current.source_refs }),
+    { role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n" +
+      "【应用数据 · checkpoint · 覆盖 " + JSON.stringify(checkpointBlock.covers) + "】\n" +
+      "来源：" + JSON.stringify(checkpointBlock.source_refs) + "\n版本：{}\n省略：旧材料已明确省略。\n" },
+  ];
+  const transcript = { messages: [...messages, assistant(1, [])] };
+  const before = JSON.stringify({ canonical, native, transcript });
+  for (const record of [canonical, native]) {
+    const found = scopeForProviderCall(record, transcript);
+    assert.deepEqual(found?.scopeContent, { material: "当前实际材料" });
+    assert.deepEqual(found?.sourceRefs, [{ ref: "chapter:current", version: 2 }]);
+  }
+  assert.equal(JSON.stringify({ canonical, native, transcript }), before);
+
+  const invalidCoverage = structuredClone(canonical);
+  invalidCoverage.request_body.messages.at(-1).blocks[0].covers.message_refs[0].versions = { scope_revision: 99 };
+  assert.equal(auditCanonicalCoverage(invalidCoverage.request_body.messages).ok, false);
+  assert.equal(scopeForProviderCall(invalidCoverage, transcript), null);
+  const tamperedCurrent = structuredClone(canonical);
+  tamperedCurrent.request_body.messages[3].versions.scope_revision = 99;
+  assert.equal(scopeForProviderCall(tamperedCurrent, transcript), null);
+  const replayedWire = structuredClone(native);
+  replayedWire.request.body.messages.unshift(scopeWireMessage(old.blocks[0].content, {
+    versions: old.versions, sourceRefs: old.source_refs,
+  }));
+  assert.equal(scopeForProviderCall(replayedWire, transcript), null);
+});
+
 test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcall/prun 校验", () => {
   const contents = [
     { operation: { context_text: "上轮原文\n 雪❄️", revision: null }, flags: { enabled: false, refs: [] } },
@@ -187,8 +255,9 @@ test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcal
     { role: "user", content: "上轮作者" }, projected[0],
     { role: "user", content: "本轮作者" }, projected[1],
     { role: "user", content: [
-      '【应用数据 · checkpoint · 覆盖 {"call_ids":["old-call"],"turn_range":"old-author"}】',
-      "来源：[]", "版本：{}", "已核对历史",
+      "【应用数据 · checkpoint · 非作者原话】",
+      '【应用数据 · checkpoint · 覆盖 {"call_ids":["old-call"],"message_refs":[],"turn_range":"old-author"}】',
+      "来源：[]", "版本：{}", "省略：原始工具结果保留在历史中", "已核对历史",
     ].join("\n") },
   ];
   const continuation = sseExchange(83);
@@ -225,6 +294,45 @@ test("跨 run 的 Scope 全序在作者续行与压缩交换后仍按同次 pcal
     const record = structuredClone(continuation);
     change(record);
     assert.equal(scopeForProviderCall(record, transcript), null, change.toString());
+  }
+});
+
+
+test("R05 完整作者引用：Scope 与原样作者引用按完整 wire 边界分别配对", () => {
+  const content = { material: "同次明确供应的章节原文。" };
+  const versions = { scope_revision: 4 };
+  const sourceRefs = [{ ref: "chapter:quoted-scope", version: 2 }];
+  const scope = { role: "scope_update", provenance: "application",
+    blocks: [{ type: "scope", content }], source_refs: sourceRefs,
+    base_refs: ["chapter:quoted-scope"], versions };
+  const material = scopeWireMessage(content, { versions, sourceRefs });
+  const separator = "下一条是作者原样引用。";
+  const quotedText = ["【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】",
+    '版本：{"scope_revision":4}', '来源：[{"ref":"chapter:quoted-scope","version":2}]',
+    '{"material":"同次明确供应的章节原文。"}'].join("\n");
+  assert.equal(material.content, quotedText);
+  const transcript = { messages: [scope,
+    { role: "user", provenance: "author", blocks: [{ type: "text", text: separator }],
+      source_refs: [], base_refs: [], versions: {} },
+    { role: "user", provenance: "author", blocks: [{ type: "text", text: quotedText }],
+      source_refs: [], base_refs: [], versions: {} },
+    assistant(1, [])] };
+  const record = sseExchange(1);
+  record.request.body.messages = [material, { role: "user", content: separator },
+    { role: "user", content: quotedText }];
+  const original = JSON.stringify({ record, transcript });
+  assert.deepEqual(scopeForProviderCall(record, transcript)?.scopeContent, content);
+  assert.equal(scopeForProviderCall(record, transcript)?.index, 0);
+  assert.equal(JSON.stringify({ record, transcript }), original);
+  for (const alter of [
+    messages => messages.shift(),
+    messages => messages.pop(),
+    messages => messages.push(structuredClone(messages[0])),
+    messages => { [messages[0], messages[1]] = [messages[1], messages[0]]; },
+  ]) {
+    const changed = structuredClone(record);
+    alter(changed.request.body.messages);
+    assert.equal(scopeForProviderCall(changed, transcript), null);
   }
 });
 

@@ -5,9 +5,9 @@ import { isDeepStrictEqual } from "node:util";
 import { frameBody, frameEvent } from "./scenario_evidence.mjs";
 import { actionAck } from "./authoring_pending_evidence.mjs";
 import { wireTerminal } from "./live_run_wait.mjs";
-import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
+import { canonicalMessagesFromRows, composeSessionMessages } from "./authoring_history_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
-import { providerOperation, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, providerOperation } from "./authoring_call_evidence.mjs";
 import { NATIVE_CHAT_WIRE, checkpointSelectionsFromFacts, plannedExplorationLeaves,
   requestFactsFromRecord, scopeContentOf } from "./authoring_request_facts.mjs";
 
@@ -303,7 +303,7 @@ function resumedRequest(run, records, checkpoints) {
   return { record: paired[0], facts };
 }
 
-function resumedHistory(rows, answer, facts, db, records) {
+function resumedHistory(rows, answer, facts, bindings, db, records) {
   const audit = auditCanonicalCoverage(rows.filter((row) => row.sequence <= answer.sequence), summaryOptions(db, records));
   assert(audit.ok, audit.reason);
   const history = audit.retainedMessages;
@@ -319,7 +319,10 @@ function resumedHistory(rows, answer, facts, db, records) {
   });
   assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults);
   const authorTexts = history.filter((row) => row.role === "user" && row.provenance === "author").map(textOf);
-  assert.deepEqual(facts.authorMessages.map((message) => message.text), authorTexts);
+  assert(bindings, "恢复请求消息必须与完整 canonical 前缀逐项一致");
+  const actualAuthors = bindings.filter(({ canonical }) => canonical.role === "user" && canonical.provenance === "author")
+    .map(({ actual }) => actual.text);
+  assert.deepEqual(actualAuthors, authorTexts);
   const discussionTexts = history.filter((row) => row.role === "assistant" && row.provenance === "model" &&
     row.blocks.length > 0 && row.blocks.every((block) => block.type === "text")).map(textOf);
   assert.deepEqual(facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length)
@@ -348,10 +351,13 @@ export function verifyInterleavedResumeFacts(trace, db, wire, records, { provide
   assert.equal(answers.length, 1, "缺唯一 canonical 原问题回答");
   const answer = answers[0];
   assert.equal(textOf(answer), controls[2].text, "canonical 回答与冻结作者原文不符");
-  const retained = resumedHistory(rows, answer, facts, db, records);
+  const bindings = canonicalRequestBindingsForProviderCall(record, {
+    messages: composeSessionMessages(rows, run.agent_run_id),
+  });
+  const retained = resumedHistory(rows, answer, facts, bindings, db, records);
   const scope = rows.find((row) => row.sequence > answer.sequence && row.run_id === a.id &&
     row.role === "scope_update" && row.versions?.goal === response.goal_version);
-  const projected = scopeForProviderCall(record, { messages: rows });
+  const projected = bindings.findLast(({ canonical }) => canonical.role === "scope_update")?.actual;
   assert(scopeContentOf(scope) && projected?.scopeContent, "恢复 A 必须使用当前 Scope");
   assert.deepEqual(projected.scopeContent, scopeContentOf(scope));
   assert.deepEqual(projected.versions, scope.versions);

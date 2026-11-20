@@ -45,6 +45,99 @@ function evaluate(overrides = {}) {
 
 
 
+test("R05 当前职责 Base：同文的历史职责保留原始行，仅当前 run 一次进入真实请求", () => {
+  const scenario = discussionMaintenanceFacts();
+  const bases = scenario.db.authoring_session_messages.filter((row) => row.role === "application_base");
+  assert.deepEqual(bases.map((row) => row.run_id), ["early", "current"]);
+  assert.deepEqual(bases.map((row) => JSON.parse(row.message).blocks[0].text), ["创作助手", "创作助手"]);
+  const request = scenario.after.request.body.messages;
+  assert.equal(request.filter((message) => message.content ===
+    "【应用数据 · application_base · 非作者原话】\n创作助手").length, 1);
+  const original = JSON.stringify({ db: scenario.db, request });
+
+  const result = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords });
+  assert.equal(result.checks.C5_next_request_compact.ok, true, JSON.stringify(result.checks.C5_next_request_compact));
+  assert.equal(result.checks.C6_canonical_complete.ok, true, JSON.stringify(result.checks.C6_canonical_complete));
+  assert.equal(JSON.stringify({ db: scenario.db, request }), original);
+
+  const replayed = discussionMaintenanceFacts();
+  replayed.after.request.body.messages.unshift({
+    role: "user", content: "【应用数据 · application_base · 非作者原话】\n创作助手",
+  });
+  const rejected = evaluate({ dbFacts: replayed.db, llmRecords: replayed.llmRecords });
+  assert.equal(rejected.checks.C5_next_request_compact.ok, false);
+});
+
+test("R05 作者完整引用：维护后职责消息与同文作者原话必须分别保留身份", () => {
+  const scenario = discussionMaintenanceFacts();
+  const original = "  比较双视角与单视角；先别执行，仍欠风险表。\r\n";
+  const quotation = "【应用数据 · application_base · 非作者原话】\n创作助手";
+  const row = scenario.db.authoring_session_messages.find((entry) => entry.run_id === "early" && entry.role === "user");
+  const canonical = JSON.parse(row.message);
+  assert.equal(canonical.blocks[0].text, original);
+  canonical.blocks[0].text = quotation;
+  row.message = JSON.stringify(canonical);
+  const author = scenario.after.request.body.messages.filter((message) => message.role === "user" && message.content === original);
+  assert.equal(author.length, 1);
+  author[0].content = quotation;
+  assert.equal(scenario.after.request.body.messages.filter((message) => message.content === quotation).length, 2);
+
+  const discussion = scenario.messages.find((message) => message.role === "assistant");
+  const material = { material_kind: "quoted_discussion_sources", sources: [{
+    source_index: 0, source: { run_id: "early", run_sequence: 4 },
+    text: discussion.blocks[0].text, author_text: quotation,
+  }] };
+  const materialMessages = scenario.summaryRecord.request.body.messages.filter((message) => message.role === "user");
+  assert.equal(materialMessages.length, 1);
+  materialMessages[0].content = "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify(material);
+
+  const result = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords });
+  assert.equal(result.checks.C5_next_request_compact.ok, true, JSON.stringify(result.checks.C5_next_request_compact));
+  assert.equal(result.checks.C6_canonical_complete.ok, true, JSON.stringify(result.checks.C6_canonical_complete));
+
+  scenario.after.request.body.messages.splice(scenario.after.request.body.messages.indexOf(author[0]), 1);
+  const missing = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords });
+  assert.equal(missing.checks.C5_next_request_compact.ok, false);
+});
+
+for (const [label, mutate] of [
+  ["作者消息缺失", (messages) => {
+    const index = messages.findIndex((message) => message.role === "user" && message.content === "先读一下第01章的正文和章计划。");
+    assert(index >= 0);
+    messages.splice(index, 1);
+  }],
+  ["checkpoint 正文被伪造", (messages) => {
+    const checkpoints = messages.filter((message) => message.role === "user" &&
+      message.content.startsWith("【应用数据 · checkpoint · 非作者原话】\n"));
+    assert.equal(checkpoints.length, 1);
+    checkpoints[0].content += "\n伪造的摘要。";
+  }],
+]) {
+  test("R05 完整下一请求：仅工具压缩也拒绝" + label, () => {
+    const db = dbFactsFor();
+    const checkpoint = db.authoring_session_messages.find((row) => row.run_id === RUN && row.role === "checkpoint");
+    db.authoring_session_messages = db.authoring_session_messages.filter((row) => row.run_id === RUN && row.sequence <= checkpoint.sequence);
+    db.agent_events = db.agent_events.filter((row) => row.run_id === RUN);
+    const last = db.authoring_session_messages.at(-1);
+    // 预置的首个后续回复是 call 身份来源；不能从被测请求补造前缀。
+    db.authoring_session_messages.push({
+      ...last, id: "after-reply", role: "assistant", sequence: last.sequence + 1,
+      run_sequence: last.run_sequence + 1,
+      message: JSON.stringify({ role: "assistant", provenance: "model",
+        provider_call_ref: "pcall-after", provider_run_ref: "prun-after",
+        blocks: [{ type: "text", text: "本轮继续检查。" }] }),
+    });
+    const record = afterRecord();
+    record.response.body = '{"choices":[{"message":{"role":"assistant","content":"本轮继续检查。"}}]}';
+    const records = [beforeRecord(), record];
+    const baseline = evaluate({ dbFacts: db, llmRecords: records });
+    assert.equal(baseline.checks.C5_next_request_compact.ok, true, JSON.stringify(baseline.checks.C5_next_request_compact));
+    mutate(record.request.body.messages);
+    const changed = evaluate({ dbFacts: db, llmRecords: records });
+    assert.equal(changed.checks.C5_next_request_compact.ok, false, JSON.stringify(changed.checks.C5_next_request_compact));
+  });
+}
+
 test("R03 C5/C6：零工具纯讨论与旧 Scope 有真实摘要执行/材料及下一请求，保留作者原字节", () => {
   const scenario = discussionMaintenanceFacts();
   const result = evaluate({ dbFacts: scenario.db, llmRecords: scenario.llmRecords });
@@ -57,9 +150,22 @@ test("R03 C5/C6：零工具纯讨论与旧 Scope 有真实摘要执行/材料及
 test("R03 C5：材料错源、原话改字节、旧 Scope/长答重放、末 checkpoint 缺下一请求均不能过", () => {
   for (const [name, mutate, expected] of [
     ["summary material changed", (s) => { s.summaryRecord.request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content = s.summaryRecord.request.body.messages.find(message => message.role === "user" && message.content.startsWith("【应用数据 · application_base")).content.replace("仍欠风险表", "风险表已完成"); }, false],
-    ["author trimmed", (s) => { s.after.request.body.messages[0].content = s.after.request.body.messages[0].content.trim(); }, false],
+    ["author trimmed", (s) => {
+      const original = "  比较双视角与单视角；先别执行，仍欠风险表。\r\n";
+      const matches = s.after.request.body.messages.filter(message => message.role === "user" && message.content === original);
+      assert.equal(matches.length, 1, "必须唯一定位原作者消息");
+      assert.notEqual(original.trim(), original);
+      matches[0].content = original.trim();
+    }, false],
     ["covered discussion replay", (s) => { s.after.request.body.messages.push({ role: "assistant", content: s.messages[2].blocks[0].text }); }, false],
-    ["scope version changed", (s) => { s.after.request.body.messages[2].content = s.after.request.body.messages[2].content.replace("版本：{}", '版本：{"goal":99}'); }, false],
+    ["scope version changed", (s) => {
+      const scopeBody = JSON.stringify({ choice: "单视角", source: "当前范围" });
+      const matches = s.after.request.body.messages.filter(message => message.role === "user" &&
+        message.content.startsWith("【应用数据 · scope_update · ") && message.content.endsWith("\n" + scopeBody));
+      assert.equal(matches.length, 1, "必须唯一定位当前 Scope");
+      assert(matches[0].content.includes("\n版本：{}\n"));
+      matches[0].content = matches[0].content.replace("\n版本：{}\n", '\n版本：{"goal":99}\n');
+    }, false],
     ["missing next request", (s) => { s.db.provider_events = []; }, null],
   ]) {
     const scenario = discussionMaintenanceFacts();
@@ -105,8 +211,9 @@ test("A3 反例：精简泄漏与 canonical 缺失分别 fail", () => {
 });
 
 test("C5 正例：有效 checkpoint 文本显式携带 call_id 不算泄漏，只排除结构化 tool_call/tool_result 重放", () => {
-  const messages = afterWireMessages({ summary: `已整理的较早记录（原文含 ${CALL_ID}）` });
-  assert(messages.some((message) => typeof message.content === "string" && message.content.includes(CALL_ID)));
+  const messages = afterWireMessages();
+  assert(messages.some((message) => typeof message.content === "string" &&
+    message.content.endsWith(`已整理的较早记录（覆盖 ${CALL_ID}）`)));
   const result = evaluate({ llmRecords: llmRecords().map((record) =>
     record.provider_call_ref === "pcall-after" ? afterRecord({ messages }) : record) });
   const c5 = result.checks.C5_next_request_compact;
@@ -197,7 +304,8 @@ test("C6：多条 canonical checkpoint 每条都必须有 covers，任一无 cov
   const rows = dbFactsFor().authoring_session_messages;
   const appendCheckpoint = (message) => ({
     ...rows.find((row) => row.run_id === RUN && row.role === "checkpoint"),
-    id: "extra-checkpoint", sequence: rows.length + 1, run_sequence: 7,
+    id: "extra-checkpoint", sequence: rows.length + 1,
+    run_sequence: Math.max(...rows.filter((row) => row.run_id === RUN).map((row) => row.run_sequence)) + 1,
     message: JSON.stringify(message),
   });  const allCovered = evaluate({
     dbFacts: { ...dbFactsFor(), authoring_session_messages: [...rows, appendCheckpoint(checkpointMessage())] },

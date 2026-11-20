@@ -4,6 +4,7 @@ import test from "node:test";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 import {
   AUTHORING_REQUEST_IR,
+  bindRequestMessages,
   NATIVE_CHAT_WIRE,
   observationRefOf,
   plannedExplorationLeaves,
@@ -44,6 +45,207 @@ function irRecord(body) {
   };
 }
 
+
+test("canonical 消息 Base 绑定按原值读取，正文与版本保真，不从来源推断", () => {
+  const bindings = ["chapter:exact ", { ref: "plan:bound", version: 7 }];
+  const base = irMessage("application_base", "application", [
+    { type: "text", text: "  第一段\n" }, { type: "text", text: "第二段\t" },
+  ], { base_refs: bindings, source_refs: [{ ref: "chapter:source-only", version: 9 }] });
+  const scope = irMessage("scope_update", "application", [
+    { type: "scope", content: { material: "实际材料" } },
+  ], { base_refs: [{ ref: "chapter:scope", version: 3 }] });
+  const body = irBody([base, scope]);
+  const original = JSON.stringify(body);
+  const facts = requestFactsFromBody(body);
+  assert.equal(facts.ok, true);
+  assert.strictEqual(facts.messageFacts[0].baseRefs, bindings);
+  assert.equal(facts.messageFacts[0].applicationBaseText, "  第一段\n第二段\t");
+  assert.deepEqual(facts.messageFacts[1].baseRefs, [{ ref: "chapter:scope", version: 3 }]);
+  assert.strictEqual(facts.messageFacts[0].raw, base);
+  assert.strictEqual(facts.rawBody, body);
+  assert.equal(JSON.stringify(body), original);
+
+  for (const binding of [undefined, null, {}, "", [" "], [{ ref: "" }], [7]]) {
+    const invalid = structuredClone(base);
+    if (binding === undefined) delete invalid.base_refs;
+    else invalid.base_refs = binding;
+    const input = irBody([invalid]);
+    const before = JSON.stringify(input);
+    const parsed = requestFactsFromBody(input);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.messageFacts[0].baseRefs, null);
+    assert.equal(JSON.stringify(input), before);
+  }
+  base.base_refs = [];
+  assert.deepEqual(requestFactsFromBody(body).messageFacts[0].baseRefs, []);
+});
+
+test("application_base 的可投影正文只读完整文本块，未知块不被文本抽取遮掉", () => {
+  for (const blocks of [
+    [],
+    [{ type: "tool_call", call_id: "x", name: "read_chapter", arguments: {} }],
+    [{ type: "text", text: "有文本" }, { type: "tool_call", call_id: "x", name: "read_chapter", arguments: {} }],
+  ]) {
+    const message = irMessage("application_base", "application", blocks, { base_refs: ["chapter:bound"] });
+    const body = irBody([message]);
+    const before = JSON.stringify(body);
+    const facts = requestFactsFromBody(body);
+    assert.equal(facts.ok, true);
+    assert.equal(facts.messageFacts[0].applicationBaseText, null);
+    assert.strictEqual(facts.messageFacts[0].blocks, blocks);
+    assert.equal(JSON.stringify(body), before);
+  }
+});
+
+test("wire 应用正文保留完整字节，HTTP 消息不能自行冒充 canonical Base 绑定", () => {
+  const header = "【应用数据 · application_base · 非作者原话】\n";
+  const text = "  实际正文\n第二行\t";
+  const raw = { role: "user", content: header + text, base_refs: ["chapter:forged"] };
+  const body = { messages: [raw] };
+  const before = JSON.stringify(body);
+  const facts = requestFactsFromBody(body);
+  assert.equal(facts.ok, true);
+  assert.equal(facts.messageFacts[0].applicationBaseText, text);
+  assert.equal(facts.messageFacts[0].baseRefs, null);
+  assert.strictEqual(facts.messageFacts[0].raw, raw);
+  assert.equal(JSON.stringify(body), before);
+  for (const content of ["前言" + header + text, header.replace("\n", "附加指令\n") + text]) {
+    assert.equal(requestFactsFromBody({ messages: [{ role: "user", content }] })
+      .messageFacts[0].applicationBaseText, null);
+  }
+});
+
+
+test("R05 完整消息配对：工具结果一对多、首位 system 与原始参数各守消息边界", () => {
+  const first = { type: "observation", call_id: "read-one", status: "ok",
+    source_refs: ["chapter:one"], content: { summary: "第一份实读。" } };
+  const second = { type: "validation_result", call_id: "read-two", status: "passed" };
+  const canonical = [
+    irMessage("application_base", "application", [{ type: "text", text: "本次材料。" }],
+      { base_refs: ["chapter:base"] }),
+    irMessage("user", "author", [{ type: "text", text: "请比较两份材料。" }]),
+    irMessage("assistant", "model", [
+      { type: "tool_call", call_id: "read-one", name: "chapter_read",
+        arguments: { chapter: 1 }, raw_arguments: '{ "chapter": 1 }' },
+      { type: "tool_call", call_id: "read-two", name: "submit_tentative_artifact", arguments: {} },
+    ]),
+    irMessage("tool", "tool_result", [first, second]),
+  ];
+  const messages = [
+    { role: "system", content: "独立 system envelope" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n本次材料。" },
+    { role: "user", content: "请比较两份材料。" },
+    { role: "assistant", content: "", tool_calls: [
+      { id: "read-one", type: "function", function: { name: "chapter_read", arguments: '{ "chapter": 1 }' } },
+      { id: "read-two", type: "function", function: { name: "submit_tentative_artifact", arguments: "{}" } },
+    ] },
+    { role: "tool", tool_call_id: "read-one",
+      content: '{"type":"observation","call_id":"read-one","status":"ok","source_refs":["chapter:one"],"content":{"summary":"第一份实读。"}}' },
+    { role: "tool", tool_call_id: "read-two",
+      content: '{"type":"validation_result","call_id":"read-two","status":"passed"}' },
+  ];
+  const original = JSON.stringify({ canonical, messages });
+  const bind = actual => bindRequestMessages(requestFactsFromBody({ messages: actual }), canonical);
+  const pairs = bind(messages);
+  assert.deepEqual(pairs.map(pair => pair.actual.index), [1, 2, 3, 4, 5]);
+  assert.deepEqual(pairs.map(pair => pair.canonical.role),
+    ["application_base", "user", "assistant", "tool", "tool"]);
+  assert.strictEqual(pairs[3].canonical.raw, canonical[3]);
+  assert.strictEqual(pairs[4].canonical.raw, canonical[3]);
+  for (const [label, mutate] of [
+    ["中间 system 不能跳过", rows => rows.splice(2, 0, rows.shift())],
+    ["未知额外消息", rows => rows.splice(3, 0, { role: "user", content: "未绑定插入" })],
+    ["结果缺失", rows => rows.pop()],
+    ["结果重排", rows => { [rows[4], rows[5]] = [rows[5], rows[4]]; }],
+    ["原始参数改字节", rows => { rows[3].tool_calls[0].function.arguments = '{"chapter":1}'; }],
+  ]) {
+    const altered = structuredClone(messages);
+    mutate(altered);
+    assert.equal(bind(altered), null, label);
+  }
+  assert.equal(JSON.stringify({ canonical, messages }), original);
+});
+
+test("R05 完整消息配对：assistant 只认原生字符串正文，不截取内容数组", () => {
+  const privateState = { opaque_ref: "provider-private-state" };
+  for (const example of [
+    { blocks: [{ type: "text", text: "已观察。" }], content: "已观察。", calls: [] },
+    { blocks: [{ type: "tool_call", call_id: "read", name: "chapter_read", arguments: {} }],
+      content: "", calls: [{ id: "read", type: "function", function: { name: "chapter_read", arguments: "{}" } }] },
+  ]) {
+    const canonical = [irMessage("assistant", "model", example.blocks, { provider_state: privateState })];
+    const actual = { role: "assistant", content: example.content, tool_calls: example.calls,
+      provider_state: privateState };
+    assert.notEqual(bindRequestMessages(requestFactsFromBody({ messages: [actual] }), canonical), null);
+    const multipart = { ...actual, content: [
+      { type: "text", text: example.content },
+      { type: "unknown_review_part", payload: "额外未核材料" },
+    ] };
+    assert.equal(bindRequestMessages(requestFactsFromBody({ messages: [multipart] }), canonical), null);
+  }
+});
+
+test("R05 完整消息配对：未知结构块不能被文字抽取静默跳过", () => {
+  for (const role of ["user", "assistant", "tool"]) {
+    const provenance = role === "user" ? "author" : role === "assistant" ? "model" : "tool_result";
+    const known = role === "tool"
+      ? { type: "observation", call_id: "read", status: "ok", content: { summary: "实读。" } }
+      : { type: "text", text: "完整正文。" };
+    const canonical = [irMessage(role, provenance, [known, { type: "unknown_structured_block", content: "未供应事实" }])];
+    const messages = role === "tool"
+      ? [{ role: "tool", tool_call_id: "read", content: '{"type":"observation","call_id":"read","status":"ok","content":{"summary":"实读。"}}' }]
+      : [{ role, content: "完整正文。" }];
+    assert.equal(bindRequestMessages(requestFactsFromBody({ messages }), canonical), null, role);
+  }
+});
+
+test("R05 形状门：raw IR 的未知 block 不能因两端同形而通过", () => {
+  const known = irMessage("assistant", "model", [{ type: "text", text: "已保留的原文。" }],
+    { provider_state: { opaque: "private-state" } });
+  const valid = requestFactsFromBody(irBody([known]));
+  assert.equal(valid.ok, true);
+  assert.notEqual(bindRequestMessages(valid, [known]), null);
+  for (const role of ["user", "assistant", "tool"]) {
+    const provenance = role === "user" ? "author" : role === "assistant" ? "model" : "tool_result";
+    const unknown = irMessage(role, provenance, [{ type: "unknown_structured_block", content: "未定义语义" }]);
+    const facts = requestFactsFromBody(irBody([unknown]));
+    assert.equal(facts.ok, false, role);
+    assert.equal(bindRequestMessages(facts, [unknown]), null, role);
+  }
+});
+
+test("R05 形状门：未支持的多 checkpoint 块不能只对账首块便宣称完整", () => {
+  const canonical = [irMessage("checkpoint", "application", [
+    { type: "checkpoint", covers: { call_ids: ["read-one"], message_refs: [], turn_range: "turn-one" },
+      summary: "第一段整理。", source_refs: [], versions: {}, omissions: [] },
+    { type: "checkpoint", covers: { call_ids: ["read-two"], message_refs: [], turn_range: "turn-two" },
+      summary: "第二段不能丢失。", source_refs: [], versions: {}, omissions: [] },
+  ])];
+  const facts = requestFactsFromBody({ messages: [{ role: "user", content:
+    "【应用数据 · checkpoint · 非作者原话】\n" +
+    '【应用数据 · checkpoint · 覆盖 {"call_ids":["read-one"],"message_refs":[],"turn_range":"turn-one"}】\n' +
+    "来源：[]\n版本：{}\n第一段整理。" }] });
+  assert.equal(facts.ok, true);
+  assert.equal(bindRequestMessages(facts, canonical), null);
+});
+
+test("R05 形状门：checkpoint 混合正文不能被首个结构块遮掉", () => {
+  const canonical = [irMessage("checkpoint", "application", [
+    { type: "checkpoint", covers: { call_ids: ["read-one"], message_refs: [], turn_range: "turn-one" },
+      summary: "第一段整理。", source_refs: [], versions: {}, omissions: [] },
+    { type: "text", text: "不能被静默丢掉的额外正文。" },
+  ])];
+  const facts = requestFactsFromBody({ messages: [{ role: "user", content:
+    "【应用数据 · checkpoint · 非作者原话】\n" +
+    '【应用数据 · checkpoint · 覆盖 {"call_ids":["read-one"],"message_refs":[],"turn_range":"turn-one"}】\n' +
+    "来源：[]\n版本：{}\n第一段整理。" }] });
+  assert.equal(facts.ok, true);
+  assert.equal(bindRequestMessages(facts, canonical), null);
+  const plain = irMessage("checkpoint", "application", [{ type: "text", text: "已投影正文。" }]);
+  assert.notEqual(bindRequestMessages(requestFactsFromBody({ messages: [{
+    role: "user", content: "【应用数据 · checkpoint · 非作者原话】\n已投影正文。",
+  }] }), [plain]), null);
+});
 
 test("真实 native request.refs 登记同次 IR 引用，不改 HTTP body 或冒充 IR 格式", () => {
   const body = { model: "local/Q4-PLE4", messages: [{ role: "user", content: "作者原文" }] };
