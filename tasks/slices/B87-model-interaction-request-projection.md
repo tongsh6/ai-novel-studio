@@ -2103,6 +2103,10 @@ JP 改为先校验后发布后，现有 judgment_decided 接受事件必须由�
 
 **必须保留的反例。** 原始两次独立探索说明仍在最终正文之前；同call不同字段仍是不同来源；没有最终交付或取消时过程原文不能消失。no_change 的模型正文与独立系统核对卡保持各自职责。maintain_refusal_result 则会把模型正文换成应用拒绝文本：必须先确定实际应用正文，再生成不冒领模型来源的 trace/result，不能在公共 frame 增加来源后把原模型 record 留给另一份系统文字。复用现 PWF/B29 与全工作台所有权测试，以独立固定原文和来源坐标先建立失败，验证 frame→trace→结果→持久化/广播及当前/恢复交付，不从新结果反造期望。
 
+**公开来源边界的反证复核（2026-11-20，调整测试前）。** PWF 三类模型正文来源正例已通过，58 项邻接测试却有一项因公开路径 `trace_summary.reply_record.observation_refs` 命中全树同名键禁令而失败；`pwf-source-handoff-01/green-01` 原件保留，不能把测试禁键直接当成目标。VS-00D §11.4 要求必要的真实取证 refs/coverage 随来源持久与回放；ADR-0014 要求应用层经 TraceWriter→TraceRedactor 形成 author-safe 摘要，禁止 raw prompt、私有 thinking、敏感上下文与未脱敏工具 I/O。当前 JudgmentProtocol.reply_record 只从实际 observations 投影 refs 和 tool/chapter/range/count 覆盖坐标；公开摘要既有 owner 不变，Why 仍选择作者解释字段，Timeline 消费完整叙述来源，不新增 PWF 白名单或复制私有 RequestIR。B71 当前独立 fixture 没有 explore，故该唯一路径必须实测等于空列表；其余位置同名键及原内部容器禁令保持。修订过宽断言要辨明路径与内容，不能全局删禁键、先移除数据再扫描、以现有结果反推预期，亦不声称本空列表场景覆盖非空取证内容的所有情况。
+
+**共同 frame 的应用回执消费者复核（2026-11-20，修正前）。** 除 maintain_refusal_result，discard 分支也消费共同 frame：实际最终正文来自既有 AdoptionWorkflow.handle_discard 的处置回执，执行前模型判断应留在过程。新来源交接不得让该应用正文冒领判断模型的 reply_record。与拒绝出口同一原则，在 frame/trace 形成前确定真实回执正文并去掉不属于它的模型 reply_record/narrative_source；不修改模型原文或已接受过程事件。复用既有放弃消费者测试，提供完整已验证模型来源作为反例，验证最终应用回执不带该来源、真实处置事实及原过程说明保持。必须逐一核对共同 frame 的其余当前调用者，区分沿用模型正文与另造应用/Writer 正文，不能仅修首次显露的分支；无新增生产实体、来源解析器或通用兼容分支。
+
 **作者说明的语义职责。** role-02 第二条 reason 原文把“当前指纹／修订基线”作为给作者的说明；它在本语境报告内部版本校验，不能靠来源真实或扫描无ref判为合格。复用现 AuthoringTaskPolicy.author_narrative_rules 及其当前三个消费者，在唯一规范中明确创作判断/材料/下一步与工具参数、引用绑定、指纹/版本校验的受众边界；作品里同名概念、作者主动询问机制仍按其真实语境讨论。不开新叙述字段、不改选中来源、不扩词黑名单、不清洗或代写模型原文，不增加语义判断模型调用。规则不机械保证所有未来自然语言，修正要由新原生角色样本独立审读，不能以提示字符串测试签通过。
 
 **现角色证据 owner 的接受契约。** 实际 canonical 成功回执为同一 call 的 validation_result、status=passed、reason_code=judgment_validated；现 owner 只接受“没有validation回执”的execute而错误排除它。应在现 authoring_character_candidate_evidence 的既有回执读取/选择点消费明确的成功/失败状态并与实际接受来源、capability、目标及当前候选相互绑定；成功验证不等于采纳或正式写入授权。退役无回执即成功的旧假设及只保护该假设的fixture，保留失败调用→实际下一请求回执→后续合法选择的完整闭合。用独立的通过、失败、缺失、错call/目标及前失败后成功反例验证，不另建ToolResult解析器或放松字段/材料目标。
