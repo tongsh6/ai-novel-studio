@@ -208,7 +208,13 @@ defmodule NovelAgent.CreativeProvider.Real do
                 item_id: %{type: "string", minLength: 1},
                 title: %{type: "string", minLength: 1},
                 body: %{type: "string"},
-                rationale: %{anyOf: [%{type: "string"}, %{type: "null"}]}
+                rationale: %{
+                  anyOf: [%{type: "string"}, %{type: "null"}],
+                  description:
+                    "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
+                      "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
+                      "无需说明时可省略或为 null。"
+                }
               },
               additionalProperties: true
             }

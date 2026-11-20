@@ -146,6 +146,81 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
     end
   end
 
+  test "native rationale explains author-facing creative choices for prose requests" do
+    revision =
+      AuthoringTaskFixtures.task(:revision, %{
+        scope: %{
+          refs: ["draft:one"],
+          coverage: :complete,
+          base_ref: "draft:one",
+          target_chapter_ref: "chapter:one",
+          object_kind: :chapter_prose,
+          expected_base_versions: [%{ref: "draft:one", version: 1}]
+        }
+      })
+
+    cases = [
+      {base_task(:first_draft, %{}), "本轮为首稿创作"},
+      {%{revision | scope: Map.put(revision.scope, :modification_scope, :whole_chapter)},
+       "## 整章内容修订"},
+      {%{revision | scope: Map.put(revision.scope, :modification_scope, :target_segments)},
+       "## 指定片段/段落内容修订（target_segments）"}
+    ]
+
+    expected_description =
+      "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
+        "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
+        "无需说明时可省略或为 null。"
+
+    shared_author_rules =
+      """
+      面向作者，用自然创作语言说明有用的判断、依据与下一步，以实际作品和材料名称指明对象。
+      本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行，不将其写成创作说明；
+      作品中涉及的同名概念，或作者主动询问的机制，按真实语境正常讨论。
+      不机械复述输入。
+      """
+      |> String.trim()
+
+    for {task, operation_marker} <- cases do
+      assert {:ok, ^task} = AuthoringSemantics.validate(task)
+      ir = captured_prompt(task)
+      prompt = AuthoringTaskFixtures.prompt_text(ir)
+
+      assert prompt =~ operation_marker
+      assert String.split(prompt, shared_author_rules) |> length() == 2
+
+      assert {:ok,
+              %{
+                tools: [
+                  %{
+                    type: "function",
+                    function: %{name: "submit_tentative_artifact", parameters: schema}
+                  }
+                ]
+              }} = RequestIR.Projection.project(ir, "chat_completions")
+
+      assert schema["required"] == ["items"]
+      items = schema["properties"]["items"]
+      assert items["type"] == "array"
+      assert items["minItems"] == 1
+      item_schema = items["items"]
+      assert item_schema["required"] == ["item_id", "title", "body"]
+
+      rationale = item_schema["properties"]["rationale"]
+
+      assert Map.drop(rationale, ["description"]) == %{
+               "anyOf" => [%{"type" => "string"}, %{"type" => "null"}]
+             }
+
+      assert rationale["description"] == expected_description
+
+      used_refs = schema["properties"]["self_report"]["properties"]["used_context_refs"]
+      assert used_refs["type"] == "array"
+      assert used_refs["items"] == %{"type" => "string"}
+      assert used_refs["description"] =~ "引用只留自报字段"
+    end
+  end
+
   test "rewrite task prompt has no fixed continuation instruction (X1 closed)" do
     task =
       base_task(:rewrite,
