@@ -971,20 +971,26 @@ defmodule NovelApplication.JudgmentProtocol do
   defp operation([call], _) do
     args = field(call, :arguments)
 
-    case field(call, :name) do
-      "judgment_decision" -> {:ok, field(args, :action), args, call}
-      "agent_plan_draft" -> {:ok, "plan", args, call}
-      "continuation_decision" -> {:ok, "continue", args, call}
-      "ask_author" -> {:ok, "await_author", args, call}
-      "register_author_content" -> {:ok, "author_content_registration", args, call}
-      "propose_creative_directions" -> {:ok, "creative_directions", args, call}
-      "propose_work_profile_revision" -> {:ok, "work_profile_revision", args, call}
-      "report_capability_gap" -> {:ok, "capability_gap", args, call}
-      _ -> {:error, :invalid_tool_combination}
-    end
+    with {:ok, operation} <- tool_operation(field(call, :name), args),
+         do: {:ok, operation, args, call}
   end
 
   defp operation(_, _), do: {:error, :invalid_tool_combination}
+
+  defp tool_operation("judgment_decision", args), do: {:ok, field(args, :action)}
+
+  defp tool_operation(name, _args) do
+    case name do
+      "agent_plan_draft" -> {:ok, "plan"}
+      "continuation_decision" -> {:ok, "continue"}
+      "ask_author" -> {:ok, "await_author"}
+      "register_author_content" -> {:ok, "author_content_registration"}
+      "propose_creative_directions" -> {:ok, "creative_directions"}
+      "propose_work_profile_revision" -> {:ok, "work_profile_revision"}
+      "report_capability_gap" -> {:ok, "capability_gap"}
+      _ -> {:error, :invalid_tool_combination}
+    end
+  end
 
   defp validate_operation("execute", args, options) do
     capability = field(args, :capability)
@@ -1141,16 +1147,16 @@ defmodule NovelApplication.JudgmentProtocol do
   defp narrative(result, nil, _args), do: content_narrative(result, field(result, :content))
 
   defp narrative(result, call, args) do
-    if field(result, :content) not in [nil, ""] do
+    if field(result, :content) in [nil, ""] do
+      with :ok <- AgentNarrativeSource.verify_tool_call(result, call),
+           do: tool_narrative(result, call, args)
+    else
       reason =
         if field(call, :name) == "ask_author",
           do: :author_question_content_conflict,
           else: :author_narrative_content_conflict
 
       {:error, reason}
-    else
-      with :ok <- AgentNarrativeSource.verify_tool_call(result, call),
-           do: tool_narrative(result, call, args)
     end
   end
 

@@ -51,24 +51,11 @@ defmodule NovelCommon.RequestIR.Scope do
           (role not in ["application_base", "scope_update"] or provenance != "application") ->
         {:error, :invalid_base_binding_owner}
 
-      base_refs != [] and
-          (types == [] or
-             (role == "application_base" and
-                (Enum.any?(types, &(&1 != "text")) or
-                   String.trim(Projection.text_of(blocks)) == ""))) ->
+      base_refs != [] and invalid_base_binding_content?(role, types, blocks) ->
         {:error, :invalid_base_binding_content}
 
-      "scope" in types and {role, provenance, types} != {"scope_update", "application", ["scope"]} ->
-        {:error, :invalid_scope_owner}
-
-      role == "scope_update" and provenance != "application" ->
-        {:error, :invalid_scope_owner}
-
-      role == "scope_update" and Enum.any?(types, &(&1 not in ["text", "scope"])) ->
-        {:error, :invalid_scope_owner}
-
       true ->
-        :ok
+        validate_scope_owner(role, provenance, types)
     end
   end
 
@@ -82,6 +69,28 @@ defmodule NovelCommon.RequestIR.Scope do
   end
 
   def validate_block(_block), do: {:error, :invalid_scope_content}
+
+  defp invalid_base_binding_content?(role, types, blocks) do
+    types == [] or
+      (role == "application_base" and
+         (Enum.any?(types, &(&1 != "text")) or String.trim(Projection.text_of(blocks)) == ""))
+  end
+
+  defp validate_scope_owner(role, provenance, types) do
+    cond do
+      "scope" in types and {role, provenance, types} != {"scope_update", "application", ["scope"]} ->
+        {:error, :invalid_scope_owner}
+
+      role == "scope_update" and provenance != "application" ->
+        {:error, :invalid_scope_owner}
+
+      role == "scope_update" and Enum.any?(types, &(&1 not in ["text", "scope"])) ->
+        {:error, :invalid_scope_owner}
+
+      true ->
+        :ok
+    end
+  end
 
   defp scope_json?(%_{}), do: false
 

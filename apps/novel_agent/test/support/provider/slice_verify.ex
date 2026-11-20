@@ -795,16 +795,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     reads != [] and
       Enum.all?(reads, fn step ->
-        Enum.any?(observations, fn observation ->
-          case observation[:content] do
-            %{"tool" => tool, "query" => query} ->
-              tool == step.target_tool_ref and query == step.exploration_query
-
-            _ ->
-              false
-          end
-        end)
+        Enum.any?(observations, &plan_read_returned?(&1, step))
       end)
+  end
+
+  defp plan_read_returned?(observation, step) do
+    case observation[:content] do
+      %{"tool" => tool, "query" => query} ->
+        tool == step.target_tool_ref and query == step.exploration_query
+
+      _ ->
+        false
+    end
   end
 
   defp judgment_result_cond(prompt_text, input, ir) do
@@ -1202,7 +1204,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp single_fixture_operation(args, text, source) do
     cond do
       # AU12 A：显式立项修订工具参数原样透传（title/body/field/value/author_reasoning）。
-      is_binary(args["field"]) and not is_nil(args["value"]) and is_binary(args["title"]) ->
+      fixture_profile_revision?(args) ->
         {"propose_work_profile_revision", args}
 
       args["author_content_registration"] == true ->
@@ -1230,6 +1232,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         single_fixture_decision(args)
     end
+  end
+
+  defp fixture_profile_revision?(args) do
+    is_binary(args["field"]) and not is_nil(args["value"]) and is_binary(args["title"])
   end
 
   defp single_fixture_reply(args, text) do

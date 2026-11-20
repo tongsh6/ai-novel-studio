@@ -744,11 +744,11 @@ defmodule NovelApplication.TurnExecutionService do
          request_ir,
          provider_call_ref
        ) do
+    ref_value = fn ref -> if is_map(ref), do: map_value(ref, :ref), else: ref end
+
     {base_refs, observation_refs} =
       case request_ir do
         %RequestIR{} ->
-          ref_value = fn ref -> if is_map(ref), do: map_value(ref, :ref), else: ref end
-
           {
             Enum.map(RequestIR.usable_base_refs(request_ir), ref_value),
             Enum.map(RequestIR.usable_observation_refs(request_ir), ref_value)
