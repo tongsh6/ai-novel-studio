@@ -39,6 +39,7 @@ be found at <https://hexdocs.pm/novel_application>.
 - [author_question.ex](lib/novel_application/author_question.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_service.ex](lib/novel_application/author_question_service.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_roundtrip_test.exs](test/novel_application/author_question_roundtrip_test.exs)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
+- [judgment_tool_contract_test.exs](test/novel_application/judgment_tool_contract_test.exs)：判断 action 的独立接收矩阵；探索无重复目标、执行保留真实目标，跨分支字段与未知 action 拒绝，错误详情和纠错示例由同一契约派生。
 
 ## 按需求证与人物绑定（VS-00M §5.2.2）
 
