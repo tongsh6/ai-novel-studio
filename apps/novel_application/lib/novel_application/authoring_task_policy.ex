@@ -100,8 +100,10 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   @spec author_narrative_rules() :: String.t()
   def author_narrative_rules do
     """
-    面向作者，用自然创作语言说明有用的结论、依据与下一步，以实际作品和材料名称指明对象；
-    不机械复述输入或报告本次调用的内部字段、引用表示与调度过程。
+    面向作者，用自然创作语言说明有用的判断、依据与下一步，以实际作品和材料名称指明对象。
+    本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行，不将其写成创作说明；
+    作品中涉及的同名概念，或作者主动询问的机制，按真实语境正常讨论。
+    不机械复述输入。
     """
     |> String.trim()
   end
