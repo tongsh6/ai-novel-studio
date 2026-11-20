@@ -147,8 +147,12 @@ test("observedActionsFromCalls：只从真实工具调用推导动作；不猜 e
     { name: "judgment_decision", arguments: { action: "execute", capability: "prose_writing" }, call_id: "c2" },
     { name: "submit_tentative_artifact", arguments: { items: [{ title: "t", body: "b" }] }, call_id: "c3" },
     { name: "adopt_artifact", arguments: {}, call_id: "c4" },
+    { name: "agent_plan_draft", arguments: { author_reasoning: "先设计角色，再补足相关设定。" }, call_id: "c5" },
   ]);
-  assert.deepEqual(actions.actions, ["adopt", "execute", "explore"]);
+  assert.deepEqual(actions.actions, ["adopt", "execute", "explore", "plan"]);
+  assert.deepEqual(observedActionsFromCalls([
+    { name: "judgment_decision", arguments: { action: "plan" }, call_id: "retired-plan" },
+  ]).actions, []);
   assert.deepEqual(actions.capabilities, ["prose_writing"]);
   // effect 只能从产品 turn_result 的候选 payload 读取；无证据 → unknown（不猜 append）。
   assert.deepEqual(effectsFromTurnResults([turnBody({ pending: [pendingArtifact()] })]), ["unknown"]);

@@ -122,8 +122,10 @@ export function observedActionsFromCalls(toolCalls) {
   for (const call of toolCalls) {
     if (call.name === "judgment_decision") {
       const action = String(call.arguments?.action ?? "");
-      if (["explore", "execute", "reply", "plan", "ask_author"].includes(action)) actions.add(action);
+      if (["explore", "execute", "reply", "ask_author"].includes(action)) actions.add(action);
       if (action === "execute" && typeof call.arguments?.capability === "string") capabilities.push(call.arguments.capability);
+    } else if (call.name === "agent_plan_draft") {
+      actions.add("plan");
     } else if (call.name === "submit_tentative_artifact") {
       actions.add("execute");
     } else if (call.name === "adopt_artifact" || call.name === "accept_pending_artifact") {

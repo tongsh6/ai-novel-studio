@@ -80,7 +80,7 @@ test("缺少最终质量调用或把工具阶段顺序颠倒时拒绝", () => {
 // 以下固定夹具表达真实单槽请求顺序；负例只改一项已观察事实。
 
 function planningFixture() {
-  const names = ["judgment_decision", "agent_plan_draft", "agent_plan_revision", "submit_tentative_artifact", "submit_tentative_artifact"];
+  const names = ["agent_plan_draft", "agent_plan_revision", "submit_tentative_artifact", "submit_tentative_artifact"];
   const messages = [{ role: "user", blocks: [{ type: "text", text: "设计角色和相关世界设定" }] }];
   const projected = [{ role: "user", content: "设计角色和相关世界设定" }];
   const bodies = [];
@@ -88,16 +88,17 @@ function planningFixture() {
     const id = `call-${index}`;
     bodies.push(structuredClone({
       messages: projected,
-      tools: [{ type: "function", function: { name } }],
-      tool_choice: index === 0 || index < 3 ? "auto" : { type: "function", function: { name } },
+      tools: (index === 0 ? ["judgment_decision", name] : [name])
+        .map((toolName) => ({ type: "function", function: { name: toolName } })),
+      tool_choice: index < 2 ? "auto" : { type: "function", function: { name } },
     }));
     messages.push({ role: "assistant", blocks: [{ type: "tool_call", name, call_id: id, arguments: {} }] });
-    const result = { type: "validation_result", call_id: id, status: "passed", reason_code: index < 3 ? "agent_plan_validated" : "tentative_artifact_validated", detail: { execution_authorized: false, canon_written: false } };
+    const result = { type: "validation_result", call_id: id, status: "passed", reason_code: index < 2 ? "agent_plan_validated" : "tentative_artifact_validated", detail: { execution_authorized: false, canon_written: false } };
     messages.push({ role: "tool", blocks: [result] });
     projected.push({ role: "assistant", content: "", tool_calls: [{ id, function: { name, arguments: "{}" } }] });
     projected.push({ role: "tool", tool_call_id: id, content: JSON.stringify(result) });
   }
-  return { bodies, messages, planVersion: 2, replans: 1, providerCalls: 5 };
+  return { bodies, messages, planVersion: 2, replans: 1, providerCalls: 4 };
 }
 
 test("计划→重规划→两个独立创作请求保持历史并逐call闭合", () => {
@@ -127,7 +128,7 @@ test("阶段倒序、开放历史工具或错绑tool_choice必须失败", () => 
   assert.equal(planningProtocolEvidence(reordered).checks.planning_stage_order, false);
   for (const mutate of [
     (fixture) => fixture.bodies[3].tools.push({ function: { name: "agent_plan_draft" } }),
-    (fixture) => { fixture.bodies[4].tool_choice.function.name = "agent_plan_revision"; },
+    (fixture) => { fixture.bodies[3].tool_choice.function.name = "agent_plan_revision"; },
   ]) {
     const fixture = planningFixture(); mutate(fixture);
     assert.equal(planningProtocolEvidence(fixture).checks.planning_stage_tools, false);
@@ -151,7 +152,7 @@ test("durable不能丢失、重排或虚构实际请求中的call_id", () => {
   for (const mutate of [
     (fixture) => { fixture.messages[1].blocks[0].call_id = "invented"; },
     (fixture) => fixture.messages.splice(1, 2),
-    (fixture) => { fixture.messages[3].blocks[0].name = "agent_plan_revision"; },
+    (fixture) => { fixture.messages[3].blocks[0].name = "agent_plan_draft"; },
   ]) {
     const fixture = planningFixture(); mutate(fixture);
     assert.equal(planningProtocolEvidence(fixture).checks.canonical_history_matches_requests, false);
@@ -162,7 +163,7 @@ test("版本、重规划预算、实际调用数不得以默认值或空证据�
   for (const patch of [{ planVersion: 1 }, { replans: 0 }, { replans: 2 }]) {
     assert.equal(planningProtocolEvidence({ ...planningFixture(), ...patch }).checks.plan_revision_committed_once, false);
   }
-  assert.equal(planningProtocolEvidence({ ...planningFixture(), providerCalls: 4 }).checks.provider_budget_matches_requests, false);
+  assert.equal(planningProtocolEvidence({ ...planningFixture(), providerCalls: 5 }).checks.provider_budget_matches_requests, false);
   const empty = planningProtocolEvidence({ bodies: [], messages: [], planVersion: 2, replans: 1, providerCalls: 0 });
   assert.equal(empty.checks.planning_stage_order, false);
   assert.equal(empty.checks.canonical_exchanges_closed, false);
@@ -247,10 +248,11 @@ test("Why边界时刻发生调用仍算新增；未知时间边界不得忽略",
   assert.equal(providerFreeInterval({ ...interval, end: "unknown" }), false);
 });
 
-test("首判断请求必须真实开放judgment_decision且选择auto", () => {
+test("首判断请求必须真实开放判断与单工具计划且选择auto", () => {
   for (const mutate of [
     (fixture) => { fixture.bodies[0].tools = []; },
     (fixture) => { fixture.bodies[0].tools[0].function.name = "reply"; },
+    (fixture) => { fixture.bodies[0].tools[1].function.name = "reply"; },
     (fixture) => { fixture.bodies[0].tool_choice = "none"; },
     (fixture) => { fixture.bodies[0].tool_choice = { type: "function", function: { name: "judgment_decision" } }; },
   ]) {
@@ -304,11 +306,11 @@ test("请求内工具调用不能冒充user，工具结果信封与payload必须
 });
 
 test("计划阶段只接受auto，writer同时接受bridge字符串与OpenAI具名对象", () => {
-  for (const index of [1, 2]) {
+  for (const index of [0, 1]) {
     const fixture = planningFixture(); fixture.bodies[index].tool_choice = "none";
     assert.equal(planningProtocolEvidence(fixture).checks.planning_stage_tools, false);
   }
-  for (const index of [3, 4]) {
+  for (const index of [2, 3]) {
     const fixture = planningFixture(); fixture.bodies[index].tool_choice = "submit_tentative_artifact";
     assert.equal(planningProtocolEvidence(fixture).checks.planning_stage_tools, true);
   }
@@ -321,13 +323,13 @@ test("writer具名choice仍须精确绑定当前工具，错误名与auto/requir
     { type: "function", function: { name: "agent_plan_revision" } },
   ];
   for (const choice of invalid) {
-    for (const index of [3, 4]) {
+    for (const index of [2, 3]) {
       const fixture = planningFixture(); fixture.bodies[index].tool_choice = choice;
       assert.equal(planningProtocolEvidence(fixture).checks.planning_stage_tools, false,
         `writer[${index}] choice=${JSON.stringify(choice)}`);
     }
   }
-  for (const index of [3, 4]) {
+  for (const index of [2, 3]) {
     const fixture = planningFixture(); delete fixture.bodies[index].tool_choice;
     assert.equal(planningProtocolEvidence(fixture).checks.planning_stage_tools, false);
   }

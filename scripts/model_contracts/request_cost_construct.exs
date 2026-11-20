@@ -2,6 +2,7 @@ defmodule ModelContracts.RequestCostConstruct do
   @moduledoc """
   B87 R05：同一冻结 recipe 经当前 checkout 的生产 run 构造请求。
   只在脚本内替换 Splash transport；原生固定响应不是模型推理证据。
+  判断路由只依据实际工具 schema 选择唯一必填作者说明字段；固定响应随请求保留。
   DB/源码副本由外部 root 准备；不迁移、seed、恢复数据库或操作 Git。
   """
   alias Ecto.Adapters.SQL.Sandbox
@@ -215,6 +216,12 @@ defmodule ModelContracts.RequestCostConstruct do
         end)
 
       response = Enum.at(responses, index) || raise "unexpected additional provider request"
+      response = response_for_request!(response, body)
+
+      Agent.update(collector, fn records ->
+        List.update_at(records, index, &Map.put(&1, :scripted_response, response))
+      end)
+
       on_data.("data: " <> Jason.encode!(%{choices: [%{delta: response}]}) <> "\n\n")
       on_data.("data: [DONE]\n\n")
       {:ok, 200, ""}
@@ -234,6 +241,70 @@ defmodule ModelContracts.RequestCostConstruct do
     )
   end
 
+  # B87 §16.24：同一冻结 driver 只适配真实 schema 的作者说明字段，不按 arm/源码猜测。
+  defp response_for_request!(%{content: "", tool_calls: [call]} = response, body) do
+    schema = request_tool_schema!(body, call.function.name)
+
+    case call.function.name do
+      "judgment_decision" ->
+        field = judgment_narrative_field!(schema)
+        %{"author_reasoning" => narrative} = arguments = Jason.decode!(call.function.arguments)
+
+        arguments =
+          arguments
+          |> Map.delete("author_reasoning")
+          |> Map.put(field, narrative)
+
+        function = %{call.function | arguments: Jason.encode!(arguments)}
+        %{response | tool_calls: [%{call | function: function}]}
+
+      "submit_tentative_artifact" ->
+        response
+
+      _ ->
+        raise "unexpected scripted response tool"
+    end
+  end
+
+  defp response_for_request!(%{content: text} = response, body)
+       when map_size(response) == 1 and is_binary(text) do
+    body |> request_tool_schema!("judgment_decision") |> judgment_narrative_field!()
+    response
+  end
+
+  defp response_for_request!(_response, _body), do: raise("invalid scripted response shape")
+
+  defp request_tool_schema!(body, name) do
+    tools = body |> Map.fetch!(:tools) |> RequestIR.json_value()
+
+    matches =
+      Enum.filter(tools, fn
+        %{"function" => %{"name" => ^name}} -> true
+        _ -> false
+      end)
+
+    case matches do
+      [%{"type" => "function", "function" => %{"parameters" => schema}}] when is_map(schema) ->
+        schema
+
+      _ ->
+        raise "expected one actual #{name} tool schema"
+    end
+  end
+
+  defp judgment_narrative_field!(schema) do
+    with %{"type" => "object", "properties" => properties, "required" => required} <- schema,
+         true <- is_map(properties) and is_list(required),
+         [field] <- Enum.filter(~w(reason author_reasoning), &Map.has_key?(properties, &1)),
+         %{"type" => "string"} <- Map.fetch!(properties, field),
+         true <- field in required do
+      field
+    else
+      _ ->
+        raise "judgment_decision must declare exactly one required string reason/author_reasoning"
+    end
+  end
+
   defp response_queue!(_base, %{"request" => "initial"}),
     do: [%{content: "已记录本次请求。"}]
 
@@ -244,14 +315,14 @@ defmodule ModelContracts.RequestCostConstruct do
 
     [
       %{
-        content: "按作者要求处理整章修订。",
+        content: "",
         tool_calls: [
           native_call("constructed-route", "judgment_decision", %{
             action: "execute",
             capability: "revise_adopted_content",
             adopted_content_ref: source["chapter_ref"],
             dialogue_goal: "整章修订，减少重复描写并保留两端线索。",
-            reason: "作者明确授权生成整章待采纳修订候选。"
+            author_reasoning: "按作者要求处理整章修订。"
           })
         ]
       },

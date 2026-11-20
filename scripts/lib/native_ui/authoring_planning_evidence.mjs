@@ -2,10 +2,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 const STAGES = Object.freeze([
-  "agent_plan_draft", "agent_plan_revision",
+  "agent_plan_revision",
   "submit_tentative_artifact", "submit_tentative_artifact",
 ]);
-const CALLS = Object.freeze(["judgment_decision", ...STAGES]);
+const CALLS = Object.freeze(["agent_plan_draft", ...STAGES]);
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 function invalid(path, expected) {
   throw new TypeError(`invalid_planning_evidence: ${path} must be ${expected}`);
@@ -138,14 +138,15 @@ function requestPrefixPreserved(bodies) {
 }
 
 function judgmentCatalogMatches(body) {
-  return body.names.includes("judgment_decision") && new Set(body.names).size === body.names.length &&
+  return body.names.includes("judgment_decision") && body.names.includes("agent_plan_draft") &&
+    new Set(body.names).size === body.names.length &&
     body.choice.kind === "literal" && body.choice.value === "auto";
 }
 
 function stageToolsMatch(bodies) {
   return bodies.length === CALLS.length && judgmentCatalogMatches(bodies[0]) && bodies.slice(1).every((body, index) => {
     if (!same(body.names, [STAGES[index]])) return false;
-    if (index < 2) return body.choice.kind === "literal" && body.choice.value === "auto";
+    if (index === 0) return body.choice.kind === "literal" && body.choice.value === "auto";
     return body.choice.kind === "named" && body.choice.value === STAGES[index];
   });
 }

@@ -1021,7 +1021,7 @@ defmodule B27SemanticEval do
             "round" => get(event, "round"),
             "action" => get(arguments, "action"),
             "dialogue_goal" => get(arguments, "dialogue_goal"),
-            "reason" => get(arguments, "reason"),
+            "author_reasoning" => get(arguments, "author_reasoning"),
             "explore_request" => get(arguments, "explore_request"),
             "capability" => get(arguments, "capability")
           }
@@ -1169,9 +1169,7 @@ defmodule B27SemanticEval do
       "report_capability_gap" in names and case_id != "M14" and
         "capability_gap_without_matching_gap_case",
       "execute" in actions and case_id not in @execute_cases and
-        "execute_without_matching_case_path",
-      "agent_plan_draft" in names and "judgment_decision" not in names and
-        "plan_draft_without_judgment_plan_decision"
+        "execute_without_matching_case_path"
     ]
     |> Enum.filter(& &1)
   end
@@ -1350,32 +1348,11 @@ defmodule B27SemanticEval do
   defp classify_tool_calls(calls, _content, _surface) do
     names = calls |> Enum.map(&get(&1, "name")) |> Enum.reject(&is_nil/1) |> Enum.sort()
 
-    cond do
-      "judgment_decision" in names and "agent_plan_draft" in names ->
-        decision = Enum.find(calls, &(get(&1, "name") == "judgment_decision"))
-        args = get(decision, "arguments") || %{}
-
-        if get(args, "action") == "plan" do
-          %{
-            "decision" => "plan",
-            "detail" => "judgment_decision.plan + agent_plan_draft",
-            "tool_calls" => calls
-          }
-        else
-          %{
-            "decision" => "invalid_combination",
-            "detail" => "two tools with non-plan action",
-            "tool_calls" => calls
-          }
-        end
-
-      true ->
-        %{
-          "decision" => "invalid_combination",
-          "detail" => Enum.join(names, "+"),
-          "tool_calls" => calls
-        }
-    end
+    %{
+      "decision" => "invalid_combination",
+      "detail" => Enum.join(names, "+"),
+      "tool_calls" => calls
+    }
   end
 
   defp contract_validation({:ok, %NovelAgent.Provider.Result{} = result}) do
@@ -2052,8 +2029,7 @@ defmodule B27SemanticEval do
               content: get(first, "content"),
               metadata: %{
                 system_identity: %{
-                  version:
-                    get(identity_meta, "version") || NovelCommon.SystemIdentity.version(),
+                  version: get(identity_meta, "version") || NovelCommon.SystemIdentity.version(),
                   content_hash:
                     get(identity_meta, "content_hash") ||
                       NovelCommon.SystemIdentity.content_hash()
