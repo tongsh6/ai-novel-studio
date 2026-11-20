@@ -1,42 +1,26 @@
-# N-NARR 作者过程叙事来源绑定 driver
+# N-NARR：当前判断入口的接受后作者叙述与来源绑定。
 #
-# 不变量定义：docs/design/adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md §决策3
-#
-# 运行：
+# 运行前先复用 scripts/lib/test_env.sh 的 novel_test_db_prepare 创建隔离测试库：
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs
 #
-# 设计：
-# - 通过真实 AgentRunService + conversation_turn_v1 跑一条 AgentRun。
-# - 注入 provider execution dependency，并记录同 run ProviderOutput 的原始输出字节。
-# - 对所有作者可见 reasoning event 的 author_narrative 做字节级 source binding 验证：
-#     source_type == provider_output
-#     source_hash == sha256(provider output text)
-#     narrative_hash == sha256(author_narrative)
-#     source_byte_range 指向的 provider output bytes == author_narrative
-# - 对 provider chunk 投影出的 author_narrative_delta 做同 run/call 累计前缀验证。
-# - 明确拒绝 agent_observation / AgentEvent.summary / ProviderEvent.summary 等 app 模板来源。
+# 真实链路：profile_routing → judgment_loop_v1 → JP → judgment_decided。
+# 固定原文在执行前声明；实际 ProviderOutput 与全部运行事件原样收集。
+# 输入 chunk 故意带 author 标记和叙述 delta，挑战真实生产投影的接受边界；
+# driver 不清洗它。接受前必须 developer，接受后的固定原文必须恰好交付一次。
+# 坏来源样本只挑战本 driver 的证据审计，不冒称生产 JP 执行过这些拒绝路径。
+# 本入口不覆盖 Planner/Writer、UI 来源交接或真实模型的自然语言质量。
 #
-# 报告输出：
-#   artifacts/scenario-invariants/n_narr.md
-#   artifacts/scenario-invariants/n_narr.json
+# 报告：artifacts/scenario-invariants/n_narr.{md,json}
 
 defmodule NNarrDriver do
   @moduledoc false
 
-  alias NovelAgent.Provider.Execution
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Projection
-  alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.{Execution, Result}
   alias NovelApplication.{AgentNarrativeSource, AgentRunService, DialoguePlanningService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
 
-  @reasoning_types [
-    :judgment_decided,
-    :plan_drafted,
-    :plan_revised,
-    :exploration_observed,
-    :evaluation_made
-  ]
+  @narrative "先明确本章主角必须完成的目标，再检查冲突是否迫使他作出选择。\n对照标记：青石-NNARR-7C42。"
+  @template "系统已经自动整理了创作过程，请继续下一步。"
 
   def run do
     File.mkdir_p!("artifacts/scenario-invariants")
@@ -47,23 +31,20 @@ defmodule NNarrDriver do
         run_case()
       rescue
         error ->
-          %{
-            outcome: :error,
-            detail: "exception: #{Exception.message(error)}"
-          }
+          %{outcome: :error, detail: "exception: #{Exception.message(error)}"}
+      catch
+        {:n_narr_terminal_error, result} -> result
       end
 
     write_markdown("artifacts/scenario-invariants/n_narr.md", result)
     write_json("artifacts/scenario-invariants/n_narr.json", result)
 
     IO.puts("\nN-NARR #{String.upcase(to_string(result.outcome))}: #{result.detail}")
-
     if result.outcome == :pass, do: :ok, else: System.halt(1)
   end
 
   defp run_case do
     {:ok, outputs} = Agent.start_link(fn -> %{} end)
-    provider_execution = provider_execution(outputs)
 
     spec =
       DialoguePlanningService.run_spec_for_profile(
@@ -76,79 +57,49 @@ defmodule NNarrDriver do
           turn_id: "n-narr-turn"
         },
         nil,
-        provider_execution
+        provider_execution(outputs)
       )
 
     try do
-      :ok =
-        AgentRunService.subscribe_events(
-          spec.run_attrs.work_id,
-          spec.run_attrs.session_id
-        )
+      :ok = AgentRunService.subscribe_events(spec.run_attrs.work_id, spec.run_attrs.session_id)
 
       {:ok, run_id} =
-        AgentRunService.start_bounded(spec.run_attrs,
-          next_step_planner: spec.next_step_planner
-        )
+        AgentRunService.start_bounded(spec.run_attrs, next_step_planner: spec.next_step_planner)
 
-      events =
-        case wait_until_terminal([]) do
-          {:ok, events} ->
-            events
+      case wait_until_terminal([]) do
+        {:ok, events} ->
+          evaluate(run_id, events, Agent.get(outputs, & &1))
 
-          {:error, reason, events} ->
-            %{
-              run_id: run_id,
-              outcome: :error,
-              detail: "AgentRun did not complete: #{inspect(reason)}",
-              events: summarize_events(events),
-              provider_output_count: map_size(Agent.get(outputs, & &1))
-            }
-            |> then(&throw({:n_narr_terminal_error, &1}))
-        end
-
-      provider_outputs = Agent.get(outputs, & &1)
-
-      evaluate(run_id, events, provider_outputs)
+        {:error, reason, events} ->
+          throw(
+            {:n_narr_terminal_error,
+             %{
+               run_id: run_id,
+               outcome: :error,
+               detail: "AgentRun did not complete: #{inspect(reason)}",
+               events: events,
+               provider_outputs: Agent.get(outputs, & &1)
+             }}
+          )
+      end
     after
       Agent.stop(outputs)
     end
   end
 
   defp provider_execution(outputs) do
-    %Execution{
-      purpose: :conversation,
-      execute_fn: fn prompt ->
-        {content, tool_calls} =
-          cond do
-            judgment_prompt?(prompt) ->
-              {judgment_narrative(), []}
-
-            agent_plan_draft_prompt?(prompt) ->
-              packet = plan_draft_packet(prompt)
-              {Map.fetch!(packet, :reasoning), [agent_plan_tool_call("agent_plan_draft", packet)]}
-
-            agent_next_step_prompt?(prompt) ->
-              {reasoning_tail(next_step_decision(prompt)), []}
-
-            true ->
-              {conversation_frame_json(), []}
-          end
-
-        execution_result(prompt, content, tool_calls, provider_purpose(prompt), outputs)
-      end
-    }
+    %Execution{purpose: :planner, execute_fn: fn _prompt -> execution_result(outputs) end}
   end
 
-  defp execution_result(_prompt, content, tool_calls, purpose, outputs) do
-    run_ref = "prun-nnarr-#{purpose}-#{System.unique_integer([:positive, :monotonic])}"
-    call_ref = "pcall-nnarr-#{purpose}-#{System.unique_integer([:positive, :monotonic])}"
+  defp execution_result(outputs) do
+    run_ref = "prun-nnarr-#{System.unique_integer([:positive, :monotonic])}"
+    call_ref = "pcall-nnarr-#{System.unique_integer([:positive, :monotonic])}"
 
     {:ok, run} =
       ProviderRun.new(%{
         provider_run_id: run_ref,
         provider_call_ref: call_ref,
-        purpose: purpose,
+        purpose: :planner,
         execution_mode: :event_stream,
         status: :completed,
         provider_id: "n-narr-driver",
@@ -167,8 +118,8 @@ defmodule NNarrDriver do
         payload: %{}
       })
 
-    reasoning_delta = author_reasoning_delta(purpose, content)
-
+    # 故意保留未接受的作者片段：必须由 JP 的真实 stage 投影隔离，
+    # 不能在 fixture 或事件收集处先改成 developer 或删掉 delta。
     {:ok, chunk} =
       ProviderEvent.new(%{
         event_id: "#{run_ref}:chunk",
@@ -178,16 +129,13 @@ defmodule NNarrDriver do
         visibility: :author,
         summary: "provider_event:chunk",
         refs: [call_ref],
-        payload:
-          %{
-            output_type: :text,
-            chunk_index: 1,
-            content_length: String.length(reasoning_delta || content),
-            accumulated_content_length: String.length(reasoning_delta || content),
-            author_narrative_delta: reasoning_delta
-          }
-          |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-          |> Map.new()
+        payload: %{
+          output_type: :text,
+          chunk_index: 1,
+          content_length: String.length(@narrative),
+          accumulated_content_length: String.length(@narrative),
+          author_narrative_delta: @narrative
+        }
       })
 
     {:ok, final} =
@@ -208,203 +156,215 @@ defmodule NNarrDriver do
         provider_call_ref: call_ref,
         status: :ok,
         output_type: :text,
-        content: provider_output_content(content, tool_calls),
+        content: %{text: @narrative},
         usage: %{total_tokens: 1},
         refs: [call_ref]
       })
 
-    Agent.update(outputs, &Map.put(&1, output.provider_run_ref, content))
+    Agent.update(outputs, &Map.put(&1, output.provider_run_ref, output))
 
     {:ok,
      %{
        provider_run: run,
        events: [started, chunk, final],
        output: output,
-       result: Result.new(content, nil, tool_calls: tool_calls)
+       result: Result.new(@narrative)
      }}
   end
 
   defp evaluate(run_id, events, provider_outputs) do
-    reasoning_events =
+    narratives =
       Enum.filter(events, fn event ->
-        event.visibility == :author and event.event_type in @reasoning_types
+        event.visibility == :author and is_binary(event.payload[:author_narrative])
       end)
 
-    checked =
-      reasoning_events
-      |> Enum.filter(&author_narrative?/1)
-      |> Enum.map(&check_event(&1, provider_outputs))
+    checked = Enum.map(narratives, &check_event(&1, run_id, provider_outputs))
+    progress = Enum.filter(events, &(&1.event_type == :provider_progress))
+    chunks = Enum.filter(progress, &(&1.payload[:provider_event_type] == :chunk))
+    counterexamples = check_counterexamples(run_id, provider_outputs)
 
-    forbidden_sources =
-      events
-      |> Enum.filter(fn event ->
-        source_type = get_in(event.payload || %{}, [:author_narrative_source, :source_type])
-        source_type == "agent_observation"
+    accepted_once? =
+      case narratives do
+        [%{event_type: :judgment_decided, payload: %{author_narrative: @narrative}}] -> true
+        _ -> false
+      end
+
+    progress_private? =
+      Enum.all?(progress, fn event ->
+        event.visibility == :developer and
+          event.payload[:author_narrative_delta] in [nil, ""]
       end)
-      |> Enum.map(& &1.event_type)
 
-    stream_checks = check_stream_deltas(events, provider_outputs)
-
-    invalid_provider_author_events =
-      events
-      |> Enum.filter(&(&1.event_type == :provider_progress and &1.visibility == :author))
-      |> Enum.reject(&valid_author_reasoning_delta_event?/1)
-
-    cond do
-      checked == [] ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail: "no author-visible reasoning narratives were emitted",
-          checked: checked,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      Enum.any?(checked, &(&1.outcome == :fail)) ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail: "one or more author narratives failed provider-output byte binding",
-          checked: checked,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      stream_checks == [] ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail: "no streamed author reasoning deltas were emitted",
-          checked: checked,
-          stream_checks: stream_checks,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      Enum.any?(stream_checks, &(&1.outcome == :fail)) ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail:
-            "one or more streamed author reasoning deltas failed provider-output prefix binding",
-          checked: checked,
-          stream_checks: stream_checks,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      forbidden_sources != [] ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail: "agent_observation was used as author_narrative_source",
-          forbidden_sources: forbidden_sources,
-          checked: checked,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      invalid_provider_author_events != [] ->
-        %{
-          run_id: run_id,
-          outcome: :fail,
-          detail: "non-reasoning provider_progress leaked into author visibility",
-          checked: checked,
-          stream_checks: stream_checks,
-          provider_output_count: map_size(provider_outputs)
-        }
-
-      true ->
-        %{
-          run_id: run_id,
-          outcome: :pass,
-          detail:
-            "#{length(checked)} author narratives byte-bound and #{length(stream_checks)} streamed reasoning prefixes verified",
-          checked: checked,
-          stream_checks: stream_checks,
-          provider_output_count: map_size(provider_outputs)
-        }
-    end
-  end
-
-  defp check_event(event, provider_outputs) do
-    narrative = event.payload.author_narrative
-    source = event.payload.author_narrative_source || %{}
-
-    case AgentNarrativeSource.verify(narrative, source, provider_outputs) do
-      :ok ->
-        %{
-          event_type: event.event_type,
-          sequence: event.sequence,
-          outcome: :pass,
-          provider_output_ref: source.provider_output_ref,
-          byte_range: source.source_byte_range
-        }
-
-      {:error, reason} ->
-        %{
-          event_type: event.event_type,
-          sequence: event.sequence,
-          outcome: :fail,
-          reason: inspect(reason),
-          source: source
-        }
-    end
-  end
-
-  defp author_narrative?(event) do
-    is_binary(event.payload[:author_narrative]) and event.payload[:author_narrative] != ""
-  end
-
-  defp check_stream_deltas(events, provider_outputs) do
-    events
-    |> Enum.filter(&valid_author_reasoning_delta_event?/1)
-    |> Enum.group_by(& &1.payload.provider_run_ref)
-    |> Enum.map(fn {provider_run_ref, delta_events} ->
-      narrative =
-        delta_events
-        |> Enum.sort_by(& &1.sequence)
-        |> Enum.map_join("", & &1.payload.author_narrative_delta)
-
-      case Map.get(provider_outputs, provider_run_ref) do
-        source_text when is_binary(source_text) ->
-          if String.starts_with?(source_text, narrative) do
-            %{
-              provider_run_ref: provider_run_ref,
-              outcome: :pass,
-              streamed_byte_length: byte_size(narrative)
-            }
-          else
-            %{
-              provider_run_ref: provider_run_ref,
-              outcome: :fail,
-              reason: :streamed_delta_not_provider_output_prefix
-            }
-          end
+    chunks_before_acceptance? =
+      case narratives do
+        [%{sequence: accepted_sequence}] ->
+          Enum.all?(chunks, &(&1.sequence < accepted_sequence))
 
         _ ->
-          %{
-            provider_run_ref: provider_run_ref,
-            outcome: :fail,
-            reason: :provider_output_not_found
-          }
+          false
       end
-    end)
+
+    chunk_identity? =
+      Enum.all?(chunks, fn event ->
+        output = Map.get(provider_outputs, event.payload[:provider_run_ref])
+
+        match?(%ProviderOutput{}, output) and event.run_ref == run_id and
+          event.payload[:provider_call_ref] == output.provider_call_ref
+      end)
+
+    checks = %{
+      one_provider_output: map_size(provider_outputs) == 1,
+      provider_chunk_observed: chunks != [],
+      provider_progress_is_developer: progress_private?,
+      provider_chunk_identity: chunk_identity?,
+      chunks_precede_accepted_narrative: chunks_before_acceptance?,
+      accepted_fixed_narrative_once: accepted_once?,
+      accepted_source_bound: checked != [] and Enum.all?(checked, &(&1.outcome == :pass)),
+      bad_evidence_rejected: Enum.all?(counterexamples, &(&1.outcome == :pass))
+    }
+
+    failed = for {name, false} <- checks, do: name
+
+    %{
+      run_id: run_id,
+      outcome: if(failed == [], do: :pass, else: :fail),
+      detail:
+        if(failed == [],
+          do: "accepted narrative byte-bound once; unaccepted provider chunks remain developer",
+          else: "failed checks: #{Enum.join(failed, ", ")}"
+        ),
+      expected_narrative: @narrative,
+      checks: checks,
+      checked: checked,
+      evidence_counterexamples: counterexamples,
+      counterexample_scope: "evidence audit only; not production JP rejection-path coverage",
+      coverage: "profile_routing → judgment_loop_v1; not Planner/Writer or UI ownership",
+      provider_output_count: map_size(provider_outputs),
+      provider_outputs: provider_outputs,
+      events: events
+    }
   end
 
-  defp valid_author_reasoning_delta_event?(event) do
-    event.event_type == :provider_progress and
-      is_binary(get_in(event.payload || %{}, [:author_narrative_delta])) and
-      get_in(event.payload || %{}, [:author_narrative_delta]) != "" and
-      is_binary(get_in(event.payload || %{}, [:provider_run_ref]))
+  # AgentNarrativeSource 负责原件的 hash/range 校验；本证据审计另外核对实际
+  # AgentRun 和捕获原件的 run/call/output 身份，不替代产品的接受与纠错。
+  defp check_event(event, run_id, provider_outputs) do
+    narrative = event.payload[:author_narrative]
+    source = event.payload[:author_narrative_source] || %{}
+    output = Map.get(provider_outputs, source[:provider_output_ref])
+
+    identity =
+      cond do
+        event.run_ref != run_id ->
+          {:error, :agent_run_mismatch}
+
+        not match?(%ProviderOutput{}, output) ->
+          {:error, :provider_output_not_found}
+
+        source[:provider_output_ref] != output.provider_run_ref ->
+          {:error, :provider_output_identity_mismatch}
+
+        source[:provider_run_ref] != output.provider_run_ref ->
+          {:error, :provider_run_mismatch}
+
+        source[:provider_call_ref] != output.provider_call_ref ->
+          {:error, :provider_call_mismatch}
+
+        true ->
+          :ok
+      end
+
+    result =
+      with :ok <- identity do
+        AgentNarrativeSource.verify(narrative, source, provider_outputs)
+      end
+
+    %{
+      event_type: event.event_type,
+      sequence: event.sequence,
+      outcome: if(result == :ok, do: :pass, else: :fail),
+      reason: if(result == :ok, do: nil, else: inspect(result)),
+      narrative: narrative,
+      source: source
+    }
   end
+
+  # 反例基线由事先声明的固定原文和注入边界捕获的原件独立建立，
+  # 不从实际 accepted 事件或被测 source constructor 生成期望。
+  defp check_counterexamples(run_id, provider_outputs) when map_size(provider_outputs) == 1 do
+    [{output_ref, output}] = Map.to_list(provider_outputs)
+    hash = :crypto.hash(:sha256, @narrative) |> Base.encode16(case: :lower)
+
+    source = %{
+      source_type: "provider_output",
+      provider_run_ref: output.provider_run_ref,
+      provider_call_ref: output.provider_call_ref,
+      provider_output_ref: output_ref,
+      source_hash: hash,
+      narrative_hash: hash,
+      source_byte_range: %{start: 0, length: byte_size(@narrative)}
+    }
+
+    evidence = %{
+      run_ref: run_id,
+      event_type: :judgment_decided,
+      sequence: 1,
+      payload: %{author_narrative: @narrative, author_narrative_source: source}
+    }
+
+    # 先确认独立合法样本能够通过，避免“一律拒绝”让全部反例虚假通过。
+    control = check_event(evidence, run_id, provider_outputs)
+
+    bad_sources = [
+      {:agent_observation, %{source | source_type: "agent_observation"}},
+      {:wrong_provider_run, %{source | provider_run_ref: "prun-nnarr-foreign"}},
+      {:wrong_provider_call, %{source | provider_call_ref: "pcall-nnarr-foreign"}},
+      {:missing_provider_output, %{source | provider_output_ref: "prun-nnarr-missing"}},
+      {:wrong_source_hash, %{source | source_hash: String.duplicate("0", 64)}},
+      {:wrong_narrative_hash, %{source | narrative_hash: String.duplicate("0", 64)}},
+      {:wrong_range, %{source | source_byte_range: %{start: 1, length: byte_size(@narrative)}}}
+    ]
+
+    bad_evidence =
+      Enum.map(bad_sources, fn {name, bad_source} ->
+        {name, put_in(evidence, [:payload, :author_narrative_source], bad_source)}
+      end) ++
+        [
+          {:wrong_agent_run, %{evidence | run_ref: "run-nnarr-foreign"}},
+          {:template_substitution, put_in(evidence, [:payload, :author_narrative], @template)}
+        ]
+
+    [
+      %{
+        name: :independent_valid_evidence,
+        expected: :accepted,
+        actual: control.outcome,
+        outcome: control.outcome,
+        reason: control.reason
+      }
+      | Enum.map(bad_evidence, fn {name, sample} ->
+          result = check_event(sample, run_id, provider_outputs)
+
+          %{
+            name: name,
+            expected: :rejected,
+            actual: result.outcome,
+            outcome: if(result.outcome == :fail, do: :pass, else: :fail),
+            reason: result.reason
+          }
+        end)
+    ]
+  end
+
+  defp check_counterexamples(_run_id, _provider_outputs),
+    do: [%{name: :captured_provider_output_required, outcome: :fail}]
 
   defp wait_until_terminal(events) do
     receive do
       {:agent_event, %{event_type: :run_completed} = event} ->
         {:ok, Enum.reverse([event | events])}
 
-      {:agent_event, %{event_type: :run_failed} = event} ->
-        {:error, summarize_event(event), Enum.reverse([event | events])}
-
-      {:agent_event, %{event_type: :run_cancelled} = event} ->
-        {:error, summarize_event(event), Enum.reverse([event | events])}
+      {:agent_event, %{event_type: type} = event} when type in [:run_failed, :run_cancelled] ->
+        {:error, type, Enum.reverse([event | events])}
 
       {:agent_event, event} ->
         wait_until_terminal([event | events])
@@ -413,337 +373,51 @@ defmodule NNarrDriver do
     end
   end
 
-  defp provider_purpose(prompt) do
-    cond do
-      # 结构化调用是 :planner，叙事 delta 只来自第一段流式 reasoning
-      judgment_prompt?(prompt) -> :planner
-      author_reasoning_prompt?(prompt) -> :author_reasoning
-      true -> :conversation
-    end
-  end
-
-  defp author_reasoning_prompt?(prompt),
-    do: agent_plan_draft_prompt?(prompt) or agent_next_step_prompt?(prompt)
-
-  # ── 判断纪元（2026-07 帧退役批次 2）：conversation_turn_v1 随帧纪元退役，
-  # 简单对话经 :profile_routing 判断循环 reply 直答。叙事绑定语义不变：
-  # 单调用有效响应的 content 是本用例作者可见叙事来源。
-
-  @judgment_narrative "作者想直接讨论下一步创作方向；当前作品摘要已经覆盖回答所需的信息，我直接在本轮回复，不动用创作能力。"
-
-  defp judgment_narrative, do: @judgment_narrative
-
-  defp judgment_prompt?(prompt), do: prompt |> prompt_text() |> String.contains?("创作判断器")
-
-  defp agent_plan_draft_prompt?(prompt) when is_binary(prompt),
-    do: String.contains?(prompt, "AgentRun 计划起草器") or String.contains?(prompt, "AgentRun 计划修订器")
-
-  defp agent_plan_draft_prompt?(prompt) when is_map(prompt) do
-    prompt |> prompt_text() |> agent_plan_draft_prompt?()
-  end
-
-  defp agent_plan_draft_prompt?(_prompt), do: false
-
-  defp agent_next_step_prompt?(prompt) when is_binary(prompt) or is_map(prompt),
-    do: prompt |> prompt_text() |> String.contains?("AgentRun 下一步规划器")
-
-  defp agent_next_step_prompt?(_prompt), do: false
-
-  defp plan_draft_packet(prompt) do
-    if conversation_plan_profile?(prompt) do
-      %{
-        reasoning: "模型先读取当前作品上下文，再形成对话认知帧，完成系统裁决后生成本轮回应。",
-        steps: [
-          plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-            "context_observation_created"
-          ]),
-          plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
-            "dialogue_frame_created"
-          ]),
-          plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
-            "strategy_decision_created"
-          ]),
-          plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
-            "turn_result_emitted"
-          ])
-        ],
-        reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
-      }
-    else
-      %{
-        reasoning: "模型为当前目标起草一条最小执行计划。",
-        steps: [
-          plan_step("context_assemble", "explore", "读取当前上下文。", [
-            "context_observation_created"
-          ])
-        ],
-        reason_codes: ["agent_plan_drafted"]
-      }
-    end
-  end
-
-  defp conversation_plan_profile?(%RequestIR{run: run}),
-    do: Map.get(run, :profile_ref) == "conversation_turn_v1"
-
-  defp conversation_plan_profile?(prompt),
-    do: prompt |> prompt_text() |> String.contains?("profile_ref: conversation_turn_v1")
-
-  defp plan_step(target_tool_ref, kind, description, success_criteria) do
-    %{
-      step_id: target_tool_ref,
-      kind: kind,
-      description: description,
-      success_criteria: success_criteria,
-      depends_on: [],
-      target_tool_ref: target_tool_ref,
-      write_intent: "none",
-      risk_hint: "low",
-      authoring_intent: nil,
-      target_chapter: nil,
-      requested_chapter_raw: nil
-    }
-  end
-
-  defp agent_plan_tool_call(tool_name, packet) do
-    %{
-      "name" => tool_name,
-      "arguments" => %{
-        "plan" => %{"steps" => Map.fetch!(packet, :steps)},
-        "reason_codes" => Map.get(packet, :reason_codes, ["agent_plan_drafted"]),
-        "confidence" => Map.get(packet, :confidence, 1.0)
-      }
-    }
-  end
-
-  defp provider_output_content(content, []), do: %{text: content}
-  defp provider_output_content(content, tool_calls), do: %{text: content, tool_calls: tool_calls}
-
-  defp prompt_text(prompt) when is_binary(prompt), do: prompt
-
-  # 2026-11-06 裁决 A：判断器/计划起草器/下一步规划器的角色规则进入 canonical system
-  # 前缀；请求文本视图必须包含 system 前缀，否则 driver 会误判为普通对话请求。
-  defp prompt_text(%{messages: messages} = prompt) when is_list(messages) do
-    case Map.get(prompt, :system) do
-      %{} = system -> Projection.system_text(system) <> "\n" <> messages_text(messages)
-      _ -> messages_text(messages)
-    end
-  end
-
-  defp prompt_text(%{"messages" => messages}) when is_list(messages), do: messages_text(messages)
-  defp prompt_text(_prompt), do: ""
-
-  defp messages_text(messages) do
-    messages
-    |> Enum.map(fn
-      %{blocks: blocks} when is_list(blocks) -> Projection.text_of(blocks)
-      %{content: content} when is_binary(content) -> content
-      %{"content" => content} when is_binary(content) -> content
-      _message -> ""
-    end)
-    |> Enum.join("\n")
-  end
-
-  defp next_step_decision(prompt) do
-    cond do
-      observation_present?(prompt, "已生成本轮回应") ->
-        done_next("模型确认本轮回应已经生成，目标已满足。", [
-          "goal_satisfied",
-          "n_narr_response_created"
-        ])
-
-      observation_present?(prompt, ["无需工具", "工具执行授权", "执行策略"]) ->
-        continue_next("根据模型看到的系统裁决生成本轮回应。", "response_finalize", [
-          "conversation_strategy_consumed"
-        ])
-
-      observation_present?(prompt, "对话认知帧") ->
-        continue_next("模型基于对话认知帧继续判断执行策略。", "strategy_gate", [
-          "dialogue_frame_consumed"
-        ])
-
-      observation_present?(prompt, "已组装本轮创作上下文") ->
-        continue_next("模型已看到上下文，下一步形成对话认知帧。", "dialogue_frame", [
-          "conversation_context_consumed"
-        ])
-
-      true ->
-        continue_next("模型先读取当前作品上下文，再判断如何回应作者。", "context_assemble", [
-          "missing_conversation_context"
-        ])
-    end
-  end
-
-  defp continue_next(reasoning, target_tool_ref, reason_codes) do
-    %{
-      reasoning: reasoning,
-      decision: %{type: "continue"},
-      next_action: %{target_tool_ref: target_tool_ref, write_intent: "none", risk_hint: "low"},
-      plan_revision: nil,
-      reason_codes: ["agentic_next_step" | reason_codes],
-      confidence: 1.0
-    }
-  end
-
-  defp done_next(reasoning, reason_codes) do
-    %{
-      reasoning: reasoning,
-      decision: %{type: "done"},
-      next_action: %{target_tool_ref: nil, write_intent: "none", risk_hint: "low"},
-      plan_revision: nil,
-      reason_codes: reason_codes,
-      confidence: 1.0
-    }
-  end
-
-  defp reasoning_tail(packet) do
-    tail = %{
-      evaluation_of_last: %{
-        advanced: Map.get(Map.fetch!(packet, :decision), :type) != "no_progress",
-        plan_holds: true,
-        new_constraint: nil
-      },
-      decision: Map.fetch!(packet, :decision),
-      next_action: Map.fetch!(packet, :next_action),
-      plan_revision: Map.get(packet, :plan_revision),
-      reason_codes: Map.get(packet, :reason_codes, []),
-      confidence: Map.get(packet, :confidence, 1.0)
-    }
-
-    Map.fetch!(packet, :reasoning) <> "\n" <> Jason.encode!(tail)
-  end
-
-  defp author_reasoning_delta(:planner, content) when is_binary(content) do
-    {delta, _} =
-      NovelAgent.Provider.AdapterExecution.author_reasoning_delta(
-        %{content_visibility: :author},
-        content,
-        true
-      )
-
-    delta
-  end
-
-  defp author_reasoning_delta(:author_reasoning, content) when is_binary(content) do
-    content
-    |> String.split("{", parts: 2)
-    |> hd()
-    |> case do
-      "" -> nil
-      delta -> delta
-    end
-  end
-
-  defp author_reasoning_delta(_purpose, _content), do: nil
-
-  defp observation_present?(prompt, values) when is_list(values),
-    do: Enum.any?(values, &observation_present?(prompt, &1))
-
-  defp observation_present?(prompt, value) when is_binary(value) do
-    prompt
-    |> prompt_text()
-    |> existing_observation_section()
-    |> String.contains?(value)
-  end
-
-  defp existing_observation_section(prompt) do
-    prompt
-    |> String.split("## 决策规则", parts: 2)
-    |> hd()
-  end
-
-  defp conversation_frame_json do
-    Jason.encode!(%{
-      frame_type: "casual_reply",
-      dialogue_goal_summary: "回应作者测试输入",
-      needs_tool: false,
-      no_tool_reason: "no_tool_needed",
-      execution_readiness: "not_applicable",
-      assistant_message: "可以先补一段承接上一章的冲突，再把新线索放在结尾。",
-      candidate_directions: [],
-      context_used: true,
-      uncertainty: []
-    })
-  end
-
-  defp write_json(path, result), do: File.write!(path, Jason.encode!(result, pretty: true))
+  defp write_json(path, result),
+    do: File.write!(path, Jason.encode!(json_safe(result), pretty: true))
 
   defp write_markdown(path, result) do
-    lines = [
-      "# N-NARR AgentRun Narrative Binding",
-      "",
-      "- outcome: #{result.outcome}",
-      "- detail: #{result.detail}",
-      "- provider_output_count: #{Map.get(result, :provider_output_count, 0)}",
-      "",
-      "## Checked Events",
-      ""
-    ]
-
-    checked =
+    checks =
       result
-      |> Map.get(:checked, [])
-      |> Enum.map(fn item ->
-        "- #{item.event_type}##{item.sequence}: #{item.outcome}"
-      end)
+      |> Map.get(:checks, %{})
+      |> Enum.sort()
+      |> Enum.map(fn {name, passed} -> "- #{name}: #{passed}" end)
 
-    stream_checks =
+    counterexamples =
       result
-      |> Map.get(:stream_checks, [])
-      |> Enum.map(fn item ->
-        "- stream #{item.provider_run_ref}: #{item.outcome}"
-      end)
+      |> Map.get(:evidence_counterexamples, [])
+      |> Enum.map(fn item -> "- #{item.name}: #{item.outcome}" end)
 
     File.write!(
       path,
-      Enum.join(lines ++ checked ++ ["", "## Stream Checks", ""] ++ stream_checks, "\n") <> "\n"
+      Enum.join(
+        [
+          "# N-NARR Accepted Narrative Binding",
+          "",
+          "- outcome: #{result.outcome}",
+          "- detail: #{result.detail}",
+          "- provider_output_count: #{Map.get(result, :provider_output_count, 0)}",
+          "- scope: profile_routing → judgment_loop_v1",
+          "- bad evidence cases audit evidence only; they do not prove production JP rejection paths",
+          "- Planner/Writer, UI ownership and real-model language quality are not covered",
+          "",
+          "## Runtime Checks",
+          ""
+        ] ++ checks ++ ["", "## Evidence Counterexamples", ""] ++ counterexamples,
+        "\n"
+      ) <> "\n"
     )
   end
 
-  defp summarize_events(events) do
-    Enum.map(events, &summarize_event/1)
-  end
-
-  defp summarize_event(event) do
-    %{
-      event_type: event.event_type,
-      sequence: event.sequence,
-      visibility: event.visibility,
-      summary: event.summary,
-      reason_codes: event.reason_codes,
-      payload: json_safe(event.payload)
-    }
-  end
-
+  defp json_safe(%DateTime{} = timestamp), do: timestamp
   defp json_safe(%_{} = struct), do: struct |> Map.from_struct() |> json_safe()
 
   defp json_safe(map) when is_map(map) do
-    map
-    |> Enum.map(fn {key, value} -> {to_string(key), json_safe(value)} end)
-    |> Map.new()
+    Map.new(map, fn {key, value} -> {to_string(key), json_safe(value)} end)
   end
 
   defp json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
-  defp json_safe(atom) when is_atom(atom), do: to_string(atom)
   defp json_safe(value), do: value
 end
 
-try do
-  NNarrDriver.run()
-catch
-  {:n_narr_terminal_error, result} ->
-    File.write!("artifacts/scenario-invariants/n_narr.md", """
-    # N-NARR AgentRun Narrative Binding
-
-    - outcome: #{result.outcome}
-    - detail: #{result.detail}
-    - provider_output_count: #{Map.get(result, :provider_output_count, 0)}
-
-    ## Events
-
-    #{Enum.map_join(Map.get(result, :events, []), "\n", fn event -> "- #{event.event_type}##{event.sequence}: #{event.summary}" end)}
-    """)
-
-    File.write!("artifacts/scenario-invariants/n_narr.json", Jason.encode!(result, pretty: true))
-    IO.puts("\nN-NARR #{String.upcase(to_string(result.outcome))}: #{result.detail}")
-    System.halt(1)
-end
+NNarrDriver.run()
