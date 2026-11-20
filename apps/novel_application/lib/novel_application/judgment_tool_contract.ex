@@ -1,6 +1,7 @@
 defmodule NovelApplication.JudgmentToolContract do
   @moduledoc "B26：固定判断工具 schema 与同源字段校验，合法对象在派发前另行验证。"
 
+  alias NovelApplication.AuthoringTaskPolicy
   alias NovelCommon.AuthorVisible.Text
 
   @version "b26-tools-v1"
@@ -126,7 +127,13 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         action: %{type: "string", enum: ~w(execute plan explore)},
         dialogue_goal: @text,
-        reason: @text,
+        reason:
+          Map.put(
+            @text,
+            :description,
+            "本次判断的作者说明原文，说明为何需要所提的取材、规划或创作动作，不把尚未执行的动作说成已完成。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          ),
         capability:
           Map.put(@nullable_text, :description, "仅 execute 时提供；plan/explore 时省略或为 null。"),
         pending_artifact_ref: @nullable_text,
@@ -161,7 +168,13 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         action: %{type: "string", enum: ["continue"]},
         guidance: @text,
-        reason: @text
+        reason:
+          Map.put(
+            @text,
+            :description,
+            "后续调整的作者说明原文，依据已观察到的偏离说明为何这样调整。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          )
       },
       ~w(action guidance reason)
     )
@@ -198,7 +211,13 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         author_content_source_ref: @text,
         dialogue_goal: @text,
-        author_reasoning: @text
+        author_reasoning:
+          Map.put(
+            @text,
+            :description,
+            "登记作者原文的作者说明，说明登记的材料及其用途，不改写原文或声称已被采纳。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          )
       },
       ~w(author_content_source_ref dialogue_goal author_reasoning)
     )
@@ -212,7 +231,13 @@ defmodule NovelApplication.JudgmentToolContract do
       "给出可选择的小说内容方向，不是保存/查看等流程菜单。",
       %{
         candidate_directions: %{type: "array", minItems: 1, items: item},
-        author_reasoning: @text
+        author_reasoning:
+          Map.put(
+            @text,
+            :description,
+            "候选创作方向的作者说明，说明方向的依据与区别，保留作者选择。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          )
       },
       ~w(candidate_directions author_reasoning)
     )
@@ -231,7 +256,13 @@ defmodule NovelApplication.JudgmentToolContract do
             ~w(premise theme main_goal core_selling_point target_reader tone_preference target_length planned_volumes serial_form)
         },
         value: %{anyOf: [%{type: "string", minLength: 1}, %{type: "integer", minimum: 1}]},
-        author_reasoning: @text
+        author_reasoning:
+          Map.put(
+            @text,
+            :description,
+            "立项字段修订的作者说明，说明当前字段为何需要所提调整；这是待采纳提案，不是已生效修改。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          )
       },
       ~w(title body field value author_reasoning)
     )
@@ -244,7 +275,13 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         dialogue_goal: @text,
         missing_effect: @text,
-        author_reasoning: @text,
+        author_reasoning:
+          Map.put(
+            @text,
+            :description,
+            "能力缺口的作者说明，说明当前目标缺少的效果及最近可行路径，不把建议说成已执行。" <>
+              AuthoringTaskPolicy.author_narrative_rules()
+          ),
         alternative_operation_refs: @strings
       },
       ~w(dialogue_goal missing_effect author_reasoning)
