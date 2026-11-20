@@ -12,8 +12,14 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { b29RoleCandidateVisible, b29RoleNoChangeVisible } from "../../scripts/lib/native_ui/authoring_character_candidate_evidence.mjs";
-import { b29NoChangeSourceBound, receiptMatchesArtifact } from "../../scripts/native_b29_evidence.mjs";
+import {
+  b29RoleCandidateVisible,
+  b29RoleNoChangeVisible,
+} from "../../scripts/lib/native_ui/authoring_character_candidate_evidence.mjs";
+import {
+  b29NoChangeSourceBound,
+  receiptMatchesArtifact,
+} from "../../scripts/native_b29_evidence.mjs";
 import { wireTerminal } from "../../scripts/lib/native_ui/live_run_wait.mjs";
 import { loadForbiddenTokens } from "../../scripts/lib/author_visible/leak_scan.mjs";
 import {
@@ -42413,33 +42419,59 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   }
 
   function authorBubbles(text) {
-    return page.locator('div[class*="userMsg"]').filter({ has: page.getByText(text, { exact: true }) });
+    return page
+      .locator('div[class*="userMsg"]')
+      .filter({ has: page.getByText(text, { exact: true }) });
   }
 
   async function currentAssistant(turn) {
     await waitForVisibleWorkTitle(page, workTitle, 10_000);
     const authors = authorBubbles(turn.text);
-    assert(await authors.count() === turn.baseline_author_count + 1, "B29 当前作者消息必须新增且唯一");
+    assert(
+      (await authors.count()) === turn.baseline_author_count + 1,
+      "B29 当前作者消息必须新增且唯一",
+    );
     const author = authors.last();
-    assert(await author.locator('xpath=following-sibling::div[contains(@class,"userMsg")]').count() === 0,
-      "B29 当前作者后不能混入另一轮输入");
-    const assistant = author.locator('xpath=following-sibling::div[contains(@class,"assistantMsg")]');
-    assert(await assistant.count() === 1, "B29 当前作者必须唯一对应助手交付");
+    assert(
+      (await author.locator('xpath=following-sibling::div[contains(@class,"userMsg")]').count()) ===
+        0,
+      "B29 当前作者后不能混入另一轮输入",
+    );
+    const assistant = author.locator(
+      'xpath=following-sibling::div[contains(@class,"assistantMsg")]',
+    );
+    assert((await assistant.count()) === 1, "B29 当前作者必须唯一对应助手交付");
     return assistant;
   }
 
   async function fullyVisible(locator) {
-    if (await locator.count() !== 1 || !await locator.isVisible()) return false;
+    if ((await locator.count()) !== 1 || !(await locator.isVisible())) return false;
     return locator.evaluate((element) => {
       const rect = element.getBoundingClientRect();
-      let left = 0, top = 0, right = window.innerWidth, bottom = window.innerHeight;
+      let left = 0,
+        top = 0,
+        right = window.innerWidth,
+        bottom = window.innerHeight;
       for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-        const style = getComputedStyle(parent), clip = parent.getBoundingClientRect();
-        if (/(auto|scroll|hidden|clip)/u.test(style.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
-        if (/(auto|scroll|hidden|clip)/u.test(style.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+        const style = getComputedStyle(parent),
+          clip = parent.getBoundingClientRect();
+        if (/(auto|scroll|hidden|clip)/u.test(style.overflowX)) {
+          left = Math.max(left, clip.left);
+          right = Math.min(right, clip.right);
+        }
+        if (/(auto|scroll|hidden|clip)/u.test(style.overflowY)) {
+          top = Math.max(top, clip.top);
+          bottom = Math.min(bottom, clip.bottom);
+        }
       }
-      return rect.width > 0 && rect.height > 0 && rect.left >= left && rect.right <= right &&
-        rect.top >= top && rect.bottom <= bottom;
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.left >= left &&
+        rect.right <= right &&
+        rect.top >= top &&
+        rect.bottom <= bottom
+      );
     });
   }
 
@@ -42459,16 +42491,31 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       `${label}: author input was not sent`,
       30_000,
     );
-    const ack = await waitForNewFrame(start, (record) => record.direction === "received" &&
-      record.event === "phx_reply" && record.frame[1] === sent.frame[1] &&
-      record.body?.status === "ok" && record.body?.response?.turn_id === sent.body.turn_id &&
-      typeof record.body.response.run_id === "string", `${label}: no correlated run ack`, 30_000);
+    const ack = await waitForNewFrame(
+      start,
+      (record) =>
+        record.direction === "received" &&
+        record.event === "phx_reply" &&
+        record.frame[1] === sent.frame[1] &&
+        record.body?.status === "ok" &&
+        record.body?.response?.turn_id === sent.body.turn_id &&
+        typeof record.body.response.run_id === "string",
+      `${label}: no correlated run ack`,
+      30_000,
+    );
     let terminal = null;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline && !terminal) {
-      terminal = wireTerminal(frames, { runId: ack.body.response.run_id, turnId: sent.body.turn_id,
-        topic: sent.topic, workId: sent.body.work_id, sessionId: sent.body.session_id,
-        since: sent.at, resultPosition: "last", requireWireTerminal: true });
+      terminal = wireTerminal(frames, {
+        runId: ack.body.response.run_id,
+        turnId: sent.body.turn_id,
+        topic: sent.topic,
+        workId: sent.body.work_id,
+        sessionId: sent.body.session_id,
+        since: sent.at,
+        resultPosition: "last",
+        requireWireTerminal: true,
+      });
       if (!terminal) await sleep(250);
     }
     assert(terminal?.kind === "completed", `${label}: current run did not complete`);
@@ -42698,33 +42745,50 @@ async function driveB29ExistingCharacterRoleRevision(page) {
 
   async function candidateSurface(turn) {
     const pending = turn.turnResult?.adoption_state?.pending ?? [];
-    assert(pending.length === 1 && pending[0].artifact_type === "character_profile_revision",
-      "B29 必须唯一交付角色修订候选");
+    assert(
+      pending.length === 1 && pending[0].artifact_type === "character_profile_revision",
+      "B29 必须唯一交付角色修订候选",
+    );
     const items = pending[0].payload?.items ?? [];
     assert(items.length === 1, "B29 角色候选必须只有一个实际条目");
     const assistant = await currentAssistant(turn);
-    const item = assistant.locator("article").filter({ has: page.getByText(items[0].title, { exact: true }) })
+    const item = assistant
+      .locator("article")
+      .filter({ has: page.getByText(items[0].title, { exact: true }) })
       .filter({ has: page.getByText(items[0].body, { exact: true }) });
-    assert(await assistant.locator("article").count() === 1 && await item.count() === 1,
-      "B29 当前助手必须完整交付同一个实际候选条目");
+    assert(
+      (await assistant.locator("article").count()) === 1 && (await item.count()) === 1,
+      "B29 当前助手必须完整交付同一个实际候选条目",
+    );
     const card = item.locator('xpath=ancestor::div[contains(@class,"candidateSetCard")][1]');
-    assert(await card.count() === 1, "B29 角色候选必须有唯一所属卡");
+    assert((await card.count()) === 1, "B29 角色候选必须有唯一所属卡");
     await card.scrollIntoViewIfNeeded();
-    assert(await fullyVisible(item.getByText(items[0].title, { exact: true })) &&
-      await fullyVisible(item.getByText(items[0].body, { exact: true })), "B29 候选标题和完整正文必须在视口内");
+    assert(
+      (await fullyVisible(item.getByText(items[0].title, { exact: true }))) &&
+        (await fullyVisible(item.getByText(items[0].body, { exact: true }))),
+      "B29 候选标题和完整正文必须在视口内",
+    );
     return { pending: pending[0], item, card };
   }
 
   async function adoptVisibleCandidate(turn) {
     const { pending, item, card } = await candidateSurface(turn);
     const text = await item.innerText();
-    assert(b29RoleCandidateVisible({ candidate: pending, visibleText: text, tokens: loadForbiddenTokens() }),
-      "B29 当前完整条目必须满足独立中文角色目标");
+    assert(
+      b29RoleCandidateVisible({
+        candidate: pending,
+        visibleText: text,
+        tokens: loadForbiddenTokens(),
+      }),
+      "B29 当前完整条目必须满足独立中文角色目标",
+    );
     const start = frames.length;
     const button = card.getByRole("button", { name: "保存到作品", exact: true });
     const buttonCount = await button.count();
-    assert(buttonCount === 1 && await button.isEnabled() && await fullyVisible(button),
-      "B29 保存按钮必须唯一属于当前候选且在视口内");
+    assert(
+      buttonCount === 1 && (await button.isEnabled()) && (await fullyVisible(button)),
+      "B29 保存按钮必须唯一属于当前候选且在视口内",
+    );
     await page.screenshot({ path: path.join(artifactDir, "b29-cp4-t1-candidate.png") });
     await button.click();
     let actionFrame = null;
@@ -42737,9 +42801,19 @@ async function driveB29ExistingCharacterRoleRevision(page) {
             (frame) =>
               frame.direction === "received" &&
               frame.event === "action_result" &&
-              frame.body?.status === "accepted" && receiptMatchesArtifact(frame.body, pending.artifact_id,
-                 frames.slice(start).find((entry) => entry.direction === "sent" && entry.event === "author_action" &&
-                   entry.body?.action?.target_ref === pending.artifact_id)?.body?.action),
+              frame.body?.status === "accepted" &&
+              receiptMatchesArtifact(
+                frame.body,
+                pending.artifact_id,
+                frames
+                  .slice(start)
+                  .find(
+                    (entry) =>
+                      entry.direction === "sent" &&
+                      entry.event === "author_action" &&
+                      entry.body?.action?.target_ref === pending.artifact_id,
+                  )?.body?.action,
+              ),
           ) ?? null;
       errorFrame =
         frames
@@ -42786,7 +42860,10 @@ async function driveB29ExistingCharacterRoleRevision(page) {
       suggested_other_character_changes: payload.suggested_other_character_changes ?? [],
       adoption_effect: payload.adoption_effect ?? null,
       visible_has_old_to_new: b29RoleCandidateVisible({
-        candidate: { payload }, visibleText: adoption?.visible_text, tokens: loadForbiddenTokens() }),
+        candidate: { payload },
+        visibleText: adoption?.visible_text,
+        tokens: loadForbiddenTokens(),
+      }),
       receipt_committed_changes: receipt.committed_changes ?? null,
       receipt_character_ref: receipt.character_ref ?? null,
       receipt_base_fingerprint: receipt.base_fingerprint ?? null,
@@ -42989,8 +43066,12 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const t5Turn = await sendAuthorInput("把阿鸢设为主角", "B29 CP4 T5 candidate then discard");
   const discardSurface = await candidateSurface(t5Turn);
   const discardButton = discardSurface.card.getByRole("button", { name: "不保存", exact: true });
-  assert(await discardButton.count() === 1 && await discardButton.isEnabled() && await fullyVisible(discardButton),
-    "B29 放弃按钮必须唯一属于当前候选");
+  assert(
+    (await discardButton.count()) === 1 &&
+      (await discardButton.isEnabled()) &&
+      (await fullyVisible(discardButton)),
+    "B29 放弃按钮必须唯一属于当前候选",
+  );
   await discardButton.click();
   const discardClicked = true;
   await sleep(800);
@@ -42998,18 +43079,32 @@ async function driveB29ExistingCharacterRoleRevision(page) {
   const t6Before = await facts(workId);
   const t6Turn = await sendAuthorInput("指定老沈为主角", "B29 CP4 T6 unchanged role notice");
   const repeatAssistant = await currentAssistant(t6Turn);
-  const resultCard = repeatAssistant.locator('div[class*="defaultCard"]')
+  const resultCard = repeatAssistant
+    .locator('div[class*="defaultCard"]')
     .filter({ has: page.getByText("系统核对结果", { exact: true }) });
-  assert(await resultCard.count() === 1, "B29 no_change 必须交付同轮唯一系统结果");
+  assert((await resultCard.count()) === 1, "B29 no_change 必须交付同轮唯一系统结果");
   await resultCard.scrollIntoViewIfNeeded();
   const modelReply = repeatAssistant.locator(':scope > div[class*="root"]');
-  assert(await modelReply.count() === 1, "B29 no_change 模型说明必须有独立交付区");
-  const repeatVisible = await fullyVisible(resultCard) && await fullyVisible(modelReply) &&
-    b29RoleNoChangeVisible({ turnResult: t6Turn.turnResult, visibleText: await resultCard.innerText(),
-      replyText: await modelReply.innerText(), tokens: loadForbiddenTokens() });
-  const repeatSourceBound = b29NoChangeSourceBound(artifactDir, frames, t6Turn.facts, { seed: { work_id: workId } });
-  const repeatActions = frames.slice(frames.indexOf(t6Turn.facts.message)).filter((entry) =>
-    entry.direction === "sent" && ["author_action", "adopt_artifact", "edit_adopt_artifact"].includes(entry.event));
+  assert((await modelReply.count()) === 1, "B29 no_change 模型说明必须有独立交付区");
+  const repeatVisible =
+    (await fullyVisible(resultCard)) &&
+    (await fullyVisible(modelReply)) &&
+    b29RoleNoChangeVisible({
+      turnResult: t6Turn.turnResult,
+      visibleText: await resultCard.innerText(),
+      replyText: await modelReply.innerText(),
+      tokens: loadForbiddenTokens(),
+    });
+  const repeatSourceBound = b29NoChangeSourceBound(artifactDir, frames, t6Turn.facts, {
+    seed: { work_id: workId },
+  });
+  const repeatActions = frames
+    .slice(frames.indexOf(t6Turn.facts.message))
+    .filter(
+      (entry) =>
+        entry.direction === "sent" &&
+        ["author_action", "adopt_artifact", "edit_adopt_artifact"].includes(entry.event),
+    );
   const t6After = await facts(workId);
   await waitInputEnabled();
   const t7Before = await facts(workId);
@@ -43110,8 +43205,10 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     followup_zero_write: t4?.zero_write_after === true,
     discard_keeps_original: t5?.discard?.unchanged === true,
     repeat_no_change_separates_model_and_system:
-      t5?.repeat?.zero_write === true && t5?.repeat?.result_notice_visible === true &&
-      t5?.repeat?.model_narrative_source_bound === true && t5?.repeat?.author_action_count === 0,
+      t5?.repeat?.zero_write === true &&
+      t5?.repeat?.result_notice_visible === true &&
+      t5?.repeat?.model_narrative_source_bound === true &&
+      t5?.repeat?.author_action_count === 0,
     cross_work_zero_write: t5?.cross_work?.zero_write === true,
     no_product_code_changed: true,
     no_acceptance_hooks_added: true,
