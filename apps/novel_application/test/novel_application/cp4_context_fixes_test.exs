@@ -477,7 +477,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
       {:decision,
        %{
          "action" => "explore",
-         "author_reasoning" => "继续读取同一来源的后续页。",
          "explore_request" => %{"tool" => tool, "query" => Jason.encode!(selector)}
        }}
     end)
@@ -557,7 +556,6 @@ defmodule NovelApplication.CP4ContextFixesTest do
         {:decision,
          %{
            "action" => "explore",
-           "author_reasoning" => "继续读取完整章节正文。",
            "explore_request" => %{"tool" => "chapter_read", "query" => query}
          }}
       end

@@ -181,14 +181,14 @@ content，并继续受 N-NARR source binding；tool arguments 不进入作者主
 
 ### 2.2 单调用判断协议（B26 / B27，2026-10-24 联合修订已接受）
 
-本节为两项 slice 共用的模型调用协议真源。作者已授权文档对齐；不据此宣称修订 Accepted、代码实施或页面验收完成。生产切换前仍须核对实态。本节替代 §2.1 历史两段式/forced 判断与计划口径，保留 N-PLAN、执行门禁、采纳与来源保护。
+本节为B26/B27共用模型调用协议真源；现役动作、单一正文与直接读取边界按B87 §16.23/16.27及VS-00M的增量裁决对齐。历史CP证据仍只证明其原源码与原协议，不因本次文档迁移重签。§2.1历史两段式/forced口径已被单调用auto替代，N-PLAN、执行门禁、采纳与来源保护保持。
 
 “单调用”指每次判断/计划推理不再拆成叙事调用与结构调用。取证后再判断、补起草和纠错可有后续调用，必须按实际次数计预算；不把一次作者请求伪报为一次调用。同响应同源不自动证明语义一致，B27 仍校验目标、对象、效果与证据。
 
 #### 2.2.1 请求形状与唯一探索入口（J4）
 
 ~~~yaml
-# 对话判断 profile；以下为目标协议工具，不表示已实现
+# 对话判断 profile；现役工具职责见 B87 §16.23/16.27 与 VS-00M
 tools:
   - judgment_decision
   - ask_author
@@ -200,7 +200,7 @@ tools:
 tool_choice: auto
 ~~~
 
-- judgment_decision.action 仅为 execute / plan / explore。创作经 execute + capability 派发；探索唯一入口为 explore + explore_request{tool, query}，不同时注册 chapter_read / archive_read 等为第二套 native tools。
+- judgment_decision.action 仅为 execute / explore。创作经 execute + capability 派发；直接读取唯一入口为 explore + explore_request{tool, query}，不同时注册 chapter_read / archive_read 等为第二套 native tools。explore不要求且不接受dialogue_goal或作者正文字段，完整计划由单一agent_plan_draft承担，不保留plan动作或配对工具兼容。
 - 探索目录仍来自 ExplorationService 实际支持项，参数说明与 B24/B25 读取契约一致、身份优先 chapter_ref；应用验证 scope/权限/预算。目录与操作效果由 B27 同源整合。
 - 续行 profile：tools=[continuation_decision, ask_author, report_capability_gap]；continuation_decision.action 仅为 continue，guidance 为可执行修正建议。模型停等一律 ask_author，不保留 continuation_decision.await_author。
 - 非判断入口的计划起草/修订：tools 分别仅为 [agent_plan_draft] / [agent_plan_revision]，仍 auto；缺结构输出不能把自然文本当作计划。
@@ -352,18 +352,17 @@ properties:
 | [report_capability_gap] | capability_gap | 初始/续行均 completed/stopped，明确 goal_unfulfilled，零新业务写；不自动续行或隐式等作者 |
 | [ask_author]（对话/续行） | await_author | 按 2.2.2 A 投影、绑定、回传 |
 | [judgment_decision{action: execute, capability}] | execute | 既有 dispatch，能力/对象/权限/预算重新校验 |
-| [judgment_decision{action: explore, explore_request}] | explore | 唯一探索入口；真实观察返回后再判断 |
-| [judgment_decision{action: plan}, agent_plan_draft] | plan | 唯一允许的双工具组合；同 run/goal version/目标，整组校验；数组先后顺序不改变含义 |
-| [judgment_decision{action: plan}] | plan_requested | 后续仅 plan 工具的 auto 调用起草；实际总次数至少2，不伪称一次 |
-| [agent_plan_draft] / [agent_plan_revision]（相应非判断计划调用点） | plan / plan_revision | 消费真实模型计划，缺结构不能用文本替代 |
+| [judgment_decision{action: explore, explore_request}] | explore | 验证原始唯一调用与完整参数；不创建作者正文/来源/reply_record，真实观察与系统阅读进度返回后再判断 |
+| [agent_plan_draft]（判断或相应计划调用点） | plan | 同一原生调用承载完整计划与整体作者说明；版本、已完成前缀及内联metadata保持，合法只读计划同样保留说明，不另发plan_requested |
+| [agent_plan_revision]（相应计划修订调用点） | plan_revision | 消费真实模型计划、修订说明及来源，缺结构不能用文本替代 |
 | [continuation_decision{action: continue}]（续行） | continue | 有依据的 guidance，沿原门禁/预算，不直接批准执行 |
 | 空 content 且无工具、错 profile 工具、重复工具、未定义组合、ask_author 与其他工具同返、旧判断 reply/await_author 枚举、native chapter_read 等第二入口、必填缺失 | protocol_violation | 同一任务/来源/权限下纠错一次；仍失败诚实失败，零业务派发/写入 |
 
 普通回复不规定“意图说明＋空行＋正文”，不解析空行/标题/列表/关键词来补业务结构。无工具仅在对话判断可结束普通回复；续行和非判断计划调用点须给各自结构。
 
-judgment_decision 移除 reply_included、author_narrative、record_only、author_content_registration、author_content_source_ref、candidate_directions 等回复/登记专属字段；保留 execute/plan/explore 所需 dialogue_goal、reason、capability、explore_request、pending_artifact_ref、adopted_content_ref。各工具封闭字段 schema；未知/互斥字段拒绝，不保留旧协议参数作为第二入口。
+judgment_decision 的完整闭合分支由JudgmentDecisionToolContract持有：execute要求action、dialogue_goal、capability、author_reasoning，可选目标与段范围按实际目标契约校验；explore只接受action与explore_request。平面根object供应字段并集，公共required仅action，不能据此放宽实际分支。reply_included、author_narrative、reason、record_only及回复/登记专属字段不作为旧协议入口；未知、跨分支或互斥字段拒绝。作者正文唯一通道见§2.2.4。
 
-整组响应先验证再派发，非法双工具不能部分登记/执行后再报错。重试保留作者输入、合法来源、目标版本、范围和权限；新 provider_call_ref 单独留痕，不与前次叙事混绑。失败响应已经流出的文字仅为未执行过程记录，不发布完成事实。来源/幂等校验不依赖 prompt 自觉。
+整组响应先验证再派发，非法双工具不能部分登记/执行后再报错。重试保留作者输入、合法来源、目标版本、范围和权限；新provider_call_ref单独留痕，不与前次叙事混绑。失败Provider输出与原参数保留审计，未经接受的模型正文不提前发布；不把失败或结构状态改写成模型完成说明。来源与幂等校验不依赖prompt自觉。
 
 ##### 2.2.3a 确定的结果、失败与恢复（F2）
 
@@ -401,8 +400,8 @@ judgment_decision 移除 reply_included、author_narrative、record_only、autho
 
 #### 2.2.4 叙事绑定与结果判断
 
-- 作者可见文字来自本响应 content 或合法 author_reasoning / ask_author.question；execute/explore 的 reason 仅在满足作者可读原话契约时回退；均逐字绑定同一响应 provider_call_ref，符合 N-NARR。
-- 空 content 只回退模型原话，不能 app 拼“已完成”；再无原话沿现行叙事边界诚实失败，结构状态/错误类别仍可按安全文案显示。
+- 普通reply的唯一作者正文为原生content；ask_author为question；具有作者交付职责的判断工具、continuation及真实计划为author_reasoning，均逐字绑定同一有效响应和实际Provider来源。reason回退已退役；工具另带非空content须拒绝，不能择一、清洗或补写。
+- 直接explore是结构化读取请求，不创建narrative/narrative_source/reply_record；额外作者字段或非空content拒绝并保留原调用纠错。原始唯一call验证、provider_result、tool_call_id、transcript和计数保留，实际阅读状态由现exploration_observed系统事实表达。所有合法AgentPlan的整体说明照常发布，不因只读或内联隐藏。需要作者正文却没有合法原话时仍诚实失败，应用不能拼写模型说明。
 - 同源是必要条件，不替代 B27 的任务/对象/范围/效果一致性。无工具文本的认知记录按 VS-00D §11.4：保留原话与 supplied evidence，不从文本抽模型判断字段、不伪造 used_context_refs；必要结构化业务判断才使用对应工具。文学质量由模型据证据判断，不靠关键词/schema 合法判质量达标。
 - 不要求暴露私有 thinking；本节只处理作者可见文本和工具结构。
 - 协议错误、未合理取证、真实能力缺口分别记录；不全归模型质量债，也不因模型质量不足恢复两段式降级。
@@ -541,7 +540,7 @@ model request / AgentPlan revision
 
 ## 5. AgentEvent
 
-`AgentEvent` 是 author-safe 活动流，不是 `TurnResult`。
+`AgentEvent` 是 author-safe 活动流，不是 `TurnResult`。以下示例展示实际读取完成后的系统事实。依§2.2.4与B87 §16.27，直接读取的exploration_observed不创建author_narrative或author_narrative_source；合法计划的模型说明按其自身事件与来源保留。
 
 ```yaml
 event_id: evt_xxx
@@ -551,20 +550,12 @@ sequence: 7
 event_type: exploration_observed
 visibility: author
 summary: 已读取当前角色阵容，发现已有 3 个角色。
-author_narrative: 我先核对现有角色阵容，避免新反派和既有人设重复。
-author_narrative_source:
-  source_type: provider_output
-  provider_run_ref: prun_xxx
-  provider_call_ref: pcall_xxx
-  provider_output_ref: pout_xxx
-  source_hash: sha256:...
-  narrative_hash: sha256:...
 reason_codes: [character_roster_loaded]
 refs: [obs_xxx]
 emitted_at: ...
 ```
 
-46§9 工作详情运行中先显示同一 assistant turn 的结构性工作态骨架，避免作者发送后空等；该骨架只能由状态 chip、阶段轨道、工作详情入口等枚举/结构 UI 组成，不得代写模型推理。随后消费同一 ProviderExecution stream 内 `purpose=author_reasoning` 的 `author_narrative_delta`，provider chunk 到达即通过同一 `agent_event.provider_progress` 推动作者面 reasoning 文本增长；不得等 ProviderOutput 结束后一次性丢卡片。最终 `plan_drafted` / `plan_revised` / `exploration_observed` / `evaluation_made` 携带 source-bound `author_narrative` 后，才用结构化事件替换同 provider run 的临时 delta；普通 ProviderRun / ProviderEvent / ProviderOutput facts 仍只作为 developer detail 展开。作者可见事件禁止包含 raw prompt、chain-of-thought、provider private reasoning / thinking、API key、provider secret、未脱敏 memory、完整 ToolRequest dump、legacy JSON tail 或 native tool-call arguments。
+46§9工作详情运行中先显示同一assistant turn的结构性工作态骨架；该骨架只能由状态、阶段轨道和工作详情入口等结构UI组成，不得代写模型推理。作者正文按§2.2.4与B87 §16.23/16.27先完成接收及实际来源校验后发布，早期“chunk到达即显示作者正文”的口径不能绕过现边界，也不允许先展示后清洗。直接读取的exploration_observed保留真实系统阅读事实，不要求每次读取制造模型说明；合法plan_drafted/plan_revised及其他作者交付保留原模型说明和来源。普通ProviderRun/ProviderEvent/ProviderOutput事实继续归developer detail；作者面不泄漏raw prompt、chain-of-thought、provider private reasoning/thinking、密钥、未脱敏memory、完整ToolRequest或native工具参数。历史CP6采集事实按原源码保留，本段不将其改签为现役正文接收证明。
 
 ## 6. AgentRunPolicy 与预算
 

@@ -48,7 +48,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
   def specific_guidance(_detail), do: ""
 
   defp decision_example(%{action: "explore"}, example) do
-    {"explore 只表达本次实际读取请求和作者说明；不提供 dialogue_goal。", example}
+    {"explore 只表达本次实际读取请求；不提供 dialogue_goal 或 author_reasoning，包括 null。", example}
   end
 
   defp decision_example(%{action: "execute"} = detail, example) do
@@ -93,7 +93,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
       Map.put(
         @text,
         :description,
-        "本次判断直接面向作者的唯一说明原文，content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。" <>
+        "仅 execute 时必填的唯一作者说明原文，explore 不提供，包括 null；content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。" <>
           AuthoringSemantics.author_narrative_rules()
       )
 
@@ -139,18 +139,16 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
       object(
         %{
           action: %{type: "string", enum: ["explore"]},
-          author_reasoning: narrative,
           explore_request:
             object(%{tool: @text, query: %{type: "string"}}, ~w(tool query))
             |> Map.put(:description, "仅 explore 时必填的实际读取请求；execute 不提供。")
         },
-        ~w(action author_reasoning explore_request)
+        ~w(action explore_request)
       )
       |> Map.put(:examples, [
         %{
           action: "explore",
-          explore_request: %{tool: "<本轮允许的读取工具>", query: "..."},
-          author_reasoning: "..."
+          explore_request: %{tool: "<本轮允许的读取工具>", query: "..."}
         }
       ])
     ]

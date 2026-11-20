@@ -201,7 +201,6 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
               %{
                 action: "explore",
-                author_reasoning: "我会先查看角色目录，确认老沈对应的人物。",
                 explore_request: %{tool: "archive_read", query: "characters"}
               }
 
@@ -210,7 +209,6 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
               %{
                 action: "explore",
-                author_reasoning: "我会查看老沈的角色详情，核对当前设定。",
                 explore_request: %{
                   tool: "archive_read",
                   query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
@@ -309,23 +307,81 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
       narrative_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab"
     }
 
+    assert {:ok, request_ir} =
+             NovelApplication.AuthoringTranscript.to_request_ir(
+               state.stage_state.judgment_transcript
+             )
+
+    assert [directory_observation, detail_observation] =
+             NovelCommon.RequestIR.visible_observations(request_ir)
+
+    work_id = c.work.id
+    directory_refs = before |> Enum.map(&"character:#{&1.id}") |> Enum.sort()
+
     assert_receive {:role_event,
                     %{
-                      event_type: :judgment_decided,
-                      payload: %{author_narrative: "我会先查看角色目录，确认老沈对应的人物。"}
-                    }}
+                      event_type: :exploration_observed,
+                      visibility: :author,
+                      payload: %{
+                        tool: "archive_read",
+                        query: "characters",
+                        coverage: %{kind: "directory", facet: "characters", work_id: ^work_id}
+                      }
+                    } = directory_event}
+
+    assert Enum.sort(directory_event.payload.refs) == directory_refs
+
+    assert_receive {:role_event,
+                    %{
+                      event_type: :exploration_observed,
+                      visibility: :author,
+                      payload: %{
+                        tool: "archive_read",
+                        refs: [^ref],
+                        coverage: %{
+                          kind: "detail",
+                          facet: "characters",
+                          work_id: ^work_id,
+                          ref: ^ref
+                        }
+                      }
+                    } = detail_event}
+
+    assert Jason.decode!(detail_event.payload.query) == %{
+             "facet" => "characters",
+             "ref" => ref,
+             "offset" => 0
+           }
+
+    assert directory_event.sequence < detail_event.sequence
+
+    for {event, observation} <- [
+          {directory_event, directory_observation},
+          {detail_event, detail_observation}
+        ] do
+      assert event.run_ref == run_id
+      assert event.summary == "已查阅作品档案：角色档案。"
+      assert is_binary(event.payload.observation_ref)
+      assert event.payload.observation_ref == observation.content["observation_ref"]
+      refute Map.has_key?(event.payload, :author_narrative)
+      refute Map.has_key?(event.payload, :author_narrative_source)
+    end
+
+    # 上下文组装的 developer 观察仍合法；这里只限制作者可见读取次数。
+    refute_received {:role_event, %{event_type: :exploration_observed, visibility: :author}}
+    refute_received {:role_event, %{event_type: :judgment_decided, payload: %{action: "explore"}}}
 
     assert_receive {:role_event,
                     %{
                       event_type: :judgment_decided,
-                      payload: %{author_narrative: "我会查看老沈的角色详情，核对当前设定。"}
+                      payload: %{
+                        action: "execute",
+                        author_narrative: @role_narrative,
+                        author_narrative_source: ^expected_source
+                      }
                     }}
 
-    assert_receive {:role_event,
-                    %{
-                      event_type: :judgment_decided,
-                      payload: %{author_narrative_source: ^expected_source}
-                    }}
+    refute_received {:role_event, %{event_type: :judgment_decided}}
 
     assert state.final_turn_result.assistant_message.text == @role_narrative
 

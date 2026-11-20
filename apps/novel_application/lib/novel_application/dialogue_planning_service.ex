@@ -913,13 +913,12 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp handle_judgment(judgment, run, sequence, input, context, snapshot, explorations) do
-    emit_judgment_decided(snapshot, judgment)
-
     case judgment.action do
       "explore" ->
         judgment_explore_result(judgment, run, sequence, snapshot, explorations)
 
       _ ->
+        emit_judgment_decided(snapshot, judgment)
         dispatch_with_transcript(judgment, run, sequence, input, context, snapshot)
     end
   end

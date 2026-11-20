@@ -607,7 +607,6 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
     %{
       action: "explore",
-      author_reasoning: "逐页读取第二章正文",
       explore_request: %{
         tool: "chapter_read",
         query: Jason.encode!(%{chapter_ref: source.chapter_ref, offset: offset})

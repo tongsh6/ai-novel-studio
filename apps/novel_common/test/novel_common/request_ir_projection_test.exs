@@ -156,6 +156,83 @@ defmodule NovelCommon.RequestIRProjectionTest do
       assert Map.has_key?(tool.parameters["properties"], "offset")
     end
 
+    test "三种 wire 保留 action-only 共用约束及无作者说明的实际探索调用" do
+      arguments = %{
+        "action" => "explore",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "chapter:wire"}
+      }
+
+      schema = %{
+        type: "object",
+        properties: %{
+          action: %{type: "string", enum: ["execute", "explore"]},
+          dialogue_goal: %{type: "string", minLength: 1},
+          author_reasoning: %{type: "string", minLength: 1},
+          capability: %{type: "string", minLength: 1},
+          explore_request: %{
+            type: "object",
+            properties: %{tool: %{type: "string"}, query: %{type: "string"}},
+            required: ["tool", "query"],
+            additionalProperties: false
+          }
+        },
+        required: ["action"],
+        additionalProperties: false
+      }
+
+      history =
+        g1_messages() ++
+          [
+            message(:assistant, :model, [
+              RequestIR.tool_call_block("judgment_decision", arguments, "call-explore")
+            ]),
+            message(:tool, :tool_result, [
+              RequestIR.validation_result_block("call-explore", "passed", "accepted")
+            ])
+          ]
+
+      request =
+        ir(history,
+          tools: [%{name: "judgment_decision", description: "读取或执行", input_schema: schema}]
+        )
+
+      for target <- ["chat_completions", "anthropic_messages", "responses_api"] do
+        assert {:ok, body} = Projection.project(request, target)
+        assert [tool] = body.tools
+
+        parameters =
+          get_in(tool, [:function, :parameters]) || tool[:parameters] || tool[:input_schema]
+
+        assert parameters == RequestIR.json_value(schema)
+        assert parameters["required"] == ["action"]
+        assert parameters["properties"]["author_reasoning"]["type"] == "string"
+
+        projected_arguments =
+          case target do
+            "chat_completions" ->
+              assistant = Enum.find(body.messages, &(&1.role == "assistant"))
+              assert [%{function: %{arguments: raw}}] = assistant.tool_calls
+              Jason.decode!(raw)
+
+            "anthropic_messages" ->
+              call =
+                body.messages
+                |> Enum.flat_map(& &1.content)
+                |> Enum.find(&(&1[:type] == "tool_use"))
+
+              call.input
+
+            "responses_api" ->
+              assert Map.fetch(tool, :strict) == {:ok, false}
+              call = Enum.find(body.input, &(&1[:type] == "function_call"))
+              Jason.decode!(call.arguments)
+          end
+
+        assert projected_arguments == arguments
+        refute Map.has_key?(projected_arguments, "author_reasoning")
+      end
+    end
+
     test "G2 观察后：tool call 与 observation 按 call_id 关联进入下一请求" do
       {:ok, chat} =
         Projection.project(ir(g2_messages(), refs: observed_refs()), "chat_completions")

@@ -403,10 +403,10 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   end
 
   defp g2_response(_mode, []),
-    do: {"", [explore_call(Jason.encode!(%{"chapter_seq" => 2, "offset" => 0}), "先读第一页。")]}
+    do: {"", [explore_call(Jason.encode!(%{"chapter_seq" => 2, "offset" => 0}))]}
 
   defp g2_response(:happy, [page1]),
-    do: {"", [explore_call(continuation_query(page1), "继续读第二页。")]}
+    do: {"", [explore_call(continuation_query(page1))]}
 
   defp g2_response(:happy, pages) do
     {"", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages), "按刚读到的重复写法修订。")]}
@@ -466,10 +466,9 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp leaf_content(leaf), do: leaf_field(leaf, :content) || %{}
   defp leaf_coverage(leaf), do: leaf_field(leaf, :coverage) || %{}
 
-  defp explore_call(query, narrative) do
+  defp explore_call(query) do
     call("judgment_decision", %{
       "action" => "explore",
-      "author_reasoning" => narrative,
       "explore_request" => %{"tool" => "chapter_read", "query" => query}
     })
   end

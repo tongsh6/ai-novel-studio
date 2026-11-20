@@ -1165,11 +1165,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # 避免一边看到观察、另一边仍把本轮当「尚未检索」而重发同一查询。
     observation = current_observation_summary(prompt_text, ir)
     result = judgment_decision_result(prompt_text, ir, observation)
-    narrative = judgment_narrative_result(prompt_text, ir, observation).content
 
     case result.tool_calls do
-      [call] -> single_judgment_output(call["arguments"], narrative, result, ir || prompt_text)
-      _ -> result
+      [%{"arguments" => %{"action" => "explore"}}] ->
+        result
+
+      [call] ->
+        narrative = judgment_narrative_result(prompt_text, ir, observation).content
+        single_judgment_output(call["arguments"], narrative, result, ir || prompt_text)
+
+      _ ->
+        result
     end
   end
 
@@ -4827,15 +4833,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_explore_decision_result(prompt, request) do
-    reasoning = "我会先读取这次问题需要的作品材料，再依据实际内容继续。"
-
     arguments = %{
       "action" => "explore",
-      "author_reasoning" => reasoning,
       "explore_request" => request
     }
 
-    Result.new("", usage_for(prompt, reasoning),
+    Result.new("", usage_for(prompt, Jason.encode!(arguments)),
       tool_calls: [
         %{
           "id" => "call_judgment_decision",

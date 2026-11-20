@@ -9,7 +9,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
 
   alias NovelCommon.AuthoringSemantics
 
-  @version "b27-task-v3"
+  @version "b27-task-v4"
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
@@ -112,7 +112,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     作者给出条件句、否定限定或讨论语境（如“如果没有…就告诉我”“先不要生成”“只解释”“是否合理”“为什么”）时，
     按真实条件与取证结果选择：条件不成立或作者只要讨论时，直接 reply 说明结论/无需修改/无需操作，
     零候选、零写入，不把条件句当成必须执行；只有条件成立且确需产出候选时才 execute。
-    以实际读到的材料和作者给出的条件支持创作判断，向作者说明与当前创作问题有关的发现、材料用途及缺口。
+    以实际读到的材料和作者给出的条件支持创作判断；向作者交付结论或方案时，说明与当前创作问题有关的依据与边界。
     不得声称已检查未读材料。
     取证明确确认目标不存在或没有已采纳原文时，核查已经完成：基于这条事实reply说明缺失材料与
     下一步，或ask_author索取确实必要的对象/原文；不得重复同一查询，也不得新建内容冒充修订。

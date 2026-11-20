@@ -113,7 +113,7 @@ ADR-0023 将 agentic loop 从"每步问模型"迁到"计划驱动机械推进"�
 > - 普通回复是整段 content，无空行/标题解析、无默认方向/物化动作。需要业务结构时，propose_creative_directions、register_author_content、report_capability_gap 分别保留已有方向、原文候选和缺口语义；不再为普通回复加第二次分类调用。
 > - 原文登记必须显式来源，应用逐字读取源消息并走既有候选/去重/采纳，不由模型提供替代正文；旧 action=reply/frame_type=capability_gap 联合条件在迁移时撤销，来源与主权保护保留。
 > - 初始与续行的模型停等只调 ask_author；question/options 必填、options 可空，选项/自由文本绑定实际问题、run、goal version 和来源，旧问题不可回复新任务。continuation_decision 只允许 continue。应用预算/失活/no_progress 等运行状态沿现有机制。
-> - 探索只经 judgment_decision{action: explore, explore_request}，不同时暴露底层 native 探索工具。execute/plan/explore 及计划组合按 UA-01 的 profile 矩阵验证，整组通过后才派发，非法组合不产生部分副作用。
+> - 探索只经 judgment_decision{action: explore, explore_request}，不同时暴露底层 native 探索工具。按B87 §16.23/16.27与VS-00M的现役闭合分支验证：直接explore不产生作者正文，额外作者字段或非空content须拒绝；原始调用来源、参数、观察、预算和系统阅读进度保持。execute保留作者说明；完整计划由单一agent_plan_draft承载，所有合法计划的整体说明均保留，不因只读或内联而隐藏。整组通过后才派发，非法组合不产生部分副作用。
 > - 计划起草/修订也 auto；判断内可内联计划，缺计划时后续起草计真实额外调用；非判断入口仍为专属 plan 工具调用。使命/writer/evaluator 等专用输出不因本决定无依据改协议。
 > - 六项复审后的具体状态/恢复见 UA-01 §2.2.2 A 与 §2.2.3a：空选项始终有系统回复动作；缺口报告结束 run 但明确目标未完成；普通回复按 VS-00D §11.4 留证，不虚构结构字段。B26 QA/OUT矩阵与 B27 §6.1 固定阈值必须分别通过，文档对齐不能代替验收。
 > - 同源不自动等于一致；B27 管输入、范围、证据、效果与规则整合，app 机械检查不取代模型文学判断。文本与工具各自遵守 N-NARR，不能混绑无效尝试或由 app 代写完成结论。

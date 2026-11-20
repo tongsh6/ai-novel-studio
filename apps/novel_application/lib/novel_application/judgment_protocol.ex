@@ -483,7 +483,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content(:judgment_narrative_required) do
     "本次响应未通过契约校验：judgment_narrative_required（缺少作者可见内容）。" <>
       "纯文本回复必须给出非空 content；只输出思考、占位词或仅标点不算回复。" <>
-      "工具响应的 content 必须为 null 或空字符串；ask_author 在 question 提供问题，其他工具在 author_reasoning 提供作者说明。" <>
+      JudgmentToolContract.legal_combination_guidance() <>
       "保留同一作者输入、来源、目标、范围与权限，只补足实际回复。"
   end
 
@@ -767,8 +767,8 @@ defmodule NovelApplication.JudgmentProtocol do
     {"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","author_reasoning":"..."}
     范围写在 dialogue_goal；不要填 target_chapter_ref/modification_scope 等候选 payload 字段（judgment_decision schema 不允许）。
     模型工具调用不代表执行授权。
-    用户可见动作必须有可见文本：纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
-    使用工具时 content 必须为 null 或空字符串，作者正文只来自 question 或 author_reasoning；#{JudgmentToolContract.question_response_guidance()}
+    纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
+    具有作者交付职责的工具按当前契约提供唯一正文。#{JudgmentToolContract.question_response_guidance()}
     覆盖事实约束：若本轮观测明确显示章节正文未覆盖末页（覆盖事实显示“未读>0”），
     不得声称已读全章或全章无矛盾；必须继续读取，或在结论中明确已覆盖范围与未读缺口。
     最终答复收束：作者正文必须给出可直接阅读的结论，不得只写内部推理或空泛过渡语；
@@ -865,7 +865,7 @@ defmodule NovelApplication.JudgmentProtocol do
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
-         {:ok, text, source} <- narrative(result, call, args),
+         {:ok, text, source} <- narrative(operation, result, call, args),
          :ok <- validate_operation(operation, args, options) do
       judgment = normalized(operation, args, call, result, text, source, input)
       validate_inline_plan(judgment, input)
@@ -1068,19 +1068,26 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp narrative(result, nil, _args), do: content_narrative(result, field(result, :content))
+  defp narrative(_operation, result, nil, _args),
+    do: content_narrative(result, field(result, :content))
 
-  defp narrative(result, call, args) do
-    if field(result, :content) in [nil, ""] do
-      with :ok <- AgentNarrativeSource.verify_tool_call(result, call),
-           do: tool_narrative(result, call, args)
+  defp narrative(operation, result, call, args) do
+    with true <- field(result, :content) in [nil, ""],
+         :ok <- AgentNarrativeSource.verify_tool_call(result, call) do
+      if operation == "explore",
+        do: {:ok, nil, nil},
+        else: tool_narrative(result, call, args)
     else
-      reason =
-        if field(call, :name) == "ask_author",
-          do: :author_question_content_conflict,
-          else: :author_narrative_content_conflict
+      false ->
+        reason =
+          if field(call, :name) == "ask_author",
+            do: :author_question_content_conflict,
+            else: :author_narrative_content_conflict
 
-      {:error, reason}
+        {:error, reason}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -1192,19 +1199,24 @@ defmodule NovelApplication.JudgmentProtocol do
       reason_codes: field(args, :reason_codes) || [],
       guidance: field(args, :guidance),
       missing_effect: field(args, :missing_effect),
-      narrative: text,
-      narrative_source: source,
       tool_call_id: field(call, :id),
       provider_result: result,
       plan_result: nil,
       author_input: Map.get(input, :author_text),
-      model_interpretation_status: if(operation == "reply", do: "not_provided", else: "provided"),
-      reply_record: reply_record(operation, args, text, source, input)
+      model_interpretation_status: if(operation == "reply", do: "not_provided", else: "provided")
     }
 
     case operation do
-      "explore" -> judgment
-      _ -> Map.put(judgment, :dialogue_goal, field(args, :dialogue_goal))
+      "explore" ->
+        judgment
+
+      _ ->
+        Map.merge(judgment, %{
+          dialogue_goal: field(args, :dialogue_goal),
+          narrative: text,
+          narrative_source: source,
+          reply_record: reply_record(operation, args, text, source, input)
+        })
     end
   end
 

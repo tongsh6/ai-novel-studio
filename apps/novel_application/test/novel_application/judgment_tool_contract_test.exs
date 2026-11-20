@@ -5,14 +5,22 @@ defmodule NovelApplication.JudgmentToolContractTest do
 
   @moduletag :r05_explore_contract
 
-  test "探索只需读取请求和唯一作者说明，不要求另写目标" do
+  test "探索只提供内部读取请求，不创建作者正文" do
     arguments = %{
       "action" => "explore",
-      "author_reasoning" => "  阅读《灵源账单》全文，核对胜利是否付出代价。\n",
       "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灵源账单"}
     }
 
     assert :ok = validate(arguments)
+  end
+
+  test "探索不接受作者正文字段，空串与 null 也不能作为兼容占位" do
+    arguments = %{action: "explore", explore_request: %{tool: "chapter_read", query: "第一章"}}
+
+    for field <- [:author_reasoning, :author_narrative, :narrative, :question, :content, :reason],
+        value <- ["  先核对原文。\n", "", nil] do
+      assert {:error, :invalid_tool_arguments} = validate(Map.put(arguments, field, value))
+    end
   end
 
   test "探索不接受目标字段，空串与 null 也不能作为兼容占位" do
@@ -20,7 +28,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
       arguments = %{
         action: "explore",
         dialogue_goal: goal,
-        author_reasoning: "需要完整正文才能分析。",
         explore_request: %{tool: "chapter_read", query: "第01章：灵源账单"}
       }
 
@@ -28,7 +35,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
     end
   end
 
-  test "执行保留非空目标与能力，不能借探索契约省略修订范围" do
+  test "执行保留非空目标、能力与作者说明，不能借探索契约省略" do
     arguments = %{
       action: "execute",
       capability: "revise_adopted_content",
@@ -39,7 +46,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
 
     assert :ok = validate(arguments)
 
-    for field <- [:dialogue_goal, :capability],
+    for field <- [:dialogue_goal, :capability, :author_reasoning],
         invalid <- [
           Map.delete(arguments, field),
           Map.put(arguments, field, nil),
@@ -71,7 +78,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
   test "执行和探索的专属字段不能串入另一分支，包括 null 占位" do
     explore = %{
       action: "explore",
-      author_reasoning: "先核对原文。",
       explore_request: %{tool: "prose_search", query: "灵气账单"}
     }
 
@@ -100,7 +106,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
   end
 
   test "探索必须提供完整读取请求，不能用空请求或额外字段替代" do
-    arguments = %{action: "explore", author_reasoning: "先核对原文。"}
+    arguments = %{action: "explore"}
     assert {:error, :invalid_tool_arguments} = validate(arguments)
 
     for request <- [
@@ -116,14 +122,17 @@ defmodule NovelApplication.JudgmentToolContractTest do
     end
   end
 
-  test "对外工具仍是根 object，合法探索和执行都满足真实公布的共同约束" do
+  test "对外工具仍是根 object，裸探索和有作者正文的执行都满足公布约束" do
     tool = Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "judgment_decision"))
     assert tool.input_schema.type == "object"
+    assert tool.input_schema.required == ["action"]
+    assert tool.description =~ "judgment_decision 的 explore 只允许字段 action、explore_request"
+    assert tool.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
+    assert tool.description =~ "execute 只填一个目标 ref 字段"
 
     examples = [
       %{
         action: "explore",
-        author_reasoning: "先核对原文。",
         explore_request: %{tool: "chapter_read", query: "第一章"}
       },
       %{
@@ -137,11 +146,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
     for arguments <- examples do
       assert JudgmentToolContract.valid?(arguments, tool.input_schema)
       refute JudgmentToolContract.valid?(Map.delete(arguments, :action), tool.input_schema)
-
-      refute JudgmentToolContract.valid?(
-               Map.delete(arguments, :author_reasoning),
-               tool.input_schema
-             )
     end
   end
 

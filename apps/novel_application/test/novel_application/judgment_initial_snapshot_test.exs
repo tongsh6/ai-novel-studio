@@ -161,8 +161,10 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
           decision[:input_schema]
 
       assert %{"type" => "object", "additionalProperties" => false} = schema
-      assert Enum.sort(schema["required"]) == ~w(action author_reasoning)
+      assert schema["required"] == ["action"]
       assert schema["properties"]["dialogue_goal"]["type"] == "string"
+      assert schema["properties"]["author_reasoning"]["type"] == "string"
+      assert schema["properties"]["capability"]["type"] == "string"
       refute Map.has_key?(schema, "anyOf")
 
       if target == "responses_api" do
@@ -355,6 +357,23 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     {_request, repeated} = production_request(Map.put(changed_refs, :transcript, third))
     assert repeated.messages == third.messages
+  end
+
+  test "固定 profile 的 schema 不随动态来源/对象/权限变化" do
+    first =
+      JudgmentProtocol.request_for_production(
+        input(capabilities: ["prose_writing"], explore: true)
+      )
+
+    second =
+      JudgmentProtocol.request_for_production(
+        input(capabilities: [], author_content_sources: ["other"])
+      )
+
+    assert first.tools == second.tools
+    assert first.tools == JudgmentToolContract.tools(:judgment)
+    assert RequestIR.Tools.tool_choice(first) == "auto"
+    refute first.messages == second.messages
   end
 
   describe "B71：judgment Request IR" do

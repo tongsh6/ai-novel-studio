@@ -216,22 +216,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute_receive {:provider_request, _}, 10
   end
 
-  test "固定 profile 的 schema 不随动态来源/对象/权限变化" do
-    first =
-      JudgmentProtocol.request_for_production(
-        input(capabilities: ["prose_writing"], explore: true)
-      )
-
-    second =
-      JudgmentProtocol.request_for_production(
-        input(capabilities: [], author_content_sources: ["other"])
-      )
-
-    assert first.tools == second.tools
-    assert RequestIR.Tools.tool_choice(first) == "auto"
-    refute first.messages == second.messages
-  end
-
   test "提问以question唯一交付，原字节与选项均绑定实际Provider字段" do
     for options <- [
           [],
@@ -452,7 +436,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(execution([response("", [gap])]), %{}, input())
   end
 
-  test "判断工具只交付 author_reasoning；相同或空白的第二正文也不能被吞掉" do
+  test "作者说明工具与内部探索都拒绝非空 content，不吞掉额外正文" do
     text = "  只核对已有资料，不会保存或写入作品。\n"
 
     args = %{
@@ -463,12 +447,20 @@ defmodule NovelApplication.JudgmentProtocolTest do
     }
 
     tool = call("judgment_decision", args)
-    protocol_input = input(capabilities: ["work_archive_read"])
 
-    for content <- [text, "另一份说明。", "  "] do
+    protocol_input =
+      input(capabilities: ["work_archive_read"], explore: true, explore_tools: ["chapter_read"])
+
+    read_call =
+      call("judgment_decision", %{
+        action: "explore",
+        explore_request: %{tool: "chapter_read", query: "第一章"}
+      })
+
+    for candidate <- [tool, read_call], content <- [text, "另一份说明。", "  "] do
       assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, state} =
                JudgmentProtocol.request_judgment(
-                 execution([response(content, [tool])]),
+                 execution([response(content, [candidate])]),
                  %{},
                  protocol_input
                )
@@ -517,28 +509,44 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
   end
 
-  test "相同作者说明不能掩盖判断能力参数被替换，完整调用必须绑定原输出" do
-    args = %{
-      action: "execute",
-      capability: "character_design",
-      dialogue_goal: "设计人物",
-      author_reasoning: "根据现有材料提出候选。"
-    }
+  test "有正文执行与无正文探索都校验原调用，不接受被替换的参数、身份或正文" do
+    execute =
+      call("judgment_decision", %{
+        action: "execute",
+        capability: "character_design",
+        dialogue_goal: "设计人物",
+        author_reasoning: "根据现有材料提出候选。"
+      })
 
-    original = response("", [call("judgment_decision", args)])
-    changed = Map.put(args, :capability, "world_building")
-    result = %{original | tool_calls: [call("judgment_decision", changed)]}
+    read =
+      call("judgment_decision", %{
+        action: "explore",
+        explore_request: %{tool: "chapter_read", query: "  第一章\n"}
+      })
 
-    assert {:error, {:judgment_protocol_violation, :tool_call_not_bound_to_provider_output},
-            state} =
-             JudgmentProtocol.request_judgment(
-               execution([result]),
-               %{},
-               input(capabilities: ["character_design", "world_building"])
-             )
+    for {original, changed_call} <- [
+          {response("", [execute]), put_in(execute.arguments.capability, "world_building")},
+          {response("", [read]), put_in(read.arguments.explore_request.query, "另一章")},
+          {response("", [read]), %{read | id: "forged-native-call"}},
+          {response("原响应仍有正文。", [read]), read}
+        ] do
+      result = %{original | content: "", tool_calls: [changed_call]}
 
-    assert state.provider_call_count == 2
-    assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
+      assert {:error, {:judgment_protocol_violation, :tool_call_not_bound_to_provider_output},
+              state} =
+               JudgmentProtocol.request_judgment(
+                 execution([result]),
+                 %{},
+                 input(
+                   capabilities: ["character_design", "world_building"],
+                   explore: true,
+                   explore_tools: ["chapter_read"]
+                 )
+               )
+
+      assert state.provider_call_count == 2
+      assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
+    end
   end
 
   @tag :r05_explore_contract
@@ -564,20 +572,25 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         action: "explore",
-        author_reasoning: "核对全文。",
         explore_request: %{tool: "chapter_read", query: "chapter:one"}
       })
 
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [explore])]),
-               %{},
-               input(explore: true, explore_tools: ["chapter_read"])
-             )
+    for content <- [nil, ""] do
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([response(content, [explore])]),
+                 %{},
+                 input(explore: true, explore_tools: ["chapter_read"])
+               )
 
-    assert judgment.action == "explore"
-    refute Map.has_key?(judgment, :dialogue_goal)
-    assert judgment.narrative == "核对全文。"
+      assert judgment.action == "explore"
+
+      assert Map.take(judgment, [:dialogue_goal, :narrative, :narrative_source, :reply_record]) ==
+               %{}
+
+      assert judgment.provider_result.provider_output.content.tool_calls == [explore]
+      assert judgment.tool_call_id == explore.id
+    end
 
     assert {:error, {:judgment_protocol_violation, :exploration_not_available}, _state} =
              JudgmentProtocol.request_judgment(execution([response("", [explore])]), %{}, input())
@@ -1468,7 +1481,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "author_reasoning" => "作者指代历史原文，先取证。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
 
@@ -1522,22 +1534,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   @tag :r05_explore_contract
-  test "M16：explore 的旧目标与执行字段沿原调用纠错，最终只接受纠正来源" do
-    request = JudgmentProtocol.request_for_production(input())
-    decision = Enum.find(request.tools, &(&1.name == "judgment_decision"))
-    assert decision.input_schema.type == "object"
-    assert Enum.sort(decision.input_schema.required) == ~w(action author_reasoning)
-
-    assert decision.description =~
-             "judgment_decision 的 explore 只允许字段 action、author_reasoning、explore_request"
-
-    assert decision.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
-    assert decision.description =~ "execute 只填一个目标 ref 字段"
-
+  test "M16：explore 的旧目标与执行字段沿原调用纠错，最终只接受纠正的读取请求" do
     good =
       call("judgment_decision", %{
         "action" => "explore",
-        "author_reasoning" => "  核对《灯楼夜雨》的完整正文，再判断代价是否充分。\n",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
       |> Map.put(:id, "corrected-explore")
@@ -1561,14 +1561,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
       assert judgment.action == "explore"
       assert judgment.provider_call_count == 2
-      refute Map.has_key?(judgment, :dialogue_goal)
-      assert judgment.narrative == good.arguments["author_reasoning"]
-      assert judgment.narrative_source.provider_call_ref == "corrected-provider"
 
-      assert :ok =
-               AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
-                 "run-corrected-provider" => corrected_result.provider_output
-               })
+      assert Map.take(judgment, [:dialogue_goal, :narrative, :narrative_source, :reply_record]) ==
+               %{}
+
+      assert judgment.provider_result == corrected_result
+      assert judgment.tool_call_id == good.id
 
       assert_receive {:provider_request, _first}
       assert_receive {:provider_request, corrected}
@@ -1773,7 +1771,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "author_reasoning" => "还需覆盖末页。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
       })
 
@@ -1914,7 +1911,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     quality_explore =
       call("judgment_decision", %{
         "action" => "explore",
-        "author_reasoning" => "需要正文才能判断质量。",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第02章：井底回声"}
       })
 
@@ -2348,7 +2344,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
                  response("", [
                    call("judgment_decision", %{
                      "action" => "explore",
-                     "author_reasoning" => "先读章计划",
                      "explore_request" => %{"tool" => "chapter_read", "query" => "第02章"}
                    })
                  ])

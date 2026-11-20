@@ -1024,7 +1024,13 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
   defp arguments_of(result) do
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
     assert result.content == ""
-    assert is_binary(args["author_reasoning"])
+
+    if args["action"] == "explore" do
+      assert Enum.sort(Map.keys(args)) == ~w(action explore_request)
+    else
+      assert is_binary(args["author_reasoning"])
+    end
+
     refute Map.has_key?(args, "reason")
     args
   end
@@ -1550,7 +1556,13 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
     assert [%{"name" => "judgment_decision", "arguments" => arguments}] = result.tool_calls
     assert result.content == ""
-    assert is_binary(arguments["author_reasoning"])
+
+    if arguments["action"] == "explore" do
+      assert Enum.sort(Map.keys(arguments)) == ~w(action explore_request)
+    else
+      assert is_binary(arguments["author_reasoning"])
+    end
+
     refute Map.has_key?(arguments, "reason")
     arguments
   end

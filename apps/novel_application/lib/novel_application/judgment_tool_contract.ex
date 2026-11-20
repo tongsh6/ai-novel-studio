@@ -5,12 +5,12 @@ defmodule NovelApplication.JudgmentToolContract do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
 
-  @version "b26-tools-v3"
+  @version "b26-tools-v4"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
   # 纠错回执共用，避免两处各写一份而导致漂移（B27 CP4 task-16）。
-  @legal_combination_guidance "工具组合规则：一次只返回一个工具；需要完整计划时只调用 agent_plan_draft，判断操作只调用 judgment_decision。普通回复不调用工具。工具响应的 content 必须为 null 或空字符串，作者说明只来自该工具的 question 或 author_reasoning。"
+  @legal_combination_guidance "工具组合规则：一次只返回一个工具；需要完整计划时只调用 agent_plan_draft，判断操作只调用 judgment_decision。普通回复不调用工具。直接 explore 只提交读取请求，不提供作者正文。其余工具的作者正文只来自 question 或 author_reasoning；工具响应的 content 必须为 null 或空字符串。"
 
   @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。选择按钮标签必须非空且可区分，不能只靠首尾或重复空白；仅用已知事实区分，材料仍不可辨认时提出开放问题并用空 options，不追加内部引用或序号制造区分。"
 

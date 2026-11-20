@@ -265,10 +265,7 @@ defmodule NovelAgent.Provider.Stub do
   defp mission_statement(false, _foreshadow),
     do: "本章按计划推进，不引入新的主导冲突。"
 
-  defp judgment_narrative_content(text) do
-    {action, _capability} = judgment_action(text)
-    {action, _extra} = shape_judgment_action(action, text)
-
+  defp judgment_narrative_content(action, text) do
     cond do
       action == "reply" and String.contains?(text, "## 探索观察") ->
         judgment_narrative(action) <> "\n\n" <> exploration_cited_reply(text)
@@ -363,50 +360,63 @@ defmodule NovelAgent.Provider.Stub do
   defp judgment_decision_result(prompt, text) do
     {action, capability} = judgment_action(text)
     {action, extra} = shape_judgment_action(action, text)
-    narrative = judgment_narrative_content(text)
-    goal = stub_dialogue_goal(text)
 
-    calls =
+    {content, calls} =
       cond do
+        action == "explore" ->
+          {"",
+           [
+             %{
+               name: "judgment_decision",
+               arguments: %{action: "explore", explore_request: extra["explore_request"]}
+             }
+           ]}
+
         stub_archive_write?(text) ->
-          [
-            %{
-              name: "register_author_content",
-              arguments: %{
-                author_content_source_ref: "current",
-                dialogue_goal: goal,
-                author_reasoning: narrative
-              }
-            }
-          ]
+          {"",
+           [
+             %{
+               name: "register_author_content",
+               arguments: %{
+                 author_content_source_ref: "current",
+                 dialogue_goal: stub_dialogue_goal(text),
+                 author_reasoning: judgment_narrative_content(action, text)
+               }
+             }
+           ]}
 
         action == "reply" ->
-          []
+          {judgment_narrative_content(action, text), []}
 
         action == "plan" ->
           packet = agent_plan_draft_response_for_profile("judgment_plan_v1", prompt)
-          [%{name: "agent_plan_draft", arguments: plan_tool_arguments(packet)}]
+          {"", [%{name: "agent_plan_draft", arguments: plan_tool_arguments(packet)}]}
 
         action == "await_author" ->
-          [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
+          {"",
+           [
+             %{
+               name: "ask_author",
+               arguments: %{question: judgment_narrative_content(action, text), options: []}
+             }
+           ]}
 
         true ->
-          args = %{action: action, author_reasoning: narrative}
+          args = %{action: action}
 
           args =
-            if action == "execute",
-              do: Map.merge(args, %{capability: capability, dialogue_goal: goal}),
-              else: args
+            if action == "execute" do
+              Map.merge(args, %{
+                capability: capability,
+                dialogue_goal: stub_dialogue_goal(text),
+                author_reasoning: judgment_narrative_content(action, text)
+              })
+            else
+              args
+            end
 
-          args =
-            if action == "explore",
-              do: Map.put(args, :explore_request, extra["explore_request"]),
-              else: args
-
-          [%{name: "judgment_decision", arguments: args}]
+          {"", [%{name: "judgment_decision", arguments: args}]}
       end
-
-    content = if calls == [], do: narrative, else: ""
 
     Result.new(content, nil, tool_calls: calls)
   end
@@ -523,7 +533,6 @@ defmodule NovelAgent.Provider.Stub do
       "reply" -> "你想直接和我讨论这个话题；当前作品摘要里已经有回答需要的信息，我直接回复你。"
       "execute" -> "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
       "plan" -> "这件事涉及多个相互依赖的步骤，我需要先制定一份可预览的计划再逐步推进。"
-      "explore" -> "回答这个问题需要正文细节，但当前只有结构摘要；我需要先检索作品事实。"
       "await_author" -> "你的意图我还不能确定，先停下来向你确认，避免做错方向。"
     end
   end

@@ -385,7 +385,6 @@ defmodule NovelApplication.SessionMessageReadTest do
             {:decision,
              %{
                "action" => "explore",
-               "author_reasoning" => "读取上一轮对话的原文。",
                "explore_request" => %{
                  "tool" => "session_message_read",
                  "query" => Jason.encode!(locator)

@@ -157,6 +157,105 @@ defmodule NovelAgent.Provider.OpenAIResponsesWireTest do
       assert body.tool_choice == %{type: "function", name: "read_character"}
     end
 
+    test "Responses 真实出站保留 action-only 约束并返回无作者说明的探索调用" do
+      parent = self()
+
+      raw_arguments =
+        ~s({"action":"explore","explore_request":{"tool":"chapter_read","query":"chapter:wire"}})
+
+      eventsource = fn url, body, _opts, on_data ->
+        send(parent, {:responses_bare_explore, url, body})
+
+        on_data.(
+          sse(%{"type" => "response.created", "response" => %{"model" => "gpt-5-fixture"}})
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.output_item.done",
+            "output_index" => 0,
+            "item" => %{
+              "type" => "function_call",
+              "id" => "fc_private_explore",
+              "call_id" => "call-explore",
+              "name" => "judgment_decision",
+              "arguments" => raw_arguments
+            }
+          })
+        )
+
+        on_data.(
+          sse(%{
+            "type" => "response.completed",
+            "response" => %{
+              "model" => "gpt-5-fixture",
+              "usage" => %{"input_tokens" => 7, "output_tokens" => 2}
+            }
+          })
+        )
+
+        {:ok, 200, ""}
+      end
+
+      schema = %{
+        type: "object",
+        properties: %{
+          action: %{type: "string", enum: ["execute", "explore"]},
+          dialogue_goal: %{type: "string", minLength: 1},
+          author_reasoning: %{type: "string", minLength: 1},
+          capability: %{type: "string", minLength: 1},
+          explore_request: %{
+            type: "object",
+            properties: %{tool: %{type: "string"}, query: %{type: "string"}},
+            required: ["tool", "query"],
+            additionalProperties: false
+          }
+        },
+        required: ["action"],
+        additionalProperties: false
+      }
+
+      prompt =
+        TestRequestIR.ir(
+          [TestRequestIR.author("读取这一章后分析，不生成候选。")],
+          tools: [TestRequestIR.tool("judgment_decision", schema)],
+          projection: %{tool_choice: "auto"}
+        )
+
+      assert {:ok, %{result: result}} =
+               OpenAI.execute(
+                 responses_stream_state(eventsource),
+                 nil,
+                 prompt,
+                 %InferenceParams{},
+                 provider_ctx()
+               )
+
+      assert result.content == ""
+
+      assert [
+               %{
+                 "id" => "call-explore",
+                 "name" => "judgment_decision",
+                 "arguments" => %{
+                   "action" => "explore",
+                   "explore_request" => %{"tool" => "chapter_read", "query" => "chapter:wire"}
+                 },
+                 "raw_arguments" => ^raw_arguments
+               }
+             ] = result.tool_calls
+
+      assert_receive {:responses_bare_explore, url, body}
+      assert url == "https://api.openai.com/v1/responses"
+      assert [tool] = body.tools
+      assert tool.name == "judgment_decision"
+      assert Map.fetch(tool, :strict) == {:ok, false}
+      assert tool.parameters == RequestIR.json_value(schema)
+      assert tool.parameters["required"] == ["action"]
+      assert tool.parameters["properties"]["author_reasoning"]["type"] == "string"
+      assert body.tool_choice == "auto"
+    end
+
     test "canonical IR 的 tool 结果回投为 function_call_output，原参数与 call_id 保持（SSE）" do
       parent = self()
       raw_arguments = ~s({"query":"沈砚"})

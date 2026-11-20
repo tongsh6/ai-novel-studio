@@ -25,7 +25,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   @prose "陈九斤蹲在矿区的出气口边上，把今天的灵气账单摊开在膝盖上。宗门的抽成又涨到了七成。"
 
   @tag :r05_explore_contract
-  test "explore 先纠错闭合原调用再发布，真实检索后仍完整回环并 reply 收束" do
+  test "explore 越界正文先纠错闭合原调用，内部读取后由真实 reply 收束" do
     work_id = seed_work_with_prose()
     test_pid = self()
 
@@ -55,7 +55,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     snapshot1 = %{empty | stage_state: context_result.stage_state}
 
-    # 判断①：旧目标字段先失败并闭合调用，纠正响应才读取（2 次判断；检索本身 0 调用）。
+    # 判断①：作者正文字段先失败并闭合调用，裸结构纠正后读取（2 次判断；检索本身 0 调用）。
     assert {:execute, judgment_step1, _d1, _m1} = spec.next_step_planner.(run, 2, snapshot1)
     assert {:ok, explore_result} = judgment_step1.(run, 2, snapshot1)
 
@@ -78,8 +78,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert failed.reason_code == "invalid_tool_arguments"
     assert [rejected] = Enum.filter(corrected_blocks, &(&1.type == "tool_call"))
     assert failed.call_id == rejected.call_id
-    assert rejected.arguments["dialogue_goal"] == "取得章节引用"
-    assert rejected.arguments["author_reasoning"] == "旧探索说明。"
+    refute Map.has_key?(rejected.arguments, "dialogue_goal")
+    assert rejected.arguments["author_reasoning"] == narrative
     assert {:ok, []} = RequestIR.pending_call_ids(corrected_prompt)
 
     first_exploration =
@@ -97,12 +97,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
     assert stage_event.payload.tool == "prose_search"
     assert stage_event.payload.summary =~ "第01章"
-    assert_received {:stage_event, %{event_type: :judgment_decided, payload: payload}}
-    assert payload.author_narrative == narrative
-    source = payload.author_narrative_source
-    assert source.source_type == "provider_output_tool_narrative"
-    assert source.tool_call_narrative_field == "author_reasoning"
-    assert source.source_hash == :crypto.hash(:sha256, narrative) |> Base.encode16(case: :lower)
     refute_received {:stage_event, %{event_type: :judgment_decided}}
 
     # 回环：planner 未见 settle → 再入判断步
@@ -129,13 +123,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     [observation_block] = observation_blocks(observed_prompt)
 
-    accepted =
-      Enum.find(observed_prompt.messages, &(&1[:provider_call_ref] == source.provider_call_ref))
+    accepted = observed_prompt.messages |> Enum.filter(&(&1.role == "assistant")) |> List.last()
 
-    assert accepted.provider_run_ref == source.provider_run_ref
+    assert is_binary(accepted.provider_call_ref)
+    assert is_binary(accepted.provider_run_ref)
     assert [accepted_call] = accepted.blocks
-    assert accepted_call.arguments["author_reasoning"] == narrative
-    refute Map.has_key?(accepted_call.arguments, "dialogue_goal")
+    assert Map.take(accepted_call.arguments, ["author_reasoning", "dialogue_goal"]) == %{}
     assert observation_block.call_id == accepted_call.call_id
     assert Jason.encode!(observation_block.content) =~ "灵气账单"
 
@@ -173,7 +166,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
           {:decision,
            %{
              "action" => "explore",
-             "author_reasoning" => "先核对正文来源。",
              "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
            }}
         else
@@ -224,11 +216,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     provider_execution =
       scripted_judgment_execution(fn _prompt, _prompt_text ->
-        {:decision,
-         %{
-           "action" => "explore",
-           "author_reasoning" => "还需要核对作品事实。"
-         }}
+        {:decision, %{"action" => "explore"}}
       end)
 
     assert {:ok, spec} =
@@ -327,6 +315,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     refute event1.summary =~ "{"
     assert event1.payload.tool == "chapter_read"
     assert event1.payload.next_offset == 6000
+    refute_received {:stage_event, %{event_type: :judgment_decided}}
 
     # signature 不含 sequence：同 query 才可能重复，续读页不会误停（I-READ-5）。
     # 首次直接读取作者明确给出的章名；真实观察提供唯一 ref 和下一页位置。
@@ -375,6 +364,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert event2.summary =~ "第 6001–7000 字符"
     refute event2.summary =~ "chapter_read"
     refute event2.summary =~ "{"
+    refute_received {:stage_event, %{event_type: :judgment_decided}}
 
     # 观察以 call-bound block 回流；续读输入直接来自 next_offset 与 coverage。
     prompt_maps = drain_prompt_maps([])
@@ -401,6 +391,17 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     assert reply_result.turn_result.assistant_message.text =~ @last_page_anchor
     assert reply_result.stage_state.judgment_settled == "completed"
+    assert_received {:stage_event, %{event_type: :judgment_decided, payload: reply}}
+    assert reply.action == "reply"
+    assert reply.author_narrative == reply_result.turn_result.assistant_message.text
+    assert reply.author_narrative_source.source_type == "provider_output"
+
+    assert reply.author_narrative_source.source_byte_range == %{
+             start: 0,
+             length: byte_size(reply.author_narrative)
+           }
+
+    refute_received {:stage_event, %{event_type: :judgment_decided}}
 
     # 第三轮：历史 body 完整保留；最新 scope 关闭探索，旧目录只作证据不再生效。
     [third_prompt_map] = drain_prompt_maps([])
@@ -618,7 +619,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
       case observation_blocks(prompt) do
         [] ->
-          explore_chapter_decision("先读取完整章节的第一页。", @full_read_title)
+          explore_chapter_decision(@full_read_title)
 
         [page] ->
           assert is_integer(page.next_offset)
@@ -629,7 +630,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
               offset: page.next_offset
             })
 
-          explore_chapter_decision("继续读取章节剩余正文。", query)
+          explore_chapter_decision(query)
 
         pages ->
           assert Enum.any?(pages, &String.contains?(&1.content["summary"], @last_page_anchor))
@@ -638,11 +639,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     end)
   end
 
-  defp explore_chapter_decision(narrative, query) do
+  defp explore_chapter_decision(query) do
     {:decision,
      %{
        "action" => "explore",
-       "author_reasoning" => narrative,
        "explore_request" => %{"tool" => "chapter_read", "query" => query}
      }}
   end
@@ -658,7 +658,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       {:decision,
        %{
          "action" => "explore",
-         "author_reasoning" => "先读取缺少的作品事实。",
          "explore_request" => %{"tool" => tool, "query" => query}
        }}
     end)
@@ -686,7 +685,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
       arguments = %{
         "action" => "explore",
-        "author_reasoning" => narrative,
         "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
       }
 
@@ -698,8 +696,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
           {:decision, arguments}
 
         {[], false} ->
-          {:decision,
-           Map.merge(arguments, %{"dialogue_goal" => "取得章节引用", "author_reasoning" => "旧探索说明。"})}
+          {:decision, Map.put(arguments, "author_reasoning", narrative)}
       end
     end)
   end
