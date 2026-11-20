@@ -103,6 +103,7 @@ be found at <https://hexdocs.pm/novel_application>.
 - [judgment_protocol_test.exs](test/novel_application/judgment_protocol_test.exs)：两次非法 pending ref 的终局拒绝保留 2 次实际调用、2 assistant+2 failed validation、原始参数/id 与 pcall/prun，且无第三次调用；混合校验/传输错误、全传输错误、0 调用前置错误与续行历史前缀回归。
 - [agent_run_pending_revision_flow_test.exs](test/novel_application/agent_run_pending_revision_flow_test.exs)：真实 `Execution.dependency`/Gateway + `SliceVerify` 负例在作者消息带 `B71_INVALID_PENDING_REF` 且显式 test env 开启时注入非空非法 ref（不再依赖旧 fixture 的 null target/误路由），驱动真实 run 失败后，DB `authoring_transcript`、ProviderRun 与同次 JSONL 引用同一批调用，consumed 2、0 writer/canon；判断成功后的候选执行失败保留最新会话且预算不重算历史。
 - [authoring_session_test.exs](test/novel_application/authoring_session_test.exs)：失败 carrier 只带真实调用数/transcript，inner 更新会话优先、缺会话时继承；nested/flat 归并、显式 nil、其他 nested 字段保留与不一致载体拒绝回归。
+- [authoring_session_provider_call_count_test.exs](test/novel_application/authoring_session_provider_call_count_test.exs)：仅按真实 `execution_counts.provider_calls` 归集消耗；覆盖 0/1/2 次、JSON 往返及缺失/非法形状，不以预算或工具名称推算调用数。
 
 ## B71 质量发现修订 fixture（VS-00E CP3 / VS-00L §16.7）
 

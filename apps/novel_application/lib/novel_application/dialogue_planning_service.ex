@@ -28,6 +28,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AuthorContentRegistration
   alias NovelApplication.AuthoringTaskPolicy
   alias NovelApplication.ContextAssembler
+  alias NovelApplication.ExplorationPolicy
   alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
@@ -633,13 +634,13 @@ defmodule NovelApplication.DialoguePlanningService do
   # （下一轮判断给最终作者可见结论/必要提问）。不切 profile、不产生 turn_result。
   defp execute_planned_explorations(judgment, steps, run, sequence, snapshot) do
     explorations = judgment_explorations(judgment_stage_state(snapshot))
-    budget = ExplorationService.budget(explorations)
+    budget = ExplorationPolicy.budget(explorations)
 
     with :ok <-
-           ExplorationService.validate_inline_plan(judgment.plan_result.plan,
+           ExplorationPolicy.validate_inline_plan(judgment.plan_result.plan,
              exploration_budget: budget,
              explore: budget.open?,
-             explore_tools: ExplorationService.allowed_tools(budget)
+             explore_tools: ExplorationPolicy.allowed_tools(budget)
            ) do
       work_id = run.work_id
       log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
@@ -978,7 +979,7 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_protocol_input(input, run, context, explorations, opts \\ []) do
-    budget = ExplorationService.budget(explorations)
+    budget = ExplorationPolicy.budget(explorations)
     author_input = TurnInteractionService.author_input(input, run)
     author_text = author_input.text
     write_judgment? = write_judgment_profile?(run)
@@ -1015,7 +1016,7 @@ defmodule NovelApplication.DialoguePlanningService do
           |> Enum.map(& &1.turn_ref),
         exploration_budget: budget,
         explore: budget.open?,
-        explore_tools: ExplorationService.allowed_tools(budget)
+        explore_tools: ExplorationPolicy.allowed_tools(budget)
       ]
     }
 
@@ -1118,7 +1119,7 @@ defmodule NovelApplication.DialoguePlanningService do
   # 纯只读步骤在判断循环完成真实读取后回到模型收束；创作步骤仍逐步过执行门。
   defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context, snapshot) do
     with {:ok, plan, inline_meta} <- selected_judgment_plan(run, :judgment_plan, judgment) do
-      case ExplorationService.inline_plan_steps(plan) do
+      case ExplorationPolicy.inline_plan_steps(plan) do
         steps when is_list(steps) and steps != [] ->
           execute_planned_explorations(judgment, steps, run, sequence, snapshot)
 
@@ -1482,7 +1483,7 @@ defmodule NovelApplication.DialoguePlanningService do
       |> Map.put(:coverage_note, coverage_note(explorations))
       |> Map.put(
         :continue_hint,
-        continue_hint(explorations, ExplorationService.budget(explorations))
+        continue_hint(explorations, ExplorationPolicy.budget(explorations))
       )
 
     transcript =
@@ -2406,7 +2407,7 @@ defmodule NovelApplication.DialoguePlanningService do
     # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
     # 再判断 1 step（单调用，含纠错余量）；B27 CP4 M03 起含长章续读额度
     # （普通探索 2 轮 + 同章续读最多 8 轮，续读在读完末页即关闭）。
-    explore_allowance = ExplorationService.max_steps() * 2
+    explore_allowance = ExplorationPolicy.max_steps() * 2
 
     %{
       max_steps: max_budget(routed, :max_steps) + 2 + explore_allowance,

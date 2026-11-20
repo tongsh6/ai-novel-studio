@@ -3,9 +3,84 @@ defmodule NovelCommon.RequestIR.OperationTest do
 
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Operation
+  alias NovelCommon.RequestIR.Projection
 
   @author "  请先给计划，保留我的原话。\r\nΩ é 雪。\n"
   @run %{run_id: "run-operation", work_id: "work-operation", goal: %{text: "先计划后创作", version: 1}}
+
+  describe "独立文本操作的显式作者来源" do
+    test "真实原文与引用独立保留，应用材料与 Base 不混入作者来源" do
+      raw = "  请说明这次工具结果。\r\n保留我的原字节。\n"
+      ref = "turn:actual-author-input"
+      material_refs = [%{ref: "tool:prose_writing"}, %{ref: "pcall:actual-result"}]
+      attrs = %{profile_ref: "result_narration", text: "工具实际结果", source_refs: material_refs}
+
+      request =
+        Operation.text_operation(Map.merge(attrs, %{author_text: raw, source_input_ref: ref}))
+
+      assert :ok = RequestIR.validate(request)
+      assert request.run == %{profile_ref: "result_narration"}
+      assert [base, author] = request.messages
+      assert base.role == "application_base"
+      assert base.source_refs == material_refs
+      assert base.base_refs == material_refs
+      assert RequestIR.usable_base_refs(request) == material_refs
+
+      assert author ==
+               RequestIR.message(:user, :author, [RequestIR.text_block(raw)], %{
+                 source_refs: [%{ref: ref}]
+               })
+
+      assert request.refs == %{base_refs: material_refs, observation_refs: [], used_refs: []}
+      refute String.contains?(Map.get(request.system, :instructions, ""), raw)
+
+      for target <- ["chat_completions", "responses_api", "anthropic_messages"] do
+        assert {:ok, body} = Projection.project(request, target)
+
+        author_message =
+          case target do
+            "chat_completions" ->
+              %{role: "user", content: raw}
+
+            "responses_api" ->
+              %{type: "message", role: "user", content: [%{type: "input_text", text: raw}]}
+
+            "anthropic_messages" ->
+              %{role: "user", content: [%{type: "text", text: raw}]}
+          end
+
+        messages = Map.get(body, :messages, Map.get(body, :input, []))
+        assert Enum.count(messages, &(&1 == author_message)) == 1
+      end
+
+      without_author = Operation.text_operation(attrs)
+      assert without_author.messages == [base]
+      assert without_author.refs == request.refs
+    end
+
+    test "缺少配对来源或空白原文明确拒绝，不从目标或工具来源补作者身份" do
+      attrs = %{
+        profile_ref: "result_narration",
+        text: "工具结果",
+        source_refs: [%{ref: "tool:result"}]
+      }
+
+      for {text, ref} <- [
+            {"原话", nil},
+            {nil, "turn:author"},
+            {"", "turn:author"},
+            {" \n", "turn:author"},
+            {"原话", ""},
+            {"原话", " \n"},
+            {123, "turn:author"},
+            {"原话", []}
+          ] do
+        assert_raise ArgumentError, "invalid text operation author input", fn ->
+          Operation.text_operation(Map.merge(attrs, %{author_text: text, source_input_ref: ref}))
+        end
+      end
+    end
+  end
 
   test "首操作用完整规则建立 Base，作者原话独立且字节不变，动态范围单独追加" do
     spec =

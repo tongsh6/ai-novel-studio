@@ -19,6 +19,7 @@ defmodule NovelApplication.AuthoringTranscript do
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
   alias NovelCommon.RequestIR.MessageCoverage
+  alias NovelCommon.RequestIR.Projection
 
   @type t :: %{
           run: map(),
@@ -186,7 +187,7 @@ defmodule NovelApplication.AuthoringTranscript do
     existing = Enum.find(transcript.messages, &(&1.role == "user" and author_ref(&1) == turn_ref))
 
     cond do
-      existing && text_of(existing.blocks) == author_text ->
+      existing && Projection.text_of(existing.blocks) == author_text ->
         transcript
 
       existing ->
@@ -232,12 +233,6 @@ defmodule NovelApplication.AuthoringTranscript do
         }
       end
     end)
-  end
-
-  defp text_of(blocks) do
-    blocks
-    |> Enum.filter(&(Map.get(&1, :type) == "text"))
-    |> Enum.map_join("", &Map.get(&1, :text, ""))
   end
 
   defp author_ref(message) do

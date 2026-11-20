@@ -401,6 +401,53 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     %{"advanced" => true, "plan_holds" => true, "new_constraint" => nil}
   end
 
+  @doc "按显式首尾锚点构造固定字符长度的已采纳正文夹具。"
+  def long_prose(total, first_page_anchor, long_tail_anchor) do
+    base =
+      "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线，他数着自己的呼吸等回声。"
+
+    pad = total - String.length(first_page_anchor) - String.length(long_tail_anchor)
+    middle = String.duplicate(base, div(pad, String.length(base)) + 1) |> String.slice(0, pad)
+    prose = first_page_anchor <> middle <> long_tail_anchor
+    assert String.length(prose) == total
+    prose
+  end
+
+  @doc "播种一个真实作品、章场及已采纳正文，不启动运行或读取投影。"
+  def seed_chapter_with_prose(prose) do
+    alias NovelApplication.WorkService
+    alias NovelFoundation.Enums.AdoptionStatus
+    alias NovelPersistence.Repo
+    alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
+
+    {:ok, work} = WorkService.create(%{"title" => "CP4 长章作品"})
+
+    volume =
+      %Volume{} |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1}) |> Repo.insert!()
+
+    chapter =
+      %Chapter{}
+      |> Chapter.changeset(%{work_id: work.id, volume_id: volume.id, title: "第01章：灯楼夜雨", seq: 1})
+      |> Repo.insert!()
+
+    scene =
+      %Scene{}
+      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场1", seq: 1})
+      |> Repo.insert!()
+
+    %Draft{}
+    |> Draft.changeset(%{
+      work_id: work.id,
+      scene_id: scene.id,
+      content: prose,
+      status: AdoptionStatus.accepted(),
+      revision: 1
+    })
+    |> Repo.insert!()
+
+    {work.id, "chapter:#{chapter.id}"}
+  end
+
   @doc "正文运行回归共享的完整章节与计划材料。"
   def prose_drafting_context(work_id) do
     %NovelDomain.DialogueContext{

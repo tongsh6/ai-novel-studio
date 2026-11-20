@@ -108,7 +108,8 @@ novel_agent / novel_application / novel_persistence / novel_web → novel_common
   provenance、call_id 绑定时序、禁止工具、used_refs 范围、system 身份引用）。
 - [request_ir_tools_test.exs](test/novel_common/request_ir_tools_test.exs)：工具目录规范化与本次
   选择查询。
-- [request_ir_operation_test.exs](test/novel_common/request_ir_operation_test.exs)：纯阶段构造器。
+- [request_ir_operation_test.exs](test/novel_common/request_ir_operation_test.exs)：纯阶段构造器，
+  独立文本操作的作者原字节/来源配对与三种 wire 投影。
 - [system_identity_test.exs](test/novel_common/system_identity_test.exs)：身份文本/版本/哈希。
 - [system_identity_guard_test.exs](test/novel_common/system_identity_guard_test.exs)：I-SYS-2
   守卫——所有生产 lib 调用点不得自述产品身份。

@@ -15,6 +15,7 @@ defmodule NovelApplication.JudgmentProtocol do
     AuthoringTranscript,
     ChapterRevisionScope,
     CharacterProfile,
+    ExplorationPolicy,
     ExplorationService,
     JudgmentToolContract,
     PendingArtifactWorkflow,
@@ -957,7 +958,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
         with {:ok, plan, meta} <-
                NovelApplication.AgenticPlanDraftPlanner.plan_from_result(run, result),
-             :ok <- ExplorationService.validate_inline_plan(plan, Map.get(input, :options, [])),
+             :ok <- ExplorationPolicy.validate_inline_plan(plan, Map.get(input, :options, [])),
              do: {:ok, %{judgment | plan_result: %{plan: plan, meta: meta}}}
     end
   end
@@ -1015,7 +1016,7 @@ defmodule NovelApplication.JudgmentProtocol do
         {:error, :exploration_not_available}
 
       true ->
-        ExplorationService.validate_requests([explore_request(request)], options)
+        ExplorationPolicy.validate_requests([explore_request(request)], options)
     end
   end
 

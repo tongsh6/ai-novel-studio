@@ -195,8 +195,10 @@ awaiting_author 不灭 run、预算与 no-progress backstop 原样。
 - apps/novel_application/lib/novel_application/dialogue_planning_service.ex
 - apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex
 - apps/novel_application/lib/novel_application/exploration_service.ex
+- apps/novel_application/lib/novel_application/exploration_policy.ex
 - apps/novel_agent/lib/novel_agent/agent_task_profile_registry.ex
 - apps/novel_application/test/novel_application/judgment_protocol_test.exs
+- apps/novel_application/test/novel_application/judgment_plan_protocol_test.exs
 - apps/novel_application/test/novel_application/agent_run_judgment_plan_flow_test.exs
 - quality/acceptance/scenarios/wr02-planning-mission-before-outline.yml
 
