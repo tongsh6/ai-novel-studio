@@ -6,7 +6,7 @@ import { axTurnOutcome, countAxAuthorMessages } from "./authoring_g2_evidence.mj
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { auditDiscussionRequest } from "./authoring_checkpoint_coverage.mjs";
 import { LENGTHS, PREREGISTERED_SOURCE_KIND, SUCCESSOR_MANIFEST_SCHEMA, knownNumberAggregate, prefixComparison, tokenAggregate } from "./request_cost_manifest.mjs";
-import { canonicalCoverageForProviderCall, canonicalReplyForProviderCall, joinNativeCallEvidence, providerTurnMatchesParent, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, canonicalReplyForProviderCall, joinNativeCallEvidence, providerTurnMatchesParent, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -392,31 +392,24 @@ function lastAuthorMessage(messages, author) {
 }
 
 export function canonicalAuthorMessage(record, author, transcript) {
-  const coverage = canonicalCoverageForProviderCall(record, transcript);
-  const facts = requestFactsFromRecord(record);
-  if (!coverage?.ok || !facts.ok) return null;
-  const authors = coverage.retainedMessages.filter(
-    (message) => message.role === "user" && message.provenance === "author",
-  );
-  const textOf = (message) => list(message.blocks).map((block) => block.text ?? "").join("");
-  if (authors.length !== facts.authorMessages.length || authors.some((message, index) =>
-    !list(message.blocks).every((block) => block.type === "text" && typeof block.text === "string") ||
-    textOf(message) !== facts.authorMessages[index].text)) return null;
+  const bindings = canonicalRequestBindingsForProviderCall(record, transcript);
+  if (bindings === null) return null;
+  const authors = bindings.filter(({ canonical }) =>
+    canonical.role === "user" && canonical.provenance === "author");
   const run = transcript.run;
   const reply = canonicalReplyForProviderCall(record, transcript);
   if (!run?.run_id || !providerTurnMatchesParent(record.turn_id, run.parent_turn_ref) ||
     run.work_id !== record.work_id || run.session_id !== record.session_id ||
     ["run_id", "workspace_id", "work_id", "session_id", "parent_turn_ref"].some(
       (key) => reply?.canonical_ref?.[key] !== run[key])) return null;
-  const matches = authors.map((message, ordinal) => ({ message, ordinal })).filter(({ message }) => {
-    const ref = message.canonical_ref;
+  const matches = authors.filter(({ canonical }) => {
+    const message = canonical.raw, ref = message.canonical_ref;
     return ref?.run_id === run.run_id && ref.parent_turn_ref === run.parent_turn_ref &&
       ["workspace_id", "work_id", "session_id"].every((key) => ref[key] === run[key]) &&
       list(message.source_refs).length === 1 && message.source_refs[0]?.ref === run.parent_turn_ref;
   });
-  if (matches.length !== 1 || textOf(matches[0].message) !== author.text) return null;
-  const index = facts.authorMessages[matches[0].ordinal].index;
-  return { message: record.request.body.messages[index], index };
+  if (matches.length !== 1 || matches[0].canonical.text !== author.text) return null;
+  return { message: matches[0].actual.raw, index: matches[0].actual.index };
 }
 
 function findAuthorMessage(record, author, expectedIndex = null, history = null) {

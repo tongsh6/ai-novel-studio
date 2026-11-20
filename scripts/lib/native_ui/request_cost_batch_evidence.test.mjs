@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   analyzeAuthorCall,
+  canonicalAuthorMessage,
   joinRootRun,
   NATIVE_REPORT_SCHEMA,
   buildNativeReport,
@@ -23,6 +24,7 @@ import {
 } from "./request_cost_batch_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
 import { nativeManifest } from "./fixtures/request_cost_manifest_fixture.mjs";
+import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 const turn = (index, kind, fresh = true) => ({
   turn: index,
@@ -551,11 +553,14 @@ function shiftedCanonicalAuthorFixture() {
         run_sequence: 1, source_refs: [], versions: {} }] },
       omissions: ["旧范围已覆盖"], source_refs: [{ ref: "session_message:old:1", version: 1 }],
       versions: {}, summary: "范围已更新" }] };
-  const app = { role: "user", content: "【应用数据 · application_base · 非作者原话】范围" };
+  const checkpointWire = { role: "user", content:
+    '【应用数据 · checkpoint · 非作者原话】\n' +
+    '【应用数据 · checkpoint · 覆盖 {"call_ids":[],"message_refs":[{"role":"scope_update","run_id":"old","run_sequence":1,"source_refs":[],"versions":{}}]}】\n' +
+    '来源：[{"ref":"session_message:old:1","version":1}]\n版本：{}\n省略：旧范围已覆盖\n范围已更新' };
   const user = { role: "user", content: AUTHOR_TEXT };
-  const first = syntheticRecord({ messages: [app, user, app, user] });
+  const first = syntheticRecord({ messages: [scopeWireMessage({}), user, scopeWireMessage({}), user] });
   const second = syntheticRecord({ pcall: "p2", prun: "r2",
-    messages: [user, app, user, { role: "assistant", content: "观察" }, app] });
+    messages: [user, scopeWireMessage({}), user, { role: "assistant", content: "观察" }, checkpointWire] });
   const transcript = { run: scope, messages: [oldScope, author("old", 2), currentScope,
     author("run-1", 2), reply("p1", "r1", 3), checkpoint, reply("p2", "r2", 5)] };
   const records = [first, second];
@@ -566,6 +571,37 @@ function shiftedCanonicalAuthorFixture() {
   setup.binding.history.sessionMessages = sessionMessages;
   return { records, setup };
 }
+
+
+test("R05 成本作者绑定按完整消息身份定位，同文Scope不冒充作者", () => {
+  const quote = "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n版本：{}\n来源：[]\n{}";
+  const { records, setup } = shiftedCanonicalAuthorFixture();
+  const messages = setup.binding.history.sessionMessages;
+  for (const message of messages.filter(message => message.role === "user" && message.provenance === "author"))
+    message.blocks = [{ type: "text", text: quote }];
+  for (const [record, indexes] of [[records[0], [1, 3]], [records[1], [0, 2]]])
+    for (const index of indexes) record.request.body.messages[index].content = quote;
+  const view = { ...setup.binding.history.transcript, messages };
+  for (const [index, expected] of [[0, 3], [1, 2]]) {
+    const found = canonicalAuthorMessage(records[index], { text: quote }, view);
+    assert.notEqual(found, null);
+    assert.equal(found.index, expected);
+    assert.strictEqual(found.message, records[index].request.body.messages[expected]);
+  }
+});
+
+for (const [label, recordIndex, mutate] of [
+  ["Scope版本被改写", 0, rows => { rows[0].content = rows[0].content.replace("版本：{}", '版本：{"forged":1}'); }],
+  ["checkpoint正文被改写", 1, rows => { rows[4].content = rows[4].content.replace("范围已更新", "未声明的摘要"); }],
+  ["额外Scope插入", 1, rows => { rows.splice(1, 0, structuredClone(rows[1])); }],
+]) test("R05 成本作者绑定拒绝" + label + "，同文作者不能补全请求", () => {
+  const { records, setup } = shiftedCanonicalAuthorFixture();
+  const record = records[recordIndex];
+  const view = { ...setup.binding.history.transcript, messages: setup.binding.history.sessionMessages };
+  assert.notEqual(canonicalAuthorMessage(record, { text: AUTHOR_TEXT }, view), null);
+  mutate(record.request.body.messages);
+  assert.equal(canonicalAuthorMessage(record, { text: AUTHOR_TEXT }, view), null);
+});
 
 test("canonical 合法覆盖移动作者位置，原序同文历史不能取代当前作者", () => {
   const { records, setup } = shiftedCanonicalAuthorFixture();

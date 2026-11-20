@@ -32,7 +32,7 @@ import { joinNativeCallEvidence, readProviderRuns, scopeForProviderCall } from "
 import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { writerArtifactMatch } from "./authoring_pending_evidence.mjs";
 import { analyzeRequestCost } from "./request_cost_evidence.mjs";
-import { nativeSummary } from "./request_cost_batch_evidence.mjs";
+import { canonicalAuthorMessage, nativeSummary } from "./request_cost_batch_evidence.mjs";
 import { prefixComparison } from "./request_cost_manifest.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import {
@@ -337,10 +337,12 @@ export function readR05Inputs(dir, { config, history, records, wire }) {
       request.provider_run_ref === replySource.output.provider_run_ref)
       ? replySource.output.provider_call_ref : null;
   const costCalls = requests.map((request, index) => {
-    const authors = request.facts.authorMessages.filter((message) => message.text === config.message);
+    const author = canonicalAuthorMessage(request.facts.record, { text: config.message }, {
+      ...history.transcript, messages: history.sessionMessages,
+    });
     const analysis = analyzeRequestCost(request.facts.record, {
-      authorBinding: authors.length === 1
-        ? { messageIndex: authors[0].index, text: config.message, sha256: sha256(config.message) } : null,
+      authorBinding: author
+        ? { messageIndex: author.index, text: config.message, sha256: sha256(config.message) } : null,
       purpose: request.provider_call_ref === writer?.provider_call_ref ? "writer" : null,
     });
     return { provider_call_ref: request.provider_call_ref, provider_run_ref: request.provider_run_ref,

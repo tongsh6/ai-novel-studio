@@ -50,6 +50,49 @@ test("独立核验的应用材料不冒充作者，绑定不能跨调用或覆�
   assert.equal(analyzeRequestCost(record, { applicationBinding: binding, authorBinding: authorBinding(0, text) }).ok, false);
 });
 
+
+for (const [label, text, category] of [
+  ["Base", "【应用数据 · application_base · 非作者原话】\n独立供应材料。", "application_base"],
+  ["Scope", "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n版本：{}\n来源：[]\n{}", "scope"],
+]) test("R05 成本显式作者与" + label + "完全同文时只按绑定位置分类", () => {
+  const record = recordOf({ messages: [{ role: "user", content: text }, { role: "user", content: text }] });
+  const original = JSON.stringify(record);
+  const analysis = analyzeRequestCost(record, { authorBinding: authorBinding(1, text) });
+  assert.equal(analysis.ok, true, analysis.reason);
+  assert.equal(analysis.category_bytes.current_author, utf8Bytes(text));
+  assert.equal(analysis.category_bytes[category], utf8Bytes(text));
+  assert.deepEqual(analysis.category_indexes.current_author, [1]);
+  assert.deepEqual(analysis.category_indexes[category], [0]);
+  assert.equal(analysis.cross.author_message_count, 1);
+  assert.equal(analysis.cross.author_text_occurrences, 1);
+  assert.equal(analysis.cross.scope_block_count, category === "scope" ? 1 : 0);
+  assert.equal(analysis.cross.scope_contains_author_bytes, category === "scope");
+  assert.deepEqual(analysis.provenance.trusted_author_messages, [1]);
+  assert.equal(analysis.request.conservation, true);
+  assert.equal(analysis.request.sha256, sha(stableJson(record.request.body)));
+  const unbound = analyzeRequestCost(record);
+  assert.equal(unbound.ok, false);
+  assert.equal(unbound.provenance.trusted, false);
+  const badHash = analyzeRequestCost(record, { authorBinding: { ...authorBinding(1, text), sha256: sha("错误来源") } });
+  assert.equal(badHash.reason, "author_binding_mismatch");
+  assert.equal(badHash.provenance.trusted, false);
+  assert.equal(JSON.stringify(record), original);
+});
+
+test("R05 成本仅作者引用Scope时不把自身计为Scope或重复材料", () => {
+  const text = "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n版本：{}\n来源：[]\n{}";
+  const record = recordOf({ messages: [{ role: "user", content: text }] });
+  const analysis = analyzeRequestCost(record, { authorBinding: authorBinding(0, text) });
+  assert.equal(analysis.ok, true);
+  assert.equal(analysis.category_bytes.current_author, utf8Bytes(text));
+  assert.equal(analysis.category_bytes.scope, 0);
+  assert.equal(analysis.cross.author_message_count, 1);
+  assert.equal(analysis.cross.author_text_occurrences, 1);
+  assert.equal(analysis.cross.scope_block_count, 0);
+  assert.equal(analysis.cross.scope_contains_author_bytes, false);
+  assert.deepEqual(analysis.provenance.trusted_author_messages, [0]);
+});
+
 test("wire 消息互斥分类：内容 UTF-8 字节 + JSON 包装开销守恒", () => {
   const tools = [
     {

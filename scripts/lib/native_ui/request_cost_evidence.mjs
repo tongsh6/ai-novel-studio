@@ -81,9 +81,8 @@ function toolCategory(toolType) {
 function categoryOf(message, currentAuthorIndex, toolType = null) {
   if (message.role === "system") return "system";
   if (message.role === "tool") return toolCategory(toolType);
-  if (wireAuthorCategory(message) === "author") {
-    return message.index === currentAuthorIndex ? "current_author" : "history";
-  }
+  if (message.role === "user" && message.index === currentAuthorIndex) return "current_author";
+  if (wireAuthorCategory(message) === "author") return "history";
   if (message.role === "assistant") return "history";
   return knownApplicationCategory(message) ?? "unclassified";
 }
@@ -372,6 +371,8 @@ function resolveAuthorState(facts, authorBinding) {
     state.bindingError = "author_binding_mismatch";
     return state;
   }
+  // 已核原文字节的当前作者位置优先于标记文本；不据此授信其它历史同文消息。
+  state.authorIndexes = [...new Set([...authorIndexes, bound.index])].sort((left, right) => left - right);
   state.bindingIndex = bound.index;
   state.currentAuthorIndex = bound.index;
   state.bindingStatus = "external_binding";
@@ -500,9 +501,7 @@ function authorTextOccurrences(facts, author) {
   if (text === "") return 0;
   return facts.messageFacts.filter(
     (message) =>
-      message.role === "user" &&
-      message.text === text &&
-      !message.text.startsWith(APPLICATION_PREFIX),
+      author.authorIndexes.includes(message.index) && message.text === text,
   ).length;
 }
 
@@ -523,7 +522,7 @@ function buildCross({ facts, author, categories, purpose, contentBytes, scopeCon
     history_message_count: categoryIndexes.history.length,
     history_assistant_messages: assistantHistory.count,
     replay_assistant_text_bytes: assistantHistory.textBytes,
-    scope_block_count: facts.scopeMessages.length,
+    scope_block_count: facts.scopeMessages.filter((message) => message.index !== author.bindingIndex).length,
     observation_message_count: categoryIndexes.observation.length,
     replay_tool_calls: facts.toolCalls.length,
     scope_contains_author_bytes: scopeContainsAuthor,
@@ -591,7 +590,8 @@ export function analyzeRequestCost(
 
 function scopeContainsAuthorBytes(facts, author) {
   const text = currentAuthorText(facts, author);
-  return text !== "" && facts.scopeMessages.some((message) => message.text.includes(text));
+  return text !== "" && facts.scopeMessages.some((message) =>
+    message.index !== author.bindingIndex && message.text.includes(text));
 }
 
 function trustedAuthorIndexes(author, verdict) {
