@@ -32,10 +32,7 @@ turn_result = %{
   phase: "completed",
   status: "conversational",
   assistant_message: %{text: "这里有一个来自其它作品的候选方向，当前作品只能拒绝或重新生成。"},
-  frame_summary: %{
-    frame_type: "creative_exploration",
-    dialogue_goal: "跨作品候选采纳隔离验证"
-  },
+  frame_summary: %{frame_type: "creative_exploration"},
   candidate_directions: [
     %{
       direction_id: "dir_au05_cross_work_1",

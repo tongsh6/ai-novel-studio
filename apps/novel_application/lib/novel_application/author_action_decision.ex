@@ -32,10 +32,7 @@ defmodule NovelApplication.AuthorActionDecision do
       frame_ref: "frame_#{turn_id}",
       assistant_message: %{text: assistant_message(kind, ctx)},
       ui_cards: [],
-      frame_summary: %{
-        frame_type: :confirmation_answer,
-        dialogue_goal: "处理作者已确认或取消的动作"
-      },
+      frame_summary: %{frame_type: :confirmation_answer},
       trace_summary: trace_summary,
       phase: phase(kind),
       status: status(kind),

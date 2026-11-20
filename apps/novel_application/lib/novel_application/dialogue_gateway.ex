@@ -381,10 +381,7 @@ defmodule NovelApplication.DialogueGateway do
       frame_ref: "frame_#{turn_id}",
       assistant_message: %{text: Presenter.cancelled_action_message(action_input.target_ref)},
       ui_cards: [],
-      frame_summary: %{
-        frame_type: :confirmation_answer,
-        dialogue_goal: "取消等待中的操作"
-      },
+      frame_summary: %{frame_type: :confirmation_answer},
       trace_summary: %{
         trace_ref: "trace:#{turn_id}",
         decision_type: "cancel_waiting",
@@ -559,10 +556,7 @@ defmodule NovelApplication.DialogueGateway do
       frame_ref: "frame_#{turn_id}",
       assistant_message: %{text: candidate_decision_message(decision, title)},
       ui_cards: [candidate_decision_card(decision, title)],
-      frame_summary: %{
-        frame_type: :confirmation_answer,
-        dialogue_goal: "设置后续创作方向"
-      },
+      frame_summary: %{frame_type: :confirmation_answer},
       trace_summary: candidate_trace_summary(decision),
       phase: candidate_phase(decision),
       status: candidate_status(decision),

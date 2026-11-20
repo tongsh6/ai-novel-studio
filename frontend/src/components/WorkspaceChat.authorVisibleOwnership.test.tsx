@@ -6,10 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, TurnResult } from "./WorkspaceChat";
 import type { AgentEventData } from "../lib/socket";
+import { authorQuestionQueryKey } from "../lib/sessions";
+import { useAppStore } from "../lib/store";
 
 const state = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
   events: [] as AgentEventData[],
+  openQuestions: [] as TurnResult[],
   calls: 0,
   history: false,
 }));
@@ -72,6 +75,10 @@ function render(results: TurnResult[], messages?: ChatMessage[]) {
     }));
   state.calls = 0;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(
+    authorQuestionQueryKey(useAppStore.getInitialState().context.workId, null),
+    state.openQuestions,
+  );
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <WorkspaceChat />
@@ -84,9 +91,94 @@ beforeEach(() => {
   state.calls = 0;
   state.messages = [];
   state.events = [];
+  state.openQuestions = [];
   state.history = false;
 });
 describe("WorkspaceChat author-visible semantic ownership", () => {
+  it.each([false, true])(
+    "keeps internal frame goals out of badge text and attributes, history=%s",
+    (history) => {
+      state.history = history;
+      const authorText = "按作者的术语讨论：ENSEMBLE_POV 与 PROTAGONIST 都是这个故事里的职位代号。";
+      const internalFrame = {
+        frame_type: "execution_candidate",
+        dialogue_goal: "内部执行标记 QZ95：ENSEMBLE_POV -> PROTAGONIST",
+      };
+      const value: TurnResult = {
+        ...result(authorText, "answered", "author-terms"),
+        phase: "completed",
+        status: "completed",
+        next_action: "continue",
+        author_question: undefined,
+        frame_summary: internalFrame,
+      };
+      const original = JSON.stringify(value);
+      const html = render([value]);
+
+      expect(html).toContain("生成草稿");
+      expect(html).not.toContain("内部执行标记 QZ95");
+      expect(html).toContain(authorText);
+      expect(html.split("ENSEMBLE_POV").length - 1).toBe(1);
+      expect(html.split("PROTAGONIST").length - 1).toBe(1);
+      expect(JSON.stringify(value)).toBe(original);
+      if (history) expect(html).toContain("历史会话");
+    },
+  );
+  it.each([false, true])(
+    "keeps the full pending question and answer controls without an internal-goal header, loaded=%s",
+    (loaded) => {
+      const question =
+        "**请确认故事里的职位命名**\n\n保留 ENSEMBLE_POV 与 PROTAGONIST 这两个代号吗？";
+      const internalFrame = {
+        frame_type: "question_answer",
+        dialogue_goal: "内部待答目标 KX61：ENSEMBLE_POV -> PROTAGONIST",
+      };
+      const value: TurnResult = {
+        ...result(question, "open", "pending"),
+        frame_summary: internalFrame,
+        agent_run: {
+          run_id: "run-pending",
+          run_mode: "bounded",
+          status: "awaiting_author",
+          phase: "waiting",
+        },
+        available_actions: [
+          {
+            action_id: "choice-pending",
+            action_type: "author_choice",
+            question_ref: "pending",
+            target_ref: "run-pending",
+            label: "保留职位代号",
+            response_kind: "choice",
+            enabled: true,
+            expected_goal_version: 1,
+          },
+        ],
+      };
+      const runContext: TurnResult = {
+        ...value,
+        turn_id: "turn-pending-run-context",
+        assistant_message: { text: "这项任务正在等待你决定。" },
+        author_question: undefined,
+        frame_summary: undefined,
+        available_actions: [],
+      };
+      const original = JSON.stringify(value);
+      state.openQuestions = [value];
+      const html = render(loaded ? [value] : [runContext]);
+
+      expect(html).toContain("<strong>请确认故事里的职位命名</strong>");
+      expect(html.split("请确认故事里的职位命名").length - 1).toBe(1);
+      expect(html).toContain("保留 ENSEMBLE_POV 与 PROTAGONIST 这两个代号吗？");
+      expect(html.split("ENSEMBLE_POV").length - 1).toBe(1);
+      expect(html.split("PROTAGONIST").length - 1).toBe(1);
+      expect(html).not.toContain("内部待答目标 KX61");
+      expect(html).toContain("等待你的回答");
+      expect(html).toContain('aria-label="回答当前问题"');
+      expect(html.split("保留职位代号").length - 1).toBe(1);
+      expect(JSON.stringify(value)).toBe(original);
+    },
+  );
   it.each([false, true])(
     "keeps model text and one system notice through repeated delivery, history=%s",
     (history) => {

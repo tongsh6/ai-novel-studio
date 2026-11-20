@@ -4894,10 +4894,6 @@ export function WorkspaceChat() {
                 )
                 .map((result) => (
                   <section key={result.turn_id} aria-label={WORKBENCH.authorQuestionPending}>
-                    <p className={styles.agentRunComposerHint}>
-                      {WORKBENCH.authorQuestionContext}
-                      {result.frame_summary?.dialogue_goal}
-                    </p>
                     {result.author_question !== null && result.author_question !== undefined && (
                       <AuthorQuestionRecord question={result.author_question} />
                     )}
@@ -4983,7 +4979,6 @@ export function WorkspaceChat() {
                           <div
                             className={styles.frameBadge}
                             data-frame-tone={framePresentation.tone}
-                            title={framePresentation.title}
                           >
                             {framePresentation.label}
                           </div>

@@ -75,10 +75,7 @@ turn_result = %{
   assistant_message: %{
     text: "AU04禁用确认动作文本：这条确认卡用于验证禁用确认按钮不会发送 author_action，也不会执行工具。"
   },
-  frame_summary: %{
-    frame_type: "execution_request",
-    dialogue_goal: "禁用确认动作真实 UI 验证"
-  },
+  frame_summary: %{frame_type: "execution_request"},
   plan: DialogueGateway.jsonable(plan),
   ui_cards: [
     %{

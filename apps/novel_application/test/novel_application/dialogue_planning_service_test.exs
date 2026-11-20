@@ -239,7 +239,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert judgment_result.turn_result.frame_summary.frame_type == :casual_reply
     assert judgment_result.turn_result.frame_summary.model_interpretation_status == "not_provided"
-    assert judgment_result.turn_result.frame_summary.dialogue_goal == "这一章赢得太轻，为什么会削弱张力？"
+    refute Map.has_key?(judgment_result.turn_result.frame_summary, :dialogue_goal)
+
+    assert judgment_result.turn_result.trace_summary.dialogue_goal == "这一章赢得太轻，为什么会削弱张力？"
 
     assert judgment_result.turn_result.assistant_message.text == narrative
   end

@@ -23,10 +23,7 @@ turn_result = %{
   phase: "completed",
   status: "conversational",
   assistant_message: %{text: "这里有一个旧版本候选方向，当前只能重新评估后再决定是否采纳。"},
-  frame_summary: %{
-    frame_type: "creative_exploration",
-    dialogue_goal: "旧候选方向恢复验证"
-  },
+  frame_summary: %{frame_type: "creative_exploration"},
   candidate_set_stability: "stale",
   candidate_directions: [
     %{

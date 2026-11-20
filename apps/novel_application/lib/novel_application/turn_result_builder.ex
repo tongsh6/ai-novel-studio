@@ -42,7 +42,6 @@ defmodule NovelApplication.TurnResultBuilder do
       ui_cards: [],
       frame_summary: %{
         frame_type: frame.frame_type,
-        dialogue_goal: frame.dialogue_goal.summary,
         frame_origin: frame.evidence_summary[:frame_origin],
         goal_origin: frame.evidence_summary[:goal_origin],
         model_interpretation_status: frame.evidence_summary[:model_interpretation_status]
@@ -321,7 +320,7 @@ defmodule NovelApplication.TurnResultBuilder do
             "已根据所选质量问题生成修订草稿，供你对比后再决定是否采纳；原草稿保留，未写入作品事实。"
       },
       ui_cards: [],
-      frame_summary: %{frame_type: :revision, dialogue_goal: "根据质量发现生成修订草稿"},
+      frame_summary: %{frame_type: :revision},
       trace_summary: opts[:trace_summary] || %{},
       phase: "completed",
       status: "conversational",

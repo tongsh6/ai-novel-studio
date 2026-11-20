@@ -326,7 +326,6 @@ describe("B26 明确问题 wire", () => {
   it("普通回复的展示来源与未知判断不会被 codegen 剥除", () => {
     const frame = {
       frame_type: "casual_reply",
-      dialogue_goal: "作者原话",
       frame_origin: "application_display_default",
       goal_origin: "author_input",
       model_interpretation_status: "not_provided",

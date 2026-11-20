@@ -3,7 +3,6 @@ import { WORKBENCH } from "./copy";
 export interface FrameSummaryLike {
   frame_type?: unknown;
   decision_type?: unknown;
-  dialogue_goal?: unknown;
 }
 
 export type FrameTone =
@@ -19,8 +18,6 @@ export interface FramePresentation {
   visible: boolean;
   label: string;
   tone: FrameTone;
-  goal: string | null;
-  title: string;
 }
 
 const FRAME_PRESENTATION_BY_TYPE: Record<string, { label: string; tone: FrameTone }> = {
@@ -78,7 +75,6 @@ export function framePresentationForSummary(
 ): FramePresentation {
   const frameType = normalizeFrameType(summary?.frame_type);
   const decisionType = normalizeFrameType(summary?.decision_type);
-  const goal = stringValue(summary?.dialogue_goal) || null;
   const presentation = FRAME_PRESENTATION_BY_DECISION[decisionType] ??
     FRAME_PRESENTATION_BY_TYPE[frameType] ?? {
       label: WORKBENCH.frameBadges.fallback,
@@ -89,7 +85,5 @@ export function framePresentationForSummary(
     visible: frameType.length > 0 && frameType !== "casual_reply",
     label: presentation.label,
     tone: presentation.tone,
-    goal,
-    title: WORKBENCH.frameBadgeTitle(presentation.label, goal),
   };
 }

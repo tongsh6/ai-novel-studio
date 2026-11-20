@@ -23,10 +23,7 @@ turn_result = %{
   phase: "completed",
   status: "conversational",
   assistant_message: %{text: "这里有一个和当前 canon 冲突的候选方向，只能进入恢复处理，不能直接覆盖。"},
-  frame_summary: %{
-    frame_type: "creative_exploration",
-    dialogue_goal: "Canon 冲突候选采纳恢复验证"
-  },
+  frame_summary: %{frame_type: "creative_exploration"},
   candidate_directions: [
     %{
       direction_id: "dir_au05_canon_conflict_1",

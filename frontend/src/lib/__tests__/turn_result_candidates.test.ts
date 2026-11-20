@@ -15,7 +15,6 @@ const baseTurnResult = (candidates: CandidateDirection[] | undefined): TurnResul
   assistant_message: { text: "好的" },
   frame_summary: {
     frame_type: "creative_exploration",
-    dialogue_goal: "帮作者展开创意",
   },
   phase: "completed",
   status: "conversational",

@@ -72,10 +72,7 @@ turn_result = %{
   assistant_message: %{
     text: "这次重写第一章会影响作品正文，需要你确认。但这是一条已经过期的确认。"
   },
-  frame_summary: %{
-    frame_type: "execution_request",
-    dialogue_goal: "过期确认拒绝验证"
-  },
+  frame_summary: %{frame_type: "execution_request"},
   plan: DialogueGateway.jsonable(plan),
   available_actions: available_actions,
   behavior_state: %{

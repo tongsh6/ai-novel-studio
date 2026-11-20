@@ -152,10 +152,7 @@ defmodule Au06SeedTurn do
       assistant_message: %{
         text: "已恢复一条覆盖重写候选：采纳后会覆盖该章已有正文，因此需要作者确认。"
       },
-      frame_summary: %{
-        frame_type: "creative_exploration",
-        dialogue_goal: "覆盖重写候选验收"
-      },
+      frame_summary: %{frame_type: "creative_exploration"},
       ui_cards: [
         %{
           card_type: "candidate_set",

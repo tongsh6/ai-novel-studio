@@ -15552,7 +15552,6 @@ function findCandidateContinuationEvidence(records) {
       candidate_ref: start.candidate_ref,
       frame_badge_label: uiState.frame_badge_label,
       frame_badge_kind: uiState.frame_badge_kind,
-      frame_badge_goal: uiState.frame_badge_goal,
       candidate_panel_count: Number(uiState.candidate_panel_count ?? 0),
       candidate_panel_width: Number(uiState.candidate_panel_width),
       candidate_panel_aligned_to_assistant_rail: uiState.candidate_panel_aligned_to_assistant_rail,

@@ -73,10 +73,7 @@ turn_result = %{
   assistant_message: %{
     text: "AU04最新上下文旧确认文本：这条确认会在作品名修改后再执行，用来验证确认时重新读取最新作品快照。"
   },
-  frame_summary: %{
-    frame_type: "execution_request",
-    dialogue_goal: "确认执行前最新上下文重组验证"
-  },
+  frame_summary: %{frame_type: "execution_request"},
   plan: DialogueGateway.jsonable(plan),
   ui_cards: [
     %{

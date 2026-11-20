@@ -102,10 +102,7 @@ turn_result = %{
   assistant_message: %{
     text: "已恢复一条续写候选：它指向同名两章中的第二章，采纳后只应改动第二章。"
   },
-  frame_summary: %{
-    frame_type: "creative_exploration",
-    dialogue_goal: "同名章节身份验收"
-  },
+  frame_summary: %{frame_type: "creative_exploration"},
   # 作者可见候选卡：真实 TurnResultBuilder 会同时给 pending 条目 + candidate_set 卡；
   # 种子补同形卡，保证恢复后作者能先读到候选正文再决定采纳。
   ui_cards: [

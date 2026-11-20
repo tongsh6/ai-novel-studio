@@ -4938,10 +4938,6 @@ async function driveCandidateContinuation(page) {
       candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
       frame_badge_label: "探索方向",
       frame_badge_kind: "exploration",
-      frame_badge_goal:
-        continuationTurnResult.frame_summary?.dialogue_goal ??
-        sourceTurnResult.frame_summary?.dialogue_goal ??
-        null,
       candidate_panel_count: await page.locator("[class*=candidatePanel]").count(),
       candidate_panel_width: candidatePanelBox.width,
       candidate_panel_aligned_to_assistant_rail:

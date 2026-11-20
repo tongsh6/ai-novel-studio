@@ -476,10 +476,7 @@ defmodule B47CanonFreshnessSeed do
           "已恢复第 01 章《#{attrs.chapter.title}》的一条待采纳正文修订候选；" <>
             "保存后会按当前作品事实校验版本，未保存前不会写入作品事实。"
       },
-      frame_summary: %{
-        frame_type: "revision",
-        dialogue_goal: "B47 canon freshness #{attrs.scenario}"
-      },
+      frame_summary: %{frame_type: "revision"},
       ui_cards: [
         %{
           card_type: "candidate_set",

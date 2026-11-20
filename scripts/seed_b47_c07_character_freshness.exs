@@ -157,7 +157,7 @@ defmodule B47C07CharacterFreshnessSeed do
       assistant_message: %{
         text: "已生成沈砚的角色叙事身份修订候选；保存前不会改写角色档案。"
       },
-      frame_summary: %{frame_type: "revision", dialogue_goal: "B47-C07 角色意图修订"},
+      frame_summary: %{frame_type: "revision"},
       ui_cards: [
         %{
           card_type: "candidate_set",

@@ -6,19 +6,16 @@ describe("frame presentation", () => {
   it("maps creative exploration to an author-facing label", () => {
     const presentation = framePresentationForSummary({
       frame_type: "creative_exploration",
-      dialogue_goal: "帮作者展开赛博修仙方向",
     });
 
     expect(presentation.visible).toBe(true);
     expect(presentation.label).toBe("探索方向");
     expect(presentation.tone).toBe("exploration");
-    expect(presentation.title).toContain("帮作者展开赛博修仙方向");
   });
 
   it("maps execution candidate to generation label", () => {
     const presentation = framePresentationForSummary({
       frame_type: "execution_candidate",
-      dialogue_goal: "撰写开篇场景正文",
     });
 
     expect(presentation.visible).toBe(true);
@@ -26,10 +23,26 @@ describe("frame presentation", () => {
     expect(presentation.tone).toBe("execution");
   });
 
+  it.each([
+    "内部编排标记 QZ95：ENSEMBLE_POV -> PROTAGONIST",
+    "调整老沈的角色分类，仅供内部执行定位",
+  ])("does not turn internal goal metadata into badge content: %s", (goal) => {
+    const internalFrame = {
+      frame_type: "execution_candidate",
+      dialogue_goal: goal,
+    };
+    const presentation = framePresentationForSummary(internalFrame);
+
+    expect(presentation).toEqual({
+      visible: true,
+      label: "生成草稿",
+      tone: "execution",
+    });
+  });
+
   it("does not repeat the AI role with a casual reply badge", () => {
     const presentation = framePresentationForSummary({
       frame_type: "casual_reply",
-      dialogue_goal: "继续普通创作讨论",
     });
 
     expect(presentation.visible).toBe(false);
@@ -41,7 +54,6 @@ describe("frame presentation", () => {
     const presentation = framePresentationForSummary({
       frame_type: "execution_candidate",
       decision_type: "downgrade",
-      dialogue_goal: "拆分过大的多步请求",
     });
 
     expect(presentation.visible).toBe(true);

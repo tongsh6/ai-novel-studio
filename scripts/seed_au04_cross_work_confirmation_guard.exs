@@ -85,10 +85,7 @@ source_turn_result = %{
   assistant_message: %{
     text: "AU04跨作品旧确认源文本：源作品里有一条待确认的高风险重写，切到目标作品后不能继续执行。"
   },
-  frame_summary: %{
-    frame_type: "execution_request",
-    dialogue_goal: "跨作品确认隔离验证"
-  },
+  frame_summary: %{frame_type: "execution_request"},
   plan: DialogueGateway.jsonable(plan),
   ui_cards: [
     %{

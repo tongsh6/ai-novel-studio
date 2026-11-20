@@ -102,9 +102,6 @@
         "frame_type": {
           "type": "string"
         },
-        "dialogue_goal": {
-          "type": "string"
-        },
         "uncertainty": {
           "type": "array",
           "items": {

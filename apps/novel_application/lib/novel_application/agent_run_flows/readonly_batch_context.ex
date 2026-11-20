@@ -603,7 +603,6 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
       },
       frame_summary: %{
         frame_type: "agent_readonly_batch",
-        dialogue_goal: "批量读取作品上下文",
         uncertainty: []
       },
       available_actions: [],

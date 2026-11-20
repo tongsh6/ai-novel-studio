@@ -227,10 +227,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
         text: "作者已确认，但当前上下文未通过重新裁决（#{decision.first_blocking_gate}），没有执行工具或写入作品事实。"
       },
       ui_cards: [],
-      frame_summary: %{
-        frame_type: :confirmation_answer,
-        dialogue_goal: "处理作者已确认的动作"
-      },
+      frame_summary: %{frame_type: :confirmation_answer},
       trace_summary: %{
         trace_ref: "trace:#{frame.turn_id}",
         decision_type: "gate_blocked",
