@@ -2,6 +2,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.JudgmentToolContract
+  alias NovelCommon.Contracts.ToolArgumentSchema
 
   @moduletag :r05_explore_contract
 
@@ -131,7 +132,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
     assert tool.input_schema.required == ["action"]
     assert tool.description =~ "judgment_decision 的 explore 只允许字段 action、explore_request"
     assert tool.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
-    assert tool.description =~ "execute 只填一个目标 ref 字段"
     binding = tool.input_schema.properties.target_segment_ids.description
     assert binding =~ "存储片段不等于自然段或首句"
     assert binding =~ "片段内需保留的锚句必须在替换正文中保留"
@@ -160,8 +160,8 @@ defmodule NovelApplication.JudgmentToolContractTest do
     ]
 
     for arguments <- examples do
-      assert JudgmentToolContract.valid?(arguments, tool.input_schema)
-      refute JudgmentToolContract.valid?(Map.delete(arguments, :action), tool.input_schema)
+      assert ToolArgumentSchema.valid?(arguments, tool.input_schema)
+      refute ToolArgumentSchema.valid?(Map.delete(arguments, :action), tool.input_schema)
     end
   end
 
@@ -239,6 +239,86 @@ defmodule NovelApplication.JudgmentToolContractTest do
                end)
              end)
     end
+  end
+
+  test "执行目标字段按 capability 归属校验，非所属字段即使 null 也非法" do
+    cases = [
+      {"revise_pending_artifact", :pending_artifact_ref},
+      {"discard_pending_artifact", :pending_artifact_ref},
+      {"revise_adopted_content", :adopted_content_ref},
+      {"revise_character_profile", :character_ref},
+      {"character_design", nil},
+      {"character_evolution", nil},
+      {"prose_writing", nil},
+      {"plot_outline", nil},
+      {"world_building", nil},
+      {"maintain_chapter_structure", nil}
+    ]
+
+    for {capability, allowed_field} <- cases,
+        field <- [:pending_artifact_ref, :adopted_content_ref, :character_ref],
+        value <- ["actual-ref", nil] do
+      arguments = %{action: "execute", capability: capability} |> Map.put(field, value)
+      expected = if field == allowed_field, do: :ok, else: {:error, :target_ref_field_conflict}
+
+      assert NovelApplication.JudgmentDecisionToolContract.validate_execute_target_fields(
+               arguments
+             ) ==
+               expected
+
+      string_keys = Map.new(arguments, fn {key, val} -> {Atom.to_string(key), val} end)
+
+      assert NovelApplication.JudgmentDecisionToolContract.validate_execute_target_fields(
+               string_keys
+             ) ==
+               expected
+    end
+
+    assert :ok =
+             NovelApplication.JudgmentDecisionToolContract.validate_execute_target_fields(%{
+               capability: "prose_writing"
+             })
+  end
+
+  @tag :r07_raw_schema
+  test "当前执行 schema 声明唯一目标片段，不能接受重复项后再由下游消解" do
+    args = %{
+      action: "execute",
+      capability: "revise_adopted_content",
+      dialogue_goal: "只修订已定位片段",
+      author_reasoning: "按作者指定范围提出候选。",
+      adopted_content_ref: "chapter:observed",
+      modification_scope: "target_segments",
+      target_segment_ids: ["segment-observed", "segment-observed"]
+    }
+
+    assert {:error, :invalid_tool_arguments} = validate(args)
+    assert :ok = validate(%{args | target_segment_ids: ["segment-observed"]})
+  end
+
+  @tag :r07_raw_schema
+  test "当前立项提案 schema 的整数下限在原始接收时生效" do
+    args = %{
+      title: "目标篇幅",
+      body: "依据当前计划修订篇幅。",
+      field: "target_length",
+      value: 0,
+      author_reasoning: "提出目标篇幅供作者决定。"
+    }
+
+    for value <- [0, -1] do
+      assert {:error, :invalid_tool_arguments} =
+               JudgmentToolContract.validate(
+                 [%{name: "propose_work_profile_revision", arguments: %{args | value: value}}],
+                 :judgment
+               )
+    end
+
+    assert :ok =
+             JudgmentToolContract.validate(
+               [%{name: "propose_work_profile_revision", arguments: %{args | value: 1}}],
+               :judgment
+             )
   end
 
   defp validate(arguments),

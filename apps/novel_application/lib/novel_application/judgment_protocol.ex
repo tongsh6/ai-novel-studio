@@ -17,6 +17,7 @@ defmodule NovelApplication.JudgmentProtocol do
     CharacterProfile,
     ExplorationPolicy,
     ExplorationService,
+    JudgmentDecisionToolContract,
     JudgmentToolContract,
     PendingArtifactWorkflow,
     ProviderActivityProjector,
@@ -28,9 +29,6 @@ defmodule NovelApplication.JudgmentProtocol do
   @max_attempts 2
   @pending_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:pending)
   @adopted_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:adopted)
-  @judgment_tool_names ~w(judgment_decision ask_author agent_plan_draft register_author_content
-                          propose_creative_directions propose_work_profile_revision
-                          report_capability_gap)
   @error_excerpt_chars 400
   @type judgment :: map()
   def tool_name, do: "judgment_decision"
@@ -242,7 +240,7 @@ defmodule NovelApplication.JudgmentProtocol do
   @doc "把真实探索观察追加到模型已发出的 tool_call 之后。"
   @spec observation_transcript(AuthoringTranscript.t(), map(), map()) :: AuthoringTranscript.t()
   def observation_transcript(transcript, judgment, observation) do
-    call_id = judgment.tool_call_id || "call_judgment_decision"
+    call_id = judgment.tool_call_id
 
     AuthoringTranscript.append_observation(
       transcript,
@@ -341,7 +339,10 @@ defmodule NovelApplication.JudgmentProtocol do
       {:ok,
        judgment
        |> Map.put(:provider_call_count, attempt)
-       |> Map.put(:transcript, validated_transcript(transcript, judgment))}
+       |> Map.put(
+         :transcript,
+         validated_transcript(transcript, judgment, receipt_context(attempt, false))
+       )}
     else
       {:error, reason} ->
         log_output_validation(attempt, reason)
@@ -474,9 +475,16 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp correction_content(:target_ref_field_conflict) do
     "本次响应未通过契约校验：target_ref_field_conflict（目标 ref 字段不合法）。" <>
-      "execute 只填一个目标 ref：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；" <>
-      "不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。" <>
+      JudgmentDecisionToolContract.target_fields_guidance() <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正字段与目标选择。"
+  end
+
+  defp correction_content({:invalid_alternative_operation_refs, detail}) do
+    "本次响应未通过契约校验：invalid_alternative_operation_refs（替代操作不在本轮可用集合）。" <>
+      "本次无效引用：#{Jason.encode!(detail.unavailable_refs)}；" <>
+      "当前允许的操作 ID：#{Jason.encode!(detail.allowed_operation_refs)}。" <>
+      "alternative_operation_refs 只提交实际 ID，不拼接描述；没有可建议操作时可留空。" <>
+      "保留同一作者输入、来源、目标、范围与权限，依据真实目录重新判断；不得以近似操作冒充缺失效果。"
   end
 
   # 缺失作者正文时只补当前操作所属的唯一正文，不引入第二来源。
@@ -517,7 +525,7 @@ defmodule NovelApplication.JudgmentProtocol do
     schema_field = if scope_field == :target_segments, do: :target_segment_ids, else: scope_field
 
     "本次响应未通过契约校验：#{scope_field}（#{inspect(reason)}）。" <>
-      NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute").properties[
+      JudgmentDecisionToolContract.schema_for_action("execute").properties[
         schema_field
       ].description <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
@@ -528,15 +536,12 @@ defmodule NovelApplication.JudgmentProtocol do
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
   end
 
-  # 原探索收束/空叙述特例不扩张叙述违规或未决角色歧义的普通纠错预算。
+  # 所有结构纠错共用同一实际调用窗口，不按错误类别追加次数。
   defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
-       when attempt < @max_attempts or
-              (reason in [:exploration_not_available, :judgment_narrative_required] and
-                 attempt < @max_attempts + 1 and
-                 not is_map_key(input, :unresolved_character_display)) do
+       when attempt < @max_attempts do
     invoke(
       fun,
-      correction_transcript(transcript, reason),
+      correction_transcript(transcript, reason, receipt_context(attempt, true)),
       input,
       profile,
       attempt + 1,
@@ -571,7 +576,11 @@ defmodule NovelApplication.JudgmentProtocol do
   # 终局拒绝也走同一个失败出口：先按既有 correction_transcript 闭合末次真实调用，
   # 再把最新会话与本次调用数放进 error3；reason 只保留结构类别。
   defp reject(return_reason, close_reason, transcript, attempt) do
-    failure(return_reason, correction_transcript(transcript, close_reason), attempt)
+    failure(
+      return_reason,
+      correction_transcript(transcript, close_reason, receipt_context(attempt, false)),
+      attempt
+    )
   end
 
   defp failure(reason, transcript, actual_calls) do
@@ -582,25 +591,39 @@ defmodule NovelApplication.JudgmentProtocol do
      })}
   end
 
-  defp correction_transcript(transcript, reason) do
+  defp correction_transcript(transcript, reason, receipt_context) do
     detail = %{message: correction_content(reason), reason: inspect(reason)}
 
     case pending_call_ids(transcript) do
-      [] -> AuthoringTranscript.append_application_notice(transcript, correction_content(reason))
-      ids -> close_calls(transcript, ids, "failed", validation_reason_code(reason), detail)
+      [] ->
+        AuthoringTranscript.append_application_notice(transcript, correction_content(reason))
+
+      ids ->
+        close_calls(
+          transcript,
+          ids,
+          "failed",
+          validation_reason_code(reason),
+          detail,
+          receipt_context
+        )
     end
   end
 
-  # 求证调用由真实 observation 闭合；其它操作这里只确认协议有效，后续仍逐步过业务门。
-  defp validated_transcript(transcript, %{action: "explore"}), do: transcript
+  # 求证调用由真实 observation 闭合；其它操作只确认协议有效，不代表执行批准。
+  defp validated_transcript(transcript, %{action: "explore"}, _receipt_context), do: transcript
 
-  # 计划调用在校验后闭合；后续真实读取沿既有应用 Scope 材料桥接追加。
-  defp validated_transcript(transcript, %{action: "plan"} = judgment),
-    do: validate_inline_plan_call(transcript, judgment)
+  defp validated_transcript(transcript, %{action: "plan"} = judgment, receipt_context),
+    do: validate_inline_plan_call(transcript, judgment, receipt_context)
 
-  defp validated_transcript(transcript, _judgment), do: complete_validation(transcript)
+  defp validated_transcript(transcript, _judgment, receipt_context),
+    do: complete_validation(transcript, receipt_context)
 
-  defp validate_inline_plan_call(transcript, %{plan_result: %{plan: plan}} = judgment) do
+  defp validate_inline_plan_call(
+         transcript,
+         %{plan_result: %{plan: plan}} = judgment,
+         receipt_context
+       ) do
     call = inline_plan_call(judgment.provider_result)
 
     AuthoringTranscript.append_validation(
@@ -613,22 +636,24 @@ defmodule NovelApplication.JudgmentProtocol do
         plan_version: plan.version,
         execution_authorized: false,
         canon_written: false
-      }
+      },
+      receipt_context
     )
   end
 
-  defp validate_inline_plan_call(transcript, _judgment), do: transcript
+  defp validate_inline_plan_call(transcript, _judgment, _receipt_context), do: transcript
 
-  @doc "应用分流完成后，闭合尚未由真实观察返回的协议调用；不表示执行批准。"
-  @spec complete_validation(AuthoringTranscript.t()) :: AuthoringTranscript.t()
-  def complete_validation(transcript),
-    do: validate_calls(transcript, pending_call_ids(transcript))
-
-  defp validate_calls(transcript, ids) do
-    close_calls(transcript, ids, "passed", "judgment_validated", %{
-      execution_authorized: false,
-      canon_written: false
-    })
+  @doc "应用分流完成后闭合尚未由真实观察返回的协议调用；不表示执行批准。"
+  @spec complete_validation(AuthoringTranscript.t(), map()) :: AuthoringTranscript.t()
+  def complete_validation(transcript, receipt_context \\ %{retryable: false}) do
+    close_calls(
+      transcript,
+      pending_call_ids(transcript),
+      "passed",
+      "judgment_validated",
+      %{execution_authorized: false, canon_written: false},
+      receipt_context
+    )
   end
 
   defp pending_call_ids(transcript) do
@@ -637,11 +662,23 @@ defmodule NovelApplication.JudgmentProtocol do
     ids
   end
 
-  defp close_calls(transcript, ids, status, reason, detail) do
+  defp close_calls(transcript, ids, status, reason, detail, receipt_context) do
     Enum.reduce(ids, transcript, fn id, current ->
-      AuthoringTranscript.append_validation(current, id, status, reason, detail)
+      AuthoringTranscript.append_validation(current, id, status, reason, detail, receipt_context)
     end)
   end
+
+  defp receipt_context(actual_calls, retryable) do
+    %{
+      retryable: retryable,
+      budget_after: %{
+        exchange: %{provider_call_budget: @max_attempts, provider_call_count: actual_calls}
+      }
+    }
+  end
+
+  defp validation_reason_code({:invalid_alternative_operation_refs, _detail}),
+    do: "invalid_alternative_operation_refs"
 
   defp validation_reason_code({:invalid_tool_arguments, _detail}), do: "invalid_tool_arguments"
   defp validation_reason_code({_, reason}) when is_atom(reason), do: Atom.to_string(reason)
@@ -774,14 +811,9 @@ defmodule NovelApplication.JudgmentProtocol do
     不得声称已读全章或全章无矛盾；必须继续读取，或在结论中明确已覆盖范围与未读缺口。
     最终答复收束：作者正文必须给出可直接阅读的结论，不得只写内部推理或空泛过渡语；
     方向/比较/状态核对类请求应包含实际方向内容、比较依据与建议，或明确核对结论及正文证据。
-    用 propose_creative_directions 时 author_reasoning 应逐条说明每个方向的标题与一句话走向（至少 2 条），
-    不能只概述“我给出三个方向”，也不能用“你的请求属于创作方向讨论”这类元描述代替实际内容。
     作者只要求收下资料/只聊不展开时：只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
     （零方向菜单、零候选/登记）。
     完整计划由 agent_plan_draft 的独立参数契约承载。
-    能力缺口判断只看“是否存在能产出目标效果的最接近可行操作”：存在可产出的修订/生成候选（只是不能保证
-    某些属性，如仅排版的字句不变）时，应执行该操作并在可见文本如实说明限制，不得用 report_capability_gap
-    或“没有能力”拒绝；确实没有任何可行操作时才报缺口。
     修改已有对象的主档案/权威字段（如把已有角色改成主角/改身份）而目录没有对应能力时，缺口说明不得把
     “新建同名对象”“演化/记忆候选”列为实现该效果的最近路径或建议——它们不改变原对象主档案，属于不同效果；
     如需提及只能明确说明差别，不能说“新建档案后他就是主角/就实现了修改”。
@@ -791,27 +823,14 @@ defmodule NovelApplication.JudgmentProtocol do
     不要为形式 explore 正文；只有质量/矛盾/覆盖结论确实需要正文时才 chapter_read/archive_read。
     工具调用必须使用原生 tool_calls；不得把“<tool_call>/<function=...>”这类伪工具文本写进 content
     （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
-    待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
-    explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
     上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
     不得规划“按某候选执行”，也不得用 report_capability_gap 代替作者回答；应保持等待、重新做具体澄清，
     或只说明仍在等待作者选择。不得把未回答当默认选择。
     继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
     这类过渡语结束。
     禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复；覆盖不足时继续读取，或明确已覆盖范围+未读缺口+下一步。
-    探索预算已用尽/不可用时不得再请求 explore；直接基于已有观察与覆盖事实 reply（已覆盖范围+结论
-    或缺口+下一步），或做必要澄清。
     多意图请求（如“当前最终用哪一版”+“再写一段”）必须逐项回应：最终答复先回答版本/事实问题
     （例如当前最终版本是 EDITED_ACCEPTED 还是被 SUPERSEDED），再给生成/续写结果；不得只用“已生成草稿”结束。
-    作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact（B28 format_only 边界在可见文本如实说明），
-    不要只解释或报缺口。
-    能力缺口优先：作者要求的效果（例如修改已有角色身份主档案、整章排版并保证字句不变）
-    在当前可用操作目录里确实没有对应能力时，必须用 report_capability_gap 说明缺失效果与最近可行路径；
-    不得用 ask_author 问“你要哪一种”来代替缺口报告，也不得用近似操作冒充。
-    ask_author 只用于需要作者裁决方向/对象/范围且材料无法消歧，不是能力缺口的替代品。
-    已有候选优先：pending_adoptions 中存在候选且本轮作者明确要对某个已有候选做修改/整理/排版/润色时，
-    直接选择 revise_pending_artifact 并用 artifact_ref 引用该候选，不要先 ask_author。
-    候选正文预览可能为空，不代表对象不存在——修订工具会读取真实候选全文；只有对象/范围确实无法消歧时才问。
     """
   end
 
@@ -865,7 +884,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
-         {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          {:ok, text, source} <- narrative(operation, result, call, args),
          :ok <- validate_operation(operation, args, options) do
       judgment = normalized(operation, args, call, result, text, source, input)
@@ -998,37 +1016,28 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  # 缺口说明的 alternative_operation_refs 允许引用本轮真实可用的：
-  # 能力目录、只读探索目录、或判断层工具（如 register_author_content）。
-  # 仍然拒绝不存在的操作名（不发明操作），但不把“真实可用的下一步”误判成非法。
+  defp validate_operation("capability_gap", args, options) do
+    exploration =
+      if Keyword.get(options, :explore, false),
+        do: Keyword.get(options, :explore_tools, []),
+        else: []
 
-  defp validate_operation("capability_gap", _args, _options) do
-    # 缺口说明是“如实报告”语义：alternative refs 只是最近可行路径提示，
-    # 不能因模型写了带描述/不存在项而拒掉整个响应（M14 r2 终局根因）。
-    :ok
+    allowed =
+      Keyword.get(options, :capabilities, []) ++
+        exploration ++
+        Enum.map(JudgmentToolContract.tools(Keyword.fetch!(options, :profile)), & &1.name)
+
+    invalid = Enum.reject(field(args, :alternative_operation_refs) || [], &(&1 in allowed))
+
+    if invalid == [],
+      do: :ok,
+      else:
+        {:error,
+         {:invalid_alternative_operation_refs,
+          %{unavailable_refs: invalid, allowed_operation_refs: allowed}}}
   end
 
   defp validate_operation(_, _, _), do: :ok
-
-  # 缺口说明的 alternative refs：过滤掉不在本轮真实目录中的项，保留可用项，
-  # 不因为模型多写/写错替代项而拒绝整条响应（M14 r2 终局根因）。
-  defp sanitize_operation_args("capability_gap", args, options) do
-    allowed =
-      Keyword.get(options, :capabilities, []) ++
-        Keyword.get(options, :explore_tools, []) ++ @judgment_tool_names
-
-    case field(args, :alternative_operation_refs) do
-      refs when is_list(refs) ->
-        args
-        |> Map.delete("alternative_operation_refs")
-        |> Map.put(:alternative_operation_refs, Enum.filter(refs, &(&1 in allowed)))
-
-      _ ->
-        args
-    end
-  end
-
-  defp sanitize_operation_args(_operation, args, _options), do: args
 
   defp validate_author_registration(args, options) do
     AuthorContentRegistration.validate_author_registration(
@@ -1053,20 +1062,8 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp validate_execute_targets(args, targets) do
-    capability = field(args, :capability)
-    pending_ref = field(args, :pending_artifact_ref)
-    adopted_ref = field(args, :adopted_content_ref)
-
-    cond do
-      capability in @pending_target_capabilities and not is_nil(adopted_ref) ->
-        {:error, :target_ref_field_conflict}
-
-      capability in @adopted_target_capabilities and not is_nil(pending_ref) ->
-        {:error, :target_ref_field_conflict}
-
-      true ->
-        PendingArtifactWorkflow.validate(args, targets)
-    end
+    with :ok <- JudgmentDecisionToolContract.validate_execute_target_fields(args),
+         do: PendingArtifactWorkflow.validate(args, targets)
   end
 
   defp narrative(_operation, result, nil, _args),

@@ -17,8 +17,8 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringTaskBuilder
-  alias NovelApplication.JudgmentToolContract
   alias NovelCommon.AuthorVisible.Text
+  alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.ChapterPlanDirection
@@ -320,7 +320,7 @@ defmodule NovelApplication.ChapterMissionService do
   # 原生交换维护名称与单调用边界；接收方核闭合 schema 与同一原始工具调用。
   defp tool_arguments(%{tool_calls: [call]} = provider_result, kind) do
     with {:ok, args} <- decode_arguments(map_get(call, :arguments)),
-         true <- JudgmentToolContract.valid?(args, mission_tool(kind).input_schema),
+         true <- ToolArgumentSchema.valid?(args, mission_tool(kind).input_schema),
          :ok <- AgentNarrativeSource.verify_tool_call(provider_result, call) do
       {:ok, args}
     else

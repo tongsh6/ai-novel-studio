@@ -319,9 +319,10 @@ defmodule NovelApplication.JudgmentPlanProtocolTest do
                )
              )
 
-    assert meta.provider_call_count == 3
+    assert meta.provider_call_count == 2
     receipts = validation_blocks(meta.judgment_transcript)
-    assert length(receipts) == 3
+    assert length(receipts) == 2
+    assert Enum.map(receipts, & &1.retryable) == [true, false]
 
     assert Enum.all?(
              receipts,
@@ -331,7 +332,7 @@ defmodule NovelApplication.JudgmentPlanProtocolTest do
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
     assert {:ok, []} = RequestIR.pending_call_ids(ir)
 
-    for _ <- 1..3, do: assert_receive({:provider_request, _})
+    for _ <- 1..2, do: assert_receive({:provider_request, _})
     refute_receive {:provider_request, _}, 20
   end
 

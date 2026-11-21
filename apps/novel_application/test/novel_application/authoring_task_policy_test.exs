@@ -36,25 +36,6 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert AuthoringTaskPolicy.content_hash() =~ ~r/^[0-9a-f]{64}$/
   end
 
-  test "operations render from capability registry (no hardcoded catalog text)" do
-    rendered =
-      AuthoringTaskPolicy.operations(
-        capabilities: ["character_design", "prose_writing", "work_archive_read"]
-      )
-
-    assert rendered =~ "character_design"
-    assert rendered =~ "prose_writing"
-    assert rendered =~ "work_archive_read"
-    assert rendered =~ "创作结果先待采纳"
-    refute rendered =~ "精确匹配原文字词"
-
-    revision = AuthoringTaskPolicy.operations(capabilities: ["revise_adopted_content"])
-    assert revision =~ "精确匹配原文字词"
-    assert revision =~ "缺失或多处命中会拒绝"
-    assert revision =~ "确定性合并逐字保留"
-    assert revision =~ "须作者采纳"
-  end
-
   test "B33 CP2：判断规则包含动作意图必须 execute 或具体澄清、不得 reply/creative/await 终局" do
     rules = AuthoringTaskPolicy.rules()
 

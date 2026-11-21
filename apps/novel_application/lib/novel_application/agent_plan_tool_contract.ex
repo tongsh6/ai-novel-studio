@@ -12,7 +12,7 @@ defmodule NovelApplication.AgentPlanToolContract do
 
   @doc """
   计划 tool arguments 的字段级校验错误（task-30）：供计划侧纠正回执给出具体字段指引。
-  与 `JudgmentToolContract.valid?/2` 使用同一 schema 子集语义；仅当 valid? 为 false 时调用。
+  与 `NovelCommon.Contracts.ToolArgumentSchema.valid?/2` 使用同一 schema 子集语义；仅当 valid? 为 false 时调用。
   返回可直接进纠错文案的中文错误列表（空列表=合法）。
   """
   @spec validation_errors(term()) :: [String.t()]

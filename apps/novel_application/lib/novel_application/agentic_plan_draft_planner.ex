@@ -14,6 +14,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
   alias NovelCommon.AuthorVisible.Text
+  alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelDomain.{AgentPlan, AgentRun}
 
   @draft_tool_name "agent_plan_draft"
@@ -1012,10 +1013,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     args = map_get(call, :arguments)
 
     if map_get(call, :name) == tool_name and
-         NovelApplication.JudgmentToolContract.valid?(
-           args,
-           NovelApplication.AgentPlanToolContract.schema()
-         ) do
+         ToolArgumentSchema.valid?(args, NovelApplication.AgentPlanToolContract.schema()) do
       {:ok, args}
     else
       {:error,

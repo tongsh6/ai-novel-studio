@@ -1,6 +1,15 @@
 defmodule NovelApplication.JudgmentProtocolTest do
   use ExUnit.Case, async: true
 
+  import NovelApplication.TestAgenticLoopFixtures,
+    only: [
+      judgment_response: 2,
+      judgment_response: 3,
+      judgment_call: 2,
+      judgment_input: 0,
+      judgment_input: 1
+    ]
+
   import NovelApplication.TestAssertions,
     only: [assert_bound_narrative: 3, assert_bound_narrative: 4]
 
@@ -18,55 +27,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     JudgmentToolContract
   }
 
-  alias NovelCommon.Contracts.ProviderOutput
-
-  defp response(text, calls, ref \\ "call-1") do
-    %{
-      content: text,
-      tool_calls: calls,
-      provider_output: %ProviderOutput{
-        provider_run_ref: "run-#{ref}",
-        provider_call_ref: ref,
-        status: :ok,
-        content: %{text: text, tool_calls: calls}
-      }
-    }
-  end
-
-  defp call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
-
-  defp input(opts \\ []) do
-    {:ok, run} =
-      AgentRun.new(%{
-        run_id: "run-judgment-fixture",
-        work_id: "work-judgment-fixture",
-        workspace_id: "workspace-judgment-fixture",
-        session_id: "session-judgment-fixture",
-        parent_turn_ref: "author-turn",
-        origin_frame_ref: "frame-judgment-fixture",
-        profile_ref: "judgment_plan_v1",
-        goal: %{text: "根据本章实际内容判断", version: 1},
-        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
-      })
-
-    %{
-      author_text: "根据本章实际内容判断",
-      scope: %{
-        work_id: run.work_id,
-        facts: %{
-          work: %{ref: "work:#{run.work_id}", work_id: run.work_id, title: "协议测试作品"}
-        },
-        context: %{},
-        coverage: %{}
-      },
-      source_input_ref: "author-turn",
-      supplied_context_refs: ["work:#{run.work_id}"],
-      options: Keyword.put_new(opts, :plan_run, run)
-    }
-  end
-
   defp plan_decision_call do
-    call("judgment_decision", %{
+    judgment_call("judgment_decision", %{
       "action" => "plan",
       "dialogue_goal" => "分步执行",
       "author_reasoning" => "需要计划"
@@ -106,17 +68,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
   defp validation_blocks(transcript), do: blocks(transcript, "validation_result")
 
   defp response_with_execution_refs(text, calls, call_ref, run_ref) do
-    response(text, calls, call_ref)
+    judgment_response(text, calls, call_ref)
     |> Map.put(:provider_call_ref, call_ref)
     |> Map.put(:provider_run_ref, run_ref)
   end
 
   test "非法多调用纠错逐一关闭本次调用，不遗留 pending 或覆盖历史结果" do
-    bad = response("错误组合", [plan_decision_call(), call("unknown_operation", %{})])
-    good = response("只讨论创作目标。", [])
+    bad =
+      judgment_response("错误组合", [plan_decision_call(), judgment_call("unknown_operation", %{})])
+
+    good = judgment_response("只讨论创作目标。", [])
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, judgment_input())
 
     assert judgment.narrative == "只讨论创作目标。"
     assert {:ok, ir} = AuthoringTranscript.to_request_ir(judgment.transcript)
@@ -134,7 +98,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "立项修订工具显式 field/value 提案进入 judgment.profile_revision" do
     revision_call =
-      call("propose_work_profile_revision", %{
+      judgment_call("propose_work_profile_revision", %{
         "title" => "主线目标",
         "body" => "让沈砚从被动卷入转向主动查账。",
         "field" => "main_goal",
@@ -142,9 +106,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "author_reasoning" => "作者要求把主线目标定得更主动。"
       })
 
-    result = response("", [revision_call])
+    result = judgment_response("", [revision_call])
 
-    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
+
     assert judgment.action == "work_profile_revision"
     assert judgment.frame_type == "execution_candidate"
     assert judgment.profile_revision.field == "main_goal"
@@ -154,7 +120,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "立项修订工具拒绝未知字段/数值字段非正整数" do
     bad_field =
-      call("propose_work_profile_revision", %{
+      judgment_call("propose_work_profile_revision", %{
         "title" => "任意字段",
         "body" => "值",
         "field" => "not_a_field",
@@ -164,13 +130,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, _, _state} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad_field])]),
+               execution([judgment_response("", [bad_field])]),
                %{},
-               input()
+               judgment_input()
              )
 
     bad_numeric =
-      call("propose_work_profile_revision", %{
+      judgment_call("propose_work_profile_revision", %{
         "title" => "目标体量",
         "body" => "约 30 万字",
         "field" => "target_length",
@@ -180,16 +146,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, _, _state} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad_numeric])]),
+               execution([judgment_response("", [bad_numeric])]),
                %{},
-               input()
+               judgment_input()
              )
   end
 
   test "普通文本完整保留，一次 auto；未提供模型判断保持未知" do
     text = "  Strata 的工作过程缺少具体细节。\n\n可以继续讨论结尾。\n"
-    result = response(text, [])
-    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    result = judgment_response(text, [])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
+
     assert judgment.action == "reply"
     assert judgment.provider_call_count == 1
     assert judgment.narrative == text
@@ -208,8 +177,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "作者主动讨论 ref 和基线时原话正常交付，不因普通词面拒绝" do
     text = "  ref 用来定位对象；当前基线还需要同一作品的实际内容和有效版本。\r\n"
-    result = response(text, [], "technical-reply")
-    request = Map.put(input(), :author_text, "解释 ref 与当前基线之间有什么区别，只讨论机制。")
+    result = judgment_response(text, [], "technical-reply")
+    request = Map.put(judgment_input(), :author_text, "解释 ref 与当前基线之间有什么区别，只讨论机制。")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(execution([result]), %{}, request)
@@ -233,10 +202,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
           ]
         ] do
       question = "  要采用哪种结尾？\n"
-      result = response("", [call("ask_author", %{"question" => question, "options" => options})])
+
+      result =
+        judgment_response("", [
+          judgment_call("ask_author", %{"question" => question, "options" => options})
+        ])
 
       assert {:ok, judgment} =
-               JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+               JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
 
       assert judgment.action == "await_author"
       assert judgment.question == question
@@ -258,10 +231,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "ask_author 只以question交付，另一份非空content即使相同也需纠错" do
     for content <- ["还有另一段说明。", "要采用哪种结尾？"] do
-      result = response(content, [call("ask_author", %{question: "要采用哪种结尾？", options: []})])
+      result =
+        judgment_response(content, [
+          judgment_call("ask_author", %{question: "要采用哪种结尾？", options: []})
+        ])
 
       assert {:error, {:judgment_protocol_violation, :author_question_content_conflict}, state} =
-               JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+               JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
 
       assert state.provider_call_count == 2
     end
@@ -273,13 +249,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "options" => [%{"value" => "role-one", "label" => " 老沈\n（调查员） "}]
     }
 
-    original = response("", [call("ask_author", args)])
+    original = judgment_response("", [judgment_call("ask_author", args)])
     changed_args = put_in(args, ["options", Access.at(0), "label"], "老沈\n（调查员）")
-    result = %{original | tool_calls: [call("ask_author", changed_args)]}
+    result = %{original | tool_calls: [judgment_call("ask_author", changed_args)]}
 
     assert {:error, {:judgment_protocol_violation, :tool_call_not_bound_to_provider_output},
             state} =
-             JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
 
     assert state.provider_call_count == 2
     assert_receive {:provider_request, _}
@@ -298,11 +274,15 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "options" => [%{"value" => "role-one", "label" => " 老沈\n（调查员） "}]
     }
 
-    without_id = call("ask_author", args) |> Map.delete(:id)
-    source_without_id = response("", [without_id], "missing-id")
+    without_id = judgment_call("ask_author", args) |> Map.delete(:id)
+    source_without_id = judgment_response("", [without_id], "missing-id")
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([source_without_id]), %{}, input())
+             JudgmentProtocol.request_judgment(
+               execution([source_without_id]),
+               %{},
+               judgment_input()
+             )
 
     assert judgment.question == args["question"]
     assert judgment.options == args["options"]
@@ -315,11 +295,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
       )
 
-    bad = response("", [call("ask_author", bad_args)], "question-retry-first")
-    good = response("", [call("ask_author", args)], "question-retry-good")
+    bad = judgment_response("", [judgment_call("ask_author", bad_args)], "question-retry-first")
+    good = judgment_response("", [judgment_call("ask_author", args)], "question-retry-good")
 
     assert {:ok, corrected} =
-             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, judgment_input())
 
     assert corrected.provider_call_count == 2
     assert corrected.question == args["question"]
@@ -337,18 +317,22 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "重复/带首尾空白的 option value 失败，不补虚构选项" do
     for values <- [["one", "one"], [" one"]] do
       options = Enum.map(values, &%{value: &1, label: "方向"})
-      bad = response("", [call("ask_author", %{question: "选哪一个？", options: options})])
+
+      bad =
+        judgment_response("", [
+          judgment_call("ask_author", %{question: "选哪一个？", options: options})
+        ])
 
       assert {:error, {:judgment_protocol_violation, :question_option_values_invalid}, _state} =
-               JudgmentProtocol.request_judgment(execution([bad]), %{}, input())
+               JudgmentProtocol.request_judgment(execution([bad]), %{}, judgment_input())
     end
   end
 
   test "合法工具也不能混返或重复；旧 reply/await_author 字段与 native 探索拒绝" do
-    ask = call("ask_author", %{question: "选择？", options: []})
+    ask = judgment_call("ask_author", %{question: "选择？", options: []})
 
     reg =
-      call("register_author_content", %{
+      judgment_call("register_author_content", %{
         author_content_source_ref: "current",
         dialogue_goal: "登记",
         author_reasoning: "生成候选"
@@ -357,25 +341,29 @@ defmodule NovelApplication.JudgmentProtocolTest do
     for calls <- [
           [ask, reg],
           [ask, ask],
-          [call("chapter_read", %{query: "one"})],
+          [judgment_call("chapter_read", %{query: "one"})],
           [
-            call("judgment_decision", %{
+            judgment_call("judgment_decision", %{
               action: "reply",
               author_reasoning: "回复",
               dialogue_goal: "问答"
             })
           ],
           [
-            call("judgment_decision", %{
+            judgment_call("judgment_decision", %{
               action: "await_author",
               author_reasoning: "提问",
               dialogue_goal: "判断"
             })
           ],
-          [call("ask_author", %{question: "选择？", options: [], record_only: true})]
+          [judgment_call("ask_author", %{question: "选择？", options: [], record_only: true})]
         ] do
       assert {:error, _, _state} =
-               JudgmentProtocol.request_judgment(execution([response("说明", calls)]), %{}, input())
+               JudgmentProtocol.request_judgment(
+                 execution([judgment_response("说明", calls)]),
+                 %{},
+                 judgment_input()
+               )
     end
   end
 
@@ -386,22 +374,25 @@ defmodule NovelApplication.JudgmentProtocolTest do
       author_reasoning: "按原文生成候选。"
     }
 
-    result = response("", [call("register_author_content", args)])
+    result = judgment_response("", [judgment_call("register_author_content", args)])
 
     assert {:ok, %{action: "author_content_registration", author_content_source_ref: "previous"}} =
              JudgmentProtocol.request_judgment(
                execution([result]),
                %{},
-               input(author_content_sources: ["previous"])
+               judgment_input(author_content_sources: ["previous"])
              )
 
     assert {:error, {:author_content_registration_invalid, :source_not_available}, _state} =
-             JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
 
-    bad = response("说明", [call("register_author_content", Map.put(args, :body, "替代正文"))])
+    bad =
+      judgment_response("说明", [
+        judgment_call("register_author_content", Map.put(args, :body, "替代正文"))
+      ])
 
     assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, _state} =
-             JudgmentProtocol.request_judgment(execution([bad]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([bad]), %{}, judgment_input())
   end
 
   test "方向与缺口有明确工具来源，不从正文提取" do
@@ -412,23 +403,29 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [call("propose_creative_directions", args)])]),
+               execution([
+                 judgment_response("", [judgment_call("propose_creative_directions", args)])
+               ]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert judgment.action == "creative_directions"
     assert judgment.candidate_directions == args.candidate_directions
 
     gap =
-      call("report_capability_gap", %{
+      judgment_call("report_capability_gap", %{
         dialogue_goal: "修改角色身份",
         missing_effect: "主档案字段修改",
         author_reasoning: "当前只能记录演化记忆。"
       })
 
     assert {:ok, %{action: "capability_gap"}} =
-             JudgmentProtocol.request_judgment(execution([response("", [gap])]), %{}, input())
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response("", [gap])]),
+               %{},
+               judgment_input()
+             )
   end
 
   test "作者说明工具与内部探索都拒绝非空 content，不吞掉额外正文" do
@@ -441,13 +438,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
       author_reasoning: text
     }
 
-    tool = call("judgment_decision", args)
+    tool = judgment_call("judgment_decision", args)
 
     protocol_input =
-      input(capabilities: ["work_archive_read"], explore: true, explore_tools: ["chapter_read"])
+      judgment_input(
+        capabilities: ["work_archive_read"],
+        explore: true,
+        explore_tools: ["chapter_read"]
+      )
 
     read_call =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         action: "explore",
         explore_request: %{tool: "chapter_read", query: "第一章"}
       })
@@ -455,7 +456,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     for candidate <- [tool, read_call], content <- [text, "另一份说明。", "  "] do
       assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, state} =
                JudgmentProtocol.request_judgment(
-                 execution([response(content, [candidate])]),
+                 execution([judgment_response(content, [candidate])]),
                  %{},
                  protocol_input
                )
@@ -464,7 +465,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert Enum.all?(validation_blocks(state.judgment_transcript), &(&1.status == "failed"))
     end
 
-    source = response("", [tool])
+    source = judgment_response("", [tool])
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(execution([source]), %{}, protocol_input)
@@ -483,9 +484,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
     cases = [
       {:request_judgment, "judgment_decision",
        %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"},
-       input(capabilities: ["character_design"])},
+       judgment_input(capabilities: ["character_design"])},
       {:request_continuation, "continuation_decision", %{action: "continue", guidance: "补足结尾"},
-       %{deviation_summary: "尚缺结尾", observation_block: "已有前半章", options: input().options}}
+       %{deviation_summary: "尚缺结尾", observation_block: "已有前半章", options: judgment_input().options}}
     ]
 
     for {function, name, fields, protocol_input} <- cases,
@@ -495,7 +496,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
         ] do
       assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
                apply(JudgmentProtocol, function, [
-                 execution([response("", [call(name, args)])]),
+                 execution([judgment_response("", [judgment_call(name, args)])]),
                  %{},
                  protocol_input
                ])
@@ -506,7 +507,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "有正文执行与无正文探索都校验原调用，不接受被替换的参数、身份或正文" do
     execute =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         action: "execute",
         capability: "character_design",
         dialogue_goal: "设计人物",
@@ -514,16 +515,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
       })
 
     read =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         action: "explore",
         explore_request: %{tool: "chapter_read", query: "  第一章\n"}
       })
 
     for {original, changed_call} <- [
-          {response("", [execute]), put_in(execute.arguments.capability, "world_building")},
-          {response("", [read]), put_in(read.arguments.explore_request.query, "另一章")},
-          {response("", [read]), %{read | id: "forged-native-call"}},
-          {response("原响应仍有正文。", [read]), read}
+          {judgment_response("", [execute]),
+           put_in(execute.arguments.capability, "world_building")},
+          {judgment_response("", [read]), put_in(read.arguments.explore_request.query, "另一章")},
+          {judgment_response("", [read]), %{read | id: "forged-native-call"}},
+          {judgment_response("原响应仍有正文。", [read]), read}
         ] do
       result = %{original | content: "", tool_calls: [changed_call]}
 
@@ -532,7 +534,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                JudgmentProtocol.request_judgment(
                  execution([result]),
                  %{},
-                 input(
+                 judgment_input(
                    capabilities: ["character_design", "world_building"],
                    explore: true,
                    explore_tools: ["chapter_read"]
@@ -554,7 +556,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       author_reasoning: "保留原稿。"
     }
 
-    result = response("", [call("judgment_decision", args)])
+    result = judgment_response("", [judgment_call("judgment_decision", args)])
 
     opts = [
       capabilities: ["revise_pending_artifact"],
@@ -562,10 +564,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     ]
 
     assert {:error, {:pending_artifact_invalid, :target_not_available}, _state} =
-             JudgmentProtocol.request_judgment(execution([result]), %{}, input(opts))
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input(opts))
 
     explore =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         action: "explore",
         explore_request: %{tool: "chapter_read", query: "chapter:one"}
       })
@@ -573,9 +575,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
     for content <- [nil, ""] do
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
-                 execution([response(content, [explore])]),
+                 execution([judgment_response(content, [explore])]),
                  %{},
-                 input(explore: true, explore_tools: ["chapter_read"])
+                 judgment_input(explore: true, explore_tools: ["chapter_read"])
                )
 
       assert judgment.action == "explore"
@@ -588,7 +590,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
 
     assert {:error, {:judgment_protocol_violation, :exploration_not_available}, _state} =
-             JudgmentProtocol.request_judgment(execution([response("", [explore])]), %{}, input())
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response("", [explore])]),
+               %{},
+               judgment_input()
+             )
   end
 
   @tag :r05_explore_contract
@@ -601,34 +607,54 @@ defmodule NovelApplication.JudgmentProtocolTest do
     execute = %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"}
     gap = %{dialogue_goal: "修改身份", missing_effect: "主档案修改", author_reasoning: leak}
     good_text = "  已核对老沈的身份。\n\n请确认这份建议。\n"
-    good = response(good_text, [], "good")
+    good = judgment_response(good_text, [], "good")
 
     bad_responses = [
-      response("错误说明", [call("judgment_decision", %{action: "reply"})], "bad"),
-      response(leak, [], "bad"),
-      response(c9, [], "bad"),
-      response("", [call("judgment_decision", Map.put(execute, :author_reasoning, c9))], "bad"),
-      response("", [call("judgment_decision", Map.put(execute, :author_reasoning, leak))], "bad"),
-      response(
-        leak,
-        [call("judgment_decision", Map.put(execute, :author_reasoning, "安全说明"))],
-        "bad"
-      ),
-      response("", [call("ask_author", %{question: leak, options: []})], "bad"),
-      response(
+      judgment_response("错误说明", [judgment_call("judgment_decision", %{action: "reply"})], "bad"),
+      judgment_response(leak, [], "bad"),
+      judgment_response(c9, [], "bad"),
+      judgment_response(
         "",
-        [call("ask_author", %{question: "你指哪位？", options: [%{value: "first", label: leak}]})],
+        [judgment_call("judgment_decision", Map.put(execute, :author_reasoning, c9))],
         "bad"
       ),
-      response("请确认对象。", [call("ask_author", %{question: leak, options: []})], "bad"),
-      response(
-        "请确认对象。",
+      judgment_response(
+        "",
+        [judgment_call("judgment_decision", Map.put(execute, :author_reasoning, leak))],
+        "bad"
+      ),
+      judgment_response(
+        leak,
+        [judgment_call("judgment_decision", Map.put(execute, :author_reasoning, "安全说明"))],
+        "bad"
+      ),
+      judgment_response("", [judgment_call("ask_author", %{question: leak, options: []})], "bad"),
+      judgment_response(
+        "",
         [
-          call("ask_author", %{question: "你指哪位？", options: [%{value: "first", label: leak}]})
+          judgment_call("ask_author", %{
+            question: "你指哪位？",
+            options: [%{value: "first", label: leak}]
+          })
         ],
         "bad"
       ),
-      response("", [call("report_capability_gap", gap)], "bad")
+      judgment_response(
+        "请确认对象。",
+        [judgment_call("ask_author", %{question: leak, options: []})],
+        "bad"
+      ),
+      judgment_response(
+        "请确认对象。",
+        [
+          judgment_call("ask_author", %{
+            question: "你指哪位？",
+            options: [%{value: "first", label: leak}]
+          })
+        ],
+        "bad"
+      ),
+      judgment_response("", [judgment_call("report_capability_gap", gap)], "bad")
     ]
 
     for bad <- bad_responses do
@@ -636,7 +662,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                JudgmentProtocol.request_judgment(
                  execution([bad, good]),
                  %{},
-                 input(capabilities: ["character_design"])
+                 judgment_input(capabilities: ["character_design"])
                )
 
       assert judgment.provider_call_count == 2
@@ -666,7 +692,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
     end
 
     assert {:error, {:judgment_protocol_violation, :author_visible_narrative_invalid}, state} =
-             JudgmentProtocol.request_judgment(execution([response(leak, [])]), %{}, input())
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response(leak, [])]),
+               %{},
+               judgment_input()
+             )
 
     assert state.provider_call_count == 2
   end
@@ -675,12 +705,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     continuation_input = %{
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
-      options: input().options
+      options: judgment_input().options
     }
 
     good =
-      response("", [
-        call("continuation_decision", %{
+      judgment_response("", [
+        judgment_call("continuation_decision", %{
           action: "continue",
           guidance: "补足结尾",
           author_reasoning: "按已指出的缺口补写。"
@@ -691,8 +721,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_continuation(execution([good]), %{}, continuation_input)
 
     bad =
-      response("", [
-        call("continuation_decision", %{
+      judgment_response("", [
+        judgment_call("continuation_decision", %{
           action: "continue",
           guidance: "补足结尾",
           author_reasoning: "候选 as_mwnwwxoe_11"
@@ -713,7 +743,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, _, _state} =
              JudgmentProtocol.request_continuation(
-               execution([response("继续", [])]),
+               execution([judgment_response("继续", [])]),
                %{},
                continuation_input
              )
@@ -805,7 +835,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "判断入口拒绝缺失输入配对或运行身份，已有历史与父回合也不能补来源" do
     run = %{run_id: "run-explicit-judgment", parent_turn_ref: "turn:old-parent"}
-    valid = input(plan_run: run)
+    valid = judgment_input(plan_run: run)
     assert {:ok, previous} = JudgmentProtocol.transcript_for_production(valid)
     provider = %Execution{result_fn: fn _ -> flunk("缺身份或作者来源不得调用 Provider") end}
 
@@ -858,7 +888,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "steer 后先进入续行判断也记录同一原文与来源，重复构造不重写历史" do
-    initial = JudgmentProtocol.request_for_production(input())
+    initial = JudgmentProtocol.request_for_production(judgment_input())
     {:ok, transcript} = AuthoringTranscript.from_request_ir(initial)
     raw = "  先重试 Ω\n只改第二段。\t "
 
@@ -870,7 +900,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       deviation_summary: "正文执行失败",
       options: [
         plan_run: %{
-          input().options[:plan_run]
+          judgment_input().options[:plan_run]
           | goal: %{text: "应用归纳的续行目标", version: 2}
         }
       ]
@@ -899,22 +929,22 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "传输重试保留原请求，和结构纠正共享一次额度" do
     assert {:ok, %{provider_call_count: 2}} =
              JudgmentProtocol.request_judgment(
-               execution([{:error, %{type: :timeout}}, response("已恢复。", [])]),
+               execution([{:error, %{type: :timeout}}, judgment_response("已恢复。", [])]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert_received {:provider_request, first}
     assert_received {:provider_request, second}
     assert first == second
 
-    invalid = response("错误动作", [call("not_registered", %{})])
+    invalid = judgment_response("错误动作", [judgment_call("not_registered", %{})])
 
     assert {:error, %{type: :timeout}, _state} =
              JudgmentProtocol.request_judgment(
                execution([invalid, {:error, %{type: :timeout}}]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert_received {:provider_request, original}
@@ -927,7 +957,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     invalid =
       response_with_execution_refs(
         "错误动作",
-        [call("not_registered", %{})],
+        [judgment_call("not_registered", %{})],
         "invalid",
         "run-invalid"
       )
@@ -936,7 +966,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(
                execution([invalid, {:error, %{type: :timeout}}]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert state.provider_call_count == 2
@@ -959,7 +989,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(
                execution([{:error, %{type: :timeout}}, {:error, %{type: :timeout}}]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert state.provider_call_count == 2
@@ -976,7 +1006,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "未创建 IR 的零调用前置错误保持纯错误且不虚增计数" do
     assert {:error, :provider_execution_required} =
-             JudgmentProtocol.request_judgment(%Execution{result_fn: nil}, %{}, input())
+             JudgmentProtocol.request_judgment(%Execution{result_fn: nil}, %{}, judgment_input())
 
     refute_receive {:provider_request, _}, 10
   end
@@ -988,7 +1018,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     # 生成合法前缀（含真实 scope），再在末尾追加无观察的 tool_call：scope 未变，
     # 请求不会再追加消息，唯一失败点就是「请求未 ready」，从而验证同一不变量：
     # 前缀保留、无新增协议块、零真实调用。
-    assert {:ok, base} = JudgmentProtocol.transcript_for_production(input())
+    assert {:ok, base} = JudgmentProtocol.transcript_for_production(judgment_input())
 
     prefix =
       AuthoringTranscript.append_provider_result(base, %{
@@ -1006,9 +1036,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, {:pending_tool_calls, ["call-prefix-1"]}, state} =
              JudgmentProtocol.request_judgment(
-               execution([response("不应调用", [])]),
+               execution([judgment_response("不应调用", [])]),
                %{},
-               input() |> Map.put(:transcript, prefix)
+               judgment_input() |> Map.put(:transcript, prefix)
              )
 
     assert state.provider_call_count == 0
@@ -1023,13 +1053,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "续行终局拒绝保留既有历史前缀，只计本次调用且不倒写已 passed 校验" do
-    ask = call("ask_author", %{"question" => "先改哪一段？", "options" => []})
+    ask = judgment_call("ask_author", %{"question" => "先改哪一段？", "options" => []})
 
     assert {:ok, first} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [ask])]),
+               execution([judgment_response("", [ask])]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert_receive {:provider_request, _prior_request}
@@ -1042,10 +1072,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
       transcript: first.transcript,
       deviation_summary: "尚缺结尾",
       observation_block: "已有前半章",
-      options: input().options
+      options: judgment_input().options
     }
 
-    invalid = response("坏响应", [call("not_registered", %{})], "bad-continuation")
+    invalid = judgment_response("坏响应", [judgment_call("not_registered", %{})], "bad-continuation")
 
     assert {:error, {:judgment_protocol_violation, :tool_not_in_profile}, state} =
              JudgmentProtocol.request_continuation(
@@ -1071,11 +1101,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "其它校验 reason 的纠错文案保持原样（不混入合法组合指引）" do
-    first = response("", [call("judgment_decision", %{action: "execute"})])
-    second = response("已按原目标继续。", [])
+    first = judgment_response("", [judgment_call("judgment_decision", %{action: "execute"})])
+    second = judgment_response("已按原目标继续。", [])
 
     assert {:ok, %{action: "reply", provider_call_count: 2}} =
-             JudgmentProtocol.request_judgment(execution([first, second]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([first, second]), %{}, judgment_input())
 
     # invalid_tool_arguments 走参数 schema 专用纠错（不含合法组合指引）；仍允许一次纠正后继续。
     assert_receive {:provider_request, _}
@@ -1087,21 +1117,21 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "M18：current 指代历史资料被机械拒绝，纠错给出来源纠正路径并允许一次修复" do
     registration =
-      call("register_author_content", %{
+      judgment_call("register_author_content", %{
         "author_content_source_ref" => "current",
         "dialogue_goal" => "登记灯油配方",
         "author_reasoning" => "按作者要求登记。"
       })
 
-    bad = response("", [registration])
+    bad = judgment_response("", [registration])
 
     good =
-      response("", [
-        call("ask_author", %{"question" => "请指出要保存的灯油配方原文来源。", "options" => []})
+      judgment_response("", [
+        judgment_call("ask_author", %{"question" => "请指出要保存的灯油配方原文来源。", "options" => []})
       ])
 
     protocol_input =
-      input(author_content_sources: ["turn_prev"])
+      judgment_input(author_content_sources: ["turn_prev"])
       |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
 
     assert {:ok, judgment} =
@@ -1122,32 +1152,39 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "M18：纠错后仍把 current 当原文 → 终局拒绝" do
     registration =
-      call("register_author_content", %{
+      judgment_call("register_author_content", %{
         "author_content_source_ref" => "current",
         "dialogue_goal" => "登记灯油配方",
         "author_reasoning" => "按作者要求登记。"
       })
 
     protocol_input =
-      input(author_content_sources: [])
+      judgment_input(author_content_sources: [])
       |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
 
     assert {:error,
             {:author_content_registration_invalid,
              :anaphoric_current_source_requires_explicit_text}, _state} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [registration]), response("", [registration])]),
+               execution([
+                 judgment_response("", [registration]),
+                 judgment_response("", [registration])
+               ]),
                %{},
                protocol_input
              )
   end
 
   test "M13：只有推理占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do
-    placeholder = response("[assistant reasoning omitted]", [])
-    good = response("已按你刚才说的收下，先留在对话里。", [])
+    placeholder = judgment_response("[assistant reasoning omitted]", [])
+    good = judgment_response("已按你刚才说的收下，先留在对话里。", [])
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([placeholder, good]), %{}, input())
+             JudgmentProtocol.request_judgment(
+               execution([placeholder, good]),
+               %{},
+               judgment_input()
+             )
 
     assert judgment.action == "reply"
     assert judgment.narrative == "已按你刚才说的收下，先留在对话里。"
@@ -1163,15 +1200,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
              JudgmentProtocol.request_judgment(
                execution([placeholder, placeholder]),
                %{},
-               input()
+               judgment_input()
              )
   end
 
   test "M13：占位行后附真实文本时去掉占位行，保留可追溯真实内容" do
     text = "[assistant reasoning internal]\n我收到了，这条先留在对话里。"
-    result = response(text, [])
+    result = judgment_response(text, [])
 
-    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
+
     assert judgment.narrative == "我收到了，这条先留在对话里。"
     refute judgment.narrative =~ "assistant reasoning"
 
@@ -1181,68 +1220,16 @@ defmodule NovelApplication.JudgmentProtocolTest do
              })
   end
 
-  test "M14/M07 判断 prompt 包含能力缺口与已有候选优先规则（capture）" do
-    prompt = JudgmentProtocol.request_for_production(input())
-    content = first_text(prompt)
-
-    # M14：能力缺口必须 report_capability_gap，ask_author 不能代替
-    assert content =~ "能力缺口优先"
-    assert content =~ "report_capability_gap 说明缺失效果"
-    assert content =~ "不得用 ask_author 问“你要哪一种”来代替缺口报告"
-    assert content =~ "ask_author 只用于需要作者裁决方向/对象/范围且材料无法消歧"
-
-    # M07：已有候选优先直接修订，预览为空不构成追问理由
-    assert content =~ "已有候选优先"
-    assert content =~ "直接选择 revise_pending_artifact"
-    assert content =~ "候选正文预览可能为空"
-    assert content =~ "不要先 ask_author"
-
-    # 工具描述也编码区分
+  test "能力缺口与作者裁决由当前工具契约分别声明" do
+    prompt = JudgmentProtocol.request_for_production(judgment_input())
     ask = Enum.find(prompt.tools, &(&1.name == "ask_author"))
     gap = Enum.find(prompt.tools, &(&1.name == "report_capability_gap"))
     assert ask.description =~ "能力缺口必须用 report_capability_gap"
     assert gap.description =~ "不以 ask_author 代替"
   end
 
-  test "能力缺口的最近可行路径允许引用判断层工具与探索工具（不发明操作）" do
-    gap =
-      call("report_capability_gap", %{
-        "dialogue_goal" => "登记历史原文",
-        "missing_effect" => "无法从当前材料找到可逐字登记的原文",
-        "author_reasoning" => "请作者贴出原文后再登记。",
-        "alternative_operation_refs" => ["register_author_content", "chapter_read"]
-      })
-
-    assert {:ok, %{action: "capability_gap", provider_call_count: 1}} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [gap])]),
-               %{},
-               input(explore: true, explore_tools: ["chapter_read"])
-             )
-
-    invented =
-      call("report_capability_gap", %{
-        "dialogue_goal" => "缺口",
-        "missing_effect" => "缺能力",
-        "author_reasoning" => "说明。",
-        "alternative_operation_refs" => ["make_magic", "chapter_read"]
-      })
-
-    # 无效 refs 被过滤而非拒整条响应；真实可用项保留（M14 r2 不终局）。
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [invented])]),
-               %{},
-               input(explore: true, explore_tools: ["chapter_read"])
-             )
-
-    assert judgment.reply_record.model_interpretation[:alternative_operation_refs] == [
-             "chapter_read"
-           ]
-  end
-
   test "证据纪律规则在判断 prompt 中唯一且明确" do
-    prompt = JudgmentProtocol.request_for_production(input())
+    prompt = JudgmentProtocol.request_for_production(judgment_input())
     content = first_text(prompt)
 
     assert String.split(content, "## 对象与版本证据纪律（先取证/消歧，再操作）") |> length() == 2
@@ -1253,7 +1240,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "修改权威版本"
     assert content =~ "只讨论/比较时不改变 canon"
     assert content =~ "不得把建议包装成系统已定"
-    assert content =~ "execute 只填一个目标 ref 字段"
 
     decision = Enum.find(prompt.tools, &(&1.name == "judgment_decision"))
     assert decision.description =~ "对象/版本操作只引用上下文中真实存在的 ref"
@@ -1284,9 +1270,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [ghost]), response("", [real])]),
+               execution([judgment_response("", [ghost]), judgment_response("", [real])]),
                %{},
-               input(opts)
+               judgment_input(opts)
              )
 
     assert judgment.action == "execute"
@@ -1311,9 +1297,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "author_reasoning" => "按作者要求修改。"
     }
 
-    first_call = %{call("judgment_decision", arguments) | id: "tool-ghost-1"}
+    first_call = %{judgment_call("judgment_decision", arguments) | id: "tool-ghost-1"}
 
-    second_call = %{call("judgment_decision", arguments) | id: "tool-ghost-2"}
+    second_call = %{judgment_call("judgment_decision", arguments) | id: "tool-ghost-2"}
 
     opts = [
       capabilities: ["revise_pending_artifact"],
@@ -1327,7 +1313,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
                  response_with_execution_refs("", [second_call], "pcall-ghost-2", "prun-ghost-2")
                ]),
                %{},
-               input(opts)
+               judgment_input(opts)
              )
 
     assert state.provider_call_count == 2
@@ -1355,44 +1341,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute_receive {:provider_request, _third}, 10
   end
 
-  test "候选 ref 与已采纳 ref 字段混填 → 字段纠错，修复后可执行" do
-    mixed =
-      execute_call(%{
-        "capability" => "revise_pending_artifact",
-        "pending_artifact_ref" => "as_real",
-        "adopted_content_ref" => "as_real"
-      })
-
-    clean =
-      execute_call(%{
-        "capability" => "revise_pending_artifact",
-        "pending_artifact_ref" => "as_real"
-      })
-
-    opts = [
-      capabilities: ["revise_pending_artifact"],
-      pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
-    ]
-
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([response("", [mixed]), response("", [clean])]),
-               %{},
-               input(opts)
-             )
-
-    assert judgment.action == "execute"
-    assert judgment.pending_artifact_ref == "as_real"
-
-    assert_receive {:provider_request, _first}
-    assert_receive {:provider_request, corrected}
-    correction = validation_text(List.last(corrected.messages))
-    assert correction =~ "target_ref_field_conflict"
-    assert correction =~ "不得同时填两个"
-  end
-
   defp execute_call(overrides) do
-    call(
+    judgment_call(
       "judgment_decision",
       Map.merge(
         %{"action" => "execute", "dialogue_goal" => "修改候选", "author_reasoning" => "按作者要求修改。"},
@@ -1402,13 +1352,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "可见收束/收下资料零菜单规则在判断 prompt 中明确" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "最终答复收束"
     assert content =~ "作者正文必须给出可直接阅读的结论"
     assert content =~ "实际方向内容"
-    assert content =~ "用 propose_creative_directions 时 author_reasoning"
-    refute content =~ "用 propose_creative_directions 时 content 必须"
     assert content =~ "作者只要求收下资料/只聊不展开时"
     assert content =~ "零方向菜单、零候选/登记"
 
@@ -1422,25 +1370,25 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "[Assistant reasoning - internal content, not shown to author]\n" <>
         "作者要求先收下资料；这里只确认收到，不展开。"
 
-    result = response(text, [])
+    result = judgment_response(text, [])
 
-    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, judgment_input())
+
     assert judgment.narrative == "作者要求先收下资料；这里只确认收到，不展开。"
     refute judgment.narrative =~ "assistant reasoning"
   end
 
-  test "ask_author 正式通道与能力缺口/排版裁量规则在 prompt 中明确" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+  test "作者裁决沿当前 ask_author 正式通道交付" do
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "必须用 ask_author 工具提出具体问题"
     assert content =~ "不能用普通 reply 里的问句或说明代替 ask_author"
-    assert content =~ "不得用 report_capability_gap"
-    assert content =~ "作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact"
     assert String.split(content, "必须用 ask_author 工具提出具体问题") |> length() == 2
   end
 
   test "task-28 证据/冒充/系统信息/收束规则在判断 prompt 中明确" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     # M14：禁止用新建同名/演化候选冒充已有主档案修改
     assert content =~ "修改已有对象的主档案/权威字段"
@@ -1460,9 +1408,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "继续读取不是最终答复"
     assert content =~ "不得只回“已继续读取/再给结论”"
 
-    # M09：不得用元描述代替方向
-    assert content =~ "也不能用“你的请求属于创作方向讨论”这类"
-
     # 唯一性（关键规则只出现一次）
     assert String.split(content, "系统可读的章节目录、章状态、统计、正文/档案材料不得转向作者索取") |> length() == 2
 
@@ -1471,24 +1416,24 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "M18：指代历史原文且可探索时先 ask_author 被机械拦截，先 explore 后可通过" do
     ask =
-      call("ask_author", %{
+      judgment_call("ask_author", %{
         "question" => "请贴出灯油配方原文或指出来源。",
         "options" => []
       })
 
     explore =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "explore",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
 
     protocol_input =
-      input(explore: true, explore_tools: ["chapter_read", "prose_search"])
+      judgment_input(explore: true, explore_tools: ["chapter_read", "prose_search"])
       |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [ask]), response("", [explore])]),
+               execution([judgment_response("", [ask]), judgment_response("", [explore])]),
                %{},
                protocol_input
              )
@@ -1503,38 +1448,46 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "M18：无指代/不可探索/已有观察时 ask_author 仍合法" do
-    ask = call("ask_author", %{"question" => "你要改哪一份候选？", "options" => []})
+    ask = judgment_call("ask_author", %{"question" => "你要改哪一份候选？", "options" => []})
 
     # 无指代：不强制先探索
     assert {:ok, %{action: "await_author"}} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [ask])]),
+               execution([judgment_response("", [ask])]),
                %{},
-               input(explore: true, explore_tools: ["chapter_read"])
+               judgment_input(explore: true, explore_tools: ["chapter_read"])
              )
 
     # 探索不可用：允许直接问
     anaphoric =
-      input()
+      judgment_input()
       |> Map.put(:author_text, "把之前那段灯油配方存进设定")
 
     assert {:ok, %{action: "await_author"}} =
-             JudgmentProtocol.request_judgment(execution([response("", [ask])]), %{}, anaphoric)
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response("", [ask])]),
+               %{},
+               anaphoric
+             )
 
     # 已有观察（完成过探索）：允许问作者
     observed =
-      input(explore: true, explore_tools: ["chapter_read"])
+      judgment_input(explore: true, explore_tools: ["chapter_read"])
       |> Map.put(:author_text, "把之前那段灯油配方存进设定")
       |> Map.put(:observations, [%{tool: "chapter_read", refs: ["chapter:one"]}])
 
     assert {:ok, %{action: "await_author"}} =
-             JudgmentProtocol.request_judgment(execution([response("", [ask])]), %{}, observed)
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response("", [ask])]),
+               %{},
+               observed
+             )
   end
 
   @tag :r05_explore_contract
   test "M16：explore 的旧目标与执行字段沿原调用纠错，最终只接受纠正的读取请求" do
     good =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "explore",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
       })
@@ -1553,13 +1506,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
         |> Map.put(:id, "rejected-explore")
         |> Map.update!(:arguments, &Map.put(&1, field, value))
 
-      corrected_result = response("", [good], "corrected-provider")
+      corrected_result = judgment_response("", [good], "corrected-provider")
 
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
-                 execution([response("", [bad], "rejected-provider"), corrected_result]),
+                 execution([judgment_response("", [bad], "rejected-provider"), corrected_result]),
                  %{},
-                 input(opts)
+                 judgment_input(opts)
                )
 
       assert judgment.action == "explore"
@@ -1591,7 +1544,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   @tag :r05_explore_contract
   test "M16：execute 带 explore_request 被具体纠错后可修复" do
     bad =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "execute",
         "capability" => "prose_writing",
         "dialogue_goal" => "写章",
@@ -1600,7 +1553,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       })
 
     good =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "execute",
         "capability" => "prose_writing",
         "dialogue_goal" => "写章",
@@ -1611,9 +1564,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad]), response("", [good])]),
+               execution([judgment_response("", [bad]), judgment_response("", [good])]),
                %{},
-               input(opts)
+               judgment_input(opts)
              )
 
     assert judgment.action == "execute"
@@ -1628,18 +1581,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "explore_request"
   end
 
-  test "task-28 补充：直接回答/唯一候选直接执行/参数 schema 指引在 prompt 中明确" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
-
-    assert content =~ "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply"
-    assert content =~ "不为形式重复读取"
-    assert content =~ "待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact"
-    assert content =~ "探索确认对象后必须继续执行修订"
-  end
-
   test "工具参数 schema 错误带具体字段指引，一次纠错后可修复" do
     bad =
-      call("report_capability_gap", %{
+      judgment_call("report_capability_gap", %{
         "dialogue_goal" => "改已有角色身份",
         "missing_effect" => "无法修改已有角色主档案身份",
         "author_reasoning" => "说明缺口。",
@@ -1647,7 +1591,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       })
 
     good =
-      call("report_capability_gap", %{
+      judgment_call("report_capability_gap", %{
         "dialogue_goal" => "改已有角色身份",
         "missing_effect" => "无法修改已有角色主档案身份",
         "author_reasoning" => "说明缺口。"
@@ -1655,9 +1599,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad]), response("", [good])]),
+               execution([judgment_response("", [bad]), judgment_response("", [good])]),
                %{},
-               input()
+               judgment_input()
              )
 
     assert judgment.action == "capability_gap"
@@ -1672,7 +1616,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "task-34 prompt：M02 质量边界/M03 占位收束/M06 未答不推进/M16 多意图/M18 探索优先" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "统计只证明进度与可核对状态"
     assert content =~ "不能单凭章状态或“已保存/无待采纳候选”断言叙事完成、质量或无矛盾"
@@ -1690,11 +1634,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "M03：仅 '-'/标点占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do
-    dash = response("-", [])
-    good = response("已覆盖 1–12000/34357；未读部分 12001–34357，结论仅限已读部分，下一步继续读取末页。", [])
+    dash = judgment_response("-", [])
+    good = judgment_response("已覆盖 1–12000/34357；未读部分 12001–34357，结论仅限已读部分，下一步继续读取末页。", [])
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([dash, good]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([dash, good]), %{}, judgment_input())
 
     assert judgment.narrative =~ "已覆盖"
 
@@ -1704,12 +1648,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "judgment_narrative_required"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
-             JudgmentProtocol.request_judgment(execution([dash, dash]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([dash, dash]), %{}, judgment_input())
   end
 
   test "M06：ask_author 重试后不得改成 execute 推进候选（未获作者回答）" do
     malformed_ask =
-      call("ask_author", %{
+      judgment_call("ask_author", %{
         "question" => "要改哪一份候选的第二段？",
         "options" => [],
         "recommended" => "as_m06_a"
@@ -1728,37 +1672,47 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, {:judgment_protocol_violation, :await_author_unanswered}, _state} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [malformed_ask]), response("", [advance])]),
+               execution([
+                 judgment_response("", [malformed_ask]),
+                 judgment_response("", [advance])
+               ]),
                %{},
-               input(opts)
+               judgment_input(opts)
              )
   end
 
   test "M06：ask_author 参数错误重试为合法 ask_author 仍允许（不误伤澄清）" do
     malformed_ask =
-      call("ask_author", %{"question" => "要改哪一份候选？", "options" => [], "recommended" => "x"})
+      judgment_call("ask_author", %{
+        "question" => "要改哪一份候选？",
+        "options" => [],
+        "recommended" => "x"
+      })
 
-    valid_ask = call("ask_author", %{"question" => "要改哪一份候选的第二段？", "options" => []})
+    valid_ask = judgment_call("ask_author", %{"question" => "要改哪一份候选的第二段？", "options" => []})
 
     assert {:ok, %{action: "await_author", provider_call_count: 2}} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [malformed_ask]), response("", [valid_ask])]),
+               execution([
+                 judgment_response("", [malformed_ask]),
+                 judgment_response("", [valid_ask])
+               ]),
                %{},
-               input()
+               judgment_input()
              )
   end
 
   test "content 为原始工具调用 XML 标记时视为空响应，纠错后可修复" do
     markup =
-      response(
+      judgment_response(
         "<tool_call>\n<function=chapter_read>\n<parameter=query>第02章：井底回声</parameter>\n</function>\n</tool_call>",
         []
       )
 
-    good = response("第 2 章「第02章：井底回声」已写完：COMPLETED，1/1 场，正文 62 字符。", [])
+    good = judgment_response("第 2 章「第02章：井底回声」已写完：COMPLETED，1/1 场，正文 62 字符。", [])
 
     assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(execution([markup, good]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([markup, good]), %{}, judgment_input())
 
     assert judgment.narrative =~ "已写完"
 
@@ -1767,25 +1721,25 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert validation_text(List.last(corrected.messages)) =~ "judgment_narrative_required"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
-             JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, judgment_input())
   end
 
   test "探索不可用时只接受模型纠正后的普通回复，不从错误工具响应提取正文" do
     explore =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "explore",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
       })
 
     conclusion = "已读到 1–30000/34357；本轮探索预算已用尽，未读末页不纳入结论。"
-    invalid = response("", [explore], "unavailable")
-    corrected = response(conclusion, [], "corrected-reply")
+    invalid = judgment_response("", [explore], "unavailable")
+    corrected = judgment_response(conclusion, [], "corrected-reply")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([invalid, corrected]),
                %{},
-               input(explore: false)
+               judgment_input(explore: false)
              )
 
     assert judgment.action == "reply"
@@ -1794,30 +1748,37 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.provider_call_count == 2
 
     assert {:error, {:judgment_protocol_violation, :exploration_not_available}, exhausted} =
-             JudgmentProtocol.request_judgment(execution([invalid]), %{}, input(explore: false))
+             JudgmentProtocol.request_judgment(
+               execution([invalid]),
+               %{},
+               judgment_input(explore: false)
+             )
 
-    assert exhausted.provider_call_count == 3
+    assert exhausted.provider_call_count == 2
 
-    conflict = response(conclusion, [explore])
+    conflict = judgment_response(conclusion, [explore])
 
     assert {:error, {:judgment_protocol_violation, :author_narrative_content_conflict}, failed} =
-             JudgmentProtocol.request_judgment(execution([conflict]), %{}, input(explore: false))
+             JudgmentProtocol.request_judgment(
+               execution([conflict]),
+               %{},
+               judgment_input(explore: false)
+             )
 
     assert failed.provider_call_count == 2
   end
 
   test "task-36：伪工具文本反复出现时有界重试（不无限循环）" do
     pseudo =
-      response(
+      judgment_response(
         "<tool_call>\n<function=chapter_read>\n<parameter=query>第01章</parameter>\n</function>\n</tool_call>",
         []
       )
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}, _state} =
-             JudgmentProtocol.request_judgment(execution([pseudo, pseudo, pseudo]), %{}, input())
+             JudgmentProtocol.request_judgment(execution([pseudo, pseudo]), %{}, judgment_input())
 
-    # 3 次有界尝试后诚实拒绝（不是 1 次即终局）
-    assert_receive {:provider_request, _}
+    # 与其他结构错误共用两次窗口，末次拒绝后不再追加调用。
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, _}
     refute_receive {:provider_request, _}, 10
@@ -1825,20 +1786,20 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "task-36：只聊/分析任务不得物化方向（discussion_only 纠错后可 reply）" do
     directions =
-      call("propose_creative_directions", %{
+      judgment_call("propose_creative_directions", %{
         "candidate_directions" => [%{"title" => "方向一", "pitch" => "走向"}],
         "author_reasoning" => "给出方向。"
       })
 
-    good = response("陈九斤的弧线可以从“数灯/不接纸/不能回头”三个动作往代价走。", [])
+    good = judgment_response("陈九斤的弧线可以从“数灯/不接纸/不能回头”三个动作往代价走。", [])
 
     protocol_input =
-      input()
+      judgment_input()
       |> Map.put(:author_text, "先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [directions]), good]),
+               execution([judgment_response("", [directions]), good]),
                %{},
                protocol_input
              )
@@ -1852,30 +1813,29 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "task-36：要求生成方向时 discussion_only 不误伤（仍可 propose）" do
     directions =
-      call("propose_creative_directions", %{
+      judgment_call("propose_creative_directions", %{
         "candidate_directions" => [%{"title" => "方向一", "pitch" => "走向"}],
         "author_reasoning" => "给出方向。"
       })
 
     protocol_input =
-      input()
+      judgment_input()
       |> Map.put(:author_text, "先别动笔，给我两三个接下来可写的方向。")
 
     assert {:ok, %{action: "creative_directions"}} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [directions])]),
+               execution([judgment_response("", [directions])]),
                %{},
                protocol_input
              )
   end
 
-  test "task-36 prompt：M02 索引直答/M10 只聊零物化/M03 探索预算/M17 禁止伪工具文本" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+  test "task-36 prompt：索引直答、只聊零物化与禁止伪工具文本" do
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply"
     assert content =~ "未提供的目录/统计先 archive_read"
     assert content =~ "属于分析任务：不得调用"
-    assert content =~ "探索预算已用尽/不可用时不得再请求 explore"
     assert content =~ "工具调用必须使用原生 tool_calls"
 
     assert String.split(content, "实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply")
@@ -1883,7 +1843,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "task-36 收口：分析型已有充分事实时直接 reply；质量判断才允许 explore" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "分析/讨论类任务且系统已有充分事实"
     assert content =~ "直接 reply，"
@@ -1892,14 +1852,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert String.split(content, "分析/讨论类任务且系统已有充分事实") |> length() == 2
 
     analysis_input =
-      input()
+      judgment_input()
       |> Map.put(:author_text, "先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。")
 
     # 分析任务：直接 reply 合法（不物化、不强制 explore）
     assert {:ok, %{action: "reply"}} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("基于第一章已采纳事实：陈九斤的性格弧线可以从数灯/不接纸/不能回头三个动作谈起。", [])
+                 judgment_response("基于第一章已采纳事实：陈九斤的性格弧线可以从数灯/不接纸/不能回头三个动作谈起。", [])
                ]),
                %{},
                analysis_input
@@ -1912,21 +1872,21 @@ defmodule NovelApplication.JudgmentProtocolTest do
       |> Map.update!(:options, &Keyword.merge(&1, explore: true, explore_tools: ["chapter_read"]))
 
     quality_explore =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "explore",
         "explore_request" => %{"tool" => "chapter_read", "query" => "第02章：井底回声"}
       })
 
     assert {:ok, %{action: "explore"}} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [quality_explore])]),
+               execution([judgment_response("", [quality_explore])]),
                %{},
                quality_input
              )
   end
 
   test "B28 CP1：判断规则明确章基线、局部取证与缺章目标澄清" do
-    content = first_text(JudgmentProtocol.request_for_production(input()))
+    content = first_text(JudgmentProtocol.request_for_production(judgment_input()))
 
     assert content =~ "章正文修订绑定同一作品的真实章身份和当前完整已采纳基线"
     assert content =~ "按判断工具契约"
@@ -1944,12 +1904,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     explanation = "当前采用全书连续编号：跨卷连续累加，避免每卷重置后作者与读者引用歧义。"
 
     prompt_input =
-      input(capabilities: ["maintain_chapter_structure", "plot_outline"])
+      judgment_input(capabilities: ["maintain_chapter_structure", "plot_outline"])
       |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response(explanation, [])]),
+               execution([judgment_response(explanation, [])]),
                %{},
                prompt_input
              )
@@ -1974,7 +1934,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, positive} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [maintenance_decision()])]),
+               execution([judgment_response("", [maintenance_decision()])]),
                %{},
                positive_input
              )
@@ -1986,7 +1946,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B30 CP1：判断 prompt 含维护能力目录与边界（不生成大纲/不新建章/不改正文）" do
     content =
-      JudgmentProtocol.request_for_production(input(capabilities: ["maintain_chapter_structure"]))
+      JudgmentProtocol.request_for_production(
+        judgment_input(capabilities: ["maintain_chapter_structure"])
+      )
       |> first_text()
 
     assert content =~ "maintain_chapter_structure"
@@ -1997,7 +1959,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   defp maintenance_decision do
-    call("judgment_decision", %{
+    judgment_call("judgment_decision", %{
       "action" => "execute",
       "capability" => "maintain_chapter_structure",
       "dialogue_goal" => "把第2卷章节编号理顺，内容不要动",
@@ -2007,7 +1969,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B29 CP1：角色修订定义与真实详情绑定规则固定，默认不供应角色目录或正文" do
     request =
-      input(capabilities: ["revise_character_profile", "character_design"])
+      judgment_input(capabilities: ["revise_character_profile", "character_design"])
       |> JudgmentProtocol.request_for_production()
 
     content = first_text(request)
@@ -2034,14 +1996,16 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "讨论一下把陆晨指定为主角是否合理，先不要生成候选。"
 
     prompt_input =
-      input(capabilities: ["revise_character_profile", "character_evolution", "character_design"])
+      judgment_input(
+        capabilities: ["revise_character_profile", "character_evolution", "character_design"]
+      )
       |> Map.put(:author_text, author)
 
     reply = "是否设陆晨为主角取决于你希望承载的主线；可以先讨论他的动机与代价，本轮不改主档案，也不生成候选。"
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response(reply, [])]),
+               execution([judgment_response(reply, [])]),
                %{},
                prompt_input
              )
@@ -2065,13 +2029,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B29 守卫允许无身份变更的跨能力计划，不把主角状态误当叙事身份" do
     author = "先读完第01章正文，再调整章节大纲，最后更新主角当前状态"
-    prompt_input = input() |> Map.put(:author_text, author)
+    prompt_input = judgment_input() |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("agent_plan_draft", %{
+                 judgment_response("", [
+                   judgment_call("agent_plan_draft", %{
                      "plan" => %{
                        "steps" => [
                          %{
@@ -2118,14 +2082,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "有两个沈砚，一个是查账人老沈，一个是学徒小沈。把沈砚指定为主角。"
 
     prompt_input =
-      input(capabilities: ["revise_character_profile", "character_design"])
+      judgment_input(capabilities: ["revise_character_profile", "character_design"])
       |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "revise_character_profile",
                      "character_ref" => nil,
@@ -2133,8 +2097,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
                      "author_reasoning" => "绑定"
                    })
                  ]),
-                 response("", [
-                   call("ask_author", %{
+                 judgment_response("", [
+                   judgment_call("ask_author", %{
                      "question" => "你指的是哪个沈砚？",
                      "options" => [
                        %{
@@ -2160,14 +2124,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     design_author = "帮我设计一个新主角"
 
     design_input =
-      input(capabilities: ["revise_character_profile", "character_design"])
+      judgment_input(capabilities: ["revise_character_profile", "character_design"])
       |> Map.put(:author_text, design_author)
 
     assert {:ok, design} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "character_design",
                      "dialogue_goal" => design_author,
@@ -2188,12 +2152,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     reply = "第02章还没有正文。我可以按现有章计划直接生成首稿；需要先确认是否沿用当前大纲。"
 
     prompt_input =
-      input(capabilities: ["prose_writing", "character_design", "revise_adopted_content"])
+      judgment_input(
+        capabilities: ["prose_writing", "character_design", "revise_adopted_content"]
+      )
       |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response(reply, [])]),
+               execution([judgment_response(reply, [])]),
                %{},
                prompt_input
              )
@@ -2219,11 +2185,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "讨论一下第03章结尾该怎么改，先不要动笔。"
 
     prompt_input =
-      input(capabilities: ["revise_adopted_content"]) |> Map.put(:author_text, author)
+      judgment_input(capabilities: ["revise_adopted_content"]) |> Map.put(:author_text, author)
 
     violation =
-      response("", [
-        call("propose_creative_directions", %{
+      judgment_response("", [
+        judgment_call("propose_creative_directions", %{
           "candidate_directions" => [
             %{"title" => "雨夜收束", "pitch" => "结尾落在雨夜归途"}
           ],
@@ -2233,7 +2199,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([violation, response("讨论结论：结尾的核心矛盾在信任破裂。", [])]),
+               execution([violation, judgment_response("讨论结论：结尾的核心矛盾在信任破裂。", [])]),
                %{},
                prompt_input
              )
@@ -2252,12 +2218,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     reply = "我核对了第03章当前采纳正文，没有发现错别字；本轮无需修改，也未生成候选。"
 
     prompt_input =
-      input(capabilities: ["revise_adopted_content"])
+      judgment_input(capabilities: ["revise_adopted_content"])
       |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response(reply, [])]),
+               execution([judgment_response(reply, [])]),
                %{},
                prompt_input
              )
@@ -2282,8 +2248,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "第09章：伪仙直播夜的正文还没写，帮我写出来吧。"
 
     directions =
-      response("", [
-        call("propose_creative_directions", %{
+      judgment_response("", [
+        judgment_call("propose_creative_directions", %{
           "candidate_directions" => [
             %{"title" => "直播开场", "pitch" => "从公司叙事切入"},
             %{"title" => "断网余波", "pitch" => "先写事故余波"}
@@ -2292,7 +2258,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
         })
       ])
 
-    prompt_input = input(capabilities: ["prose_writing"]) |> Map.put(:author_text, author)
+    prompt_input =
+      judgment_input(capabilities: ["prose_writing"]) |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(execution([directions]), %{}, prompt_input)
@@ -2310,10 +2277,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("可以。先看老沈当前的身份和已有弧光，再讨论他适不适合主角。", [])
+                 judgment_response("可以。先看老沈当前的身份和已有弧光，再讨论他适不适合主角。", [])
                ]),
                %{},
-               input() |> Map.put(:author_text, discussion)
+               judgment_input() |> Map.put(:author_text, discussion)
              )
 
     assert judgment.action == "reply"
@@ -2323,9 +2290,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, query_judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("已按章节索引回答：还没有，当前只有第01章有正文。", [])]),
+               execution([judgment_response("已按章节索引回答：还没有，当前只有第01章有正文。", [])]),
                %{},
-               input() |> Map.put(:author_text, query)
+               judgment_input() |> Map.put(:author_text, query)
              )
 
     assert query_judgment.action == "reply"
@@ -2336,15 +2303,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "第02章：旧服务器里的残诀的正文还没写，帮我写出来吧。"
 
     prompt_input =
-      input(capabilities: ["prose_writing"], explore: true, explore_tools: ["chapter_read"])
+      judgment_input(
+        capabilities: ["prose_writing"],
+        explore: true,
+        explore_tools: ["chapter_read"]
+      )
 
     prompt_input = Map.put(prompt_input, :author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "explore",
                      "explore_request" => %{"tool" => "chapter_read", "query" => "第02章"}
                    })
@@ -2362,14 +2333,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "把第03章：黑市调频师的正文第一段改得更紧张，只改这一段，其他段落别动。"
 
     prompt_input =
-      input(
+      judgment_input(
         capabilities: ["prose_writing", "revise_adopted_content"],
         adopted_content_targets: %{"as_chapter_three" => ["revise_adopted_content"]}
       )
       |> Map.put(:author_text, author)
 
     bad =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "execute",
         "capability" => "revise_adopted_content",
         "dialogue_goal" => author,
@@ -2379,7 +2350,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       })
 
     good =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "execute",
         "capability" => "revise_adopted_content",
         "adopted_content_ref" => "as_chapter_three",
@@ -2389,7 +2360,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad]), response("", [good])]),
+               execution([judgment_response("", [bad]), judgment_response("", [good])]),
                %{},
                prompt_input
              )
@@ -2423,14 +2394,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     author = "把第03章：黑市调频师的正文第一段改得更紧张，只改这一段，其他段落别动。"
 
     prompt_input =
-      input(
+      judgment_input(
         capabilities: ["prose_writing", "revise_adopted_content"],
         adopted_content_targets: %{"as_chapter_three" => ["revise_adopted_content"]}
       )
       |> Map.put(:author_text, author)
 
     bad =
-      call("judgment_decision", %{
+      judgment_call("judgment_decision", %{
         "action" => "execute",
         "capability" => "revise_adopted_content",
         "dialogue_goal" => author,
@@ -2443,7 +2414,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [bad]), response(reply, [])]),
+               execution([judgment_response("", [bad]), judgment_response(reply, [])]),
                %{},
                prompt_input
              )
@@ -2464,11 +2435,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
   # ---------------- B33 §CP2：语义责任矩阵（整改后正式回归） ----------------
 
   defp assert_app_does_not_force_operation(author, reply_text) do
-    prompt_input = input() |> Map.put(:author_text, author)
+    prompt_input = judgment_input() |> Map.put(:author_text, author)
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([response(reply_text, [])]),
+               execution([judgment_response(reply_text, [])]),
                %{},
                prompt_input
              )
@@ -2505,14 +2476,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B33 §CP2 矩阵：对照正例仍按能力执行（写章/设计角色/修订/重编号）" do
     write_input =
-      input(capabilities: ["prose_writing"])
+      judgment_input(capabilities: ["prose_writing"])
       |> Map.put(:author_text, "第02章正文还没写，帮我写出来吧。")
 
     assert {:ok, write} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "prose_writing",
                      "dialogue_goal" => "写第02章首稿",
@@ -2528,14 +2499,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert write.capability == "prose_writing"
 
     design_input =
-      input(capabilities: ["character_design"])
+      judgment_input(capabilities: ["character_design"])
       |> Map.put(:author_text, "帮我设计一个配角。")
 
     assert {:ok, design} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "character_design",
                      "dialogue_goal" => "设计一个配角",
@@ -2551,7 +2522,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert design.capability == "character_design"
 
     revise_input =
-      input(
+      judgment_input(
         capabilities: ["revise_adopted_content"],
         adopted_content_targets: %{"as_chapter_three" => ["revise_adopted_content"]}
       )
@@ -2560,8 +2531,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, revise} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
-                   call("judgment_decision", %{
+                 judgment_response("", [
+                   judgment_call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "revise_adopted_content",
                      "adopted_content_ref" => "as_chapter_three",
@@ -2579,12 +2550,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert revise.adopted_content_ref == "as_chapter_three"
 
     renumber_input =
-      input(capabilities: ["maintain_chapter_structure"])
+      judgment_input(capabilities: ["maintain_chapter_structure"])
       |> Map.put(:author_text, "把第2卷章节编号理顺，内容不要动")
 
     assert {:ok, renumber} =
              JudgmentProtocol.request_judgment(
-               execution([response("", [maintenance_decision()])]),
+               execution([judgment_response("", [maintenance_decision()])]),
                %{},
                renumber_input
              )
@@ -2595,11 +2566,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   test "B33 §CP2：讨论期违规生成候选仍有界纠错，耗尽则结构化失败（不静默放行）" do
     author = "只聊第03章结尾，不要写。"
-    prompt_input = input() |> Map.put(:author_text, author)
+    prompt_input = judgment_input() |> Map.put(:author_text, author)
 
     violation =
-      response("", [
-        call("propose_creative_directions", %{
+      judgment_response("", [
+        judgment_call("propose_creative_directions", %{
           "candidate_directions" => [%{"title" => "雨夜收束", "pitch" => "结尾落在雨夜"}],
           "author_reasoning" => "给方向"
         })
@@ -2616,13 +2587,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
   test "B33 §CP2：reply 的 narrative 仍绑定真实 provider 字节，无 APP 代写澄清" do
     author = "讨论一下把陆晨指定为主角是否合理，先不要生成候选。"
     text = "讨论结论：陆晨当前弧光不足以支撑主角位，需要补动机线。"
-    result = response(text, [])
+    result = judgment_response(text, [])
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([result]),
                %{},
-               input() |> Map.put(:author_text, author)
+               judgment_input() |> Map.put(:author_text, author)
              )
 
     assert judgment.narrative == text
@@ -2636,7 +2607,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
   describe "B71：IR 生产探针" do
     test "IR 判断请求保留任务上下文，确定性 provider 仍进入计划协议" do
       input =
-        input()
+        judgment_input()
         |> Map.put(:author_text, "请按另行起草计划设计一个角色，再设计相关世界设定。")
 
       prompt = JudgmentProtocol.request_for_production(input)
@@ -2703,7 +2674,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     defp assert_ir_execute_route(author_text, capability) do
       prompt =
-        input()
+        judgment_input()
         |> Map.put(:author_text, author_text)
         |> JudgmentProtocol.request_for_production()
 

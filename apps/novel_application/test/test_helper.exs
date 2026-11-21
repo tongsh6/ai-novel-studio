@@ -76,6 +76,51 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
 
   import ExUnit.Assertions
 
+  def judgment_response(text, calls, ref \\ "call-1") do
+    %{
+      content: text,
+      tool_calls: calls,
+      provider_output: %NovelCommon.Contracts.ProviderOutput{
+        provider_run_ref: "run-#{ref}",
+        provider_call_ref: ref,
+        status: :ok,
+        content: %{text: text, tool_calls: calls}
+      }
+    }
+  end
+
+  def judgment_call(name, args), do: %{id: "tool-#{name}", name: name, arguments: args}
+
+  def judgment_input(opts \\ []) do
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run-judgment-fixture",
+        work_id: "work-judgment-fixture",
+        workspace_id: "workspace-judgment-fixture",
+        session_id: "session-judgment-fixture",
+        parent_turn_ref: "author-turn",
+        origin_frame_ref: "frame-judgment-fixture",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: "根据本章实际内容判断", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    %{
+      author_text: "根据本章实际内容判断",
+      scope: %{
+        work_id: run.work_id,
+        facts: %{
+          work: %{ref: "work:#{run.work_id}", work_id: run.work_id, title: "协议测试作品"}
+        },
+        context: %{},
+        coverage: %{}
+      },
+      source_input_ref: "author-turn",
+      supplied_context_refs: ["work:#{run.work_id}"],
+      options: Keyword.put_new(opts, :plan_run, run)
+    }
+  end
+
   # CP4 与会话原文读取共同使用的现役判断回环夹具；不启动服务器/第二执行循环。
   def run_until_turn_result(spec, run, max_steps) do
     empty = %{

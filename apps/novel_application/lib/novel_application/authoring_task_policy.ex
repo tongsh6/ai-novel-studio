@@ -73,8 +73,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     必须先 explore(session_adoptions) 取证或 ask_author 指出具体分歧；明确前不执行 revise。
     修改权威版本（正式开头/当前采纳版本/canon 等）前，必须有当前版本事实（先取证）或作者明确指定；
     只讨论/比较时不改变 canon，也不得把建议包装成系统已定；最终选择由作者决定。
-    execute 只填一个目标 ref 字段：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；
-    不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。
     """
   end
 
@@ -197,24 +195,9 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     end)
   end
 
-  def operations(options) do
-    options
-    |> Keyword.get(:capabilities, [])
-    |> Enum.map_join("\n", &operation/1)
-  end
-
   defp operation("work_archive_read") do
     profile = NovelAgent.AgentTaskProfileRegistry.get("readonly_batch_context_v1")
     "- work_archive_read：#{profile.effect_summary}"
-  end
-
-  defp operation("revise_adopted_content") do
-    "- revise_adopted_content：仅对本轮列出的已采纳对象生成修订候选。章级目标由系统读取全部当前正文并校验基线版本；" <>
-      "作者明确给出替换前后字词时，可据真实chapter_ref提出修订，系统在全文中精确匹配原文字词并定位唯一目标段，" <>
-      "缺失或多处命中会拒绝，不猜段号。" <>
-      "writer只生成目标段替换文本，其余正文由确定性合并逐字保留；" <>
-      "整章内容修订要求完整章候选；仅分段排版由模型提出换行计划、系统生成正文预览，所有非换行字节保持不变。" <>
-      "所有结果须作者采纳后才改变当前正文，生成候选不会直接写入作品。"
   end
 
   defp operation(name) do

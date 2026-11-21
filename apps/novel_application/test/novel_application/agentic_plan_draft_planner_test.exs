@@ -9,11 +9,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   alias NovelApplication.{
     AgenticPlanDraftPlanner,
     AgentPlanToolContract,
-    AuthoringTranscript,
-    JudgmentToolContract
+    AuthoringTranscript
   }
 
   alias NovelCommon.Contracts.ProviderOutput
+  alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelDomain.AgentRun
 
   @narrative "作者要求接着第01章继续写，先读取正文上下文，再生成续写草稿并质量复核。"
@@ -1092,7 +1092,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [%{"name" => ^tool, "arguments" => args}] = result.tool_calls
 
-      assert JudgmentToolContract.valid?(args, AgentPlanToolContract.schema()),
+      assert ToolArgumentSchema.valid?(args, AgentPlanToolContract.schema()),
              "#{profile} #{tool}"
 
       assert is_binary(args.author_reasoning) and String.trim(args.author_reasoning) != ""

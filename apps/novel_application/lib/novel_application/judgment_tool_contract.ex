@@ -3,8 +3,9 @@ defmodule NovelApplication.JudgmentToolContract do
 
   alias NovelApplication.JudgmentDecisionToolContract
   alias NovelCommon.AuthorVisible.Text
+  alias NovelCommon.Contracts.ToolArgumentSchema
 
-  @version "b26-tools-v5"
+  @version "b26-tools-v6"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
@@ -259,7 +260,7 @@ defmodule NovelApplication.JudgmentToolContract do
       {:ok, schema} ->
         schema = argument_schema(name, args, schema)
 
-        if is_map(schema) and valid?(args, schema),
+        if is_map(schema) and ToolArgumentSchema.valid?(args, schema),
           do: :ok,
           else: {:error, :invalid_tool_arguments}
 
@@ -314,41 +315,6 @@ defmodule NovelApplication.JudgmentToolContract do
 
     {:error, {:invalid_tool_arguments, detail}}
   end
-
-  def valid?(value, %{anyOf: schemas}), do: Enum.any?(schemas, &valid?(value, &1))
-
-  def valid?(value, %{enum: values} = schema),
-    do: value in values and valid?(value, Map.delete(schema, :enum))
-
-  def valid?(value, %{type: "object"} = schema) when is_map(value) do
-    properties = Map.new(schema[:properties] || %{}, fn {k, v} -> {to_string(k), v} end)
-    keys = Enum.map(Map.keys(value), &to_string/1)
-    required = schema[:required] || []
-
-    Enum.all?(required, &(&1 in keys)) and
-      (schema[:additionalProperties] != false or Enum.all?(keys, &Map.has_key?(properties, &1))) and
-      Enum.all?(value, fn {k, v} -> valid?(v, Map.get(properties, to_string(k), %{})) end)
-  end
-
-  def valid?(value, %{type: "array"} = schema) when is_list(value),
-    do:
-      length(value) >= (schema[:minItems] || 0) and
-        Enum.all?(value, &valid?(&1, schema[:items] || %{}))
-
-  def valid?(value, %{type: "string"} = schema) when is_binary(value),
-    do: String.length(String.trim(value)) >= (schema[:minLength] || 0)
-
-  def valid?(value, %{type: "boolean"}), do: is_boolean(value)
-  def valid?(nil, %{type: "null"}), do: true
-
-  def valid?(value, %{type: "number"} = schema) when is_number(value),
-    do:
-      (is_nil(schema[:minimum]) or value >= schema.minimum) and
-        (is_nil(schema[:maximum]) or value <= schema.maximum)
-
-  def valid?(value, %{type: "integer"}) when is_integer(value), do: true
-  def valid?(_, %{type: _}), do: false
-  def valid?(_, schema), do: map_size(schema) == 0
 
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))
   defp field(_map, _key), do: nil

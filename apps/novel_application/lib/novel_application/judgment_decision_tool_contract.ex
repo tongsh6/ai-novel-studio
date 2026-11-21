@@ -1,10 +1,17 @@
 defmodule NovelApplication.JudgmentDecisionToolContract do
   @moduledoc "判断动作的完整分支、wire schema 与专属纠错。"
 
+  alias NovelApplication.AuthoringTaskPolicy
   alias NovelCommon.Contracts.AuthoringTask
 
   @text %{type: "string", minLength: 1}
   @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
+
+  @execute_target_fields [
+    pending_artifact_ref: AuthoringTaskPolicy.artifact_capabilities(:pending),
+    adopted_content_ref: AuthoringTaskPolicy.artifact_capabilities(:adopted),
+    character_ref: AuthoringTaskPolicy.artifact_capabilities(:character_profile)
+  ]
 
   @doc "从完整动作分支派生判断工具的公开说明与平面 wire schema。"
   def tool do
@@ -21,11 +28,40 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
     %{
       name: "judgment_decision",
       description:
-        "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 必须给出 modification_scope；局部修订按本轮 chapter_read 观察填 target_segment_ids。" <>
+        "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 的目标字段按 capability 归属提交，具体适用范围见各字段说明；不适用字段不提供，包括 null。章级 revise_adopted_content 必须给出 modification_scope；局部修订按本轮 chapter_read 观察填 target_segment_ids。" <>
           "\n" <> decision_fields_guidance(),
       input_schema: object(properties, required)
     }
   end
+
+  @doc "校验 execute 目标字段的能力归属；真实对象与当前版本由对应业务边界另行核验。"
+  def validate_execute_target_fields(arguments) do
+    capability = field(arguments, :capability)
+
+    valid? =
+      Enum.all?(@execute_target_fields, fn {key, capabilities} ->
+        not (Map.has_key?(arguments, key) or Map.has_key?(arguments, Atom.to_string(key))) or
+          capability in capabilities
+      end)
+
+    if valid?, do: :ok, else: {:error, :target_ref_field_conflict}
+  end
+
+  @doc "目标字段纠错与公开字段描述共用同一能力归属。"
+  def target_fields_guidance do
+    Enum.map_join(@execute_target_fields, "", fn {key, _capabilities} ->
+      "#{key}：#{target_field_description(key)}"
+    end)
+  end
+
+  defp target_field_description(key) do
+    capabilities = Keyword.fetch!(@execute_target_fields, key)
+
+    "只用于 execute 且 capability 为 #{Enum.join(capabilities, "、")}；" <>
+      "其他能力及 explore 不提供此字段，包括 null。"
+  end
+
+  defp field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   @doc "按原始 action 精确选择完整接收分支；未知动作返回 nil。"
   def schema_for_action(action) do
@@ -105,9 +141,9 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
           author_reasoning: narrative,
           capability: Map.put(@text, :description, "仅 execute 时必填；explore 不提供。"),
           pending_artifact_ref:
-            Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
+            Map.put(@nullable_text, :description, target_field_description(:pending_artifact_ref)),
           adopted_content_ref:
-            Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
+            Map.put(@nullable_text, :description, target_field_description(:adopted_content_ref)),
           modification_scope: %{
             type: "string",
             enum: Enum.map(AuthoringTask.modification_scopes(), &Atom.to_string/1),
@@ -126,7 +162,8 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
             Map.put(
               @nullable_text,
               :description,
-              "仅 execute + revise_character_profile 时提供，explore 不提供：先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
+              target_field_description(:character_ref) <>
+                "先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
             )
         },
         ~w(action dialogue_goal author_reasoning capability)
