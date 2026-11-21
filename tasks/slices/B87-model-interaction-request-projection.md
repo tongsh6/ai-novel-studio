@@ -2376,3 +2376,140 @@ whole-02原生机制6/6，完整修订基线与整章范围检查通过，但实
 **独立 SRP 提交及验证边界。** 49d738b7f1677fcce9ee5b382837daf9d6a6033c 已通过普通 hooks 提交，parent 6f1ae228c8fc183ef895e9414e6225edcd1625a7，tree fca1fb8ff294dd13a70b75c7a8fea43e94bc8590，仅三路径的可选属性提取及直接测试消费迁移。其精确 checkout 仍为旧 v1、validate_artifact_shape/3，不含新的 contract-ref getter、item 映射或 edited_items；实际格式检查、零警告编译及全后端十套测试合计3585项/0失败（含 novel_test 与 novel_e2e 各1项），backend owned 500bda52a0a45e06，日志 SHA-256 4ec3f4db967ce75f5384db610a556508ed245a8d7c2b5b71b7c8c882201d6b7c；size/NEXT/design 门亦0。此前3583的摘要合计不一致，以原日志十套合计3585为准。提交前后工作区字节不变，index空，原48项WIP保留，无push。该结果只签纯提取树，不能代签仍未提交的完整 v2 协议全后端。
 
 **原子组与退出边界。** 剩余 v2 输出供应、实际 Task 字段适用性、原始映射保留、接受前预检、pending再次修订、纯区间应用/事务复核以及 UI→Channel→AW 的 edited_items 必须构成一个可运行的协议组；不为拆提交保留平串兼容或重建映射。原WIP按正确2026-11-20补充scope的48项逐字剥离，独立代码/文档增量再构造精确树并完成真实门禁。本 checkpoint 尚不填入该树未知的全量结果；本次协议修复之后的新冻结六场 native、七对成本构造、F0/F1和原scope完整 task_done 出口尚未执行。旧 count/quality/role/G2/whole 原件不重签；R05继续 doing / NOT PASS，不推进 R06。
+
+### 16.35 协议提交、原工作区收口与同源实测（2026-11-21，R05仍doing）
+
+**已提交实现与用户授权变化。** v2来源区间、作者逐项编辑和事务采纳作为一个可运行协议组，普通hooks提交 `e076157bdb257917c59bbfa31b0c5635ceeabf80`（51文件）。其精确候选15门通过，后端3646/0、前端554/0、验证器260/0；此前失败与修正阶段仍留在 `source-interval-feature-01…04`。随后作者明确授权“仓库里面的内容都可以提交”，原48项从保护中的未提交增量转为可审提交范围；原补充scope只保留历史身份，不再要求它们留作WIP。
+
+原48项全部经过存在性、职责和内容审核。整体候选17门通过（后端3648/0、前端570/0、验证器260/0、原生辅助111/0），两处README仅修表格结构。Rust偏好文件复核发现JSON数组可穿过带默认值的类型读取，后续按对象键更新会有panic/锁中毒风险；独立反例先真实失败，再在原读取owner拒绝非对象根，完整23项Rust测试及格式检查通过，不增加文件格式兼容层。最终按职责正常提交：`5bb1afb5`创作契约（6文件）、`d553f448`上下文窗口设置及偏好边界（20文件）、`0808cf73`原生验收/进程归属（11文件）、`18932283`设计索引与历史审计（11文件）。每组独立候选检查与普通hooks均通过，无push；本段记录之前已实际确认工作区和index为空。B85的实机发布/profile验收仍未签收。
+
+**实际整树冻结。** `full-static-07`在HEAD `18932283d5dc47e81d972328d8a96f14228ace2d`完成21项扫描、零跳过：20项原始退出0，gitleaks原始退出1的8条已登记处置为7条false_positive和1条accepted_risk，blocking=0，不能写成21项原始全绿。独立owner `25a54a6b3679fce9`完整结束，前后2673项Git可见源码一致且clean。冻结文件 `artifacts/slice-verify/b87-r05-reception-20261120/final-source-freeze-01/source.json` SHA-256 `b9ac3fc09964cac07bab1d71a37805324d6b0d93f66b2cbab935eb6a6b44bc82`，源码指纹 `1a5d7e2eba04adefa8b6087c61d78be55ccbf229a2e5cc7ca37c6ac46b960c3c`。该冻结是下表实际执行身份，不代表后续修复仍属于同一source。
+
+**六个新批次的真实分层。** 六份预登记只变id和独立证据目录，作者原文、种子、模型/runtime与一次发送/零人工重试预算不变；每批实际前后源码均与上述冻结一致。共六次作者发送、22次实际Provider调用，包含受控协议纠正，不隐藏失败调用。
+
+| 批次 | 实际调用 | 原native/binding终态 | 独立观察 |
+|---|---:|---|---|
+| count-08 | 1 | 0 / 0 | 真实统计2/1/1、无正文读取、无候选；回复额外带6244字这一第四数量，违反“只三个数量”，完整语义不签PASS。6244来自真实audit，并非幻觉。 |
+| quality-08 | 3 | 0 / 0 | 目录→完整378字符正文→分析，实际正文仅进入第三消费请求一次；无候选/本轮采纳，九表内容不变，两个已有记忆的引用次数各+1有读取账对应。任务语义通过但保留文学解释与推断边界。 |
+| role-05 | 4 | 0 / 0 | 材料与候选25/25；准确定位老沈，仅提出群像视角→主角，其他角色与正文不变。作者说明“主角字段由顾青占用”暗示不成立的排他约束，不能因候选正确而签整体说明PASS。 |
+| g2-03 | 5 | 0 / 0 | 两页拼成真实7000字符，6个连续源块明确映射为单段候选，现契约可应用但未执行采纳；选集恰覆盖全文，不能据此声称验证非空未选区保留。模型将部分计划/摘要预览说成完整设计无额外信息，完整语义NOT_PASS。 |
+| whole-03 | 5 | 1 / 1 | 两页完整且唯一供给、whole范围/候选/used refs成立，首次Writer被拒与第二次接受均保留。原检查失败于作者说明可见性；旧badge AX形状误计正文，且真实截图末尾“文。”被裁切，两项缺口分列，不能只修前者便签可见PASS。计划/摘要预览的过度断言另列语义问题。 |
+| style-04 | 4 | 1 / 缺有效binding | 读取风格规则和目录后，实际PWF在Writer前返回 `{:pending_artifact_invalid, :incomplete_scope}`；作者“把这一章改写”未被现少数整章词识别。末端driver的reply_not_delivered只是后果；无summary，不补造成功文件。 |
+
+独立审核证据位于同一reception下的 `count-08-independent-review-01`（review SHA `788dc3e0a985b4491caec67db35f2a99edb61d5b11590f063f52eb6121b0175b`）、`quality-08-independent-review-01`（`915897bac6b9c8a8410ac5a4239ac1902ddd7023ab1121767a1f60fba5923353`）、`role-05-root-review-01`（`5271f57dc387fff6937347b4e90483f7f3ff4def6e02312305c7972321c205c4`）、`g2-03-independent-review-01`（`e648ad8a34aa0f7a4b0c793d501e40d631d6b7fc288ac166727ac4c6a43a1466`）、`whole-03-independent-review-01`（`851e479e73d71b1a20f012f6494da206cf33207cdf38aeb50f118487f65ae6ef`）、`whole-03-reply-delivery-review-01`（`e27a8487bc7e960a64a433be9b3e2280e6994e2440ff7d43c33e836ff4fa751f`）及 `style-04-independent-review-01`（`bb61d1518822868c5a50ca1de8144b3e2a8a6df8a179da2c1491f62bdd828d34`）。各报告分列原请求/模型字节、规范记录、真实界面、数据变化与未签范围；不以重新解释覆盖旧批终态。
+
+**补充编辑观察的实际失败。** `segment-editor-native-layout-01`复用真实PWF、MemoryLog和恢复入口，以一次显式确定性回调生成4个长items；不运行真实模型，不手造卡片/动作，也不签AgentRunServer生命周期。原生窗口确实恢复候选，但observer期待“修改后保存正文”，实际出现“编辑修订稿后保存”，在首次打开前失败；owned `b835c12cab11c33d`退出1，host真实143，原生cleanup remaining=[]，source前后相同。因失败记录存在，协调器未签原件终封/布局通过，原日志和失败截图保留。继续审查发现现qualityRevisionArtifactRole把card.revision_of中的chapter ref当成待处理原稿artifact，导致“原稿仍保持独立待处理”的错误提示；这与observer选择器错误是两个责任，不能为迁就脚本倒改产品。
+
+**后续边界。** 当前先修正实际授权、作者动作语义、可访问会话区域及对应外部消费者，再做新源码冻结与有限验证。所有新实体/API/载体必须先查现owner，先落责任设计及独立反例；原批次不重放、不重签，不循环模型直到绿。cost-final-03仍未消费，F0/F1及原scope完整task_done尚未闭合；R05继续doing / NOT PASS，不推进R06。
+
+### 16.36 原生反例后的职责修复设计（2026-11-21，实施前）
+
+本节以§16.35的原件为反例，规范分别落在VS-00M §6.2、UI41 §4.2/§5、UI42 §4.4及UI46 §9.8，不另建设计真源。目标是明确章级改写可执行、动作说明符合实际来源、作者能完整看到回复及编辑内容；范围、原文和未采纳边界继续保持。
+
+**原话授权与机械复核。** ChapterRevisionScope现475行同时承载作者语言解析和基线/观察绑定，前者因表达与否定关系变化，后者因scope/hash/真实来源契约变化。全仓查重未找到等价原话owner；AuthoringSemantics/AuthoringTaskPolicy是模型规则与结构不变量，AuthorActionAdmission/Input接收结构化动作，ChapterDisplay只提供展示章号/匹配，均不能冒充原话授权。新增纯ChapterRevisionAuthorInput完整迁移现自然语言职责，统一authorize/1，并用同次当前chapter facts复核显式修改宾语；原Scope只保机械职责，旧语言API迁完即删。不得改500行关注门或既有baseline，也不压行、复制regex或增加数据库/模型selector。引用、否定、条件、局部限定、参考章与目标章不同、错误同作品目标、无唯一先行词均列负例；style-04原作者全文须经真实PWF进入Writer才算该接线修复。
+
+**原话状态的审查补记。** 独立静态审查发现，若把被否定/条件/引用拒绝的直接对象编码成“没有对象”，间接阅读先行词与显式段号会把拒绝恢复成可执行目标；仅检查规范章号还会把未支持的标题或指代当作无对象，再借旧整章词面放行。须让范围、章身份与实际操作数共同消费明确的判定状态，禁止 unknown/rejected 回落为 none 或局部默认。否定第一段后只改第二段等未消歧组合也不得由全原话首次段号命中选回被否定对象；可保守拒绝，不能猜。合法“不要整章重写，只改第一段”“只调整分段排版、不要改字句”及正向引号字面替换仍须保持其真实窄授权。条件未决从 incomplete_scope/局部降级改为 author_scope_not_authorized 是前向错误契约修正，原真实两页G2与既有正向局部链必须同批回归；不按失败句子追加授权口令或未知对象别名。
+
+**来源语义与作者动作。** 保留现qualityRevisionArtifactRole这一分类owner、现三种来源载体与原稿/修订稿两角色；chapter:来源与已有payload.revision_target_status=ACCEPTED明确不具备“原稿仍独立待处理”语义，使用现正文候选动作。显式已采纳状态或任一绑定到当前artifact的chapter来源先排除，不能由旧trigger/findings回落重新赋予质量角色；冲突信息不猜优先级。无关card不参与当前artifact判断。pending候选再次修订即使保留章scope，仍可因真实artifact来源保持修订稿身份；不以scope有无、as_前缀或新状态/枚举代替事实。生产链已核：PWF、TraceWriter、ArtifactAssembler均生成当前结果来源，合法再次修订不会继承祖先chapter trace混入当前card。追加三来源、已采纳artifact、冲突/回落及pending同章scope正例；只改现分类和直接测试，不为observer选择器倒改文案。
+
+**会话可访问区域与原生可见性。** 现chatArea具有真实overflow-y:auto，却未在AX中给出独立区域。复用该容器添加名为“会话消息”的region，文案归原WORKBENCH copy；不加包装、state、live/log或验收属性。已核原型ZOwOi的主对话布局与PZAVY/AH4WW/ksNvT入口，本次不更改像素布局，也不把这些入口原型说成多项编辑已验收。外部reader在现owner集中识别同一WebArea中的唯一命名真实祖先region，几何仍由原clippedViewport负责，与窗口/外层滚动区域求交；缺失、错祖先、重名歧义或无效frame不得按整个窗口签可见。新WebKit AX映射须以真实运行观察确认，不预签平台形状。徽标按当前独立AX文本与消息结构定位，不保留已退役的目标title分支，不因正文恰有“生成草稿”等字词而吞正文。G2普通回复完成与B29/历史整理的现可见性消费者随同一结构迁移，顶栏idle必须属于同一工作区；非会话面板仍用其真实裁切祖先。原native失败、原AX与历史JSON均不改写。
+
+**采证动作的现役消费者补记。** 来源分类纠正后，R05 whole/style 的实际章候选提供普通正文保存动作；原R05 reader、captureR05Candidates及G2可选渲染宽限不能继续硬编码质量修订标签。复用现外部actionLabelsFor(prose_fragment).accept，不另建文案表；现capturePendingItemViews经查仅一个生产调用者、两个直属测试，给现options新增必传buttonLabel并同批迁移，缺值沿现label_missing拒绝，不留旧默认。真正的pending质量动作仍归原drivePending/labelsFor，不将两种来源混为可接受标签并集。扩大直接消费者验证还暴露B29现测试wire夹具沿旧application_base/scope标题，须按现Projection实际字节更新夹具，canonical原文及历史原件不变；不得放宽完整请求绑定reader或把这四个既有夹具失败冒归AX修复。
+
+**实施与退出。** 先分别落反例并观察实际失败，再落最小实现、独立审阅和必要定向验证；验证后的代码按上述责任分组正常commit，不push。不从失败例反推缩小判据，不将未跑的native、长编辑布局、成本或F0/F1记为通过。修复改变source后重新冻结并预登记有限新执行；旧whole/style/layout终态保持失败。count数量约束、role排他暗示、G2/whole预览过度断言继续作为模型语义缺口单列，不能用机械门全绿代替任务完成。R05继续doing / NOT PASS。
+
+### 16.37 已提交修复与补充验证进展（2026-11-21，R05仍doing）
+
+**本节性质与身份。** 这是§16.36两组已实现修复的事实检查点，不是R05签收。以下原件均位于 `artifacts/slice-verify/b87-r05-reception-20261120/`（下称REC）。两组均正常提交，未使用 `--no-verify`，均未push；提交期lefthook未找到配置，门禁依据为各自精确候选的实际执行记录。提交证明记录源字节未变、真实index为空。原48项已按§16.35授权收口，不再记为本次保护中的未提交增量。章授权C方案仍处于06候选审查，尚未应用；本节不为其填入实现、测试或style-04修复通过结论。
+
+**已提交的两个职责组。**
+
+| 提交与精确树 | 实际改动 | 精确候选实际门禁 |
+|---|---|---|
+| `77e9dfd16f9cd4b348ed40a3a69d651e2896120b`；4文件；tree `90bbaf4ccb3f40849819e1f6d64e23d9428ada84` | 复用qualityRevisionArtifactRole，按真实chapter来源或ACCEPTED状态排除“原稿仍独立待处理”的错误角色；真正pending候选再次修订保留原稿/修订稿身份。UI42/UI46与独立来源反例同步，不引入状态、别名或兼容分类。 | 8项实际执行、退出均0：规模、前端格式/类型/lint/全测、NEXT、design trace、diff。前端58文件581项通过；root/candidate源、index、精确树4项guard均真。直属来源反例先24项中10失败，再24/0；原红保留。 |
+| `c2e88035c147bf2e7b49694efe0a3c47f8fd5211`；17文件；tree `64c66c338a9a67718cdd9172a83b4b55d310b62e` | 现chatArea增加“会话消息”可访问region，复用现文案owner；外部reader统一使用同一WebArea中的唯一真实祖先region并保留几何裁切。R05/G2/B29/历史整理的现消费者迁到真实徽标、当前正文动作及实际请求标题，不吞正文同名词、不接受旧标签并集。 | 12项实际执行、退出均0：上述门加验证器、原生契约、driver语法及frontend_audit。前端58文件583项、验证器2文件260项、原生契约287项全部通过；4项guard均真。该audit实际仍为26 PASS、0 FAIL、2 WARN，见下段，不写成严格打包已通过。 |
+
+两组候选分别绑定各自精确树，模型调用与native批次启动均为0。会话区域组中途的 `segment-reply-region-green-01` 仍是实际失败（前端21/0、Node206项中5失败）；后续修正及最终候选结果不覆盖该原件。
+
+**最初audit告警与随后严格打包分开记录。** 会话区域候选的frontend_audit因缺少 `resources/sidecar.tar.gz` 未完成Tauri build；工具按开发模式返回0并留下2条WARN。之后在同一已提交精确候选checkout实际执行 `bash scripts/build_sidecar.sh`，再执行 `pnpm --dir frontend exec tauri build --ci`，不是复用缺失资源的旧结果。`reply-region-package-02/result.json` 与其owned原件记录退出0、候选源不变且树等于已提交树；owner `d392cde4d1741cbd` 实际48852ms、child0、tree_finalized、无timeout、scope_removed。新sidecar为11842868字节，SHA-256 `9946c7354652a1d0fe8963a8738b91d73bea0912003730718d01acf65f455dd4`；实际产出macOS `.app` 与aarch64 `.dmg`。该构建使用ad-hoc签名，日志仍有缺少凭据而跳过公证的警告；这不是公证发布、安装后完整生命周期或B85跨平台验收。旧audit的26/0/2保持原样。
+
+**layout-02的真实失败不改签。** `segment-editor-native-layout-02` 已实际识别“会话消息”region，打开正确编辑入口并把列表滚至第四项；一次launch、一次open、零cancel、一次逻辑编辑。它随后在 `layout_unsubmitted_edit` 等待完整未保存值时超时，owner `1d594341923b2820` child1、33197ms；host真实143，native cleanup remaining=[]。原cmd+end已被投递，但当时poll只验证全文不变，不能证明caret到末尾；第四项末锚AX frame仍在textarea视口外，名为body-end的截图也只显示开头。带LF的Unicode投递返回成功，但实际首项只增加了前置LF，13字marker未出现。没有DOM事件轨迹足以独定产品或平台根因。取消、重开恢复及最终未采纳检查均未触达；原coordinator failed、未完成终封及81份原件保留。
+
+**layout-03是新身份上的有限补充验证。** 新attempt绑定 `reply-region-layout-freeze-02/source.json`：HEAD `c2e88035c147bf2e7b49694efe0a3c47f8fd5211`、源码指纹 `23cd9be5e1de735888e28b73c943951df5112af1be1c10e6c70334fb912fde99`、2673项，显式包含VS-00M与B87两项doc WIP；不是full-static或最终任务冻结。驱动只修正证据条件：实际末锚叶滚入textarea/window交集；未保存编辑固定为Return后核对原文+LF，再投递无控制字符marker并核对完整独立预期，不用全文未变替代caret/可见性，也无重试或fallback。
+
+实际job `wc_job_poOeJiPEoVRV9RRy` 的owner `6a8d8e390c302dcf` 为89536ms、child0、tree_finalized、无timeout、scope_removed；host真实143、ready与cleanup确认、raw终封及closed checks通过。独审逐项核得：
+
+- 三次恢复/关闭后的AX均对应同一真实命名region及真实消息锚点；1次launch、2次open、2次cancel、1次逻辑未保存编辑，10个驱动步骤各完成一次。
+- 四项原文各1272字符；Return后首项精确1273字符，完整marker后精确1286字符，其余三项逐字不变；重新打开后四项逐字恢复。第四项末锚frame `[578,726,226,19]` 确实位于textarea `[563,608,602,181]` 与window交集内。
+- pending候选、实际interaction/TurnResult及正文/设计等Canon内容保持；无author_action、无采纳receipt。works的行hash因既有最近打开时间变化，不能写成整个数据库逐字不变。原料来自一次明示确定性回调，实际逻辑Provider调用1、native tool调用1，HTTP=false、真实模型调用0；不是无Provider记录。
+- before/after与freeze02的源、HEAD、WIP一致，80份封存raw的字节/hash对应；旧layout-02的81份原件亦未改。后续授权改动不倒灌为此次采集漂移。
+
+ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存footer可见且不遮挡，重开恢复及最终关闭/待采纳1可见；该视觉结论明确归属于ROOT。独立审阅为 `SUPPORTED_WITHIN_SUPPLEMENTAL_LAYOUT_SCOPE`，21项检查成立。原coordinator仍保持 `captured_review_pending`，不回写原人工状态；新独审只支持长列表、textarea末尾、footer与取消恢复这一有限场景，不证明全回复可见、raw HTML/badge全部边界、真实模型语义或R05/F0/F1。
+
+**六场景语义账与未完成事项。** §16.35六个真实批次仍是原冻结上的6次作者发送、`1+3+4+5+5+4=22`次实际Provider调用，包含有界纠错而无人工重试；本节的提交、package和layout补充没有重跑或重签它们。count-08的第四数量、role-05的排他暗示、G2/whole的计划/摘要预览越界仍未通过完整语义；quality-08仅在既有独审限定内成立。whole-03仍保留原native/binding失败和真实裁切事实；style-04仍是Writer前incomplete_scope、无有效binding，不能因原生reader修好便签章授权通过。章授权C/06的最终提案、实际源码、独立红绿和真实PWF/Writer验证均为待补项，本节不预填任何结果。
+
+`cost-final-03`仍未消费，F0/F1及原scope完整task_done未闭合；R05继续doing / NOT PASS，R06仍只是后续入口。现补充freeze02不能替代修复完成后的全工作区静态冻结；后续须按已登记职责和有限预算继续，不以本次工程门或有限布局通过代替模型语义签收。
+
+**本检查点主要原件索引。** 下列路径相对REC；六场景独审路径及完整SHA沿§16.35，不另签结果。
+
+| 原件 | SHA-256 |
+|---|---|
+| `revision-source-role-commit-01/commit-result.json` | `b8038effab8f8c760fe56e4375b3af0447b6aa9ed177cf0194c10cf6c465b5b5` |
+| `commit-preview/revision-source-role-01/gate-01/result.json` | `99fcee965cd8ab43fcf2a4f35d486c740f13aa14fa89278c7d09e7bdeb9fd0ad` |
+| `reply-region-commit-01/commit-result.json` | `2ad632af8acf50c1cdfa958f83080066ead6add620251037e8cb937901efdd61` |
+| `commit-preview/reply-visible-region-01/gate-01/result.json` | `8a0c1881daaee25af8494808fef66f3540e42e573115d023cc7b306a2d997dca` |
+| `reply-region-package-02/result.json` | `48b77ddb0a12a787b26003ed96a0ff47ea6af89c8669bb5fa7ad9fb6c149cae6` |
+| `segment-reply-region-package-02/result.json` | `bf3947ce305d02e41ba56f1186c55936fbbb59aef4da342372c0ca5a04b7c18d` |
+| `segment-editor-native-layout-02/coordination/result.json` | `0eb908d16754691422c182d5b0b9a76cc9cc12bce690a7372db5bf8203067ec0` |
+| `segment-editor-native-layout-02-independent-review-01/review.json` | `33e0c93161d9c5113e1b9d479e0f09e4adaeeacda83de64f6b54d34e82d9f810` |
+| `reply-region-layout-freeze-02/source.json` | `c89a11216f211c784da4fd8c3a4b34798f36b2bf626d25c914c76de7b5780bc9` |
+| `segment-editor-native-layout-03/coordination/result.json` | `34d3071feb7d9d91d5a4157375bbb05a3f9c34258a031b661d3d428018655329` |
+| `segment-editor-native-layout-03-independent-review-01/review.json` | `444c700d3bdda3047ecfbb17e487d49c62db746bedfa827449482887df0b91c4` |
+
+### 16.38 章原话授权实现提交与精确候选验证（2026-11-21，R05仍doing）
+
+**已提交范围与身份。** §16.36的章授权C组已正常提交 `f282bb4f586ca6033a57105a3e45dd5342f120f3`，父提交为 `c2e88035c147bf2e7b49694efe0a3c47f8fd5211`，10文件、精确树 `79fd306459dcb9497df0055474aebdfc09d4ecc9`。实现、四个既有测试owner、SliceVerify注释及VS-00M/应用索引一起入组；B87本检查点未混入该候选。提交证明记录源字节不变、真实index为空、仅B87仍为WIP，未push。实际提交日志提示缺少lefthook配置，故只记正常commit，不称hooks已通过，也不以该提示代替下面16项真实门禁。
+
+**单一职责与原话边界。** 新纯owner `ChapterRevisionAuthorInput` 统一承载原话判定：范围、章身份、显式段号、精确替换源及读取后发现目标等公开投影消费同一判定入口；原 `ChapterRevisionScope` 保留当前章事实、版本、hash、真实观察与scope的机械复核，旧语言入口迁完退役。PWF仍传递作者原文，不以模型dialogue_goal重写或扩大范围。实际请求测试使用style-04与whole-03的原作者全文，并让模型goal故意宣称整章改写；Writer收到的作者文本逐字等于输入，追加明确局部限制后仍为target_segments。
+
+章目标必须与当前真实标题/章号对应：参考章不冒充修改对象，同作品错章、未知对象、否定、未决条件、引文与多目标关系不得通过indirect定位恢复授权。完整引号替换源中的标点、段号、替换动词仍作为字面数据；段号缺省与0/无效/越界区分，重复或跨片段字面不得假归唯一片段。真实G2两页、whole及format_only的既有请求与采纳边界随全套回归保留；没有新增模型路由、关键词黑名单或第二份作者文本。
+
+**独审与规模收口。** 独立审查曾证实两处状态缺口：匿名章绑定把局部kind丢为裸implicit后升级whole；阅读前缀豁免把本应unbound的尾部降为absent。两项原草稿结论保留，终稿分别保留 `{:implicit, kind}` 及独立的whole-signal拒绝。字面定位仍从offset+1查重叠重复；共享single_operand只剔除nil，不去重原操作数，unsafe及多操作数仍拒绝；ordinal/literal均成功后才允许唯一非空目标结果，错误原样短路。终稿经真实格式为497行，SHA-256 `d44f268cd09dbee75d973658a0988ccf87e4b99d99bc03ce61a8a3af993f7595`，规模门实际通过，未修改门槛或baseline。独审是执行前有限静态结论，以下真实运行另记，不倒写旧review。
+
+**实际红绿顺序。** 以下目录均相对 `artifacts/slice-verify/b87-r05-reception-20261120/`（REC）；三次源前后均稳定，owned全部tree_finalized、无timeout、scope_removed，0真实模型、0native批次。
+
+| 原件阶段 | 实际结果 | owned终态 |
+|---|---|---|
+| `segment-author-input-red-01` | 49 tests / 10 failures，退出2 | `0f9b35a8e85d6652`，3175ms |
+| `segment-author-input-red-02` | 50 tests / 11 failures，退出2 | `16c61b615c2bff39`，3093ms |
+| `segment-author-input-green-01` | 50 tests / 0 failures，退出0 | `749e983c73ce6d37`，3928ms |
+
+两次红原件不覆盖、不合并成一次失败；失败数不等于独立产品缺陷数。最终green是在新实现上实际运行，不能反过来把先前静态审核写成实测通过。
+
+**精确候选16门。** `commit-preview/chapter-author-input-01` 的2674个Git blob及Git文件mode与独立树绑定；16项全部实际执行、退出0：后端格式、严格Credo、规模、后端全量、前后端schema drift、前端格式/类型/lint/全量、验证器、I1/I2/I3、NEXT、design trace、fresh desktop package与diff。root源、候选源、真实index、候选树4项guard均真；模型调用和native批次启动均为0。
+
+| 实际检查 | 精确结果 |
+|---|---|
+| 后端全量 | 10个应用合计3658 tests / 0 failures；owned `b14c67ba7a96d69b`，118329ms |
+| 前端全量 | 58文件，583 tests / 0 failures |
+| Slice verifier | 2文件，260 tests / 0 failures |
+| I1 | 4 cases，4 pass，0 fail / indeterminate / error |
+| I2 | 3 cases、3 pairs、3 disjoint，0 violations、0 case_failures |
+| I3 | Layer-B决定层3 cases、3 pass，0 fail / indeterminate / error；Layer-A参考层仍为0 pass、3 fail，不能写成I3所有层全绿 |
+
+**严格打包及其限制。** 同一精确候选实际先运行 `bash scripts/build_sidecar.sh`，再运行 `pnpm --dir frontend exec tauri build --ci`；owner `ad3ca4e2ccec9d98` 实际67259ms、child0、tree_finalized、无timeout、scope_removed。日志确认生成macOS `.app` 和aarch64 `.dmg`。新sidecar为11849570字节，SHA-256 `786216a6256d765fcfed7c5b60a697ad3763dc78d816e6fc79d298725b61f9d4`；随后按产品内容、类型与Git执行位一致复用到ROOT的ignored资源，未宣称两边全部物理权限相同。签名为ad-hoc，仍因缺少凭据而跳过公证；本项不是公证发布、安装后完整原生生命周期或B85跨平台验收，也不改写§16.37最初frontend_audit的告警。
+
+**未签范围。** 真实style-04原批次仍保留Writer前incomplete_scope、缺有效binding和原失败终态。使用同一作者全文的确定性PWF→Writer测试通过，证明此次接线与范围判断，不等于旧原生批次被修成成功或新实模语义已验。§16.35的六场景22次Provider调用及其count、role、G2/whole语义缺口不变；layout-03仍只具有已封的有限补充意义。cost-final-03未消费，最终工作区静态冻结、F0/F1和原scope task_done均未因此闭合。R05继续doing / NOT PASS，不进入R06。
+
+**本组原件索引。** 路径相对REC。
+
+| 原件 | SHA-256 |
+|---|---|
+| `author-input-commit-01/commit-01/result.json` | `89c399102c192189100dee1daa74f42d7011a60f54e8af0d7ae0a25e54eb21b6` |
+| `commit-preview/chapter-author-input-01/manifest.json` | `73cac50f52ae65b4f4fa60e3325b35a07a750f3e5557d1fbd135008d7b5141ec` |
+| `commit-preview/chapter-author-input-01/gate-01/result.json` | `494bbdf135ef391953f0964653daed12e68bcee7893004413044fd00c6104e39` |
+| `segment-author-input-red-01/result.json` | `3722da6df4d5f0f768d882da625a312341ffaeb01e886358711192e7641902f0` |
+| `segment-author-input-red-02/result.json` | `43237c9cf1ee06d7c459c8d6230edf17078628b3d1711b4d1acd6d02acc06dcc` |
+| `segment-author-input-green-01/result.json` | `9f726d1e4844788d61a4929c50d0a6c5c73ce66d102223663662153901713a29` |
+| `segment-author-input-mechanical-final-delta-review-01/review.json` | `97c779768639098911bb43f836dd29b3f3e297525c9162da545f1b2186b25236` |
+| `style-chapter-author-input-proposal-07-independent-review-01/review.json` | `f73275c0cdfc3c3a7487140bb6d523d3632d058152d580eabb17c2a2804aa698` |
