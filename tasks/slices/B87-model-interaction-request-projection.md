@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 已按 §17 开始独立实施，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 所需结构 ref 前置已独立核实，下一独立入口按 §17.5 调度为 R07，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -2591,7 +2591,7 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 
 ## 17. R06 开始范围与实施裁决（2026-11-21）
 
-**状态：doing，尚未验收。** 当前批次仅关闭作者可见内部身份泄漏、原文字节及其真实输入/接收/发布链；R07–R19 不在本次实施范围。独立 R06 审查上下文已重新读取共享 README、R06、愿景与当前实现；根协调者承担同一 scope 的门禁、提交和最终核账，不借 R05 证据签收 R06。
+**状态：blocked，DoD 未通过；工程与实模结论见 §17.4–17.5。** 本批仍负责作者可见内部身份泄漏、原文字节及其真实输入/接收/发布链；未闭合作者出口与正式 live 缺证保留在 R06。R07–R19 不计入本批完成；受阻后仅按已核实依赖调度独立后继，根协调者承担原 scope 的阶段门禁与提交。
 
 ### 17.1 开始身份与原始反例
 
@@ -2633,6 +2633,7 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 | 章目录歧义与预算的真实读口测试 | exploration_service_test、现 b30_exploration_seq_test | reuse：四个现 DB/RequestIR 集成用例迁入已有 chapter_read 当前序号/同源引用测试 owner；原数据、查询、断言和预算负例保持，不降为纯 helper 测试，不新建测试模块。 |
 | 测试 Provider 的同 call 拒收事实查询 | NovelTest.TestProviderPrompt.current_operation_messages；SliceVerify 现使命纠错选择 | refactor-and-retire：在现请求事实 owner 增窄 failed_tool_call_in_current_operation?/2，保持工具名→call_id→failed 的同 operation 因果，退役 SliceVerify 内重复查询；非 IR/另一工具/另一 call/上一 operation 的失败不触发。使命环境开关、marker、默认响应及两次上限不变，不新增解析器或生产 prompt。 |
 | 作者叙述原文字节与 Provider 来源的测试断言 | test_helper.exs 中现 NovelApplication.TestAssertions；judgment_protocol_test | reuse：窄 assert_bound_narrative 从测试原始字节、实际 ProviderOutput 身份及显式工具字段构造独立完整期望，保留 source/narrative hash、零起点完整 byte_range、完整 map 相等及 AgentNarrativeSource.verify。判断/提问/纠错的真实协议入口、刺激与次数留原测试；旧重复断言退役，不从被测 source 反推期望、不新增 runner。 |
+| 双正文冲突恢复的作者受众契约 | 现 JudgmentToolContract、AuthoringSemantics.author_narrative_rules；JudgmentProtocol、AgenticPlanDraftPlanner、ChapterMissionService 的同名错误分支 | candidate-only（尚未实施）：在现响应契约 owner 增窄 `author_narrative_content_conflict_guidance/0`，复用已有受众规则与唯一正文要求；三个现消费者只在该错误分支使用，退役只清空 content 的独立反馈。恢复要求模型重新形成完整作者说明，不从上一响应挑选、拼接或改写原文；保留原工具结构、任务、目标、来源、范围及有界纠错。首消费者就是本次 C9 原 call 的失败恢复，计划/使命为同责既有消费者；无新模块、字段、词表、分类器或 system 生命周期改造。WR02 首次合法单通道输出的真实泄漏已经推翻该方案足以收束本批的假设，暂停实施；不把局部恢复改善冒签为本批修复。 |
 | 新生产实体 | 仅上表 WorkArchiveDirectory 纯实现模块；新领域实体为 none | F0 后按职责审查修订最初的模块 none：仅承接已有两个消费者的纯计算；继续拒绝新增 DTO、表列、工具、产品 API、事件、配置、规则库、语义审查器或平行验收 runner。 |
 
 ### 17.3 文件边界、先验负例与受控实模
@@ -2648,3 +2649,48 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 实施期原生反例保留：`wr02-planning-mission-before-outline-tauri-native-b87r06-wr02-det-02` 在 `3115c4cb` 上完成 57 张页面捕获，13/14 检查通过，仅 `mission_design_only` 失败，整体仍为 FAIL。原始 SQL 与前后整行 hash 对账证明 works 仅改变 planning_direction、revision（1→2）和 updated_at；现使命仓储的合法乐观锁写入与 nil→仅使命 map 被旧保护投影误判。上表裁决先于修正；仅修改现 Canon 证据 owner 及其测试，不取消产品锁、不豁免列、不改原 summary，不因此扩展 R06 目标或 Splash 三批预算。
 
 F0 完整工程门禁 `R6/task-done-f0-01` 在 `1b5885fd` 上失败，原 scope 与原生身份成立；完整扫描 21 项中 19 项命令通过，module-size 发现本批 7 处增长/新观察，另两条测试 Semgrep 发现待独立处置。原扫描 30 文件已整体封存至该目录的 `static-scan/`，不覆盖失败。按 §3.2 的职责数而非机械行数整理本批新增职责；新增测试及既有 fixture 迁移以上表先验审计为准，所有原负例继续由原入口或明确新测试消费者覆盖。此整理不接管 B78 存量大模块治理、不扩 R07/R17 功能，实际代码/测试/文档全部稳定后重新执行适用门禁和原生绑定。
+
+### 17.4 首轮三场受控实模与双正文错误恢复
+
+职责整理在 `dd8cd1b39519bbd7938dc0e9855cc82c2eefca8b` 冻结，源码 fingerprint `89d7c3768c8f617d2333a3a505439f47a1deb530df832cb95bfe3f6acefa453f`；四个可 review 分组 `dc63e965`、`0735fa29`、`904e44c4`、`dd8cd1b3` 已正常提交并逐组推送。`backend-full-03` 3683 tests/0 failures；`f0-refactor-node-01` 31 文件 822/822；规模与格式门通过，未提高 baseline/新增豁免。`release-sidecar-build-04` 先重建生产 sidecar 再打包，`release-package-identity-02` 对账包内 1762 个真实 BEAM 与本次 release 一致；只证明构建/包身份，不代签 release 运行。最终源上的 WR01/WR02 `det-04` 分别正式 7/7、原生 14/14，独立原件核账成立；恢复计数及 Why 的状态文案差异按现 R07 状态/Replay 边界保留，不能宣称所有页面字段等价恢复。
+
+`task-done-f0-02` 使用原 scope 和本次 WR01 原生 binding 完成完整工程门禁，manifest 为 `artifacts/slice-verify/task-completion-20261121T141721Z-77269/manifest.json`；21 个扫描命令中 20 个退出 0，gitleaks 保留历史发现，最终 9 项发现为 8 false_positive + 1 accepted_risk、0 blocking。实际扫描 30 文件及 hash 已封存 `R6/task-done-f0-02/static-scan-results/`，另 `static-scan/` 仅为处置配置快照；旧 F0 失败原件保持。工程绑定明确不代签本批 DoD。
+
+同一 source-freeze-05 上原登记三场已各执行一次，作者输入、seed、runtime 和预算未改，无人工重发，均保留实际退出与原件：
+
+| 原件 | 实际结果与当前证明限度 |
+|---|---|
+| `R6/native/c9-live-01` | 自动 author_visible PASS，实际人工 R06 审读 FAIL：作者叙述包含 `chapter_read`、`revise_adopted_content`、`target_segments`。同时已独立证成正确同名第 2 章、7000 字符两页完整材料进入真实 Judgment/Writer、593 字符同章待采纳候选、0 采纳及原正文 hash 不变。自动 PASS 原件不改签，不能代替作者受众性质。 |
+| `R6/native/wr01-live-01` | 正式 exit 1；预登记 360000ms 回合等待在第二轮质量评估运行时超时，无 summary/成功 binding，失败截图也未形成，仅保留 AX/文本。使命实际触发并接受，273 UTF-8 字节原叙述经同源持久化/作者事件进入两次 Writer 当前 execution_brief；终局、Why、重开恢复及完整场景仍缺证。使命局部成立不覆盖正式失败，也不据此扩修 R18 专业质量循环。 |
+| `R6/native/wr02-live-01` | driver 0 / runner 1，13/14；自动唯一失败 `mission_design_only`：既有后台章摘要修复引起派生维护，ledger_entries 从 2 增到 5，新增三条被系统自动接受，原两条及其他受保护创作表不变，不能签整个窗口 Canon 不变。使命自身同源/持久化/实际 Writer/恢复和候选待采纳均已独立核账；另人工审出首次直接接受的判断正文泄漏 `plot_outline`，属于独立 R06 失败。保留全部原 verdict，不删除账本保护，也不把后台派生写入指控为本轮大纲越权采纳。 |
+
+C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8i` → canonical sequence 12/13 的原调用/通过回执 → 作者事件 sequence 299 → 实际 turn_result/AX。作者原叙述 855 UTF-8 字节，SHA `d2eccefada80ecc90dc286e3003417ec7cd506b221e2960a0788b6c1c38ba4b2`，各层完全一致。作者没有请求技术讨论；这项技术化叙述属于 R06 原范围，不转交 R08。
+
+源头审查确认：首次请求的现 system 和字段描述已经声明作者受众；第 3 次响应的 content 是较自然的创作说明，author_reasoning 却承载内部执行论证。双正文错误回执仅给通用组合/清空 content 指令，第 4 次修复了渠道冲突却保留内部论证。§17.2 四文件错误恢复方案仅形成先验候选，尚未实施。随后 WR02 的第 3 条实际响应 `pcall_mwqi8shw_s/prun_mwqi8shw_t` 在首次合法单正文组合直接接受，仍把 `plot_outline` 写入作者说明；canonical sequence 10/11 → 作者事件 sequence 29 → 实际 wire/AX/初次及恢复截图完全同源。原叙述 1231 UTF-8 字节，SHA `86f1d78e6791ae2f3e63f19785bcba2d78e43b82e898a70e463e2c4d69e966d5`。这个真实反例已推翻窄恢复方案足以闭合本批的假设，暂停实施并重新审查实际请求、受众及既有责任边界。不得以新增词表/改名/改通道/重复提示或确定性门通过冒充自然叙述机制保证；也不得为消红改写原件或接管 R07/R17 已规划职责。
+
+原登记三场实模预算已执行完，R06 尚未 PASS；当前受阻原因、恢复条件和独立后继调度见 §17.5。工程通过与使命局部成功均不覆盖上述失败/缺证。
+
+### 17.5 原始范围复核、因果边界与受阻后调度
+
+**原始目标。** 20 批首版 `0391725caa53e9a3ad12688195cd4110c828020a` 的 R06 已要求普通 summary/narrative 使用作者名称、真实页面零技术标识泄漏；同版 VS-00M 也要求工具作者叙述不夹内部身份。因此，本次普通创作说明里的内部 operation/参数标识仍是 R06 具体未闭合结果。原目标并未要求本批证明所有自然语言受众品质或文学判断普遍正确；真实失败须逐项定位，不能把任意模型独立判断错误直接推定为应用缺陷。
+
+**实际请求与源头。** C9 第 3/4 条及 WR02 第 3 条实际请求使用同一 system，214 行、23931 UTF-8 字节、SHA `5128b2eb15a2380bfd8bc4899e05eee19dc0f758970dbce2181b049227d07eec`。现 `AuthoringSemantics.author_narrative_rules/0` 的作者受众规则和唯一 `author_reasoning` 字段说明均真实到达模型；没有发现合同要求把内部操作名写给作者。WR02 `plot_outline` 来自真实能力目录和 Scope，预算事实来自最新 Scope；“下一轮放开读取”没有实际权限事实或对应请求原句。接收、事件和页面保持原字节，未证实展示层将自然说明改坏。C9 的窄纠错反馈确有职责缺口，但 WR02 首次合法单正文反例不经过该分支，故 §17.2 候选保持暂停；改字段名、换通道或追加术语词表均未获得足以闭合本次结果的因果证据。现役 `Planner.narrate_tool_result` 是工具后的叙述消费者，不能消除已发布判断；全部迁移 native content 又涉及既定唯一正文合同，均未直接实施。
+
+| 已观察问题 | 当前真实归属与后续边界 |
+|---|---|
+| C9/WR02 作者说明包含内部操作标识 | R06 保留 FAIL/未闭合。结构来源成立与作者受众合格分开记录；后批不得替签。恢复需先形成可解释反例的源头责任设计，审查同责现消费者与既定输出合同，再实施和前向补证。 |
+| 探索不可用后的旧指令仍要求直接 reply/澄清，但真实 Scope 与当前规则仍允许必要 execute | 现 `JudgmentProtocol.ir_base_text(:judgment)` 同时消费当前任务规则与 `judgment_output_text/0` 的冲突段；R07 原卡已明确审查并退役此旧指令。两次实模最终都 execute，尚不能认定这条冲突就是叙述泄漏的充分原因。 |
+| Why 的处理中、初次/恢复进度不一致 | 归 R07 已计划的真实执行状态及 Replay 对账；先沿既有生产者和展示枚举核因果，不新增状态真源。 |
+| WR01 在第二轮质量评估中超过本场 360 秒等待 | R06 原正式 FAIL、终局/恢复缺证保留；使命本身的原文、持久化与两次 Writer 消费已证成。质量评估/续行链与耗时观察归 R18 既定专业全链回归，不能借本次扩大质量循环或运行预算。 |
+| WR02 后台章摘要修复生成三条已接受派生账本 | 已追到 `prior_chapter_summaries_section → previous → run_chapter_summary_repair → run_ledger_maintenance_after_summary → LedgerRepository.upsert`。原两条账本、其他受保护创作表与本轮待采纳候选保持，未发现本轮大纲被越权采纳；整个窗口 Canon 不变仍不能签。R07 只核真实 effect/结果记录边界，后续目录含义归 R09；维护/自动采纳策略不借 R06 改造，原 `mission_design_only` 失败不豁免。 |
+| system 共同规则与跨角色继承重复 | 仍归原 R17，按产生与继承机制收束；本批未新增字符串去重、过滤或模型语义裁判。 |
+
+**R06 当前受阻及恢复条件。** 原登记三场已各消费一次，原失败与缺证尚未闭合，当前没有已证成能覆盖首次合法技术化叙述的最小源头修复。R06 因此为 blocked/NOT PASS；这不是 Splash 授权不足，也不宣称应用已满足完整作者出口目标。原模型/页面/Canon 证据只读保留；有实质修复、合同及当前消费者闭合后，再按原作者输入/seed/runtime 前向登记必要新证据窗口，回本节核账。既有三批不重跑进旧目录，不改 verdict 或验收分母。
+
+**R07 独立前置核验与调度。** 原版和现版 R07 卡第 7 行均要求 R02/R06 的正确 ref 约束形成，并未要求 R06 所有作者叙述结果先 PASS。现 C9 第 1/2 条原响应以同一 `chapter:eab30fe7-c063-45fc-9446-93299a2641b2` 请求 offset 0/6000，第 3/4 条 Judgment 和第 5/6 条 Writer 请求具有同 ref、1–6000/6001–7000 覆盖及同正文 SHA `4d5b86962eed7e82f8c2e9d3cf5d280d2172941337bed3fefb1f3859c38a95f8`。当前 `exploration_service_test` 的跨作品、坏 ref、两页连贯及 `chapter_list_budget_test` 的同名同序不合并负例，结合 `backend-full-03` 和 `det-04` 执行身份，足以证明这一特定前置。它不等于 R06 整体通过。
+
+按 `tasks/README.md` 的受阻后补位和本计划 §4 实际依赖裁决，NEXT 的下一独立入口切为 R07；使用全新审查上下文，只推进其原工具字段/引用/效果/校验回执/Replay 目标。R06 的技术化作者说明与正式 live 缺证仍由 R06 持有，不计入 R07 完成，不为调度改写任何批次 DoD。R07 的只读审查可准备，生产修改须在本阶段提交后封存自己的开始 scope。
+
+**阶段文档的最终工程身份出口。** 本节与 NEXT 稳定后，沿原 R06 scope 运行一次确定性 WR01 `wr01-checkpoint-01`，再执行完整 `task-done-checkpoint-01`。实际结果分别查 `R6/native-runs/wr01-checkpoint-01/result.json`、同目录 `binding.json` 和 `R6/task-done-checkpoint-01/result.json` 及其日志指向的 task-completion manifest。这里登记证据出口，不预填终态；结果只签本阶段工程身份，不代签 R06。按已验证精确文件分组正常 commit/push，后续批次再从实际提交 HEAD 开始。
+
+**该出口的实际失败与阶段提交边界。** `wr01-checkpoint-01` 在作者发送前因 `activation_unconfirmed` 退出 1，未形成 summary 或 binding；owner `b6f6d85af9ae9521` 已结束并清理，运行前后源码不变，日志 SHA `918700f34eccad60568655a883414bfcf4ac362a933a659fc1c40c3247ee3c0f`。原生输入原件显示 AX/输入权限有效、目标工作台已加载，激活前后前台均为 `com.apple.SecurityAgent`；现证据只证明系统安全代理占据前台，不能猜成某一种锁屏或认证弹窗。随后 `task-done-checkpoint-01` 实际退出 1：在缺少该 binding 的预检处失败，没有完成本次全量扫描；日志 SHA `9a2fc6b5bac562f58e479a47a51f9c3104ec0661fc81b5cfeb44d20ff2176380`。这是阶段文档身份补验的新增环境阻塞，不能借旧 F0 结果签当前文档全门禁。与已验证 `dd8cd1b3` 相比仍只有本总文档和 NEXT 变化；正常提交仅保存经独审与 NEXT/差异检查的真实状态和调度，不声明 R06 完成。原已通过代码/包/原生证据保持原身份；页面补验等待桌面恢复可交互，R07 仍须形成自己的 scope 和真实验证。

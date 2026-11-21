@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：下一独立执行入口为 R06，按共享 README 使用全新上下文；先核原任务 §16.39 的 R05 应用签收、最终 F1 身份与保留限制，再按原依赖推进 R06–R19，既有开放反例不代签。R01 结果与已知质量边界见 §11.21，验收不由本排期代签。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：下一独立执行入口为 R07，按共享 README 使用全新上下文；先核原任务 §17.5 的结构 ref 前置与 R06 保留边界，再推进本批工具字段/引用/效果/校验回执/Replay 目标。批次证据与未闭合项只在原任务维护。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
@@ -19,9 +19,11 @@
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，**B87 R17 后**按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**，且 **B87 R02/R05 后**（材料/来源结构化稳定）按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序（2026-11-14 作者决定 B84 退出队列、B87 提为当前任务；B84 开放项保留在阻塞引用，退出不等于销账）：B87 R00–R19 为当前产品主线，下一独立调度入口为 R06，按共享 README 使用全新上下文；执行状态、R05应用证据、最终F1身份与后继开放反例只在 B87 §16.39及对应原节维护。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
+依赖排序：B87 主线按原任务 §17.5 及共享 README 推进。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
 
 ## 阻塞
+
+- **B87 R06**：恢复条件见 [原任务 §17.5](slices/B87-model-interaction-request-projection.md#175-原始范围复核因果边界与受阻后调度)。
 
 - **B84（deferred，2026-11-14 作者决定退出当前任务队列）**：scope 74/74；REV-01 待独立复核，REV-02 未闭环；A2/R01、b71-pending、driver/G2、dogfood、lefthook 等债务保留。恢复：作者重新排期或 B87 对应批次后；退出队列不等于销账。见 [B84](slices/B84-web-slow-tests-and-arch-debt.md)。
 
