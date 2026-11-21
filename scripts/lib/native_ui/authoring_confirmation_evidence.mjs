@@ -36,7 +36,7 @@ import { readConfig } from "./authoring_capture_evidence.mjs";
 import { locateScopedButton } from "./authoring_pending_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 import { buildTarget } from "./input_target.mjs";
-import { ownProcesses } from "./process_observation.mjs";
+import { ownProcesses, portListening } from "./process_observation.mjs";
 import {
   CONFIRMATION_CHECKPOINTS,
   CONFIRMATION_MODES,
@@ -143,16 +143,6 @@ function countLlmCallsIn(dir) {
 
 const defaultExec = (command, args) => execFileSync(command, args, { encoding: "utf8" });
 
-function portListening(port, exec) {
-  try {
-    const out = exec("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]);
-    return out.split("\n").some((line) => line.includes("LISTEN"));
-  } catch (error) {
-    // lsof 对无匹配 listener 退出码为 1；其它执行错误必须暴露，不能当作“未监听”。
-    if (error?.status === 1) return false;
-    throw error;
-  }
-}
 
 // 批次后运行态的唯一 I/O 读取边界：executable 由本批 ready 经既有 target producer 推导，
 // 进程归属复用 process_observation；任何观测失败向上抛，不伪造 0/false。

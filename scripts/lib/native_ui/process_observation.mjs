@@ -12,6 +12,7 @@
 // cleanup 的 remaining=[] 断言。任何其它错误都向上抛出，不做静默降级。
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export const PROCESS_OBSERVATION_SCHEMA = "native-process-observation/v1";
 
@@ -176,4 +177,125 @@ export function observeOwnedExecutable(pid, executable, { exec = defaultExec } =
       unavailable: matched || paths.length > 0 ? null : "process_gone",
     };
   }
+}
+
+// SU04/B85 release owner 的有界进程身份观察；这里只观测/按已证明身份发信号，
+// 启停阶段及期限仍由 release_app_lifecycle_check.sh 唯一编排。
+// 不输出 argv/env；lstart + executable + PID 防止把同名/复用 PID 当成本批。
+export function parseReleaseProcesses(output) {
+  return output.split("\n").flatMap((line) => {
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.+?)\s*$/.exec(line);
+    return m ? [{pid:Number(m[1]),ppid:Number(m[2]),pgid:Number(m[3]),started:m[4],executable:m[5]}] : [];
+  });
+}
+export function releaseIdentityEqual(a, b) {
+  return Boolean(a && b && a.pid === b.pid && a.started === b.started &&
+    a.executable === b.executable && a.pgid === b.pgid);
+}
+export function extendReleaseOwnership(state, rows) {
+  const current = new Map(rows.map((p) => [p.pid, p]));
+  const retained = state.processes.filter((p) => releaseIdentityEqual(p, current.get(p.pid)));
+  // exec 不改变 PID/启动时间；只在原 parent 仍归属且当前子进程 lineage 成立时登记新 exec。
+  const owned = new Map(retained.map((p) => [p.pid,p]));
+  const root = current.get(state.app.pid);
+  if (releaseIdentityEqual(state.app, root)) owned.set(root.pid, root);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const proc of rows) {
+      if (!owned.has(proc.pid) && owned.has(proc.ppid)) {
+        owned.set(proc.pid, proc); added = true;
+      }
+    }
+  }
+  for (const previous of state.processes) {
+    const now = current.get(previous.pid);
+    if (now && now.started === previous.started && !owned.has(now.pid))
+      throw new Error("release_identity_changed_without_lineage");
+  }
+  return {...state, processes:[...owned.values()], observed_at:new Date().toISOString()};
+}
+export function readReleaseProcesses(exec = defaultExec, known = []) {
+  // comm 是 argv0，不是可信 executable。只对本批候选 lineage 使用公开
+  // proc_pidpath；不读取参数/env/映射库，不将全机进程内容写入证据。
+  const rows = parseReleaseProcesses(exec("ps", ["-axo","pid=,ppid=,pgid=,lstart=,comm=","-ww"]));
+  const wanted = new Set(known.map((p)=>p.pid));
+  let changed=true;
+  while(changed) { changed=false; for(const p of rows) {
+    if(wanted.has(p.ppid) && !wanted.has(p.pid)) { wanted.add(p.pid); changed=true; }
+  }}
+  return rows.filter((p)=>wanted.has(p.pid)).flatMap((p)=>{
+    let identity;
+    try {
+      const helper=fileURLToPath(new URL("../../../artifacts/tools/ax_cua",import.meta.url));
+      identity=JSON.parse(exec(helper,["process-path",String(p.pid)]));
+    } catch(error) {
+      // 进程确实消失才允许空；仍存在但无实际路径必须显式报错。
+      let alive;
+      try { alive=exec("ps",["-p",String(p.pid),"-o","pid="]).trim(); }
+      catch(probeError) { if(probeError.status===1)return []; throw probeError; }
+      if(alive)throw new Error("release_executable_unobservable");
+      return [];
+    }
+    if(identity.pid!==p.pid || typeof identity.executable!=="string" || !identity.executable.startsWith("/"))
+      throw new Error("release_executable_identity_invalid");
+    return [{...p,executable:realpathOrSelf(identity.executable)}];
+  });
+}
+export function releaseSignalCandidates(state, rows, scope = "all") {
+  if (!["all","sidecar"].includes(scope)) throw new Error("invalid_release_signal_scope");
+  return state.processes.filter((p) => (scope === "all" || p.pid !== state.app.pid) &&
+    releaseIdentityEqual(p, rows.find((r) => r.pid === p.pid)));
+}
+export function signalReleaseOwned(state, name, scope = "all", io = {}) {
+  if (!["SIGTERM","SIGKILL"].includes(name)) throw new Error("invalid_release_signal");
+  const read = io.read ?? (()=>readReleaseProcesses(defaultExec,state.processes));
+  const kill = io.kill ?? ((pid, signal) => process.kill(pid, signal));
+  const actions = [];
+  // 子进程先，app 后；每一个信号前重新观察身份，不 kill -PGID。
+  for (const proc of releaseSignalCandidates(state, read(), scope).sort((a,b) =>
+      Number(a.pid === state.app.pid) - Number(b.pid === state.app.pid))) {
+    if (!releaseSignalCandidates({...state,processes:[proc]}, read(), scope).length) continue;
+    try { kill(proc.pid,name); actions.push({pid:proc.pid,signal:name,at:new Date().toISOString()}); }
+    catch (error) { if (error.code !== "ESRCH") throw error; }
+  }
+  return actions;
+}
+export function runReleaseObservation(argv, io = {}) {
+  const [action, file, ...args] = argv;
+  const read = io.read ?? (()=>readReleaseProcesses(defaultExec,state?.processes ?? [{pid:Number(args[0])}]));
+  const save = (state) => {
+    fs.appendFileSync(file+".jsonl",JSON.stringify(state)+"\n");
+    fs.writeFileSync(file+".tmp",JSON.stringify(state,null,2));
+    fs.renameSync(file+".tmp",file);
+    return state;
+  };
+  let state;
+  if (action === "init") {
+    const [pid, ownerPid, executable, home, profile] = args;
+    const rows = read(), app = rows.find((p) => p.pid === Number(pid));
+    if (!app || app.ppid !== Number(ownerPid) || app.executable !== fs.realpathSync(executable))
+      throw new Error("release_child_identity_not_proven");
+    state = {schema:"release-owned-processes/v1",app,home,profile:profile || null,processes:[app]};
+    return save(extendReleaseOwnership(state,rows));
+  }
+  state = JSON.parse(fs.readFileSync(file,"utf8"));
+  if (state.schema !== "release-owned-processes/v1") throw new Error("invalid_release_ownership");
+  if (action === "refresh") return save(extendReleaseOwnership(state,read()));
+  if (action === "remaining") return releaseSignalCandidates(state,read(),args[0] || "all");
+  if (action === "signal") return signalReleaseOwned(state,args[0],args[1] || "all",io);
+  if (action === "listener") {
+    const pids = (io.exec ?? defaultExec)("lsof",["-nP","-iTCP:"+args[0],"-sTCP:LISTEN","-t"]).trim().split(/\s+/).map(Number);
+    const owned = releaseSignalCandidates(state,read(),"sidecar");
+    if (!pids.length || pids.some((pid) => !owned.some((p) => p.pid === pid)))
+      throw new Error("release_listener_not_owned");
+    return owned.filter((p) => pids.includes(p.pid));
+  }
+  throw new Error("invalid_release_observation_action");
+}
+
+// 只服务现 release shell 的观察命令；没有启动/重启/等待/场景编排。
+if (process.argv[1] && import.meta.url === new URL("file://" + process.argv[1]).href) {
+  try { console.log(JSON.stringify(runReleaseObservation(process.argv.slice(2)))); }
+  catch (error) { console.error(error.message); process.exitCode=1; }
 }

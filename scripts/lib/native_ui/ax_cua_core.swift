@@ -859,6 +859,20 @@ func runMain() {
         exit(64)
     }
     let cmd = args[1]
+    // SU04/B85：公开 libproc 的 PID→实际 executable，只读且无 AX/焦点操作。
+    // 不读取命令行、环境、cookie 或映射库；不能用 comm/lsof txt 猜实际入口。
+    if cmd == "process-path" {
+        guard args.count == 3, let pid = Int32(args[2]), pid > 0 else {
+            json(failureObject("process_pid_invalid")); exit(64)
+        }
+        var buffer = [CChar](repeating: 0, count: 4096)
+        let count = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard count > 0 else {
+            json(failureObject("process_path_unavailable")); exit(1)
+        }
+        json(["pid": Int(pid), "executable": String(cString: buffer)])
+        exit(0)
+    }
     if cmd == "apps" {
         jsonArray(allApps())
         exit(0)

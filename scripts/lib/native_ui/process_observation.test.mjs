@@ -223,3 +223,69 @@ test("realpath 差异不破坏归属：候选按 realpath 发现、按 txt 实�
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+test("release 观察保存启动时刻/PGID/精确 exec，不包含 argv 或 env", async () => {
+  const {parseReleaseProcesses} = await import("./process_observation.mjs");
+  assert.deepEqual(parseReleaseProcesses(" 101 99 101 Wed Nov 18 10:00:00 2026 /tmp/A B/app"),[
+    {pid:101,ppid:99,pgid:101,started:"Wed Nov 18 10:00:00 2026",executable:"/tmp/A B/app"}]);
+});
+const releaseApp = {pid:101,ppid:99,pgid:99,started:"Wed Nov 18 10:00:00 2026",executable:EXE};
+const releaseChild = {pid:102,ppid:101,pgid:102,started:"Wed Nov 18 10:00:01 2026",executable:"/tmp/run-a/runtime/beam.smp"};
+const releaseState = () => ({app:releaseApp,processes:[releaseApp]});
+test("release 仅从已确认 child lineage 建立归属，不从同名/home/PGID猜测", async () => {
+  const {extendReleaseOwnership} = await import("./process_observation.mjs");
+  const unrelated={...releaseChild,pid:202,ppid:1};
+  const result=extendReleaseOwnership(releaseState(),[releaseApp,releaseChild,unrelated]);
+  assert.deepEqual(result.processes.map(p=>p.pid),[101,102]);
+});
+test("release reparent 后保留先前已证明身份；PID复用不授权信号", async () => {
+  const {extendReleaseOwnership,releaseSignalCandidates}=await import("./process_observation.mjs");
+  const state=extendReleaseOwnership(releaseState(),[releaseApp,releaseChild]);
+  assert.deepEqual(extendReleaseOwnership(state,[{...releaseChild,ppid:1}]).processes.map(p=>p.pid),[102]);
+  assert.deepEqual(releaseSignalCandidates(state,[{...releaseChild,started:"Wed Nov 18 11:00:01 2026"}]),[]);
+});
+test("release live parent 下合法 exec 变更可归属，失去lineage不能静默消失",async()=>{
+  const {extendReleaseOwnership}=await import("./process_observation.mjs");
+  const state=extendReleaseOwnership(releaseState(),[releaseApp,releaseChild]);
+  const changed={...releaseChild,executable:"/tmp/run-a/runtime/erl_child"};
+  assert.equal(extendReleaseOwnership(state,[releaseApp,changed]).processes[1].executable,changed.executable);
+  assert.throws(()=>extendReleaseOwnership(state,[{...changed,ppid:1}]),/identity_changed_without_lineage/);
+});
+test("release 发信号前逐次复核，复用PID不收到TERM；从不kill进程组",async()=>{
+  const {signalReleaseOwned}=await import("./process_observation.mjs");
+  let count=0;const signals=[];
+  signalReleaseOwned({app:releaseApp,processes:[releaseApp,releaseChild]},"SIGTERM","sidecar",{
+    read:()=>++count===1?[releaseApp,releaseChild]:[releaseApp,{...releaseChild,started:"changed"}],
+    kill:(...args)=>signals.push(args)});
+  assert.deepEqual(signals,[]);
+});
+test("release sidecar故障注入不杀app，清理仅正PID且子进程先",async()=>{
+  const {signalReleaseOwned}=await import("./process_observation.mjs");
+  const state={app:releaseApp,processes:[releaseApp,releaseChild]},signals=[];
+  const io={read:()=>[releaseApp,releaseChild],kill:(...a)=>signals.push(a)};
+  signalReleaseOwned(state,"SIGTERM","sidecar",io);
+  assert.deepEqual(signals,[[102,"SIGTERM"]]);signals.length=0;
+  signalReleaseOwned(state,"SIGKILL","all",io);
+  assert.deepEqual(signals,[[102,"SIGKILL"],[101,"SIGKILL"]]);
+  assert.throws(()=>signalReleaseOwned(state,"SIGHUP","all",io),/invalid_release_signal/);
+});
+test("release ps身份观察失败必须暴露，不退成名字匹配",async()=>{
+  const {readReleaseProcesses}=await import("./process_observation.mjs");
+  assert.throws(()=>readReleaseProcesses(()=>{throw eperm();}),/EPERM/);
+});
+test("release 候选 comm不是exec，proc_pidpath实际路径核验且不查询无关PID",async()=>{
+ const {readReleaseProcesses}=await import("./process_observation.mjs"),lookups=[];
+ const rows=readReleaseProcesses((cmd,args)=>{
+  if(cmd==="ps")return "101 99 99 Wed Nov 18 10:00:00 2026 app\n102 101 102 Wed Nov 18 10:00:01 2026 beam.smp\n999 1 999 Wed Nov 18 10:00:00 2026 app";
+  if(cmd.endsWith("/ax_cua")){lookups.push(args[1]);return JSON.stringify({pid:Number(args[1]),executable:args[1]==="101"?"/tmp/batch/app":"/tmp/batch/beam.smp"});}
+  throw Error("unexpected");
+ },[{pid:101}]);
+ assert.deepEqual(rows.map(p=>p.executable),["/tmp/batch/app","/tmp/batch/beam.smp"]);
+ assert.deepEqual(lookups,["101","102"]);
+});
+test("release 活进程拿不到实际exec不得作为消失清理成功",async()=>{
+ const {readReleaseProcesses}=await import("./process_observation.mjs");
+ assert.throws(()=>readReleaseProcesses((cmd,args)=>{
+   if(cmd.endsWith("/ax_cua"))throw Object.assign(Error("no executable"),{status:1});
+   return args[0]==="-axo"?"101 99 99 Wed Nov 18 10:00:00 2026 app":"101";
+ },[{pid:101}]),/executable_unobservable/);
+});
