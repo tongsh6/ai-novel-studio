@@ -3,6 +3,7 @@
 // 等真实 IO 集合在邻接 `authoring_confirmation_evidence_io.test.mjs`。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { authorBoundary } from "./authoring_g2_evidence.mjs";
 import { CONFIRMATION_REQUEST } from "./authoring_confirmation_constants.mjs";
 import { irBodyFromWire } from "./fixtures/authoring_request_ir.mjs";
 import {
@@ -792,32 +793,58 @@ test("selectConfirmationAction：真实确认动作（无 source_turn_ref）可�
   );
 });
 
-test("locateConfirmationButton：按所属消息块定位；禁用/缺文案失败", () => {
-  const node = (nodePath, role, fields = {}) => ({ path: nodePath, role, frame: [10, 10, 200, 20], ...fields });
-  const text = (nodePath, value) => node(nodePath, "AXStaticText", { value });
+function confirmationPage(message = CONFIRMATION_REQUEST) {
+  const node = (path, role, fields = {}) => ({ path, role, frame: [10, 10, 200, 20], ...fields });
+  const text = (path, value) => node(path, "AXStaticText", { value });
   const cardTitle = "需要确认";
   const cardBody = "确认对象：正文草稿生成";
   const nodes = [
-    node("0/1", "AXGroup"),
-    text("0/1/0", "AI"),
-    text("0/1/1", cardTitle),
-    text("0/1/2", cardBody),
-    node("0/1/3", "AXButton", { title: "确认执行", enabled: true }),
-    node("0/1/4", "AXButton", { title: "拒绝", enabled: true }),
+    node("0", "AXGroup"),
+    node("0/0", "AXGroup"), text("0/0/0", "你"),
+    node("0/1", "AXGroup"), text("0/1/0", message),
     node("0/2", "AXGroup"),
-    text("0/2/0", "旧候选正文草稿"),
-    node("0/2/1", "AXButton", { title: "保存到作品档案", enabled: true }),
+    text("0/2/0", cardTitle), text("0/2/1", cardBody),
+    node("0/2/2", "AXButton", { title: "确认执行", enabled: true }),
+    node("0/2/3", "AXButton", { title: "拒绝", enabled: true }),
+    node("0/3", "AXGroup"), text("0/3/0", "旧候选正文草稿"),
+    node("0/3/1", "AXButton", { title: "保存到作品档案", enabled: true }),
   ];
-  const knownItems = [cardTitle, cardBody];
-  assert.equal(locateConfirmationButton(nodes, { label: "确认执行", cardTitle, cardBody, knownItems }).button.path, "0/1/3");
-  assert.equal(locateConfirmationButton(nodes, { label: "拒绝", cardTitle, cardBody, knownItems }).button.path, "0/1/4");
-  const disabled = locateConfirmationButton(
-    nodes.map((entry) => (entry.path === "0/1/3" ? { ...entry, enabled: false } : entry)),
-    { label: "确认执行", cardTitle, cardBody, knownItems },
-  );
-  assert.equal(disabled.ok, false);
-  assert.equal(disabled.reason, "action_disabled");
-  assert.equal(locateConfirmationButton(nodes, { label: "确认执行", cardTitle: null, cardBody }).reason, "card_evidence_missing");
+  return { nodes, cardTitle, cardBody, message, node, text };
+}
+
+test("locateConfirmationButton：真实消息卡无需伪造 artifact，仍按本轮边界定位", () => {
+  const { nodes, cardTitle, cardBody, message } = confirmationPage();
+  const options = { cardTitle, cardBody, authorBoundary: authorBoundary(nodes, message, 0) };
+  assert.equal(locateConfirmationButton(nodes, { ...options, label: "确认执行" }).button.path, "0/2/2");
+  assert.equal(locateConfirmationButton(nodes, { ...options, label: "拒绝" }).button.path, "0/2/3");
+  const disabled = nodes.map((entry) => entry.path === "0/2/2" ? { ...entry, enabled: false } : entry);
+  assert.equal(locateConfirmationButton(disabled, {
+    ...options, label: "确认执行", authorBoundary: authorBoundary(disabled, message, 0),
+  }).reason, "action_disabled");
+  assert.equal(locateConfirmationButton(nodes, { ...options, label: "确认执行", cardTitle: null }).reason,
+    "card_evidence_missing");
+  assert.equal(locateConfirmationButton(nodes, { cardTitle, cardBody, label: "确认执行" }).reason,
+    "author_boundary_missing");
+});
+
+test("确认卡不借旧同文回合按钮，当前块重复或缺按钮均失败", () => {
+  const { nodes, cardTitle, cardBody, message, node, text } = confirmationPage();
+  const current = [
+    ...nodes,
+    node("0/4", "AXGroup"), text("0/4/0", "你"),
+    node("0/5", "AXGroup"), text("0/5/0", message),
+  ];
+  assert.equal(locateConfirmationButton(current, {
+    cardTitle, cardBody, label: "确认执行", authorBoundary: authorBoundary(current, message, 1),
+  }).reason, "item_outside_author_block");
+  const duplicate = [...nodes, node("0/2/4", "AXButton", { title: "确认执行", enabled: true })];
+  assert.equal(locateConfirmationButton(duplicate, {
+    cardTitle, cardBody, label: "确认执行", authorBoundary: authorBoundary(duplicate, message, 0),
+  }).reason, "action_ambiguous");
+  const missing = nodes.filter((entry) => entry.path !== "0/2/2");
+  assert.equal(locateConfirmationButton(missing, {
+    cardTitle, cardBody, label: "确认执行", authorBoundary: authorBoundary(missing, message, 0),
+  }).reason, "action_missing");
 });
 
 test("executedConfirmationTurnResult / rejectConfirmationTurnResult：时间窗与身份口径", () => {

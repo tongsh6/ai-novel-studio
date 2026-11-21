@@ -353,9 +353,7 @@ export function readR05Inputs(dir, { config, history, records, wire }) {
     config: { length: 1 }, turnReports: [{ status: "completed" }], allCalls: costCalls,
   }) };
   return { source, requests, reply, candidate, turn_result: body, writer, consumer_call_ref: consumer,
-    run_id: run.id, reply_source: replySource, pending_count: history.pending.length, cost,
-    known_items: allPending.flatMap((entry) => entry.payload?.items ?? [])
-      .map((item) => ({ itemTitle: item.title, itemBody: item.body })) };
+    run_id: run.id, reply_source: replySource, pending_count: history.pending.length, cost };
 }
 
 // ── B82 §7 G2 报告：复用同一条已绑定 run 的 canonical transcript 与已对账 records ──

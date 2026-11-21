@@ -795,7 +795,8 @@ function b29Checks(dir, config, wire, appRecords, production) {
   const repeatSourceBound = b29NoChangeSourceBound(dir, wire, t5RepeatTurn, config);
 
   const visibleHasOldToNew = b29RoleCandidateVisible({
-    candidate: t1Pending, nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
+    candidate: t1Pending, knownArtifacts: pendingOf(t1Turn),
+    nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
 
   const checks = {
     judgment_bound_revise_character_profile: judgmentsFor(appRecords, t1Turn.turnId).some(
@@ -1078,7 +1079,8 @@ function verifyStrataScoped(dir, config) {
   const t2Pending = pendingOf(t2Turn).filter((entry) => entry.artifact_type === "character_profile_revision");
 
   const visibleOldToNew = b29RoleCandidateVisible({
-    candidate: t1Pending, nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
+    candidate: t1Pending, knownArtifacts: pendingOf(t1Turn),
+    nativeView: readB29NativeView(dir, "T1-candidate", t1Turn), tokens: loadForbiddenTokens() });
 
   const providerStarts = appRecords.filter((record) => record.event === "provider_gateway.complete.start");
   const llmOk =
@@ -1327,7 +1329,8 @@ function verifyR03Candidate(dir, config) {
   const checks = {
     ...calls.checks, ...result.checks,
     real_sse_only: calls.measured.sse_decoder_tool_only_count === calls.measured.bound_request_count,
-    candidate_visible: b29RoleCandidateVisible({ candidate: pending[0], tokens: loadForbiddenTokens(),
+    candidate_visible: b29RoleCandidateVisible({ candidate: pending[0], knownArtifacts: terminal.body.adoption_state.pending,
+      tokens: loadForbiddenTokens(),
       nativeView: readB29NativeView(dir, "T1-candidate", { ...history.facts, message: messages[0], result: terminal.body }) }),
     final_authority_unchanged: same(after, read(dir, "final.json").characters_and_memories),
     driver_identity: driver.driver === common.ui.driver && driver.scope === config.scope &&

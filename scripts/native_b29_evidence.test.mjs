@@ -291,7 +291,7 @@ const DISPLAY_BODY = "- 叙事身份：群像视角 → 主角\n候选尚未采�
 function displayedCandidate(body = DISPLAY_BODY, title = DISPLAY_TITLE) {
   const candidate = fixture().candidate;
   candidate.payload.items = [{ title, body }];
-  return { candidate, visibleText: title + "\n" + body, tokens: loadForbiddenTokens() };
+  return { candidate, knownArtifacts: [candidate], visibleText: title + "\n" + body, tokens: loadForbiddenTokens() };
 }
 
 test("作者读到可辨认的老沈、中文原身份和未生效候选，内部枚举仍留在payload", () => {
@@ -332,6 +332,18 @@ function nativeCandidateView() {
 test("当前作者的真实单候选与保存入口在实际视口内", () => {
   assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView: nativeCandidateView() }), true);
 });
+test("B29 保存入口保留完整 artifact 归属，缺组或同名另一候选不能代签", () => {
+  const input = displayedCandidate();
+  for (const knownArtifacts of [
+    undefined, [],
+    [{ ...input.candidate, artifact_id: "other-role" }],
+    [{ ...input.candidate, source_tool_result_ref: "other-result" }],
+    [input.candidate, { ...input.candidate, artifact_id: "other-role" }],
+  ]) {
+    assert.equal(evidence.b29RoleCandidateVisible({ ...input, knownArtifacts, nativeView: nativeCandidateView() }), false);
+  }
+});
+
 test("全页相同文字不能代替当前作者、目标卡和真实可见视口", () => {
   const view = nativeCandidateView();
   const cases = [

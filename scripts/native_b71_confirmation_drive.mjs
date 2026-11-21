@@ -21,6 +21,7 @@ import {
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 import { all, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { authorBoundary, countAxAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
 import {
   CONFIRMATION_MODES,
   CONFIRMATION_REQUEST,
@@ -104,12 +105,12 @@ function replyRecordsFor(wire, sent) {
   );
 }
 
-function visibleConfirmationButton(nodes, label, cardLines) {
+function visibleConfirmationButton(nodes, label, cardLines, baselineAuthorCount) {
   return locateConfirmationButton(nodes, {
     label,
     cardTitle: cardLines.title,
     cardBody: cardLines.body,
-    knownItems: [cardLines.title, cardLines.body],
+    authorBoundary: authorBoundary(nodes, CONFIRMATION_REQUEST, baselineAuthorCount),
   });
 }
 
@@ -127,6 +128,7 @@ async function sendHighRiskRequest() {
   await harness.runStep("maintenance", "input_ready", () =>
     harness.rawWaitInputReady("b71-confirmation", CONF.ready),
   );
+  const baselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), CONFIRMATION_REQUEST);
   const sent = await harness.runStep("input", "high_risk_rewrite_request", () =>
     harness.rawTypeAndSend(CONFIRMATION_REQUEST, "b71-confirmation"),
   );
@@ -136,7 +138,7 @@ async function sendHighRiskRequest() {
     harness.pollWire((wire) => harness.ackFor(wire, sent), 30_000, "b71-confirmation:ack"),
   );
   const runId = String(frameBody(ack)?.response?.run_id ?? "");
-  return { sent, turnId, runId };
+  return { sent, turnId, runId, baselineAuthorCount };
 }
 
 async function waitNeedsConfirmation() {
@@ -162,10 +164,10 @@ async function waitNeedsConfirmation() {
   );
 }
 
-async function clickConfirmation(mode, cardLines) {
+async function clickConfirmation(mode, cardLines, baselineAuthorCount) {
   const spec = CONFIRMATION_MODES[mode];
   const nodes = harness.dumpNodes();
-  const located = visibleConfirmationButton(nodes, spec.label, cardLines);
+  const located = visibleConfirmationButton(nodes, spec.label, cardLines, baselineAuthorCount);
   if (!located.ok) {
     throw new Error(`b71-confirmation:locate_${spec.label}:${located.reason}:${JSON.stringify(located).slice(0, 300)}`);
   }
@@ -357,7 +359,7 @@ async function openWhyAndCount() {
   };
 }
 
-async function duplicateCheck(mode, cardLines) {
+async function duplicateCheck(mode, cardLines, baselineAuthorCount) {
   const before = readDbCounts();
   const spec = CONFIRMATION_MODES[mode];
   const result = { attempted: false, actionable: false, clicked: false, reason: null, before, after: before, duplicate_ack: null, delta: null };
@@ -373,7 +375,7 @@ async function duplicateCheck(mode, cardLines) {
     return result;
   };
   const nodes = harness.dumpNodes();
-  const located = visibleConfirmationButton(nodes, spec.label, cardLines);
+  const located = visibleConfirmationButton(nodes, spec.label, cardLines, baselineAuthorCount);
   if (!located.ok) {
     result.reason = `not_actionable:${located.reason}`;
     return finish();
@@ -493,7 +495,7 @@ async function run() {
   const clickAt = harness.nowIso();
   const clickBefore = readDbCounts();
   runEvidenceMode(evidence, "capture", dir, ["click-before"]);
-  const located = await clickConfirmation(mode, cardLines);
+  const located = await clickConfirmation(mode, cardLines, request.baselineAuthorCount);
   const sent = await waitActionSent(action);
   const ack = await waitActionAck(sent);
   const decisionAfter = readDbCounts();
@@ -524,7 +526,7 @@ async function run() {
   const why = await openWhyAndCount();
   const providerAfter = readDbCounts();
 
-  const duplicate = await duplicateCheck(mode, cardLines);
+  const duplicate = await duplicateCheck(mode, cardLines, request.baselineAuthorCount);
   harness.capture("03-after-duplicate");
   runEvidenceMode(evidence, "capture", dir, ["after-duplicate"]);
 

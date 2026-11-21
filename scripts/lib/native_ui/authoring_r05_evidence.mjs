@@ -700,7 +700,7 @@ function currentAuthorItem(nodes, itemPath, message, baselineAuthorCount) {
     beforePath: boundary.nextAuthor?.path ?? null,
   });
 }
-function candidateViews(artifact, turnResult, views, knownItems, context) {
+function candidateViews(artifact, turnResult, views, context) {
   const items = list(artifact?.payload?.items);
   if (items.length === 0) return [];
   selectPendingAction(turnResult, { artifactId: artifact.artifact_id, actionType: "accept" });
@@ -711,12 +711,12 @@ function candidateViews(artifact, turnResult, views, knownItems, context) {
     return works.length === 1 && works[0].title === context.target?.work_title;
   });
   return list(items).map((item) => {
-    const target = { itemTitle: item.title, itemBody: item.body, knownItems };
-    if (!list(knownItems).some((known) =>
-      known.itemTitle === item.title && known.itemBody === item.body)) return { entry: null, action: null };
+    const target = { itemTitle: item.title, itemBody: item.body, artifact,
+      knownArtifacts: list(turnResult?.adoption_state?.pending) };
+    const boundaryFor = (nodes) => authorBoundary(nodes, context.message, context.baselineAuthorCount ?? 0);
     const entry = captures.find((view) => {
       if (!/^r05-candidate-\d+-entry$/u.test(view.capture)) return false;
-      const located = locatePendingItem(view.nodes, target);
+      const located = locatePendingItem(view.nodes, { ...target, authorBoundary: boundaryFor(view.nodes) });
       if (!located.ok || !currentAuthorItem(view.nodes, located.scope.path, context.message, context.baselineAuthorCount ?? 0)) return false;
       const inItem = (node) => node.path?.startsWith(located.scope.path + "/");
       return view.nodes.some((node) => inItem(node) && node.role === "AXStaticText" &&
@@ -726,7 +726,7 @@ function candidateViews(artifact, turnResult, views, knownItems, context) {
     });
     const action = captures.find((view) => {
       if (!/^r05-candidate-\d+-action$/u.test(view.capture)) return false;
-      const located = locateScopedButton(view.nodes, { ...target, label });
+      const located = locateScopedButton(view.nodes, { ...target, label, authorBoundary: boundaryFor(view.nodes) });
       return located.ok && currentAuthorItem(view.nodes, located.item_path, context.message, context.baselineAuthorCount ?? 0) &&
         withinViewport(view.nodes, located.button);
     });
@@ -736,7 +736,7 @@ function candidateViews(artifact, turnResult, views, knownItems, context) {
 
 // 只复用旧 G2/G3 共享页面表面；R05 的完整回复与首末可见视口分别取证。
 export function r05VisibleEvidence({
-  goal, reply, candidate = null, turn_result = null, candidate_views = [], reply_views = [], known_items = [], ...input
+  goal, reply, candidate = null, turn_result = null, candidate_views = [], reply_views = [], ...input
 } = {}) {
   const surface = visiblePageSurface(input);
   const failures = [...surface.failures];
@@ -745,7 +745,7 @@ export function r05VisibleEvidence({
   const outcome = axTurnOutcome(input.finalNodes, options);
   const matched = r05ReplyMatch({ reply, nodes: input.finalNodes, ...options });
   const replyViews = replyViewFacts(reply, reply_views, input, matched);
-  const views = candidateViews(candidate, turn_result, candidate_views, known_items, input);
+  const views = candidateViews(candidate, turn_result, candidate_views, input);
   const entryVisible = needsCandidate && views.length > 0 && views.every((view) => view.entry !== null);
   const actionVisible = needsCandidate && views.length > 0 && views.every((view) => view.action !== null);
   const observed = { ...surface.observed, outcome: outcome.kind,

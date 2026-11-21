@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { assistantCalls, validations, strictPrefix, appendedAssistantMatches } from "./authoring_revision_evidence.mjs";
-import { authorBoundary, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
+import { authorBoundary } from "./authoring_g2_evidence.mjs";
 import { locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
 import { judgmentNarrativeSourceBound, r05ReplyMatch, withinViewport } from "./authoring_r05_evidence.mjs";
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
@@ -51,7 +51,7 @@ export function stateChecks(before, after, plan) {
   };
 }
 
-function currentAuthorNodes({ nodes, message, baselineAuthorCount, workTitle } = {}) {
+function currentAuthorBoundary({ nodes, message, baselineAuthorCount, workTitle } = {}) {
   if (!Array.isArray(nodes) || !nonBlank(message) || !nonBlank(workTitle) ||
       !Number.isInteger(baselineAuthorCount) || baselineAuthorCount < 0 ||
       nodes.some((node) => !/^\d+(?:\/\d+)*$/u.test(node?.path ?? "")) ||
@@ -61,11 +61,7 @@ function currentAuthorNodes({ nodes, message, baselineAuthorCount, workTitle } =
   const boundary = authorBoundary(nodes, message, baselineAuthorCount);
   if (!boundary.author || boundary.authors.length !== baselineAuthorCount + 1 ||
       boundary.nextAuthor !== null) return null;
-  const peers = nodes.filter((node) => withinAuthorBoundary(node, {
-    container: boundary.container, afterPath: boundary.authorGroup, beforePath: null,
-  }));
-  return nodes.filter((node) => peers.some((peer) =>
-    node.path === peer.path || node.path.startsWith(peer.path + "/")));
+  return boundary;
 }
 
 export function b29RoleNoChangeVisible({ turnResult, nativeView, visibleText, replyText, tokens } = {}) {
@@ -88,24 +84,25 @@ export function b29RoleNoChangeVisible({ turnResult, nativeView, visibleText, re
     nonBlank(replyText) && normalize(replyText) === normalize(reply);
 }
 
-export function b29NativeItemVisible({ nativeView, title, body, actionLabel = null } = {}) {
-  const scoped = currentAuthorNodes(nativeView);
-  if (!scoped) return false;
-  const target = { itemTitle: title, itemBody: body };
-  const item = locatePendingItem(scoped, target);
+export function b29NativeItemVisible({ nativeView, title, body, artifact, knownArtifacts, actionLabel = null } = {}) {
+  const boundary = currentAuthorBoundary(nativeView);
+  if (!boundary) return false;
+  const nodes = nativeView.nodes;
+  const target = { itemTitle: title, itemBody: body, artifact, knownArtifacts, authorBoundary: boundary };
+  const item = locatePendingItem(nodes, target);
   if (!item.ok) return false;
   for (const value of [title, body]) {
-    const leaves = scoped.filter((node) => node.role === "AXStaticText" && node.value === value &&
+    const leaves = nodes.filter((node) => node.role === "AXStaticText" && node.value === value &&
       node.path.startsWith(item.scope.path + "/"));
     if (leaves.length !== 1 || !withinViewport(nativeView.nodes, leaves[0])) return false;
   }
   if (actionLabel === null) return true;
-  const action = locateScopedButton(scoped, { ...target, knownItems: [target], label: actionLabel });
+  const action = locateScopedButton(nodes, { ...target, label: actionLabel });
   return action.ok && withinViewport(nativeView.nodes, action.button);
 }
 
 // B29 的作者可见目标独立于内部枚举；同次实际 item 仅用于交付文字绑定。
-export function b29RoleCandidateVisible({ candidate, visibleText, tokens, nativeView } = {}) {
+export function b29RoleCandidateVisible({ candidate, knownArtifacts, visibleText, tokens, nativeView } = {}) {
   const items = list(candidate?.payload?.items);
   if (items.length !== 1 || !isObject(tokens)) return false;
   const { title, body, rationale = "" } = items[0];
@@ -116,7 +113,7 @@ export function b29RoleCandidateVisible({ candidate, visibleText, tokens, native
     body.includes("角色档案尚未修改") &&
     scanAuthorVisibleTexts([title, body, rationale], { tokens }).ok &&
     (nativeView === undefined ? normalize(visibleText).includes(normalize(title + " " + body)) :
-      b29NativeItemVisible({ nativeView, title, body, actionLabel: "保存到作品" }));
+      b29NativeItemVisible({ nativeView, title, body, artifact: candidate, knownArtifacts, actionLabel: "保存到作品" }));
 }
 
 export function candidateFacts(adoption) {

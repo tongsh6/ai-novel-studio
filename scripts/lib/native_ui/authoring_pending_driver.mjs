@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { frameBody, frameEvent, frameOf } from "./scenario_driver.mjs";
 import { broadcastFrames } from "./scenario_evidence.mjs";
 import { wireTerminal } from "./live_run_wait.mjs";
+import { authorBoundary, countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { textOf } from "./driver.mjs";
 
 import { turnIdMatches } from "./scenario_driver.mjs";
@@ -138,9 +139,16 @@ export async function revealItem(harness, itemTitle, itemBody) {
 }
 
 // 只观察未采纳候选：入口与所属动作分屏采集，不点击保存。
-export async function capturePendingItemViews(harness, { itemTitle, itemBody, knownItems, prefix, buttonLabel }) {
+export async function capturePendingItemViews(harness, {
+  itemTitle, itemBody, artifact, knownArtifacts, message, baselineAuthorCount, prefix, buttonLabel,
+}) {
+  if (!nonBlank(message) || !Number.isInteger(baselineAuthorCount) || baselineAuthorCount < 0) {
+    throw new Error("pending_view_author_context_missing");
+  }
+  const optionsFor = (nodes) => ({ itemTitle, itemBody, artifact, knownArtifacts,
+    authorBoundary: authorBoundary(nodes, message, baselineAuthorCount) });
   await harness.pollAx((_text, nodes) => {
-    const located = locatePendingItem(nodes, { itemTitle, itemBody });
+    const located = locatePendingItem(nodes, optionsFor(nodes));
     if (located.ok) return true;
     if (located.reason !== "item_missing") throw new Error(`pending_view_target:${located.reason}:entry`);
     return false;
@@ -150,8 +158,8 @@ export async function capturePendingItemViews(harness, { itemTitle, itemBody, kn
   for (const kind of ["entry", "action"]) {
     const nodes = harness.dumpNodes();
     const located = kind === "entry"
-      ? locatePendingItem(nodes, { itemTitle, itemBody })
-      : locateScopedButton(nodes, { itemTitle, itemBody, knownItems, label: buttonLabel });
+      ? locatePendingItem(nodes, optionsFor(nodes))
+      : locateScopedButton(nodes, { ...optionsFor(nodes), label: buttonLabel });
     if (!located.ok) throw new Error(`pending_view_target:${located.reason}:${kind}`);
     const target = kind === "entry"
       ? nodes.find((node) => node.path?.startsWith(located.scope.path + "/") && textOf(node) === itemTitle)
@@ -166,11 +174,18 @@ export async function capturePendingItemViews(harness, { itemTitle, itemBody, kn
   return views;
 }
 
-async function clickScopedAction(harness, { itemTitle, itemBody, label, step, knownItems }) {
-  let located = locateScopedButton(harness.dumpNodes(), { itemTitle, itemBody, label, knownItems });
+async function clickScopedAction(harness, {
+  itemTitle, itemBody, artifact, knownArtifacts, message, baselineAuthorCount, label, step,
+}) {
+  const locate = () => {
+    const nodes = harness.dumpNodes();
+    return locateScopedButton(nodes, { itemTitle, itemBody, artifact, knownArtifacts, label,
+      authorBoundary: authorBoundary(nodes, message, baselineAuthorCount) });
+  };
+  let located = locate();
   if (!located.ok) {
     await revealItem(harness, itemTitle, itemBody);
-    located = locateScopedButton(harness.dumpNodes(), { itemTitle, itemBody, label, knownItems });
+    located = locate();
   }
   if (!located.ok) {
     throw new Error(`pending_action_target:${located.reason}:${step}:${label}`);
@@ -246,8 +261,12 @@ async function awaitActionTurn(harness, identity, label) {
   );
 }
 
-async function openRevisionWhy(harness, itemTitle, itemBody, knownItems) {
-  const located = locateWhyButton(harness.dumpNodes(), { itemTitle, itemBody, knownItems });
+async function openRevisionWhy(harness, {
+  itemTitle, itemBody, artifact, knownArtifacts, message, baselineAuthorCount,
+}) {
+  const nodes = harness.dumpNodes();
+  const located = locateWhyButton(nodes, { itemTitle, itemBody, artifact, knownArtifacts,
+    authorBoundary: authorBoundary(nodes, message, baselineAuthorCount) });
   if (!located.ok) throw new Error(`pending_why_target:${located.reason}`);
   await harness.runStep("maintenance", "open_why", () => harness.safeClick(located.button, "b71:why"));
   return harness.runStep("maintenance", "why_visible", () =>
@@ -266,7 +285,7 @@ async function closeWhy(harness) {
   });
 }
 
-function assertResolvedNotActionable(harness, knownItems, resolved) {
+function assertResolvedNotActionable(harness, knownArtifacts, resolved) {
   const nodes = harness.dumpNodes();
   for (const item of resolved) {
     for (const label of [item.accept, item.discard]) {
@@ -274,14 +293,19 @@ function assertResolvedNotActionable(harness, knownItems, resolved) {
         itemTitle: item.itemTitle,
         itemBody: item.itemBody,
         label,
-        knownItems,
+        artifact: item.artifact,
+        knownArtifacts,
+        authorBoundary: authorBoundary(nodes, item.message, item.baselineAuthorCount),
       });
       if (located.ok) throw new Error(`pending_restore_actionable:${item.itemTitle}:${label}`);
     }
   }
 }
 
-async function restorePhase(harness, config, { knownItems, sourceItem, revisionItem, sourceArtifact, revisionArtifact, sourceBody, revisionBody }) {
+async function restorePhase(harness, config, {
+  knownArtifacts, sourceItem, revisionItem, sourceArtifact, revisionArtifact, sourceBody, revisionBody,
+  sourceText, sourceBaselineAuthorCount, revisionText, revisionBaselineAuthorCount,
+}) {
   await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
   await harness.runStep("maintenance", "workbench_ready_restored", () =>
     harness.rawWaitWorkbenchSettled("b71:pending:restored"),
@@ -291,16 +315,18 @@ async function restorePhase(harness, config, { knownItems, sourceItem, revisionI
   );
   if (!selected) throw new Error(`pending_restore_work_not_selected:${config.target.work_title}`);
   await awaitVisible(harness, [revisionItem.body], "accepted_visible_after_restore");
-  assertResolvedNotActionable(harness, knownItems, [
+  assertResolvedNotActionable(harness, knownArtifacts, [
     {
       itemTitle: sourceItem.title,
       itemBody: sourceItem.body,
+      artifact: sourceArtifact, message: sourceText, baselineAuthorCount: sourceBaselineAuthorCount,
       accept: actionLabelsFor(sourceArtifact, sourceBody).accept,
       discard: actionLabelsFor(sourceArtifact, sourceBody).discard,
     },
     {
       itemTitle: revisionItem.title,
       itemBody: revisionItem.body,
+      artifact: revisionArtifact, message: revisionText, baselineAuthorCount: revisionBaselineAuthorCount,
       accept: actionLabelsFor(revisionArtifact, revisionBody).accept,
       discard: actionLabelsFor(revisionArtifact, revisionBody).discard,
     },
@@ -337,6 +363,7 @@ export async function drivePending(harness, config, { capture }) {
 
   await harness.runStep("maintenance", "input_ready", () => harness.rawWaitInputReady("b71:pending"));
 
+  const sourceBaselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), sourceText);
   const source = await sendMessage(harness, sourceText, "source", config);
   const sourceResult = await awaitCompleted(harness, {
     topic: source.topic,
@@ -349,11 +376,11 @@ export async function drivePending(harness, config, { capture }) {
   const sourceBody = frameBody(sourceResult);
   const sourceArtifact = pendingArtifact(sourceBody, "source");
   const sourceItem = itemOf(sourceArtifact, "source");
-  const sourceKnown = [{ itemTitle: sourceItem.title, itemBody: sourceItem.body }];
   await awaitVisible(harness, [sourceItem.title, sourceItem.body], "source_candidate");
   harness.capture("after-source");
   capture("after-source");
 
+  const revisionBaselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), revisionText);
   const revision = await sendMessage(harness, revisionText, "revision", config);
   const revisionResult = await awaitCompleted(harness, {
     topic: revision.topic,
@@ -366,9 +393,9 @@ export async function drivePending(harness, config, { capture }) {
   const revisionBody = frameBody(revisionResult);
   const revisionArtifact = pendingArtifact(revisionBody, "revision");
   const revisionItem = itemOf(revisionArtifact, "revision");
-  const knownItems = [
-    ...sourceKnown,
-    { itemTitle: revisionItem.title, itemBody: revisionItem.body },
+  const knownArtifacts = [
+    ...list(sourceBody.adoption_state?.pending),
+    ...list(revisionBody.adoption_state?.pending),
   ];
   await awaitVisible(
     harness,
@@ -378,7 +405,10 @@ export async function drivePending(harness, config, { capture }) {
   harness.capture("after-revision");
   capture("after-revision");
   capture("before-why");
-  const why = await openRevisionWhy(harness, revisionItem.title, revisionItem.body, knownItems);
+  const why = await openRevisionWhy(harness, {
+    itemTitle: revisionItem.title, itemBody: revisionItem.body, artifact: revisionArtifact, knownArtifacts,
+    message: revisionText, baselineAuthorCount: revisionBaselineAuthorCount,
+  });
   harness.capture("why");
   capture("after-why");
   await closeWhy(harness);
@@ -393,7 +423,8 @@ export async function drivePending(harness, config, { capture }) {
     itemBody: revisionItem.body,
     label: acceptLabels.accept,
     step: "accept_revision",
-    knownItems,
+    artifact: revisionArtifact, knownArtifacts,
+    message: revisionText, baselineAuthorCount: revisionBaselineAuthorCount,
   });
   const acceptIdentity = {
     topic: source.topic,
@@ -427,7 +458,8 @@ export async function drivePending(harness, config, { capture }) {
     itemBody: sourceItem.body,
     label: discardLabels.discard,
     step: "discard_original",
-    knownItems,
+    artifact: sourceArtifact, knownArtifacts,
+    message: sourceText, baselineAuthorCount: sourceBaselineAuthorCount,
   });
   const confirmation = await harness.tryPollAx(
     (text) => text.includes("放弃这份候选？") && text.includes("确认放弃"),
@@ -457,7 +489,8 @@ export async function drivePending(harness, config, { capture }) {
   capture("after-discard");
 
   const restoreFacts = await restorePhase(harness, config, {
-    knownItems,
+    knownArtifacts,
+    sourceText, sourceBaselineAuthorCount, revisionText, revisionBaselineAuthorCount,
     sourceItem,
     revisionItem,
     sourceArtifact,

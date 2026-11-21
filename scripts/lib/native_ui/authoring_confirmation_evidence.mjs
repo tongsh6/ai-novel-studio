@@ -33,7 +33,7 @@ import {
   withDb,
 } from "./scenario_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
-import { locateScopedButton } from "./authoring_pending_evidence.mjs";
+import { locateMessageCardButton } from "./authoring_pending_evidence.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 import { buildTarget } from "./input_target.mjs";
 import { ownProcesses, portListening } from "./process_observation.mjs";
@@ -86,11 +86,10 @@ const CARD_TITLE = "需要确认";
 const CARD_BODY_MARKERS = Object.freeze(["确认对象", "确认前不会调用工具", "确认后系统会重新检查当前作品状态"]);
 
 // 确认卡所属消息块定位：用确认卡用户可见文案行 + 真实按钮名；复用 pending 消息块模型。
-export function locateConfirmationButton(nodes, { label, cardTitle, cardBody, knownItems = [] } = {}) {
+export function locateConfirmationButton(nodes, { label, cardTitle, cardBody, authorBoundary } = {}) {
   if (typeof cardTitle !== "string" || cardTitle.trim() === "") return { ok: false, reason: "card_evidence_missing" };
   if (typeof cardBody !== "string" || cardBody.trim() === "") return { ok: false, reason: "card_evidence_missing" };
-  const known = Array.isArray(knownItems) && knownItems.length > 0 ? knownItems : [cardTitle, cardBody];
-  return locateScopedButton(nodes, { itemTitle: cardTitle, itemBody: cardBody, label, knownItems: known });
+  return locateMessageCardButton(nodes, { itemTitle: cardTitle, itemBody: cardBody, label, authorBoundary });
 }
 
 const isCardTitleLine = (line) => line === CARD_TITLE || line.startsWith(CARD_TITLE);

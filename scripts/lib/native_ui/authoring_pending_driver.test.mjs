@@ -39,12 +39,30 @@ function node(path, role, fields = {}) {
 
 function itemTree(prefix, title, body) {
   return [
-    node(prefix, "AXGroup"),
+    node(prefix, "AXGroup", { subrole: "AXDocumentArticle" }),
     node(`${prefix}/0`, "AXStaticText", { value: title }),
     node(`${prefix}/1`, "AXStaticText", { value: body }),
     node(`${prefix}/2`, "AXButton", { title: "保存到作品档案" }),
     node(`${prefix}/3`, "AXButton", { title: "不保存" }),
   ];
+}
+
+function authorTree(container, message, children) {
+  return [
+    node(container, "AXGroup"),
+    node(container + "/0", "AXGroup"),
+    node(container + "/0/0", "AXStaticText", { value: "你" }),
+    node(container + "/1", "AXGroup"),
+    node(container + "/1/0", "AXStaticText", { value: message }),
+    ...children,
+  ];
+}
+
+function captureInput(artifact = {
+  artifact_id: REVISION_ID, artifact_type: "prose_fragment",
+  payload: { items: [{ item_id: "r", title: REVISION_TITLE, body: REVISION_BODY }] },
+}) {
+  return { artifact, knownArtifacts: [artifact], message: config.revision_message, baselineAuthorCount: 0 };
 }
 
 function whyTree(prefix) {
@@ -141,6 +159,7 @@ function buildWire() {
 function fakeHarness(fixture) {
   let whyOpen = false;
   let restored = false;
+  const sentMessages = new Set();
   const harness = {
     provider: "slice_verify",
     log: [],
@@ -154,6 +173,7 @@ function fakeHarness(fixture) {
     async rawCloseAppAndRelaunch() { restored = true; },
     async rawTrySelectWork() { return true; },
     async rawTypeAndSend(text) {
+      sentMessages.add(text);
       return this.wire.find((record) => record.direction === "sent" && record.frame?.[3] === "user_message" && record.frame[4]?.text === text);
     },
     ackFor(_wire, sent) {
@@ -181,13 +201,15 @@ function fakeHarness(fixture) {
     async tryPollAx() { return null; },
     capture(name) { this.captures.push(name); return this.dumpNodes(); },
     dumpNodes() {
-      if (restored) return [node("0/9", "AXStaticText", { value: REVISION_BODY })];
-      return [
-        ...itemTree("0/1/0", SOURCE_TITLE, SOURCE_BODY),
-        ...whyTree("0/1"),
-        ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY),
-        ...whyTree("0/2"),
+      const nodes = [
+        ...(sentMessages.has(config.message) ? authorTree("0/1", config.message, [
+          ...itemTree("0/1/2", SOURCE_TITLE, SOURCE_BODY), ...whyTree("0/1"),
+        ]) : []),
+        ...(sentMessages.has(config.revision_message) ? authorTree("0/2", config.revision_message, [
+          ...itemTree("0/2/2", REVISION_TITLE, REVISION_BODY), ...whyTree("0/2"),
+        ]) : []),
       ];
+      return restored ? nodes.filter((entry) => entry.role !== "AXButton") : nodes;
     },
     ensureInput() {
       return {
@@ -216,10 +238,12 @@ test("turnOutcome 缺业务结果或实际终态都不完成，真实running回�
 
 test("revealItem 用候选标题+正文定位并滚动所属 AX 结构", async () => {
   const harness = fakeHarness(buildWire());
+  await harness.rawTypeAndSend(config.message);
+  await harness.rawTypeAndSend(config.revision_message);
   let scrolled = null;
   harness.ensureInput = () => ({ scrollTo: (path) => { scrolled = path; }, key() {} });
   await revealItem(harness, REVISION_TITLE, REVISION_BODY);
-  assert.equal(scrolled, "0/2/0");
+  assert.equal(scrolled, "0/2/2");
 });
 
 test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新请求", async () => {
@@ -311,9 +335,9 @@ test("turnOutcome 对同 run 的 run_failed/run_cancelled 立即返回失败，�
 test("revealItem 只吞明确不支持的滚动结果，目标/权限/归属错误上抛", async () => {
   const harness = fakeHarness(buildWire());
   harness.dumpNodes = () => [
-    node("0/1/0", "AXGroup"),
-    node("0/1/0/0", "AXStaticText", { value: SOURCE_TITLE }),
-    node("0/1/0/1", "AXStaticText", { value: SOURCE_BODY }),
+    node("0/1/2", "AXGroup"),
+    node("0/1/2/0", "AXStaticText", { value: SOURCE_TITLE }),
+    node("0/1/2/1", "AXStaticText", { value: SOURCE_BODY }),
   ];
   harness.ensureInput = () => ({
     scrollTo() {
@@ -366,7 +390,7 @@ test("drivePending 在发送帧错 work 或 ACK 缺 run_id 时拒绝", async () 
 });
 test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存动作而不点击", async () => {
   const harness = fakeHarness(buildWire());
-  const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+  const shown = authorTree("0/2", config.revision_message, itemTree("0/2/2", REVISION_TITLE, REVISION_BODY)).map((item) =>
     item.title === "保存到作品档案" ? { ...item, title: "保存为章节正文" } : item);
   let current = [];
   const decisions = [], scrolled = [], captures = [];
@@ -387,11 +411,11 @@ test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存�
   };
   const views = await capturePendingItemViews(harness, {
     itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
-    knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+    ...captureInput(), prefix: "r05-candidate-1",
     buttonLabel: "保存为章节正文",
   });
   assert.deepEqual(decisions, [false, true]);
-  assert.deepEqual(scrolled, ["0/2/0", "0/2/0/0", "0/2/0/2"]);
+  assert.deepEqual(scrolled, ["0/2/2", "0/2/2/0", "0/2/2/2"]);
   assert.deepEqual(captures, ["r05-candidate-1-entry", "r05-candidate-1-action"]);
   assert.deepEqual(views.map((view) => view.capture), captures);
   assert(views.every((view) => view.nodes === shown));
@@ -409,7 +433,7 @@ test("capturePendingItemViews 按同次质量原稿角色采集保存原稿，�
       { action_id: "revise:as-mission-original", action_type: "revise_from_findings", target_ref: artifact.artifact_id,
         source_turn_ref: "turn-mission-original", idempotency_key: "idem:turn-mission-original:revise", enabled: true },
     ] };
-  const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+  const shown = authorTree("0/2", config.revision_message, itemTree("0/2/2", REVISION_TITLE, REVISION_BODY)).map((item) =>
     item.title === "保存到作品档案" ? { ...item, title: "保存原稿" } : item);
   harness.dumpNodes = () => shown;
   harness.pollAx = async (predicate) => {
@@ -424,7 +448,7 @@ test("capturePendingItemViews 按同次质量原稿角色采集保存原稿，�
   };
   const views = await capturePendingItemViews(harness, {
     itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
-    knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "mission-candidate-1",
+    ...captureInput(artifact), prefix: "mission-candidate-1",
     buttonLabel: actionLabelsFor(artifact, body).accept,
   });
   assert.deepEqual(views.map((view) => view.capture), ["mission-candidate-1-entry", "mission-candidate-1-action"]);
@@ -442,12 +466,12 @@ test("capturePendingItemViews 不借用其他候选角色动作，也不默认�
     [undefined, "保存为章节正文", /pending_view_target:label_missing:action/u],
   ]) {
     const harness = fakeHarness(buildWire());
-    const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+    const shown = authorTree("0/2", config.revision_message, itemTree("0/2/2", REVISION_TITLE, REVISION_BODY)).map((item) =>
       item.title === "保存到作品档案" ? { ...item, title: actualLabel } : item);
     harness.dumpNodes = () => shown;
     await assert.rejects(() => capturePendingItemViews(harness, {
       itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
-      knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+      ...captureInput(), prefix: "r05-candidate-1",
       buttonLabel,
     }), reason);
     assert.deepEqual(harness.captures, ["r05-candidate-1-entry"]);
@@ -455,10 +479,48 @@ test("capturePendingItemViews 不借用其他候选角色动作，也不默认�
   }
 });
 
+test("capturePendingItemViews 保留完整 artifact，多条 article 共用一个保存动作", async () => {
+  const harness = fakeHarness(buildWire());
+  const artifact = { artifact_id: "as-outline-group", artifact_type: "outline_draft", payload: { items: [
+    { item_id: "first", title: REVISION_TITLE, body: REVISION_BODY },
+    { item_id: "second", title: "后续章规划", body: "这也是同一待采纳大纲的一部分。" },
+  ] } };
+  const nodes = authorTree("0", config.revision_message, [
+    ...itemTree("0/2", REVISION_TITLE, REVISION_BODY).filter((entry) => entry.role !== "AXButton"),
+    ...itemTree("0/3", artifact.payload.items[1].title, artifact.payload.items[1].body).filter((entry) => entry.role !== "AXButton"),
+    node("0/4", "AXButton", { title: "保存到大纲", enabled: true }),
+  ]);
+  const scrolled = [];
+  harness.dumpNodes = () => nodes;
+  harness.ensureInput = () => ({ scrollTo: (path) => scrolled.push(path) });
+  const views = await capturePendingItemViews(harness, {
+    ...captureInput(artifact), itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
+    prefix: "mission-candidate-1", buttonLabel: "保存到大纲",
+  });
+  assert.deepEqual(views.map((view) => view.capture), ["mission-candidate-1-entry", "mission-candidate-1-action"]);
+  assert.equal(scrolled.at(-1), "0/4");
+  assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+});
+
+test("capturePendingItemViews 新同文回合只有旧卡时拒绝，不把旧图录成新候选", async () => {
+  const harness = fakeHarness(buildWire());
+  const message = config.revision_message;
+  harness.dumpNodes = () => [
+    ...authorTree("0/1", message, itemTree("0/1/2", REVISION_TITLE, REVISION_BODY)),
+    ...authorTree("0/2", message, []),
+  ];
+  await assert.rejects(() => capturePendingItemViews(harness, {
+    ...captureInput(), baselineAuthorCount: 1, itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
+    prefix: "mission-candidate-1", buttonLabel: "保存为章节正文",
+  }), /pending_view_target:item_outside_author_block:entry/u);
+  assert.deepEqual(harness.captures, []);
+  assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+});
+
 test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它们当晚到卡片", async () => {
   const duplicate = [
-    ...itemTree("0/1/0", REVISION_TITLE, REVISION_BODY),
-    ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY),
+    ...authorTree("0/1", config.message, itemTree("0/1/2", REVISION_TITLE, REVISION_BODY)),
+    ...authorTree("0/2", config.revision_message, itemTree("0/2/2", REVISION_TITLE, REVISION_BODY)),
   ];
   for (const [title, expected] of [
     [REVISION_TITLE, /pending_view_target:item_ambiguous:entry/u],
@@ -469,7 +531,7 @@ test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它�
     harness.pollAx = async (predicate) => { reads += 1; return predicate("", duplicate); };
     await assert.rejects(() => capturePendingItemViews(harness, {
       itemTitle: title, itemBody: REVISION_BODY,
-      knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+      ...captureInput(), prefix: "r05-candidate-1",
       buttonLabel: "保存为章节正文",
     }), expected);
     assert.equal(reads, 1);

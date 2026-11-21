@@ -42,7 +42,7 @@ import {
   g2PageReport,
   g2UsageReport,
 } from "./authoring_run_evidence.mjs";
-import { axTurnOutcome, countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
+import { authorBoundary, axTurnOutcome, countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -805,11 +805,9 @@ function missionViewChecks(dir, config, common, driver, context, baselineAuthorC
   }
   return result;
 }
-function missionCandidateViews(dir, common, driver, artifact, body) {
+function missionCandidateViews(dir, common, driver, artifact, body, message, baselineAuthorCount) {
   const pending = body.adoption_state?.pending ?? [];
   const items = artifact?.payload?.items ?? [];
-  const knownItems = pending.flatMap(entry => entry.payload?.items ?? [])
-    .map(item => ({ itemTitle: item.title, itemBody: item.body }));
   selectPendingAction(body, { artifactId: artifact.artifact_id, actionType: "accept" });
   const label = actionLabelsFor(artifact, body).accept;
   return ["candidate_views", "restored_candidate_views"].every(key => {
@@ -822,7 +820,8 @@ function missionCandidateViews(dir, common, driver, artifact, body) {
         if (matches.length !== 1) return false;
         const view = matches[0];
         assertCapturedNodes(dir, view.capture, view.nodes, driver, common);
-        const options = { itemTitle: item.title, itemBody: item.body, knownItems, label };
+        const options = { itemTitle: item.title, itemBody: item.body, artifact, knownArtifacts: pending, label,
+          authorBoundary: authorBoundary(view.nodes, message, baselineAuthorCount) };
         const located = kind === "entry" ? locatePendingItem(view.nodes, options) : locateScopedButton(view.nodes, options);
         if (!located.ok) return false;
         const node = kind === "entry" ? view.nodes.find(node =>
@@ -967,7 +966,8 @@ export function verifyMissionBatch(dir) {
     mission_design_only: Object.values(canon.checks).every(value => value === true),
     no_adoption: body.truthfulness?.artifact_adopted === false && body.truthfulness?.production_write_performed === false,
     narrative_visible_and_restored: views.initial && views.restored,
-    candidate_visible_and_restored: missionCandidateViews(dir, common, driver, artifacts[0], body),
+    candidate_visible_and_restored: missionCandidateViews(dir, common, driver, artifacts[0], body,
+      config.message, observation.baselineAuthorCount),
     why_and_restore_read_only: Boolean(driver.mission?.why?.opened && !driver.mission.why.close_error && readOnly),
     author_visible_no_internal_tokens: scan.ok,
     production_source_unchanged: fingerprintUnchanged(dir),
@@ -1159,7 +1159,7 @@ export function auditR05Batch(dir) {
     ...visibleTurnObservation(dir, config, common),
     goal: config.r05_goal, target: config.author_visible_target, message: config.message,
     reply: input.reply, candidate: input.candidate, turn_result: input.turn_result,
-    candidate_views: r05CapturedViews(dir, common, "candidate"), known_items: input.known_items,
+    candidate_views: r05CapturedViews(dir, common, "candidate"),
     reply_views: r05CapturedViews(dir, common, "reply"),
     afterInputText: visibleTextIfExists(dir, "after-input"),
     finalText: visibleTextIfExists(dir, "final"),

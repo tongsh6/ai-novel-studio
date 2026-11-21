@@ -455,7 +455,6 @@ test("R05 风格 summary、假 count-ref、旧版本、partial、历史请求及
 function candidateViews(items, message) {
   const [item] = items;
   const original = flatPending.items.revision;
-  const knownItems = [flatPending.items.source, { itemTitle: item.title, itemBody: item.body }];
   const nodesFor = (entry) => {
     const nodes = structuredClone(flatPending.nodes).map((node) => {
       if (node.role === "AXPopUpButton" && node.desc === "作品") node.title = G2_VISIBLE_TARGET.work_title;
@@ -482,7 +481,7 @@ function candidateViews(items, message) {
         { ...node, path: region + node.path.slice(web.length) } : node;
     })];
   };
-  return { known_items: knownItems, candidate_views: [
+  return { candidate_views: [
     { capture: "r05-candidate-1-entry", nodes: nodesFor(true), screenshot_present: true, window_capture: true },
     { capture: "r05-candidate-1-action", nodes: nodesFor(false), screenshot_present: true, window_capture: true },
   ] };
@@ -517,8 +516,10 @@ function visibleInput(goal, { candidate = false } = {}) {
   const finalNodes = visibleReplyNodes(message, reply, candidate ? "已完成" : null);
   const artifact = candidate ? { artifact_id: "as-r05-visible", artifact_type: "prose_fragment",
     payload: { items, revision_target_status: "ACCEPTED" } } : null;
+  const sourceArtifact = { artifact_id: "as-r05-visible-source", artifact_type: "world_setting",
+    payload: { items: [{ title: flatPending.items.source.itemTitle, body: flatPending.items.source.itemBody }] } };
   const turnResult = candidate ? {
-    turn_id: "turn-r05-visible", adoption_state: { pending: [artifact] },
+    turn_id: "turn-r05-visible", adoption_state: { pending: [sourceArtifact, artifact] },
     available_actions: [{ action_id: "accept:as-r05-visible", action_type: "accept",
       target_ref: artifact.artifact_id, source_turn_ref: "turn-r05-visible",
       idempotency_key: "idem:turn-r05-visible:accept:as-r05-visible", enabled: true }],

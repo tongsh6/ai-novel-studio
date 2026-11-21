@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { authorBoundary } from "./authoring_g2_evidence.mjs";
 // 真实批次 cp4b-pending-02 的原始 AX dump（nonce 脱敏）：Why/候选 article/动作按钮是
 // 同一 AXWebArea 下的同级兄弟，用于锁定扁平树定位语义，不用合成完美树替代真实形状。
 const FLAT_AX = JSON.parse(
@@ -13,7 +14,10 @@ const FLAT_AX = JSON.parse(
 );
 const FLAT_NODES = FLAT_AX.nodes;
 const FLAT_ITEMS = FLAT_AX.items;
-const FLAT_KNOWN = [FLAT_ITEMS.source, FLAT_ITEMS.revision];
+const FLAT_ARTIFACTS = [FLAT_ITEMS.source, FLAT_ITEMS.revision].map((item) => ({
+  artifact_id: item.artifact_id, artifact_type: "world_setting",
+  payload: { items: [{ item_id: item.artifact_id + ":item", title: item.itemTitle, body: item.itemBody }] },
+}));
 import {
   actionAck,
   actionFrame,
@@ -59,14 +63,43 @@ function button(path, title) {
   return node(path, "AXButton", { title });
 }
 
-function itemTree(prefix, title, body, labels) {
+function itemTree(prefix, title, body, labels = []) {
   return [
-    node(prefix, "AXGroup"),
-    node(`${prefix}/0`, "AXGroup"),
-    text(`${prefix}/0/0`, title),
-    text(`${prefix}/0/1`, body),
-    ...labels.map(([suffix, label]) => button(`${prefix}/0/${suffix}`, label)),
+    node(prefix, "AXGroup", { subrole: "AXDocumentArticle" }),
+    node(prefix + "/0", "AXGroup"),
+    text(prefix + "/0/0", title),
+    node(prefix + "/1", "AXGroup"),
+    text(prefix + "/1/0", body),
+    ...labels.map(([suffix, label]) => button(prefix + "/" + (Number(suffix) + 2), label)),
   ];
+}
+
+function authorTree(container, message, children) {
+  return [
+    node(container, "AXGroup"),
+    node(container + "/0", "AXGroup"),
+    text(container + "/0/0", "你"),
+    node(container + "/1", "AXGroup"),
+    text(container + "/1/0", message),
+    ...children,
+  ];
+}
+
+function artifact(id, items) {
+  return { artifact_id: id, artifact_type: "outline_draft",
+    payload: { items: items.map((item, index) => ({ item_id: id + ":" + index, ...item })) } };
+}
+
+const SOURCE_ARTIFACT = artifact(SOURCE_ID, [{ title: SOURCE_TITLE, body: SOURCE_BODY }]);
+const REVISION_ARTIFACT = artifact(REVISION_ID, [{ title: REVISION_TITLE, body: REVISION_BODY }]);
+const KNOWN_ARTIFACTS = [SOURCE_ARTIFACT, REVISION_ARTIFACT];
+const SOURCE_MESSAGE = "请生成旧书铺设定。";
+const REVISION_MESSAGE = "请修订旧书铺设定。";
+
+function contextFor(nodes, candidate, message, options = {}) {
+  const item = candidate.payload.items[0];
+  return { itemTitle: item.title, itemBody: item.body, artifact: candidate,
+    knownArtifacts: KNOWN_ARTIFACTS, authorBoundary: authorBoundary(nodes, message, 0), ...options };
 }
 
 function action(overrides = {}) {
@@ -97,111 +130,163 @@ function broadcast(at, event, body) {
   return frameRecord("received", at, [null, null, "workspace:" + WORK, event, body]);
 }
 
-test("AX 定位按候选标题/正文所属结构选按钮，不取全局 first/last", () => {
+test("AX 定位按真实 artifact 和当前作者块选择按钮，不取全局 first/last", () => {
   const nodes = [
-    ...itemTree("0/1/0", SOURCE_TITLE, SOURCE_BODY, [
-      ["0", ACCEPT_LABEL],
-      ["1", DISCARD_LABEL],
-    ]),
-    ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY, [
-      ["0", ACCEPT_LABEL],
-      ["1", DISCARD_LABEL],
-    ]),
+    ...authorTree("0/1", SOURCE_MESSAGE, itemTree("0/1/2", SOURCE_TITLE, SOURCE_BODY, [["0", ACCEPT_LABEL], ["1", DISCARD_LABEL]])),
+    ...authorTree("0/2", REVISION_MESSAGE, itemTree("0/2/2", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL], ["1", DISCARD_LABEL]])),
   ];
-  const knownItems = [
-    { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY },
-    { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY },
-  ];
-  const revision = locateScopedButton(nodes, {
-    itemTitle: REVISION_TITLE,
-    itemBody: REVISION_BODY,
-    label: ACCEPT_LABEL,
-    knownItems,
-  });
+  const revision = locateScopedButton(nodes, { ...contextFor(nodes, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL });
   assert.equal(revision.ok, true);
-  assert.equal(revision.button.path.startsWith("0/2/0/"), true);
-  const original = locateScopedButton(nodes, {
-    itemTitle: SOURCE_TITLE,
-    itemBody: SOURCE_BODY,
-    label: DISCARD_LABEL,
-    knownItems,
-  });
+  assert.equal(revision.button.path, "0/2/2/2");
+  const original = locateScopedButton(nodes, { ...contextFor(nodes, SOURCE_ARTIFACT, SOURCE_MESSAGE), label: DISCARD_LABEL });
   assert.equal(original.ok, true);
-  assert.equal(original.button.path.startsWith("0/1/0/"), true);
+  assert.equal(original.button.path, "0/1/2/3");
 });
 
-test("目标自身无动作时不向共享祖先借用另一候选唯一动作", () => {
-  const knownItems = [
-    { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY },
-    { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY },
-  ];
+test("同一作者块内两 artifact 各有同名按钮时，只取自己的结构；不能借唯一他方动作", () => {
+  const nodes = authorTree("0/1", SOURCE_MESSAGE, [
+    ...itemTree("0/1/2", SOURCE_TITLE, SOURCE_BODY, [["0", ACCEPT_LABEL]]),
+    ...itemTree("0/1/3", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL]]),
+  ]);
+  const options = { ...contextFor(nodes, SOURCE_ARTIFACT, SOURCE_MESSAGE), label: ACCEPT_LABEL };
+  assert.equal(locateScopedButton(nodes, options).button.path, "0/1/2/2");
+  const missing = nodes.filter((entry) => entry.path !== "0/1/2/2");
+  const denied = locateScopedButton(missing, { ...options, authorBoundary: authorBoundary(missing, SOURCE_MESSAGE, 0) });
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reason, "foreign_item_in_block");
+  assert.equal(locateScopedButton(nodes, { ...options, knownArtifacts: undefined }).reason, "known_artifacts_missing");
+});
+
+test("当前作者块缺动作时，不能向 root 或旧作者回合借唯一按钮", () => {
   const nodes = [
-    ...itemTree("0/1/0", SOURCE_TITLE, SOURCE_BODY, []),
-    ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL]]),
+    node("0", "AXGroup"),
+    node("0/0", "AXGroup"), text("0/0/0", "你"),
+    node("0/1", "AXGroup"), text("0/1/0", SOURCE_MESSAGE),
+    ...itemTree("0/2", SOURCE_TITLE, SOURCE_BODY),
+    button("0/3", ACCEPT_LABEL),
+    node("0/4", "AXGroup"), text("0/4/0", "你"),
+    node("0/5", "AXGroup"), text("0/5/0", REVISION_MESSAGE),
+    ...itemTree("0/6", REVISION_TITLE, REVISION_BODY),
   ];
-  const located = locateScopedButton(nodes, {
-    itemTitle: SOURCE_TITLE,
-    itemBody: SOURCE_BODY,
-    label: ACCEPT_LABEL,
-    knownItems,
+  const result = locateScopedButton(nodes, { ...contextFor(nodes, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "action_missing");
+  assert.equal(result.button, undefined);
+});
+
+test("同文新作者回合尚无新卡时，唯一旧卡也不能冒充本轮", () => {
+  const message = "请再生成同一份候选。";
+  const nodes = [
+    node("0", "AXGroup"),
+    node("0/0", "AXGroup"), text("0/0/0", "你"),
+    node("0/1", "AXGroup"), text("0/1/0", message),
+    ...itemTree("0/2", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL]]),
+    node("0/3", "AXGroup"), text("0/3/0", "你"),
+    node("0/4", "AXGroup"), text("0/4/0", message),
+  ];
+  const boundary = authorBoundary(nodes, message, 1);
+  assert.equal(boundary.author.path, "0/4/0");
+  const options = { ...contextFor(nodes, REVISION_ARTIFACT, message), authorBoundary: boundary, label: ACCEPT_LABEL };
+  assert.equal(locateScopedButton(nodes, options).reason, "item_outside_author_block");
+  assert.equal(locatePendingItem(nodes, options).reason, "item_outside_author_block");
+});
+
+test("一个真实 artifact 的十二个 article 可共用唯一保存动作，每个条目仍单独定位", () => {
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    title: "第" + (index + 1) + "章", body: "第" + (index + 1) + "章的独立规划正文。",
+  }));
+  const candidate = artifact("as-outline-twelve", items);
+  const message = "请规划后续章节，保持待采纳。";
+  const nodes = authorTree("0", message, [
+    ...items.flatMap((item, index) => itemTree("0/" + (index + 2), item.title, item.body)),
+    button("0/14", "保存到大纲"),
+  ]);
+  for (const [index, item] of items.entries()) {
+    const options = { ...contextFor(nodes, candidate, message, { knownArtifacts: [candidate] }),
+      itemTitle: item.title, itemBody: item.body, label: "保存到大纲" };
+    const result = locateScopedButton(nodes, options);
+    assert.equal(result.ok, true, item.title);
+    assert.equal(result.item_path, "0/" + (index + 2));
+    assert.equal(result.button.path, "0/14");
+  }
+  const other = artifact("as-outline-other", [{ title: "另一份大纲", body: "另一候选正文。" }]);
+  const mixed = [...nodes, ...itemTree("0/15", other.payload.items[0].title, other.payload.items[0].body)];
+  const denied = locateScopedButton(mixed, {
+    ...contextFor(mixed, candidate, message, { knownArtifacts: [candidate, other] }), label: "保存到大纲",
   });
-  assert.equal(located.ok, false);
-  assert.equal(located.reason, "action_missing");
-  assert.equal(
-    locateScopedButton(nodes, { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY, label: ACCEPT_LABEL }).reason,
-    "known_items_missing",
-  );
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reason, "foreign_item_in_block");
 });
 
-test("AX 定位拒绝缺 item、重复 item、同 scope 多义按钮与不可见按钮", () => {
-  const nodes = [
-    ...itemTree("0/1/0", REVISION_TITLE, REVISION_BODY, [
-      ["0", ACCEPT_LABEL],
-      ["1", ACCEPT_LABEL],
-    ]),
-  ];
-  assert.equal(
-    locateScopedButton(nodes, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }] }).reason,
-    "action_ambiguous",
-  );
-  assert.equal(
-    locateScopedButton(nodes, { itemTitle: "不存在", itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }] }).reason,
-    "item_missing",
-  );
-  const duplicateItems = [...nodes, ...itemTree("0/3/0", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL]])];
-  assert.equal(
-    locateScopedButton(duplicateItems, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }] }).reason,
-    "item_ambiguous",
-  );
-  const hidden = [
-    ...itemTree("0/1/0", REVISION_TITLE, REVISION_BODY, []),
-    { ...button("0/1/0/9", ACCEPT_LABEL), frame: [0, 0, 0, 0] },
-  ];
-  assert.equal(
-    locateScopedButton(hidden, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }] }).reason,
-    "action_not_visible",
-  );
+test("同一 artifact 也不能把分属两个 article 的标题和正文拼成一个条目", () => {
+  const items = [{ title: "甲章", body: "甲章正文。" }, { title: "乙章", body: "乙章正文。" }];
+  const candidate = artifact("as-split-items", items);
+  const message = "请展示这份大纲。";
+  const nodes = authorTree("0", message, [
+    ...itemTree("0/2", items[0].title, items[1].body),
+    ...itemTree("0/3", items[1].title, items[0].body),
+    button("0/4", "保存到大纲"),
+  ]);
+  const options = { ...contextFor(nodes, candidate, message, { knownArtifacts: [candidate] }), label: "保存到大纲" };
+  assert.equal(locatePendingItem(nodes, options).reason, "item_missing");
+  assert.equal(locateScopedButton(nodes, options).reason, "item_missing");
 });
 
-test("Why 只在候选所属消息内定位，缺按钮或同消息多义均失败", () => {
+test("artifact 原始分组缺失、混入、改写、重复 ID 或重复条目均失败关闭", () => {
+  const nodes = authorTree("0", SOURCE_MESSAGE, itemTree("0/2", SOURCE_TITLE, SOURCE_BODY, [["0", ACCEPT_LABEL]]));
+  const base = { ...contextFor(nodes, SOURCE_ARTIFACT, SOURCE_MESSAGE), label: ACCEPT_LABEL };
+  const cases = [
+    ["known_artifacts_missing", { knownArtifacts: [] }],
+    ["artifact_not_known", { artifact: { ...SOURCE_ARTIFACT, artifact_id: "as-unknown" } }],
+    ["artifact_not_known", { artifact: { ...SOURCE_ARTIFACT, revision_base: REVISION_ID } }],
+    ["known_artifacts_invalid", { knownArtifacts: [SOURCE_ARTIFACT, structuredClone(SOURCE_ARTIFACT)] }],
+    ["known_artifacts_invalid", { knownArtifacts: [{ ...SOURCE_ARTIFACT, payload: { items: [] } }] }],
+    ["artifact_item_missing", { artifact: REVISION_ARTIFACT }],
+    ["artifact_item_ambiguous", { knownArtifacts: [SOURCE_ARTIFACT, artifact("as-copy", SOURCE_ARTIFACT.payload.items)] }],
+    ["author_boundary_missing", { authorBoundary: undefined }],
+  ];
+  for (const [reason, change] of cases) {
+    const result = locateScopedButton(nodes, { ...base, ...change });
+    assert.equal(result.ok, false, reason);
+    assert.equal(result.reason, reason);
+  }
+  const duplicateItems = artifact("as-duplicate-items", [SOURCE_ARTIFACT.payload.items[0], SOURCE_ARTIFACT.payload.items[0]]);
+  assert.equal(locateScopedButton(nodes, { ...base, artifact: duplicateItems, knownArtifacts: [duplicateItems] }).reason,
+    "artifact_item_ambiguous");
+});
+
+test("AX 定位保留缺条目、重复同文条目、多义、禁用和不可见按钮拒绝", () => {
+  const nodes = authorTree("0", REVISION_MESSAGE,
+    itemTree("0/2", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL], ["1", ACCEPT_LABEL]]));
+  const options = { ...contextFor(nodes, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL };
+  assert.equal(locateScopedButton(nodes, options).reason, "action_ambiguous");
+  assert.equal(locateScopedButton(nodes, { ...options, itemTitle: "不存在" }).reason, "item_missing");
+  const duplicates = [...nodes, ...itemTree("0/3", REVISION_TITLE, REVISION_BODY, [["0", ACCEPT_LABEL]])];
+  assert.equal(locateScopedButton(duplicates, { ...options, authorBoundary: authorBoundary(duplicates, REVISION_MESSAGE, 0) }).reason,
+    "item_ambiguous");
+  for (const [field, value, reason] of [
+    ["enabled", false, "action_disabled"],
+    ["frame", [0, 0, 0, 0], "action_not_visible"],
+  ]) {
+    const changed = nodes.filter((entry) => entry.path !== "0/2/3").map((entry) =>
+      entry.path === "0/2/2" ? { ...entry, [field]: value } : entry);
+    assert.equal(locateScopedButton(changed, { ...options, authorBoundary: authorBoundary(changed, REVISION_MESSAGE, 0) }).reason, reason);
+  }
+});
+
+test("Why 仅在真实 artifact 所属作者块定位，缺按钮和多义不借其他回合", () => {
   const nodes = [
-    ...itemTree("0/1/0", SOURCE_TITLE, SOURCE_BODY, []),
-    button("0/1/1", "为什么"),
-    ...itemTree("0/2/0", REVISION_TITLE, REVISION_BODY, []),
-    button("0/2/1", "为什么"),
+    ...authorTree("0/1", SOURCE_MESSAGE, [...itemTree("0/1/2", SOURCE_TITLE, SOURCE_BODY), button("0/1/3", "为什么")]),
+    ...authorTree("0/2", REVISION_MESSAGE, [...itemTree("0/2/2", REVISION_TITLE, REVISION_BODY), button("0/2/3", "为什么")]),
   ];
-  const knownItems = [
-    { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY },
-    { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY },
-  ];
-  const why = locateWhyButton(nodes, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, knownItems });
-  assert.equal(why.ok, true);
-  assert.equal(why.button.path, "0/2/1");
-  const ambiguous = [...nodes, button("0/2/2", "为什么")];
-  assert.equal(
-    locateWhyButton(ambiguous, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, knownItems }).reason,
-    "action_ambiguous",
-  );
+  const options = contextFor(nodes, REVISION_ARTIFACT, REVISION_MESSAGE);
+  assert.equal(locateWhyButton(nodes, options).button.path, "0/2/3");
+  const ambiguous = [...nodes, button("0/2/4", "为什么")];
+  assert.equal(locateWhyButton(ambiguous, { ...options, authorBoundary: authorBoundary(ambiguous, REVISION_MESSAGE, 0) }).reason,
+    "action_ambiguous");
+  const missing = nodes.filter((entry) => entry.path !== "0/2/3");
+  assert.equal(locateWhyButton(missing, { ...options, authorBoundary: authorBoundary(missing, REVISION_MESSAGE, 0) }).reason,
+    "action_missing");
 });
 
 test("真实 available_actions 必须唯一定位目标；缺/重复/错绑/禁用都拒绝", () => {
@@ -668,24 +753,19 @@ test("action 冲突/重复/错状态边界", () => {
 });
 
 test("空节点与缺字段矩阵覆盖 AX/动作/事实边界", () => {
-  const known = [{ itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY }];
   assert.equal(locatePendingItem([null], { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY }).reason, "item_missing");
   assert.equal(locatePendingItem([null], { itemTitle: "", itemBody: SOURCE_BODY }).reason, "item_input_missing");
   assert.equal(locatePendingItem([], { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY }).reason, "item_missing");
-  const nodes = [
-    null,
-    ...itemTree("0/1/0", SOURCE_TITLE, SOURCE_BODY, [["0", ACCEPT_LABEL]]),
-  ];
-  assert.equal(
-    locateScopedButton(nodes, { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY, label: ACCEPT_LABEL, knownItems: [null, ...known] }).ok,
-    true,
-  );
-  assert.equal(
-    locateScopedButton(nodes, { itemTitle: SOURCE_TITLE, itemBody: SOURCE_BODY, label: "no", knownItems: known }).reason,
-    "action_missing",
-  );
+  const page = authorTree("0", SOURCE_MESSAGE,
+    itemTree("0/2", SOURCE_TITLE, SOURCE_BODY, [["0", ACCEPT_LABEL]]));
+  const nodes = [null, ...page];
+  const options = { ...contextFor(page, SOURCE_ARTIFACT, SOURCE_MESSAGE), label: ACCEPT_LABEL };
+  assert.equal(locateScopedButton(nodes, options).ok, true);
+  assert.equal(locateScopedButton(nodes, { ...options, knownArtifacts: [null, ...KNOWN_ARTIFACTS] }).reason,
+    "known_artifacts_invalid");
+  assert.equal(locateScopedButton(nodes, { ...options, label: "no" }).reason, "action_missing");
   const noFrame = [{ ...node("0/1", "AXGroup"), frame: null }];
-  assert.equal(locateScopedButton(noFrame, { itemTitle: "t", itemBody: "b", label: "x", knownItems: known }).reason, "item_missing");
+  assert.equal(locateScopedButton(noFrame, { ...options, itemTitle: "t", itemBody: "b", label: "x" }).reason, "item_missing");
   assert.throws(() => resolvedEntry({ adoption_state: { resolved: [null] } }, "a", "ACCEPTED"), /必须恰好一条/);
   assert.equal(scopeFactsFromRequest({ messages: [null, { role: "user", content: null }] }), null);
   const checks = scopeFactsChecks({ pending_adoptions: [], pending_adoption_count: 0, resolved_adoptions: [], resolved_adoption_count: 0, omitted_adoptions: 0 }, {});
@@ -697,30 +777,29 @@ test("空节点与缺字段矩阵覆盖 AX/动作/事实边界", () => {
 // 边界归一化回归：帧形状/可见性/事实 section/回复消费/写手响应都在入口一次校验，
 // 缺字段不得被 optional chaining 或 fallback 当成成功。
 test("AX 可见性按 frame 的 y/宽/高判定，x=0 仍可见，零高度不可见", () => {
-  const known = [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }];
-  const base = itemTree("0/1/0", REVISION_TITLE, REVISION_BODY, []);
+  const base = authorTree("0", REVISION_MESSAGE, itemTree("0/2", REVISION_TITLE, REVISION_BODY));
   const visibleAtX0 = [
     ...base,
-    { ...button("0/1/0/9", ACCEPT_LABEL), frame: [0, 10, 10, 10] },
+    { ...button("0/2/9", ACCEPT_LABEL), frame: [0, 10, 10, 10] },
   ];
   assert.equal(
-    locateScopedButton(visibleAtX0, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: known }).ok,
+    locateScopedButton(visibleAtX0, { ...contextFor(visibleAtX0, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL }).ok,
     true,
   );
   const zeroHeight = [
     ...base,
-    { ...button("0/1/0/9", ACCEPT_LABEL), frame: [10, 10, 10, 0] },
+    { ...button("0/2/9", ACCEPT_LABEL), frame: [10, 10, 10, 0] },
   ];
   assert.equal(
-    locateScopedButton(zeroHeight, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: known }).reason,
+    locateScopedButton(zeroHeight, { ...contextFor(zeroHeight, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL }).reason,
     "action_not_visible",
   );
   const tooShort = [
     ...base,
-    { ...button("0/1/0/9", ACCEPT_LABEL), frame: [10, 10, 10] },
+    { ...button("0/2/9", ACCEPT_LABEL), frame: [10, 10, 10] },
   ];
   assert.equal(
-    locateScopedButton(tooShort, { itemTitle: REVISION_TITLE, itemBody: REVISION_BODY, label: ACCEPT_LABEL, knownItems: known }).reason,
+    locateScopedButton(tooShort, { ...contextFor(tooShort, REVISION_ARTIFACT, REVISION_MESSAGE), label: ACCEPT_LABEL }).reason,
     "action_not_visible",
   );
 });
@@ -820,86 +899,58 @@ test("actionFrame 同动作重复发送必须失败，不能取第一条", () =>
 // 同级兄弟；规则是「同级兄弟顺序 + 用户消息 marker」切出本消息块，块内唯一命中，
 // 并排除其它已知候选（不借兄弟候选按钮）。
 
-test("真实扁平 AX 树：修订稿 Why/采纳/放弃按消息块唯一命中", () => {
-  const revision = {
-    itemTitle: FLAT_ITEMS.revision.itemTitle,
-    itemBody: FLAT_ITEMS.revision.itemBody,
-    knownItems: FLAT_KNOWN,
-  };
+function flatContext(nodes, kind) {
+  const candidate = FLAT_ARTIFACTS[kind === "source" ? 0 : 1];
+  const authorPath = kind === "source" ? "0/0/0/0/0/13/0" : "0/0/0/0/0/25/0";
+  const message = FLAT_NODES.find((entry) => entry.path === authorPath).value;
+  return { itemTitle: FLAT_ITEMS[kind].itemTitle, itemBody: FLAT_ITEMS[kind].itemBody,
+    artifact: candidate, knownArtifacts: FLAT_ARTIFACTS, authorBoundary: authorBoundary(nodes, message, 0) };
+}
+
+test("真实扁平 AX 树：修订稿 Why/采纳/放弃按当前作者块唯一命中", () => {
+  const revision = flatContext(FLAT_NODES, "revision");
   const why = locateWhyButton(FLAT_NODES, revision);
   assert.equal(why.ok, true);
   assert.equal(why.button.path, "0/0/0/0/0/30");
   assert.equal(why.scope_path, "0/0/0/0/0/24");
   assert.equal(why.item_path, "0/0/0/0/0/33");
-
-  const accept = locateScopedButton(FLAT_NODES, { ...revision, label: "保存到作品档案" });
-  assert.equal(accept.ok, true);
-  assert.equal(accept.button.path, "0/0/0/0/0/34");
-
-  const discard = locateScopedButton(FLAT_NODES, { ...revision, label: "不保存" });
-  assert.equal(discard.ok, true);
-  assert.equal(discard.button.path, "0/0/0/0/0/35");
+  assert.equal(locateScopedButton(FLAT_NODES, { ...revision, label: "保存到作品档案" }).button.path, "0/0/0/0/0/34");
+  assert.equal(locateScopedButton(FLAT_NODES, { ...revision, label: "不保存" }).button.path, "0/0/0/0/0/35");
 });
 
 test("真实扁平 AX 树：源稿动作按自身消息块命中，离屏 Why 报 action_not_visible", () => {
-  const source = {
-    itemTitle: FLAT_ITEMS.source.itemTitle,
-    itemBody: FLAT_ITEMS.source.itemBody,
-    knownItems: FLAT_KNOWN,
-  };
+  const source = flatContext(FLAT_NODES, "source");
   const accept = locateScopedButton(FLAT_NODES, { ...source, label: "保存到作品档案" });
   assert.equal(accept.ok, true);
   assert.equal(accept.button.path, "0/0/0/0/0/21");
   assert.equal(accept.scope_path, "0/0/0/0/0/12");
-  const discard = locateScopedButton(FLAT_NODES, { ...source, label: "不保存" });
-  assert.equal(discard.ok, true);
-  assert.equal(discard.button.path, "0/0/0/0/0/22");
-  // 源稿 Why 在真实 dump 中 frame.y=-255（滚动到视口上方）：命中在块内但不可见，
-  // 必须如实报 action_not_visible，不能跨块借用修订稿可见的 Why。
-  const why = locateWhyButton(FLAT_NODES, source);
-  assert.equal(why.ok, false);
-  assert.equal(why.reason, "action_not_visible");
+  assert.equal(locateScopedButton(FLAT_NODES, { ...source, label: "不保存" }).button.path, "0/0/0/0/0/22");
+  assert.equal(locateWhyButton(FLAT_NODES, source).reason, "action_not_visible");
 });
 
-test("真实扁平 AX 树：删掉自身动作后不得借用兄弟候选按钮，也不回退全局 first/last", () => {
-  const withoutRevisionAccept = FLAT_NODES.filter((node) => node.path !== "0/0/0/0/0/34");
-  const located = locateScopedButton(withoutRevisionAccept, {
-    itemTitle: FLAT_ITEMS.revision.itemTitle,
-    itemBody: FLAT_ITEMS.revision.itemBody,
-    label: "保存到作品档案",
-    knownItems: FLAT_KNOWN,
-  });
-  assert.equal(located.ok, false);
-  assert.equal(located.button, undefined);
-  // 外层块会出现源稿可见文本 → 显式 foreign_item_in_block（失败关闭），而不是借用 …/21。
-  assert.equal(located.reason, "foreign_item_in_block");
+test("真实扁平 AX 树：删掉自身动作后在当前块失败，不上升到旧候选唯一按钮", () => {
+  const nodes = FLAT_NODES.filter((entry) => entry.path !== "0/0/0/0/0/34");
+  const result = locateScopedButton(nodes, { ...flatContext(nodes, "revision"), label: "保存到作品档案" });
+  assert.equal(result.ok, false);
+  assert.equal(result.button, undefined);
+  assert.equal(result.reason, "action_missing");
 });
 
 test("真实扁平 AX 树：同一消息块内动作标签重复必须 action_ambiguous", () => {
-  const duplicated = FLAT_NODES.map((node) =>
-    node.path === "0/0/0/0/0/35" ? { ...node, title: "保存到作品档案" } : node,
-  );
-  const located = locateScopedButton(duplicated, {
-    itemTitle: FLAT_ITEMS.revision.itemTitle,
-    itemBody: FLAT_ITEMS.revision.itemBody,
-    label: "保存到作品档案",
-    knownItems: FLAT_KNOWN,
-  });
-  assert.equal(located.ok, false);
-  assert.equal(located.reason, "action_ambiguous");
-  assert.equal(located.count, 2);
+  const nodes = FLAT_NODES.map((entry) => entry.path === "0/0/0/0/0/35"
+    ? { ...entry, title: "保存到作品档案" } : entry);
+  const result = locateScopedButton(nodes, { ...flatContext(nodes, "revision"), label: "保存到作品档案" });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "action_ambiguous");
+  assert.equal(result.count, 2);
 });
 
 test("真实扁平 AX 树：跨消息块不得借用对方 Why", () => {
-  const withoutRevisionWhy = FLAT_NODES.filter((node) => node.path !== "0/0/0/0/0/30");
-  const located = locateWhyButton(withoutRevisionWhy, {
-    itemTitle: FLAT_ITEMS.revision.itemTitle,
-    itemBody: FLAT_ITEMS.revision.itemBody,
-    knownItems: FLAT_KNOWN,
-  });
-  assert.equal(located.ok, false);
-  assert.equal(located.button, undefined);
-  assert.equal(located.reason, "foreign_item_in_block");
+  const nodes = FLAT_NODES.filter((entry) => entry.path !== "0/0/0/0/0/30");
+  const result = locateWhyButton(nodes, flatContext(nodes, "revision"));
+  assert.equal(result.ok, false);
+  assert.equal(result.button, undefined);
+  assert.equal(result.reason, "action_missing");
 });
 
 test("canon 内容口径：仅账面列变化不算表变化，内容列变化仍算", () => {

@@ -63,11 +63,10 @@ function completedAuthorTurn(config) {
   return { wire, identity, body: lastCompletedTurn(wire, identity, "可见终局缺少同次完成结果") };
 }
 
-async function capturePendingCandidates(config, { artifactType = "prose_fragment", prefix = "r05-candidate" } = {}) {
+async function capturePendingCandidates(config, baselineAuthorCount, { artifactType = "prose_fragment", prefix = "r05-candidate" } = {}) {
   const { body } = completedAuthorTurn(config);
   const pending = Array.isArray(body.adoption_state?.pending) ? body.adoption_state.pending : [];
   const itemsOf = (artifact) => Array.isArray(artifact.payload?.items) ? artifact.payload.items : [];
-  const knownItems = pending.flatMap(itemsOf).map((item) => ({ itemTitle: item.title, itemBody: item.body }));
   const items = pending.filter((artifact) => artifact.artifact_type === artifactType)
     .flatMap((artifact) => itemsOf(artifact).map((item) => ({ artifact, item })));
   if (items.length === 0) throw new Error(`visible_candidate_missing:${artifactType}`);
@@ -75,7 +74,8 @@ async function capturePendingCandidates(config, { artifactType = "prose_fragment
   for (const [index, { artifact, item }] of items.entries()) {
     selectPendingAction(body, { artifactId: artifact.artifact_id, actionType: "accept" });
     views.push(...await capturePendingItemViews(harness, {
-      itemTitle: item.title, itemBody: item.body, knownItems, prefix: `${prefix}-${index + 1}`,
+      itemTitle: item.title, itemBody: item.body, artifact, knownArtifacts: pending,
+      message: config.message, baselineAuthorCount, prefix: `${prefix}-${index + 1}`,
       buttonLabel: actionLabelsFor(artifact, body).accept,
     }));
   }
@@ -108,7 +108,7 @@ async function captureMissionNarrative(config, context, baselineAuthorCount, pha
   const context = sourceMissionNarrativeContext(wire, { ...identity, missionEventId: events[0].event_id });
   const initialViews = await captureMissionNarrative(config, context, baselineAuthorCount, "initial");
   const artifactType = config.mission_kind === "planning" ? "outline_draft" : "prose_fragment";
-  const candidateViews = await capturePendingCandidates(config, { artifactType, prefix: "mission-candidate" });
+  const candidateViews = await capturePendingCandidates(config, baselineAuthorCount, { artifactType, prefix: "mission-candidate" });
   const readOnlyStart = harness.nowIso(), before = readProviderCounts();
   const why = await observeWhy();
   if (!why.opened || why.close_error) throw new Error("mission_why_not_observed");
@@ -117,7 +117,7 @@ async function captureMissionNarrative(config, context, baselineAuthorCount, pha
     harness.rawWaitWorkbenchSettled("mission:restored", READY_TIMEOUT_MS));
   await ensureWorkSelected(harness, config.author_visible_target.work_title, "mission:restored");
   const restoredViews = await captureMissionNarrative(config, context, baselineAuthorCount, "restored");
-  const restoredCandidates = await capturePendingCandidates(config, { artifactType, prefix: "mission-restored-candidate" });
+  const restoredCandidates = await capturePendingCandidates(config, baselineAuthorCount, { artifactType, prefix: "mission-restored-candidate" });
   return { initial_views: initialViews, restored_views: restoredViews, candidate_views: candidateViews,
     restored_candidate_views: restoredCandidates, why,
     read_only: { start: readOnlyStart, end: harness.nowIso(), before, after: readProviderCounts() } };
@@ -538,7 +538,7 @@ async function run() {
         await closeReadingPage("after");
       }
       const candidateViews = config.r05_goal && visibleMode === "candidate"
-        ? await capturePendingCandidates(config) : [];
+        ? await capturePendingCandidates(config, baselineAuthorCount) : [];
       const missionViews = mission ? await captureMissionJourney(config, baselineAuthorCount) : null;
       if (config.r05_goal || mission) runEvidenceMode(evidence, "capture", dir, ["final"]);
       driverLog = {

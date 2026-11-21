@@ -94,9 +94,7 @@ export function actionLabelsFor(artifact, turnResult) {
   if (!KNOWN_TYPES.has(artifactType)) {
     throw new Error(`pending_action_label: 未知 artifact 类型 ${String(artifactType)}`);
   }
-  const matches = list(turnResult?.adoption_state?.pending).filter((entry) =>
-    entry?.artifact_id === artifact?.artifact_id);
-  if (!nonBlank(artifact?.artifact_id) || matches.length !== 1 || !same(matches[0], artifact)) {
+  if (!artifactMatches(artifact, turnResult?.adoption_state?.pending)) {
     throw new Error("pending_action_label: artifact 不属于同次 TurnResult 的唯一 pending");
   }
   const copy = CARD.tentativeArtifact;
@@ -136,18 +134,9 @@ function inScope(node, scopePath) {
   return path === scopePath || path.startsWith(`${scopePath}/`);
 }
 
-// ── 真实 WKWebView 扁平 AX 树的消息块归属 ──────────────────────────────────
-//
-// 真实 Tauri/WKWebView 的 AX 树把候选卡（title/body/rationale）、Why 按钮与候选动作
-// 按钮暴露为**同一 AXWebArea 父级下的同级兄弟**，不存在包含三者的候选容器（真实批次
-// cp4b-pending-02 原始 dump：Why=…/30、候选 article=…/33、动作按钮=…/34…36）。
-// 因此「按 item 自身路径向上找祖先容器」的模型在真实树上只能停在 item 子树，动作按钮
-// 永远不在 scope 内（pending 批次实测 action_missing）。
-//
-// 消息块模型：以 item 所在父级的兄弟顺序为源，用真实可见的说话人标记（用户消息
-// marker「你」）与对话结束标记（输入框/本次只做一步/发送）切出**本消息块**；块内还需
-// 排除其它已知候选的可见标题/正文（禁止借用兄弟候选按钮）。块内匹配必须唯一；
-// 命中但不可见时返回 action_not_visible（调用方可先滚动揭示再重试），不向更外层借用。
+// ── 真实 WKWebView 的消息块与 artifact 操作归属 ──────────────────────────
+// 条目按可见标题+正文定位；同 artifact 的多个 article 可共用动作。
+// 作者边界由调用方对本份完整 AX 复用 authorBoundary 得到，不能从旧卡反推本轮。
 const SPEAKER_MARKERS = new Set(["你", "AI"]);
 const USER_SPEAKER = "你";
 
@@ -168,8 +157,7 @@ function siblingNodes(nodes, parent) {
 function speakerMarker(nodes, node) {
   if (node?.role !== "AXGroup") return null;
   const texts = siblingNodes(nodes, node.path).map(nodeText).filter(nonBlank);
-  if (texts.length !== 1) return null;
-  return SPEAKER_MARKERS.has(texts[0]) ? texts[0] : null;
+  return texts.length === 1 && SPEAKER_MARKERS.has(texts[0]) ? texts[0] : null;
 }
 
 function conversationEndMarker(node) {
@@ -177,17 +165,24 @@ function conversationEndMarker(node) {
   return node?.role === "AXButton" && nodeText(node) === "发送";
 }
 
-// 在 levelPath 这一层，把 item 的该层祖先切进「你」(用户消息) 与下一消息/输入区之间。
+function ancestors(path) {
+  const parts = String(path).split("/").filter(Boolean);
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/")).reverse();
+}
+
+// 只在已证明的作者 container 切块；缺「你」不能把 start=0 当成消息归属。
 function messageBlockAt(nodes, levelPath, itemScopePath) {
   const articlePath = ancestors(itemScopePath).find((path) => parentPath(path) === levelPath);
   if (!articlePath) return null;
   const siblings = siblingNodes(nodes, levelPath);
   const index = siblings.findIndex((node) => node.path === articlePath);
   if (index < 0) return null;
-  let start = 0;
+  let start = -1;
   for (let cursor = index; cursor >= 0; cursor -= 1) {
+    if (conversationEndMarker(siblings[cursor])) return null;
     if (speakerMarker(nodes, siblings[cursor]) === USER_SPEAKER) { start = cursor; break; }
   }
+  if (start < 0) return null;
   let end = siblings.length - 1;
   for (let cursor = index + 1; cursor < siblings.length; cursor += 1) {
     if (speakerMarker(nodes, siblings[cursor]) === USER_SPEAKER || conversationEndMarker(siblings[cursor])) {
@@ -195,64 +190,39 @@ function messageBlockAt(nodes, levelPath, itemScopePath) {
       break;
     }
   }
-  const paths = siblings.slice(start, end + 1).map((node) => node.path);
-  if (paths.length === 0) return null;
-  return { level: levelPath, paths };
+  return { level: levelPath, paths: siblings.slice(start, end + 1).map((node) => node.path) };
 }
 
 function inMessageBlock(node, block) {
-  if (!isObject(node) || typeof node.path !== "string") return false;
-  return block.paths.some((path) => node.path === path || node.path.startsWith(`${path}/`));
+  return isObject(node) && typeof node.path === "string" &&
+    block.paths.some((path) => node.path === path || node.path.startsWith(path + "/"));
 }
 
-function blockContainsText(nodes, block, value) {
-  return nonBlank(value) && nodes.some((node) => inMessageBlock(node, block) && nodeText(node) === value);
-}
-
-function foreignItemInBlock(nodes, block, { itemTitle, itemBody }, knownItems) {
-  return (knownItems ?? []).find(
-    (item) =>
-      isObject(item) &&
-      !(item.itemTitle === itemTitle && item.itemBody === itemBody) &&
-      (blockContainsText(nodes, block, item.itemTitle) || blockContainsText(nodes, block, item.itemBody)),
-  );
-}
-
-// 只有路径模型不成立时才尝试消息块模型；命中但不可见/禁用/多义直接失败关闭，不向更外层借用。
-function locateInMessageBlock(nodes, itemScopePath, { label, matcher, knownItems, itemTitle, itemBody }) {
-  for (const levelPath of ancestors(itemScopePath).slice(1)) {
-    const block = messageBlockAt(nodes, levelPath, itemScopePath);
-    if (!block) continue;
-    const foreign = foreignItemInBlock(nodes, block, { itemTitle, itemBody }, knownItems);
-    if (foreign) return { ok: false, reason: "foreign_item_in_block", foreign: foreign.itemTitle ?? null };
-    const matches = nodes.filter(
-      (node) => node?.role === "AXButton" && inMessageBlock(node, block) && matcher(nodeText(node), label, node),
-    );
-    if (matches.length === 0) continue;
-    if (matches.length > 1) return { ok: false, reason: "action_ambiguous", count: matches.length };
-    if (matches[0].enabled === false) return { ok: false, reason: "action_disabled" };
-    if (!isVisible(matches[0])) return { ok: false, reason: "action_not_visible" };
-    return {
-      ok: true,
-      button: matches[0],
-      scope_path: block.paths[0],
-      item_path: itemScopePath,
-    };
+function itemMessageBlock(nodes, itemScopePath, boundary) {
+  if (!isObject(boundary?.author) || !nonBlank(boundary.container) || !nonBlank(boundary.authorGroup) ||
+      parentPath(boundary.authorGroup) !== boundary.container ||
+      !nodes.some((node) => same(node, boundary.author))) {
+    return { ok: false, reason: "author_boundary_missing" };
   }
-  return { ok: false, reason: "action_missing" };
+  const block = messageBlockAt(nodes, boundary.container, itemScopePath);
+  const authorIndex = block?.paths.indexOf(boundary.authorGroup) ?? -1;
+  const itemPath = ancestors(itemScopePath).find((path) => parentPath(path) === boundary.container);
+  const itemIndex = block?.paths.indexOf(itemPath) ?? -1;
+  if (!block || authorIndex < 0 || itemIndex <= authorIndex ||
+      !inMessageBlock(boundary.author, block) || !inMessageBlock({ path: itemScopePath }, block)) {
+    return { ok: false, reason: "item_outside_author_block" };
+  }
+  return { ok: true, block };
 }
 
-function ancestors(path) {
-  const parts = String(path).split("/").filter(Boolean);
-  return parts.map((_, index) => parts.slice(0, index + 1).join("/")).reverse();
+function articleFor(nodes, node) {
+  return ancestors(node?.path).find((path) => nodes.some((entry) =>
+    entry?.path === path && entry.subrole === "AXDocumentArticle")) ?? null;
 }
 
 function candidateScopes(nodes, titleNodes, bodyNodes) {
-  return nodes.filter((node) => {
-    const titles = titleNodes.filter((candidate) => inScope(candidate, node?.path)).length;
-    const bodies = bodyNodes.filter((candidate) => inScope(candidate, node?.path)).length;
-    return titles > 0 && bodies > 0;
-  });
+  return nodes.filter((node) => titleNodes.some((title) => inScope(title, node?.path) &&
+    bodyNodes.some((body) => inScope(body, node?.path) && articleFor(nodes, title) === articleFor(nodes, body))));
 }
 
 function deepestScopes(candidates) {
@@ -261,120 +231,119 @@ function deepestScopes(candidates) {
   return candidates.filter((node) => depth(node) === deepest);
 }
 
-// 标题+正文唯一确定候选 item 的最深 AX 结构；同文本多实例直接失败。
-export function locatePendingItem(nodes, { itemTitle, itemBody } = {}) {
+// 两个已存在 article 的文字不能在外层共同祖先拼成一个条目。
+export function locatePendingItem(nodes, { itemTitle, itemBody, authorBoundary } = {}) {
   if (!Array.isArray(nodes)) return { ok: false, reason: "nodes_missing" };
   if (!nonBlank(itemTitle) || !nonBlank(itemBody)) return { ok: false, reason: "item_input_missing" };
   const titleNodes = nodes.filter((node) => nodeText(node) === itemTitle);
   const bodyNodes = nodes.filter((node) => nodeText(node) === itemBody);
-  if (titleNodes.length === 0 || bodyNodes.length === 0) {
-    return { ok: false, reason: "item_missing" };
-  }
+  if (titleNodes.length === 0 || bodyNodes.length === 0) return { ok: false, reason: "item_missing" };
   const scopes = deepestScopes(candidateScopes(nodes, titleNodes, bodyNodes));
+  if (scopes.length === 0) return { ok: false, reason: "item_missing" };
   if (scopes.length !== 1) return { ok: false, reason: "item_ambiguous" };
+  if (authorBoundary !== undefined) {
+    const bounded = itemMessageBlock(nodes, scopes[0].path, authorBoundary);
+    if (!bounded.ok) return bounded;
+  }
   return { ok: true, scope: scopes[0], title_nodes: titleNodes.length, body_nodes: bodyNodes.length };
 }
 
-function actionButtons(nodes, scopePath, label, matcher) {
-  return nodes.filter(
-    (node) =>
-      node?.role === "AXButton" &&
-      inScope(node, scopePath) &&
-      isVisible(node) &&
-      matcher(nodeText(node), label, node),
-  );
+function artifactMatches(artifact, knownArtifacts) {
+  const matches = list(knownArtifacts).filter((entry) => entry?.artifact_id === artifact?.artifact_id);
+  return nonBlank(artifact?.artifact_id) && matches.length === 1 && same(matches[0], artifact);
 }
 
-function isSameItem(item, { itemTitle, itemBody }) {
-  return item?.itemTitle === itemTitle && item?.itemBody === itemBody;
+function knownArtifactContext(artifact, knownArtifacts, { itemTitle, itemBody }) {
+  if (!Array.isArray(knownArtifacts) || knownArtifacts.length === 0) {
+    return { ok: false, reason: "known_artifacts_missing" };
+  }
+  const ids = knownArtifacts.map((entry) => entry?.artifact_id);
+  if (ids.some((id) => !nonBlank(id)) || new Set(ids).size !== ids.length ||
+      knownArtifacts.some((entry) => !Array.isArray(entry?.payload?.items) ||
+        entry.payload.items.length === 0 ||
+        entry.payload.items.some((item) => !nonBlank(item?.title) || !nonBlank(item?.body)))) {
+    return { ok: false, reason: "known_artifacts_invalid" };
+  }
+  if (!artifactMatches(artifact, knownArtifacts)) return { ok: false, reason: "artifact_not_known" };
+  const matches = artifact.payload.items.filter((item) => item.title === itemTitle && item.body === itemBody);
+  if (matches.length === 0) return { ok: false, reason: "artifact_item_missing" };
+  if (matches.length !== 1 || knownArtifacts.some((entry) => entry.artifact_id !== artifact.artifact_id &&
+      entry.payload.items.some((item) => item.title === itemTitle && item.body === itemBody))) {
+    return { ok: false, reason: "artifact_item_ambiguous" };
+  }
+  return { ok: true, foreignArtifacts: knownArtifacts.filter((entry) => entry.artifact_id !== artifact.artifact_id) };
 }
 
-function visibleTextInScope(nodes, scopePath, value) {
-  return nodes.some((node) => inScope(node, scopePath) && nodeText(node) === value);
+// 只把另一 artifact 的实际 item 视为外来内容；不丢弃同组兄弟，也不改写原 artifact。
+function foreignItemAt(nodes, contains, artifacts) {
+  for (const artifact of artifacts) {
+    const found = artifact.payload.items.find((item) => nodes.some((node) => contains(node) &&
+      (nodeText(node) === item.title || nodeText(node) === item.body)));
+    if (found) return found;
+  }
+  return null;
 }
 
-function foreignItemInScope(nodes, scopePath, item) {
-  return allOf(
-    nonBlank(item?.itemTitle),
-    nonBlank(item?.itemBody),
-    visibleTextInScope(nodes, scopePath, item?.itemTitle) ||
-      visibleTextInScope(nodes, scopePath, item?.itemBody),
-  );
-}
-
-// 候选所属结构的上界：从 item 自身结构向上，遇到任何其它已知候选的可见标题/正文
-// 即停止。这样不会在共享列表/根节点里借用兄弟候选按钮；不靠 maxDepth/坐标。
-function ownedScope(nodes, itemScope, knownItems, target) {
+function ownedScope(nodes, itemScope, block, foreignArtifacts) {
   let boundary = itemScope.path;
-  for (const scopePath of ancestors(itemScope.path)) {
-    if (scopePath === itemScope.path) continue;
-    if (knownItems.some((item) => !isSameItem(item, target) && foreignItemInScope(nodes, scopePath, item))) {
-      break;
-    }
+  for (const scopePath of ancestors(itemScope.path).slice(1)) {
+    if (!inMessageBlock({ path: scopePath }, block) ||
+        foreignItemAt(nodes, (node) => inScope(node, scopePath), foreignArtifacts)) break;
     boundary = scopePath;
   }
   return boundary;
 }
 
-function locateKnownContext(nodes, { itemTitle, itemBody, knownItems }) {
-  if (!Array.isArray(nodes)) return { ok: false, reason: "nodes_missing" };
+function selectedButton(buttons, scopePath, itemScopePath) {
+  if (buttons.length === 0) return { ok: false, reason: "action_missing" };
+  if (buttons.length > 1) return { ok: false, reason: "action_ambiguous", count: buttons.length };
+  if (buttons[0].enabled === false) return { ok: false, reason: "action_disabled" };
+  if (!isVisible(buttons[0])) return { ok: false, reason: "action_not_visible" };
+  return { ok: true, button: buttons[0], scope_path: scopePath, item_path: itemScopePath };
+}
+
+function locateOwnedButton(nodes, { itemTitle, itemBody, authorBoundary, label, matcher }, foreignArtifacts = []) {
   const item = locatePendingItem(nodes, { itemTitle, itemBody });
   if (!item.ok) return item;
-  if (!Array.isArray(knownItems) || knownItems.length === 0) {
-    return { ok: false, reason: "known_items_missing" };
-  }
-  return {
-    ok: true,
-    item,
-    boundary: ownedScope(nodes, item.scope, knownItems, { itemTitle, itemBody }),
-  };
+  const bounded = itemMessageBlock(nodes, item.scope.path, authorBoundary);
+  if (!bounded.ok) return bounded;
+  const { block } = bounded;
+  const foreignInItem = foreignItemAt(nodes, (node) => inScope(node, item.scope.path), foreignArtifacts);
+  if (foreignInItem) return { ok: false, reason: "foreign_item_in_block", foreign: foreignInItem.title };
+  const boundary = ownedScope(nodes, item.scope, block, foreignArtifacts);
+  const match = (node) => node?.role === "AXButton" && inMessageBlock(node, block) &&
+    matcher(nodeText(node), label, node);
+  const buttons = nodes.filter((node) => inScope(node, boundary) && match(node));
+  if (buttons.length > 0) return selectedButton(buttons, boundary, item.scope.path);
+  // 扁平 article 与动作是同级兄弟；只查同一已冻结作者块，不再上升到外层/root。
+  const foreign = foreignItemAt(nodes, (node) => inMessageBlock(node, block), foreignArtifacts);
+  if (foreign) return { ok: false, reason: "foreign_item_in_block", foreign: foreign.title };
+  return selectedButton(nodes.filter(match), block.paths[0], item.scope.path);
 }
 
-function locateOwnedButton(nodes, { itemTitle, itemBody, knownItems, label, matcher } = {}) {
-  const context = locateKnownContext(nodes, { itemTitle, itemBody, knownItems });
+function locateArtifactButton(nodes, options, matcher) {
+  const item = locatePendingItem(nodes, options);
+  if (!item.ok) return item;
+  const context = knownArtifactContext(options.artifact, options.knownArtifacts, options);
   if (!context.ok) return context;
-  const buttons = actionButtons(nodes, context.boundary, label, matcher);
-  if (buttons.length > 1) return { ok: false, reason: "action_ambiguous", count: buttons.length };
-  if (buttons.length === 0) {
-    // 真实扁平 AX 树里 item 子树不含 Why/动作按钮：改用同级消息块模型，仍要求唯一、
-    // 可见、未禁用，并在块内排除其它已知候选（不借兄弟候选按钮）。
-    return locateInMessageBlock(nodes, context.item.scope.path, {
-      label,
-      matcher,
-      knownItems,
-      itemTitle,
-      itemBody,
-    });
-  }
-  if (buttons[0].enabled === false) return { ok: false, reason: "action_disabled" };
-  return {
-    ok: true,
-    button: buttons[0],
-    scope_path: context.boundary,
-    item_path: context.item.scope.path,
-  };
+  return locateOwnedButton(nodes, { ...options, matcher }, context.foreignArtifacts);
 }
 
-export function locateScopedButton(nodes, { itemTitle, itemBody, label, knownItems } = {}) {
-  if (!nonBlank(label)) return { ok: false, reason: "label_missing" };
-  return locateOwnedButton(nodes, {
-    itemTitle,
-    itemBody,
-    knownItems,
-    label,
-    // 真实按钮的可见名来自 title（desc 是说明文案）；兼容无 desc 的纯 title 节点。
-    matcher: (text, want, node) => node?.title === want || text === want,
-  });
+const exactButtonLabel = (text, want, node) => node?.title === want || text === want;
+
+export function locateScopedButton(nodes, options = {}) {
+  if (!nonBlank(options.label)) return { ok: false, reason: "label_missing" };
+  return locateArtifactButton(nodes, options, exactButtonLabel);
 }
 
-export function locateWhyButton(nodes, { itemTitle, itemBody, knownItems } = {}) {
-  return locateOwnedButton(nodes, {
-    itemTitle,
-    itemBody,
-    knownItems,
-    label: "为什么",
-    matcher: (text) => text.includes("为什么"),
-  });
+export function locateWhyButton(nodes, options = {}) {
+  return locateArtifactButton(nodes, { ...options, label: "为什么" }, (text) => text.includes("为什么"));
+}
+
+// 确认卡不是 artifact；仅复用同一消息/唯一按钮内核，不绕过 pending 的分组约束。
+export function locateMessageCardButton(nodes, options = {}) {
+  if (!nonBlank(options.label)) return { ok: false, reason: "label_missing" };
+  return locateOwnedButton(nodes, { ...options, matcher: exactButtonLabel });
 }
 
 function requireTurnId(turnResult) {
