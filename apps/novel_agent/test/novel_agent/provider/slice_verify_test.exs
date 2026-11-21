@@ -650,6 +650,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelCommon.RequestIR
 
   @chapter_ref "chapter:11111111-1111-1111-1111-111111111111"
 
@@ -716,7 +717,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     SliceVerify.chapter_revision_arguments(judgment_prompt(author_text))
   end
 
-  test "章级排版意图 → format_only + chapter ref + 作者原话" do
+  test "章级排版固定夹具向 native 工具传递 format_only、chapter ref 和作者原话" do
     author_text = "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。"
     revision = chapter_arguments(author_text)
 
@@ -732,10 +733,12 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["action"] == "execute"
     assert args["capability"] == "revise_adopted_content"
     assert args["adopted_content_ref"] == @chapter_ref
+    assert args["modification_scope"] == "format_only"
+    refute Map.has_key?(args, "target_segment_ids")
     assert args["dialogue_goal"] == author_text
   end
 
-  test "B28 CP1 镜像：读取/否定/条件不授整章，正向整章/局部/排版同产品语义" do
+  test "既有章修订 fixture 的范围预设保持，不作为产品语义验收" do
     # 读取/通读不是修改授权：无“整章”修饰时保守局部
     assert chapter_arguments("帮我通读一遍第一章正文，看看有没有矛盾。").modification_scope ==
              "target_segments"
@@ -752,7 +755,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert chapter_arguments("通读全文后只修第二段。").modification_scope ==
              "target_segments"
 
-    # 明确只读不改 → 无修订意图（产品侧零写入拒绝）
+    # 固定只读场景不产生修订参数；此断言不代表生产模型已理解原话。
     assert SliceVerify.chapter_revision_arguments(judgment_prompt("整章检查一遍，有问题告诉我，别改。")) ==
              nil
 
@@ -762,6 +765,52 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     # 仅排版优先于“整章”限定
     assert chapter_arguments("把整章正文整理一下，只调整分段和标点，不改字句。").modification_scope ==
              "format_only"
+  end
+
+  test "局部固定夹具先读取章页，再透传观察 ID；新作者输入不能沿用旧读证" do
+    author = "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。"
+    request = judgment_prompt(author)
+    assert {:ok, first} = SliceVerify.complete(nil, nil, request, %InferenceParams{})
+    [%{"arguments" => arguments}] = first.tool_calls
+    arguments = RequestIR.json_value(arguments)
+    assert %{"action" => "explore", "explore_request" => %{"tool" => "chapter_read"}} = arguments
+    assert Jason.decode!(arguments["explore_request"]["query"])["chapter_ref"] == @chapter_ref
+
+    # 此处只验证替身消费 supplied 观察；真实读取及授权绑定由 application 集成测试覆盖。
+    page =
+      RequestIR.observation_block("read-fixture", %{
+        status: "ok",
+        content: %{
+          tool: "chapter_read",
+          summary: "二十五岁",
+          target_segments: [%{segment_id: "observed-fragment", byte_start: 0, byte_end: 12}]
+        },
+        coverage: %{chapter_ref: @chapter_ref, prose_byte_range: %{start: 0, end: 12}}
+      })
+
+    observed = %{
+      request
+      | messages:
+          request.messages ++
+            [
+              RequestIR.message(:assistant, :model, [
+                RequestIR.tool_call_block("judgment_decision", arguments, "read-fixture")
+              ]),
+              RequestIR.message(:tool, :tool_result, [page])
+            ]
+    }
+
+    assert {:ok, second} = SliceVerify.complete(nil, nil, observed, %InferenceParams{})
+    [%{"arguments" => selected}] = second.tool_calls
+    selected = RequestIR.json_value(selected)
+    assert selected["action"] == "execute"
+    assert selected["modification_scope"] == "target_segments"
+    assert selected["target_segment_ids"] == ["observed-fragment"]
+
+    next = %{observed | messages: observed.messages ++ [NovelTest.TestRequestIR.author(author)]}
+    assert {:ok, again} = SliceVerify.complete(nil, nil, next, %InferenceParams{})
+    [%{"arguments" => next_arguments}] = again.tool_calls
+    assert RequestIR.json_value(next_arguments)["action"] == "explore"
   end
 
   test "同名/多目标不猜：无唯一章序号匹配 → chapter ref nil（交产品守卫）" do
@@ -823,6 +872,8 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["action"] == "execute"
     assert args["capability"] == "revise_adopted_content"
     assert args["adopted_content_ref"] == "as_q1c_setting"
+    refute Map.has_key?(args, "modification_scope")
+    refute Map.has_key?(args, "target_segment_ids")
   end
 
   test "空目录下新写正文/纯读/普通聊天不误发缺目标澄清" do

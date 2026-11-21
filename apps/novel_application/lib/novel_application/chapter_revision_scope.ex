@@ -2,13 +2,13 @@ defmodule NovelApplication.ChapterRevisionScope do
   @moduledoc """
   章修订的机械范围证据：原候选声明、当前 accepted 基线复核和真实观察绑定。
 
-  作者原话解释由 ChapterRevisionAuthorInput 唯一承担；本模块不重新解释作者意图，
-  不扩大原范围。ChapterReadEvidence 核真实章页，LocalizedRevision 核源区间应用；
+  作者原话由既有 Judgment 解释为修改范围与真实选段提议；本模块只验证结构和证据，
+  不将引用真实性当作意图正确证明。ChapterReadEvidence 核真实章页，LocalizedRevision 核源区间应用；
   完整基线的已供应资格仍由 PendingArtifactWorkflow 独立消费。
   """
 
   alias NovelApplication.ChapterReadEvidence
-  alias NovelApplication.ChapterRevisionAuthorInput
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.RequestIR
 
   @doc "识别原 payload 的章级范围声明，只选择严格接收分支，不证明授权或补齐缺项。"
@@ -123,51 +123,92 @@ defmodule NovelApplication.ChapterRevisionScope do
   def chapter_ref?(_ref), do: false
 
   @doc """
-  decode 成功后、accepted 回执前，把模型提议的目标段绑定到本轮真实观察。
+  验证既有判断结果的章范围字段；只核结构，不重新解释作者原话。
 
-  `target_segment_ids` 只接受 execute + revise_adopted_content + 章级 ref；
-  作者显式段号/字面目标优先，模型提议不覆盖。引用式目标必须按同一正文的
-  chapter_read 页逐段证明完整覆盖；结果只含 target_segment_ids/source_hash/
-  versions，writer 前再由 Pending 与当前章事实复核。
+  章级修订必须声明现有 modification_scope；局部范围必须给出非空唯一选段。
+  整章、仅换行及非章动作不得夹带局部选段；不存在隐式章目标或默认修改范围。
+  判断接收和执行前复核共用本边界。
   """
-  @spec bind_observed_targets(map(), RequestIR.t()) ::
-          {:ok, map()} | {:error, {:target_segments, atom()}}
-  def bind_observed_targets(
+  @spec validate_judgment_scope(map()) :: {:ok, atom() | nil} | {:error, {atom(), atom()}}
+  def validate_judgment_scope(
         %{
           action: "execute",
           capability: "revise_adopted_content",
           adopted_content_ref: "chapter:" <> _
-        } = judgment,
-        %RequestIR{} = request
+        } = judgment
       ) do
-    ids = normalize_bound_ids(Map.get(judgment, :target_segment_ids))
-    author_text = Map.get(judgment, :author_input) || ""
+    raw_scope = Map.get(judgment, :modification_scope)
 
-    cond do
-      ids == :invalid ->
-        {:error, {:target_segments, :invalid_selection}}
+    scope =
+      Enum.find(AuthoringTask.modification_scopes(), fn scope ->
+        raw_scope == scope or raw_scope == Atom.to_string(scope)
+      end)
 
-      # 作者显式段号/字面目标，以及整章/仅排版/只读等既有范围判定优先于模型选段。
-      ChapterRevisionAuthorInput.explicit_target?(author_text) or
-          ChapterRevisionAuthorInput.authorize(author_text) != {:ok, :target_segments} ->
-        {:ok, clear_bound_targets(judgment)}
+    case {raw_scope, scope} do
+      {nil, _scope} ->
+        {:error, {:modification_scope, :required}}
 
-      ChapterRevisionAuthorInput.reference_discovery_target?(author_text) or
-          ChapterRevisionAuthorInput.local_target_authorized?(author_text) ->
-        bind_observed_selection(judgment, request, ids)
+      {_raw_scope, nil} ->
+        {:error, {:modification_scope, :invalid}}
 
-      ids == [] ->
-        {:ok, clear_bound_targets(judgment)}
-
-      true ->
-        {:error, {:target_segments, :selection_not_authorized}}
+      {_raw_scope, scope} ->
+        validate_target_fields(scope, judgment)
     end
   end
 
-  def bind_observed_targets(judgment, %RequestIR{}) when is_map(judgment) do
-    if normalize_bound_ids(Map.get(judgment, :target_segment_ids)) == [],
-      do: {:ok, judgment},
-      else: {:error, {:target_segments, :not_allowed}}
+  def validate_judgment_scope(judgment) when is_map(judgment) do
+    if is_nil(Map.get(judgment, :modification_scope)),
+      do: validate_target_fields(nil, judgment),
+      else: {:error, {:modification_scope, :not_allowed}}
+  end
+
+  defp validate_target_fields(:target_segments, judgment) do
+    ids = Map.get(judgment, :target_segment_ids)
+
+    cond do
+      ids in [nil, []] ->
+        {:error, {:target_segments, :ids_required}}
+
+      normalize_bound_ids(ids) == :invalid ->
+        {:error, {:target_segments, :invalid_selection}}
+
+      true ->
+        {:ok, :target_segments}
+    end
+  end
+
+  defp validate_target_fields(scope, judgment) do
+    if is_nil(Map.get(judgment, :target_segment_ids)) and
+         is_nil(Map.get(judgment, :observed_targets)),
+       do: {:ok, scope},
+       else: {:error, {:target_segments, :not_allowed}}
+  end
+
+  @doc """
+  decode 成功后、accepted 回执前，把局部修订提议绑定到本轮真实观察。
+
+  所有自然语言定位均由既有 Judgment 表达为 target_segment_ids；按同一正文的
+  chapter_read 页逐段证明完整覆盖。结果只含 target_segment_ids/source_hash/
+  versions，writer 前再由 Pending 与当前章事实复核；这些证据不代签语义正确。
+  """
+  @spec bind_observed_targets(map(), RequestIR.t()) ::
+          {:ok, map()} | {:error, {atom(), atom()}}
+  def bind_observed_targets(judgment, %RequestIR{} = request) when is_map(judgment) do
+    case validate_judgment_scope(judgment) do
+      {:ok, :target_segments} ->
+        judgment
+        |> Map.put(:modification_scope, :target_segments)
+        |> bind_observed_selection(request, Map.fetch!(judgment, :target_segment_ids))
+
+      {:ok, nil} ->
+        {:ok, judgment}
+
+      {:ok, scope} ->
+        {:ok, Map.put(judgment, :modification_scope, scope)}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp normalize_bound_ids(ids) when is_list(ids) do
@@ -176,22 +217,12 @@ defmodule NovelApplication.ChapterRevisionScope do
       else: :invalid
   end
 
-  defp normalize_bound_ids(nil), do: []
   defp normalize_bound_ids(_ids), do: :invalid
-
-  defp clear_bound_targets(judgment) do
-    judgment
-    |> Map.put(:target_segment_ids, [])
-    |> Map.delete(:observed_targets)
-  end
 
   defp bind_observed_selection(judgment, request, ids) do
     case ChapterReadEvidence.bind_target_segments(request, judgment.adopted_content_ref, ids) do
       {:ok, binding} ->
-        {:ok,
-         judgment
-         |> Map.put(:target_segment_ids, ids)
-         |> Map.put(:observed_targets, binding)}
+        {:ok, Map.put(judgment, :observed_targets, binding)}
 
       {:error, reason} ->
         {:error, {:target_segments, reason}}

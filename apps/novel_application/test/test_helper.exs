@@ -81,6 +81,48 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
         do: block
   end
 
+  @doc "读取真实章节各页并构造当前作者之后的 canonical 观察；不解释原话或选择修改片段。"
+  def chapter_read_request(run, input, chapter_ref) do
+    transcript =
+      NovelApplication.AuthoringTranscript.new(run,
+        base_text: NovelCommon.RequestIR.application_base_text(),
+        author_text: input.text,
+        author_turn_ref: input.turn_id,
+        tools: NovelApplication.JudgmentToolContract.tools(:judgment)
+      )
+      |> append_chapter_read_pages(run.work_id, chapter_ref, 0)
+
+    assert {:ok, request} = NovelApplication.AuthoringTranscript.to_request_ir(transcript)
+    assert :ok = NovelCommon.RequestIR.validate(request)
+    request
+  end
+
+  defp append_chapter_read_pages(transcript, work_id, chapter_ref, offset) do
+    query = Jason.encode!(%{chapter_ref: chapter_ref, offset: offset})
+    assert {:ok, page} = NovelApplication.ExplorationService.run(work_id, "chapter_read", query)
+    call_id = "chapter-read-#{offset}"
+
+    call =
+      NovelCommon.RequestIR.tool_call_block(
+        "judgment_decision",
+        %{action: "explore", explore_request: %{tool: "chapter_read", query: query}},
+        call_id
+      )
+
+    transcript =
+      transcript
+      |> NovelApplication.AuthoringTranscript.append_assistant("", [call])
+      |> NovelApplication.JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, page)
+
+    case Map.get(page, :next_offset) do
+      nil ->
+        transcript
+
+      next when is_integer(next) and next > offset ->
+        append_chapter_read_pages(transcript, work_id, chapter_ref, next)
+    end
+  end
+
   def scripted_judgment_execution(script) do
     %NovelAgent.Provider.Execution{
       result_fn: fn prompt ->

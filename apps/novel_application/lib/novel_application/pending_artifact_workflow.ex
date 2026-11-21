@@ -18,7 +18,6 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AuthoringTaskPolicy,
     CapabilityRegistry,
     ChapterReadEvidence,
-    ChapterRevisionAuthorInput,
     ChapterRevisionScope,
     CharacterProfile,
     DialogueGateway,
@@ -29,7 +28,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     WorkSessionService
   }
 
-  alias NovelCommon.Contracts.{ToolRequest, ToolResult}
+  alias NovelCommon.Contracts.{AuthoringTask, ToolRequest, ToolResult}
 
   alias NovelDomain.{
     AuthorActionInput,
@@ -191,6 +190,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     turn = field(input, :turn_id) || run.parent_turn_ref
     NovelTelemetry.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
 
+    case ChapterRevisionScope.validate_judgment_scope(judgment) do
+      {:ok, _scope} -> run_target(judgment, input, run, context, provider, snapshot)
+      {:error, reason} -> {:error, reason, step_state(%{}, snapshot)}
+    end
+  end
+
+  defp run_target(judgment, input, run, context, provider, snapshot) do
     cond do
       field(judgment, :capability) == "maintain_chapter_structure" ->
         maintain_chapter_structure(judgment, input, run, context)
@@ -613,17 +619,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     work_id = run.work_id || run.workspace_id
     frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
 
-    with {:ok, modification_scope} <- resolve_modification_scope(run, opts),
+    with {:ok, modification_scope} <- resolve_modification_scope(judgment, opts),
          false <- field(session, :read_only),
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
-         :ok <- ChapterRevisionAuthorInput.validate_target(run.goal.text, facts),
          {:ok, revision_scope} <-
            b36_revision_scope(
              facts,
              modification_scope,
-             run,
              judgment,
              Keyword.get(opts, :previous_candidate)
            ),
@@ -640,7 +644,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           frame,
           tool,
           "act_revise_chapter_#{frame.turn_id}",
-          "按作者要求修订整章正文"
+          "按作者要求修订章正文"
         )
 
       {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
@@ -916,19 +920,20 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AdoptionWorkflow.chapter_revision_context(work_id, chapter_ref)
   end
 
-  # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionAuthorInput 判定；
-  # 读取/通读/否定/条件不授予整章。显式 opts 仅承接既有候选，基线和原授权另行复核。
-  defp resolve_modification_scope(run, opts) do
+  # 新章修订消费同轮 Judgment 的结构化范围；原候选再次修订只沿用原 payload。
+  # 语义解释不在执行端重做，缺失或非法范围不能由作者原话/目标文本补齐。
+  defp resolve_modification_scope(judgment, opts) do
     case Keyword.fetch(opts, :modification_scope) do
-      {:ok, scope}
-      when scope in [:format_only, :whole_chapter, :target_segments] ->
-        {:ok, scope}
-
-      {:ok, _invalid} ->
-        {:error, :author_scope_not_authorized}
+      {:ok, scope} ->
+        if scope in AuthoringTask.modification_scopes(),
+          do: {:ok, scope},
+          else: {:error, :author_scope_not_authorized}
 
       :error ->
-        ChapterRevisionAuthorInput.authorize(to_string(run.goal.text || ""))
+        case ChapterRevisionScope.validate_judgment_scope(judgment) do
+          {:ok, nil} -> {:error, :author_scope_not_authorized}
+          result -> result
+        end
     end
   end
 
@@ -1159,7 +1164,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   # B28/B36：writer 调用前绑定目标段；同一份 id/hash/segments 用于 writer 输入与候选。
   # 原候选再修订沿用原授权；当前 accepted 事实仅用于复核，不能重新授予更宽范围。
-  defp b36_revision_scope(facts, _scope, _run, _judgment, previous) when is_map(previous) do
+  defp b36_revision_scope(facts, _scope, _judgment, previous) when is_map(previous) do
     payload = field(previous, :payload)
 
     with {:ok, _original} <- ChapterRevisionScope.revalidate_payload(payload, facts) do
@@ -1184,11 +1189,11 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp b36_revision_scope(facts, modification_scope, run, judgment, nil) do
+  defp b36_revision_scope(facts, modification_scope, judgment, nil) do
     segments = NovelPersistence.LocalizedRevision.segment(facts.base_text)
 
     with {:ok, ids, target_source} <-
-           scope_target_ids(modification_scope, segments, run, judgment),
+           scope_target_ids(modification_scope, segments, judgment),
          :ok <- verify_observed_targets(facts, judgment, ids, segments, target_source) do
       id_set = MapSet.new(ids)
       targets = Enum.filter(segments, &MapSet.member?(id_set, &1.segment_id))
@@ -1206,41 +1211,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp scope_target_ids(:target_segments, segments, run, judgment),
-    do: revision_target_ids(segments, run, judgment)
+  defp scope_target_ids(:target_segments, _segments, judgment) do
+    ids = field(judgment, :target_segment_ids)
 
-  defp scope_target_ids(_scope, segments, _run, _judgment),
+    if is_list(ids) and ids != [] and ids == observed_target_ids(judgment),
+      do: {:ok, ids, :bound},
+      else: {:error, :incomplete_scope}
+  end
+
+  defp scope_target_ids(_scope, segments, _judgment),
     do: {:ok, Enum.map(segments, & &1.segment_id), :scope}
-
-  # 作者原话定位优先；只有原文没有明确/成功的目标、且本轮确有真实观察绑定时才采用绑定。
-  # 明示目标不存在/歧义仍拒绝，不拿绑定覆盖作者写出的对象，也不跳过原文授权判断。
-  defp revision_target_ids(segments, run, judgment) do
-    case ChapterRevisionAuthorInput.target_segment_ids(segments, run.goal.text) do
-      {:ok, ids} ->
-        {:ok, ids, :author}
-
-      {:error, reason} ->
-        bound_revision_target_ids(judgment, reason, run.goal.text)
-    end
-  end
-
-  defp bound_revision_target_ids(judgment, reason, author_text) do
-    ids = observed_target_ids(judgment)
-
-    cond do
-      ids == [] ->
-        {:error, reason}
-
-      reason == :target_ambiguous ->
-        {:error, reason}
-
-      ChapterRevisionAuthorInput.explicit_target?(author_text) ->
-        {:error, reason}
-
-      true ->
-        {:ok, ids, :bound}
-    end
-  end
 
   defp observed_target_ids(%{observed_targets: %{target_segment_ids: ids}}) when is_list(ids),
     do: ids

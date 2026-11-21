@@ -40,6 +40,8 @@ defmodule NovelApplication.JudgmentToolContractTest do
       action: "execute",
       capability: "revise_adopted_content",
       adopted_content_ref: "chapter:actual",
+      modification_scope: "target_segments",
+      target_segment_ids: ["seg_observed"],
       dialogue_goal: "只改第一段，其余正文逐字保留。",
       author_reasoning: "按作者指定的范围提出修订候选。"
     }
@@ -86,6 +88,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
           :pending_artifact_ref,
           :adopted_content_ref,
           :character_ref,
+          :modification_scope,
           :target_segment_ids
         ],
         value <- [nil, "foreign"] do
@@ -130,9 +133,9 @@ defmodule NovelApplication.JudgmentToolContractTest do
     assert tool.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
     assert tool.description =~ "execute 只填一个目标 ref 字段"
     binding = tool.input_schema.properties.target_segment_ids.description
-    assert binding =~ "存储片段是机械边界，不等于自然段或首句"
-    assert binding =~ "必须选中该片段并在替换正文中保留锚句"
-    assert binding =~ "未选片段的全部字节都会保留"
+    assert binding =~ "存储片段不等于自然段或首句"
+    assert binding =~ "片段内需保留的锚句必须在替换正文中保留"
+    assert binding =~ "未选片段全部字节保持不变"
 
     guidance =
       NovelApplication.JudgmentDecisionToolContract.specific_guidance(%{
@@ -159,6 +162,82 @@ defmodule NovelApplication.JudgmentToolContractTest do
     for arguments <- examples do
       assert JudgmentToolContract.valid?(arguments, tool.input_schema)
       refute JudgmentToolContract.valid?(Map.delete(arguments, :action), tool.input_schema)
+    end
+  end
+
+  test "章范围缺失、未读目标与动作混用经真实判断接收有界拒绝，纠错不崩溃" do
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "scope-contract-run",
+        work_id: "scope-contract-work",
+        workspace_id: "scope-contract-work",
+        session_id: "scope-contract-session",
+        parent_turn_ref: "scope-contract-author",
+        origin_frame_ref: "scope-contract-frame",
+        profile_ref: "judgment_plan_v1",
+        goal: %{text: "请按已读材料提出修订候选。", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    input = %{
+      author_text: run.goal.text,
+      source_input_ref: run.parent_turn_ref,
+      supplied_context_refs: ["work:" <> run.work_id],
+      scope: %{
+        work_id: run.work_id,
+        facts: %{work: %{ref: "work:" <> run.work_id, work_id: run.work_id, title: "范围契约作品"}},
+        context: %{},
+        coverage: %{}
+      },
+      options: [
+        plan_run: run,
+        capabilities: ["revise_adopted_content"],
+        adopted_content_targets: %{
+          "chapter:current" => ["revise_adopted_content"],
+          "as_saved" => ["revise_adopted_content"]
+        }
+      ]
+    }
+
+    base = %{
+      action: "execute",
+      capability: "revise_adopted_content",
+      adopted_content_ref: "chapter:current",
+      dialogue_goal: "修订作者指定范围",
+      author_reasoning: "依据正文提出修订候选。"
+    }
+
+    for {fields, family} <- [
+          {%{}, :modification_scope},
+          {%{modification_scope: "target_segments"}, :target_segments},
+          {%{modification_scope: "target_segments", target_segment_ids: ["seg_unread"]},
+           :target_segments},
+          {%{modification_scope: "whole_chapter", target_segment_ids: ["seg_unread"]},
+           :target_segments},
+          {%{adopted_content_ref: "as_saved", modification_scope: "whole_chapter"},
+           :modification_scope}
+        ] do
+      owner = self()
+
+      provider =
+        NovelApplication.TestAgenticLoopFixtures.scripted_judgment_execution(fn request ->
+          send(owner, {:scope_contract_request, request})
+          {:decision, Map.merge(base, fields)}
+        end)
+
+      assert {:error, {:judgment_protocol_violation, {^family, _reason}}, state} =
+               NovelApplication.JudgmentProtocol.request_judgment(provider, %{}, input)
+
+      assert state.provider_call_count == 2
+      assert_received {:scope_contract_request, _initial}
+      assert_received {:scope_contract_request, correction}
+
+      assert Enum.any?(correction.messages, fn message ->
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "validation_result" and block.status == "failed" and
+                   get_in(block.detail, ["message"]) =~ "本次响应未通过契约校验"
+               end)
+             end)
     end
   end
 

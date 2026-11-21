@@ -7,6 +7,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
   alias NovelApplication.{
     AdoptionWorkflow,
+    ChapterRevisionScope,
     PendingArtifactWorkflow,
     TestAgenticLoopFixtures,
     WorkService
@@ -101,7 +102,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     {:ok, Map.merge(facts, %{run: run, context: context, author_input: author_input})}
   end
 
-  defp judgment(chapter_ref, opts \\ %{}) do
+  defp judgment(chapter_ref, opts \\ %{modification_scope: "format_only"}) do
     Map.merge(
       %{
         action: "execute",
@@ -472,12 +473,12 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
   end
 
-  test "slice_verify fixture：content_revision 只落实作者明确改动，其余逐字", c do
+  test "slice_verify 固定内容替换夹具经已绑定范围采纳，其余逐字保留", c do
     input = %{c.author_input | text: "把第一章正文里的二十五岁改成三十岁，其他不变。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
 
     judgment =
-      judgment(c.chapter_ref, %{
+      observed_judgment(c, input, [hd(LocalizedRevision.segment(c.base_text)).segment_id], %{
         dialogue_goal: "把第一章正文里的二十五岁改成三十岁，其他不变。"
       })
 
@@ -531,38 +532,38 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert length(Repo.all(Chapter)) == 1
   end
 
-  test "明确段号/文字目标缺失、越界、重复或冲突时，不调用writer、不生成候选", c do
-    inputs = [
-      {"把第一章正文里的四十五岁改成三十岁，其他不变。", :target_missing},
-      {"把第一章正文里的「灯楼」改成「灯塔」，其他不变。", :target_ambiguous},
-      {"只改第二段，把「二十五岁」改成「三十岁」，其他不变。", :target_ambiguous},
-      {"只改第0段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
-      {"只改第99段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
-      {"只改第十一段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing},
-      {"只改第十十段，把「二十五岁」改成「三十岁」，其他不变。", :target_missing}
+  test "范围提议缺失、非法或字段冲突时，不调用 writer、不生成候选", c do
+    id = hd(LocalizedRevision.segment(c.base_text)).segment_id
+
+    cases = [
+      {%{}, {:modification_scope, :required}},
+      {%{modification_scope: "paragraphs"}, {:modification_scope, :invalid}},
+      {%{modification_scope: "target_segments"}, {:target_segments, :ids_required}},
+      {%{modification_scope: "target_segments", target_segment_ids: [id, id]},
+       {:target_segments, :invalid_selection}},
+      {%{modification_scope: "whole_chapter", target_segment_ids: [id]},
+       {:target_segments, :not_allowed}}
     ]
 
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    for {text, reason} <- inputs do
-      run = %{c.run | goal: %{text: text, version: 1}}
-
-      assert {:error, {:pending_artifact_invalid, ^reason}, rejection_state} =
+    for {fields, reason} <- cases do
+      assert {:error, ^reason, state} =
                PendingArtifactWorkflow.run(
-                 judgment(c.chapter_ref, %{dialogue_goal: text}),
-                 %{c.author_input | text: text},
-                 run,
+                 judgment(c.chapter_ref, fields),
+                 c.author_input,
+                 c.run,
                  c.context,
-                 %Execution{result_fn: fn _ -> flunk("范围不唯一不得调用writer") end}
+                 %Execution{result_fn: fn _ -> flunk("范围提议非法不得调用 writer") end}
                )
 
-      assert rejection_state.tool_call_count == 0 and rejection_state.provider_call_count == 0
+      assert state.tool_call_count == 0 and state.provider_call_count == 0
     end
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
   end
 
-  test "CP1 有十一段时指定第十一段 → 精确选中第 11 段 B36 id，不回退首段", c do
+  test "真实读证中的第十一源片段经显式选集传递，不回退首项", c do
     draft2 = Repo.get!(Draft, String.replace_prefix(c.draft2_ref, "draft:", ""))
     tail = Enum.map_join(1..10, "\n\n", &"灯楼第#{&1}层，灯焰未灭。")
     Repo.update!(Ecto.Changeset.change(draft2, content: tail))
@@ -576,7 +577,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "只改第十一段"}),
+               observed_judgment(c, input, [Enum.at(segments, 10).segment_id], %{
+                 dialogue_goal: "只改第十一段"
+               }),
                input,
                %{c.run | goal: %{text: input.text, version: 1}},
                c.context,
@@ -592,7 +595,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   end
 
   for interpretation <- ["指定片段替换，非整章重写", "整章重写并给出完整替换稿"] do
-    test "模型说明#{interpretation}不能扩大作者的字词替换范围", c do
+    test "模型说明#{interpretation}不改变已绑定的固定片段选集", c do
       author = "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。"
       run = %{c.run | goal: %{text: author, version: 1}}
       target_body = "初稿：陈九斤三十岁守灯楼，第七盏灯不点自亮。"
@@ -600,7 +603,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
-                 judgment(c.chapter_ref, %{dialogue_goal: unquote(interpretation)}),
+                 observed_judgment(c, %{c.author_input | text: author}, [target_id], %{
+                   dialogue_goal: unquote(interpretation)
+                 }),
                  %{c.author_input | text: author},
                  run,
                  c.context,
@@ -619,13 +624,16 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     end
   end
 
-  test "作者明确整章修订时，模型说明不能擅自缩成单段", c do
+  test "whole_chapter 固定提议不因 goal 文本再次裁剪成单段", c do
     input = %{c.author_input | text: "请通读整章并修订第一章正文。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "只改第一段"}),
+               judgment(c.chapter_ref, %{
+                 dialogue_goal: "只改第一段",
+                 modification_scope: "whole_chapter"
+               }),
                input,
                run,
                c.context,
@@ -646,7 +654,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     {body, _separator} = LocalizedRevision.split_segment_raw(first.raw)
 
     judgment =
-      judgment(c.chapter_ref, %{
+      observed_judgment(c, input, [first.segment_id], %{
         dialogue_goal: "只把第一章开头一段改得更紧张，其他段落逐字保留。"
       })
 
@@ -681,9 +689,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
              payload[:scope]["target_segment_ids"]
   end
 
-  # ── B28 §元原则整改 CP1：作者授权范围（否定/条件/读取不授整章）────────────────
+  # 给定结构化判断验证读取、执行与采纳；固定输出不证明模型理解否定或条件。
 
-  test "CP1 否定整章+局部限制 → 长 CJK 末段 target_segments，采纳后其他段逐字节不变", c do
+  test "真实长 CJK 末片段选集经 target_segments 采纳，其他片段逐字节不变", c do
     long = String.duplicate("灰", 1_700)
     draft2 = Repo.get!(Draft, String.replace_prefix(c.draft2_ref, "draft:", ""))
     Repo.update!(Ecto.Changeset.change(draft2, content: long))
@@ -695,7 +703,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "只改最后一段"}),
+               observed_judgment(c, input, [last.segment_id], %{dialogue_goal: "只改最后一段"}),
                input,
                run,
                c.context,
@@ -746,7 +754,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
              String.duplicate("灰", 1_333)
   end
 
-  test "CP1 通读全文后只修第二段 → target_segments 第二段（读取不等于修改授权）", c do
+  test "真实完整章页只支持给定的第二片段选集，读取不扩大修改范围", c do
     input = %{c.author_input | text: "通读全文后只修第二段。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
     target_body = "续写：灯楼九层，每层九盏，他数到第九层时，天已经亮了。"
@@ -754,7 +762,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "只修第二段"}),
+               observed_judgment(c, input, [second.segment_id], %{dialogue_goal: "只修第二段"}),
                input,
                run,
                c.context,
@@ -769,47 +777,64 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert second_id == second.segment_id
   end
 
-  test "CP1 只读检查+明确不改 → 拒绝且不调用 writer、零候选零写入", c do
-    inputs = ["整章检查一遍，有问题告诉我，别改。", "只读一遍第03章，不要改。"]
-
+  test "局部选集缺真实读证或偏离绑定时拒绝，零候选零写入", c do
+    [first, second] = LocalizedRevision.segment(c.base_text)
+    bound = observed_judgment(c, c.author_input, [first.segment_id])
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    for text <- inputs do
-      run = %{c.run | goal: %{text: text, version: 1}}
-
-      assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, scope_state} =
+    for proposal <- [
+          Map.delete(bound, :observed_targets),
+          %{bound | target_segment_ids: [second.segment_id]}
+        ] do
+      assert {:error, {:pending_artifact_invalid, :incomplete_scope}, state} =
                PendingArtifactWorkflow.run(
-                 judgment(c.chapter_ref, %{dialogue_goal: text}),
-                 %{c.author_input | text: text},
-                 run,
+                 proposal,
+                 c.author_input,
+                 c.run,
                  c.context,
-                 %Execution{result_fn: fn _ -> flunk("未授权修改不得调用 writer") end}
+                 %Execution{result_fn: fn _ -> flunk("缺失或冲突读证不得调用 writer") end}
                )
 
-      assert scope_state.tool_call_count == 0 and scope_state.provider_call_count == 0
+      assert state.tool_call_count == 0 and state.provider_call_count == 0
     end
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
   end
 
-  test "CP1 条件性修改未授权 → 明确拒绝且不经局部定位恢复", c do
-    input = %{c.author_input | text: "如果第03章有明显问题就整章改一遍，没有问题就告诉我。"}
-    run = %{c.run | goal: %{text: input.text, version: 1}}
-
+  test "真实读证绑定后 accepted 版本改变，候选前复核拒绝过期目标", c do
+    first = hd(LocalizedRevision.segment(c.base_text))
+    bound = observed_judgment(c, c.author_input, [first.segment_id])
+    draft = Repo.get!(Draft, String.replace_prefix(c.draft1_ref, "draft:", ""))
+    Repo.update!(Ecto.Changeset.change(draft, revision: draft.revision + 1))
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, unauthorized_state} =
+    assert {:error, {:pending_artifact_invalid, :stale_base_version}, state} =
              PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref, %{dialogue_goal: "按条件处理"}),
-               input,
-               run,
+               bound,
+               c.author_input,
+               c.run,
                c.context,
-               %Execution{result_fn: fn _ -> flunk("条件未判定不得自动生成整章候选") end}
+               %Execution{result_fn: fn _ -> flunk("过期读证不得调用 writer") end}
              )
 
-    assert unauthorized_state.tool_call_count == 0 and unauthorized_state.provider_call_count == 0
-
+    assert state.tool_call_count == 0 and state.provider_call_count == 0
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
+  end
+
+  defp observed_judgment(c, input, ids, opts \\ %{}) do
+    request = TestAgenticLoopFixtures.chapter_read_request(c.run, input, c.chapter_ref)
+
+    proposal =
+      judgment(
+        c.chapter_ref,
+        Map.merge(opts, %{
+          modification_scope: "target_segments",
+          target_segment_ids: ids
+        })
+      )
+
+    assert {:ok, bound} = ChapterRevisionScope.bind_observed_targets(proposal, request)
+    bound
   end
 
   defp assert_native_format_rejection(transcript, reason) do

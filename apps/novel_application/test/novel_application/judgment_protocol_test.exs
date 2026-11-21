@@ -1922,19 +1922,18 @@ defmodule NovelApplication.JudgmentProtocolTest do
              )
   end
 
-  test "B28 CP1：判断 prompt 明确整章修订绑定与缺章目标澄清（不退化为 prose_writing）" do
+  test "B28 CP1：判断规则明确章基线、局部取证与缺章目标澄清" do
     content = first_text(JudgmentProtocol.request_for_production(input()))
 
-    assert content =~ "整章正文修订绑定"
-    assert content =~ "chapter-scoped 修订"
-    assert content =~ "该章全部当前 accepted 片段有序覆盖"
-    assert content =~ "仅排版=format_only"
-    assert content =~ "不得只绑单个 as_* artifact"
-    assert content =~ "不得退化成 prose_writing 新创作"
+    assert content =~ "章正文修订绑定同一作品的真实章身份和当前完整已采纳基线"
+    assert content =~ "按判断工具契约"
+    assert content =~ "都先 chapter_read，再选择真实观察的片段"
+    assert content =~ "覆盖完整或读取完整不等于整章授权"
+    assert content =~ "不得以单个 artifact 冒充整章"
+    assert content =~ "不得退化成首稿或续写"
     assert content =~ "缺章目标或同名章歧义时"
     assert content =~ "按页面章序与章名"
-    assert content =~ "禁止猜同名/跨作品"
-    assert String.split(content, "整章正文修订绑定") |> length() == 2
+    assert content =~ "禁止猜同名或跨作品对象"
   end
 
   test "B33 §CP1 反例2：只解释章节编号的 reply 不再被词法强制维护能力（正例仍 execute）" do
@@ -2409,12 +2408,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert correction =~ "未允许字段："
     assert correction =~ "target_chapter_ref"
-    assert correction =~ "modification_scope"
     assert correction =~ "内容修订的 execute 必须用 adopted_content_ref"
-    assert correction =~ "范围（第一段/整章/仅排版）写在 dialogue_goal"
-    assert correction =~ "不要填 target_chapter_ref/modification_scope"
-    assert correction =~ ~s("capability":"revise_adopted_content")
-    assert correction =~ ~s("adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>")
+    assert correction =~ "章级修订以 modification_scope 表达范围"
+    assert correction =~ "不填 target_chapter_ref"
+    refute correction =~ "不要填 target_chapter_ref/modification_scope"
+    refute correction =~ ~s("modification_scope":"whole_chapter")
+    assert judgment.modification_scope == nil
   end
 
   test "B33 §CP1：工具参数结构错误仍一次纠错；纠错后普通回复由模型决定" do

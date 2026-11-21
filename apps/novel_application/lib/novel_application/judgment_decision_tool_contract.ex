@@ -1,6 +1,8 @@
 defmodule NovelApplication.JudgmentDecisionToolContract do
   @moduledoc "判断动作的完整分支、wire schema 与专属纠错。"
 
+  alias NovelCommon.Contracts.AuthoringTask
+
   @text %{type: "string", minLength: 1}
   @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
 
@@ -19,7 +21,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
     %{
       name: "judgment_decision",
       description:
-        "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 可按本轮 chapter_read 观察填 target_segment_ids。" <>
+        "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref / adopted_content_ref / character_ref）。章级 revise_adopted_content 必须给出 modification_scope；局部修订按本轮 chapter_read 观察填 target_segment_ids。" <>
           "\n" <> decision_fields_guidance(),
       input_schema: object(properties, required)
     }
@@ -37,9 +39,10 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
         "action 缺失或不受支持，必须依据原任务选择当前支持的动作：#{Enum.join(Map.get(detail, :allowed_actions, []), "、")}。"
 
       schema ->
-        example = hd(schema.examples)
-        {guidance, example} = decision_example(detail, example)
-        guidance <> "合法最小示例：#{Jason.encode!(example)}。"
+        case decision_example(detail, hd(schema.examples)) do
+          {guidance, nil} -> guidance
+          {guidance, example} -> guidance <> "合法最小示例：#{Jason.encode!(example)}。"
+        end
     end
   end
 
@@ -53,22 +56,17 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
     revision? =
       Map.get(detail, :capability) == "revise_adopted_content" or
         Enum.any?(
-          ["target_chapter_ref", "modification_scope"],
+          ["target_chapter_ref"],
           &(&1 in Map.get(detail, :disallowed, []))
         )
 
     if revision? do
       guidance =
-        "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
-          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要填 target_chapter_ref/modification_scope。" <>
+        "内容修订的 execute 必须用 adopted_content_ref，按本轮可选目标原样复制；章级修订以 modification_scope 表达范围，不填 target_chapter_ref。" <>
+          schema_for_action("execute").properties.modification_scope.description <>
           schema_for_action("execute").properties.target_segment_ids.description
 
-      {guidance,
-       Map.merge(example, %{
-         capability: "revise_adopted_content",
-         adopted_content_ref: "<本轮可选目标里的真实章级/pending ref>",
-         dialogue_goal: "只改第一段，其余段落保持原样"
-       })}
+      {guidance, nil}
     else
       {"execute 必须提供非空的创作目标与范围 dialogue_goal，以及本轮允许的 capability。", example}
     end
@@ -110,11 +108,19 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
             Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
           adopted_content_ref:
             Map.put(@nullable_text, :description, "仅 execute 时可选；explore 不提供，包括 null。"),
+          modification_scope: %{
+            type: "string",
+            enum: Enum.map(AuthoringTask.modification_scopes(), &Atom.to_string/1),
+            description:
+              "仅 execute + revise_adopted_content + 章级 chapter_ref 时必填：根据本轮作者原话与上下文提出 format_only、target_segments 或 whole_chapter。format_only 只改全章换行，所有非换行字节不变；target_segments 修改已定位片段；whole_chapter 修订整章。范围有实质歧义先 ask_author；读取或完整覆盖不扩大修改范围。"
+          },
           target_segment_ids: %{
             type: "array",
+            minItems: 1,
+            uniqueItems: true,
             items: @text,
             description:
-              "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选；作者显式段号/字面目标时省略。只从本轮当前作者输入之后成功 chapter_read 观察的 target_segments 原样复制唯一 segment_id，所选片段须同章、同源 hash、相容版本，并由连续页完整覆盖。存储片段是机械边界，不等于自然段或首句；若保留片段内锚句但仍需修改其余文字，必须选中该片段并在替换正文中保留锚句。未选片段的全部字节都会保留，不能声称只保留其中一句。读取完整不扩大作者授权，也不要向作者索要内部编号。"
+              "仅章级 revise_adopted_content 且 modification_scope=target_segments 时必填；其他动作、whole_chapter 和 format_only 均不提供。段号、原文字词与阅读发现都由判断结合本轮 chapter_read 定位，只原样复制观察中的非空唯一 segment_id；目标不存在或有歧义不得改选其他对象。所选片段须同章、同源 hash、相容版本，并由连续页完整覆盖。存储片段不等于自然段或首句；片段内需保留的锚句必须在替换正文中保留，未选片段全部字节保持不变。不要向作者索要内部编号。"
           },
           character_ref:
             Map.put(

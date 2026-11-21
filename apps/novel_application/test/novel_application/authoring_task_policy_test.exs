@@ -62,7 +62,7 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert rules =~ "直接 execute prose_writing"
     assert rules =~ "不能以 reply / propose_creative_directions / await_author 结束"
     assert rules =~ "设计一个角色时用 execute character_design"
-    assert rules =~ "目标段/范围不明确时用 ask_author"
+    assert rules =~ "范围有实质歧义时用 ask_author"
   end
 
   test "负向取证允许诚实收束，排版规则与ADR-0029计划契约一致" do

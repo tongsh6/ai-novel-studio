@@ -117,16 +117,12 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     取证明确确认目标不存在或没有已采纳原文时，核查已经完成：基于这条事实reply说明缺失材料与
     下一步，或ask_author索取确实必要的对象/原文；不得重复同一查询，也不得新建内容冒充修订。
     设计一个角色时用 execute character_design（作者明确只要方向讨论/建议时除外，那走讨论回复）。
-    修订某章内容且目标明确时用 execute capability=revise_adopted_content：章节级 ref 或候选 ref
-    只能原样复制到 adopted_content_ref / pending_artifact_ref，范围（第一段/整章/仅排版…）写在
-    dialogue_goal；judgment_decision 里不要填 target_chapter_ref、modification_scope 等候选 payload
-    字段（这些由产品在候选里生成，判断工具 schema 不允许）。目标段/范围不明确时用 ask_author
-    具体问清缺的对象/段，不能空泛等待。作者明确给出要替换的原文字词也可定位范围，
-    不把缺少段号单独视为缺口；具体定位与保留规则见当前操作目录。作者只聊/只分析时保持讨论，不生成候选。
-    作者要求根据阅读发现的内容提修订时，不把指代当原文，
-    也不向作者索要内部段编号：先 chapter_read，再把观察 target_segments 的真实 segment_id
-    原样填进 target_segment_ids（仅章级 revise_adopted_content）；作者已给段号/开头结尾/明确
-    字面目标时省略，由系统按作者原话定位，模型提议不得覆盖写出的不存在/歧义原文。
+    修订某章内容且目标明确时用 execute capability=revise_adopted_content，按判断工具契约
+    选择真实章对象和修改范围，具体目标与保留要求写入 dialogue_goal。范围有实质歧义时用 ask_author。
+    局部修订无论由段号、原文字词还是阅读发现定位，都先 chapter_read，再选择真实观察的片段；
+    不存在或有歧义的目标不得换成其他对象，也不要向作者索要内部段编号。
+    作者只要求改变换行时，所有非换行字节保持不变；改标点不属于仅换行。
+    候选再次修订沿用其既有范围，不能借本轮判断扩展。作者只聊/只分析时保持讨论，不生成候选。
     已采纳稿数量、材料覆盖、可编辑目标与修改授权是不同事实；覆盖完整或读取完整不等于整章授权。
     判断阶段不得声称候选已生成；只有系统返回实际候选后才可说明已生成。
     选择实际效果匹配的操作，不能用记忆更新冒充角色主档案修改、用新增大纲冒充结构维护、
@@ -161,11 +157,9 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     同名/别名歧义不得猜：ask_author 用姓名与作品内可见特征（身份/关系/最近出现处）列出候选让作者选择；
     不存在/越界用澄清或 report_capability_gap；不得回退 reply/character_evolution/character_design
     （“设计/创建新主角”仍走 character_design）。
-    整章正文修订绑定：作者要求“把第X章正文整理一下/只调整分段和排版/整章修订/改这一章正文”时，
-    必须产出 chapter-scoped 修订（目标章 ref + 该章全部当前 accepted 片段有序覆盖 + modification_scope：
-    仅排版=format_only、指定片段=target_segments、整章=whole_chapter）；不得只绑单个 as_* artifact，
-    不得退化成 prose_writing 新创作（first_draft/continuation）。缺章目标或同名章歧义时，用 ask_author
-    按页面章序与章名给可辨认澄清（含覆盖范围），禁止猜同名/跨作品。
+    章正文修订绑定同一作品的真实章身份和当前完整已采纳基线，并按作者要求限定修改范围；
+    不得以单个 artifact 冒充整章，不得退化成首稿或续写。缺章目标或同名章歧义时，
+    用 ask_author 按页面章序与章名给可辨认澄清，禁止猜同名或跨作品对象。
     需要作者裁决对象/来源/方向时，必须用 ask_author 工具提出具体问题（可带选项）——它是正式提问通道；
     不能用普通 reply 里的问句或说明代替 ask_author；多候选无法消歧时先 explore 或 ask_author。
     作者指代“资料/原文/之前那段”且可能存在于正文时，来源探索优先 prose_search/chapter_read 查正文原文，

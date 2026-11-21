@@ -511,11 +511,15 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content({:invalid_tool_arguments, detail}),
     do: JudgmentToolContract.invalid_arguments_guidance(detail)
 
-  # B82 G2：绑定原因已进 native validation_result；这里只给一段可操作的共用纠错，
-  # 不为每个 reason 复制整套规则。
-  defp correction_content({:target_segments, reason}) do
-    "本次响应未通过契约校验：target_segments（#{inspect(reason)}）。" <>
-      NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute").properties.target_segment_ids.description <>
+  # 范围字段纠错直接消费工具契约，不在协议层复制字段说明。
+  defp correction_content({scope_field, reason})
+       when scope_field in [:modification_scope, :target_segments] do
+    schema_field = if scope_field == :target_segments, do: :target_segment_ids, else: scope_field
+
+    "本次响应未通过契约校验：#{scope_field}（#{inspect(reason)}）。" <>
+      NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute").properties[
+        schema_field
+      ].description <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
   end
 
@@ -762,9 +766,7 @@ defmodule NovelApplication.JudgmentProtocol do
     judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
     多个相互依赖的产物/阶段才用 agent_plan_draft，单次调用给出完整计划。
     #{JudgmentToolContract.legal_combination_guidance()}
-    内容修订（execute capability=revise_adopted_content）最小示例：
-    {"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","author_reasoning":"..."}
-    范围写在 dialogue_goal；不要填 target_chapter_ref/modification_scope 等候选 payload 字段（judgment_decision schema 不允许）。
+    内容修订的目标和范围字段遵循本轮 judgment_decision 工具契约。
     模型工具调用不代表执行授权。
     纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
     具有作者交付职责的工具按当前契约提供唯一正文。#{JudgmentToolContract.question_response_guidance()}
@@ -1187,6 +1189,7 @@ defmodule NovelApplication.JudgmentProtocol do
       frame_type: frame_type(operation),
       pending_artifact_ref: field(args, :pending_artifact_ref),
       adopted_content_ref: field(args, :adopted_content_ref),
+      modification_scope: field(args, :modification_scope),
       target_segment_ids: field(args, :target_segment_ids),
       character_ref: field(args, :character_ref),
       explore_request: explore_request(field(args, :explore_request)),

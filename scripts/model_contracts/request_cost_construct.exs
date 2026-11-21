@@ -2,7 +2,7 @@ defmodule ModelContracts.RequestCostConstruct do
   @moduledoc """
   B87 R05：同一冻结 recipe 经当前 checkout 的生产 run 构造请求。
   只在脚本内替换 Splash transport；原生固定响应不是模型推理证据。
-  固定 execute 路由只依据实际工具 schema 选择唯一作者说明字符串字段；固定响应随请求保留。
+  固定 execute 路由只依据实际工具 schema 选择作者说明字段及已声明的整章范围；固定响应随请求保留。
   DB/源码副本由外部 root 准备；不迁移、seed、恢复数据库或操作 Git。
   """
   alias Ecto.Adapters.SQL.Sandbox
@@ -241,7 +241,7 @@ defmodule ModelContracts.RequestCostConstruct do
     )
   end
 
-  # B87 §16.24：同一冻结 driver 只适配真实 schema 的作者说明字段，不按 arm/源码猜测。
+  # B87 §16.24：同一冻结 driver 按真实 schema 适配作者说明与整章范围，不按 arm/源码猜测。
   defp response_for_request!(%{content: "", tool_calls: [call]} = response, body) do
     schema = request_tool_schema!(body, call.function.name)
 
@@ -258,6 +258,21 @@ defmodule ModelContracts.RequestCostConstruct do
           arguments
           |> Map.delete("author_reasoning")
           |> Map.put(field, narrative)
+
+        arguments =
+          case Map.fetch(schema["properties"], "modification_scope") do
+            :error ->
+              arguments
+
+            {:ok, %{"type" => "string", "enum" => scopes}} when is_list(scopes) ->
+              unless "whole_chapter" in scopes,
+                do: raise("judgment_decision modification_scope must allow whole_chapter")
+
+              Map.put(arguments, "modification_scope", "whole_chapter")
+
+            _ ->
+              raise "judgment_decision modification_scope must declare a string enum"
+          end
 
         function = %{call.function | arguments: Jason.encode!(arguments)}
         %{response | tool_calls: [%{call | function: function}]}

@@ -1235,6 +1235,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         {"agent_plan_draft", agent_plan_tool_arguments(packet)}
 
+      match?(%{"modification_scope" => "target_segments", "target_segment_ids" => []}, args) ->
+        {"judgment_decision",
+         %{
+           action: "explore",
+           explore_request: %{
+             tool: "chapter_read",
+             query: Jason.encode!(%{chapter_ref: args["adopted_content_ref"]})
+           }
+         }}
+
       true ->
         single_fixture_decision(args)
     end
@@ -1280,7 +1290,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     filtered =
       Map.take(
         args,
-        ~w(action author_reasoning dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref)
+        ~w(action author_reasoning dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref modification_scope target_segment_ids)
       )
 
     filtered =
@@ -5354,10 +5364,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   @doc """
-  B28 CP1.5/CP2：从判断 prompt 的「可选章级修订目标」段与作者原话解析章级修订参数。
-  返回 %{capability/adopted_content_ref/modification_scope/dialogue_goal}；
-  无章级意图/无可用章目标返回 nil。仅 test-support，不参与产品协议字段（judgment
-  schema 不接受 modification_scope；产品按 dialogue_goal/作者原话确定性推导范围）。
+  既有测试替身的章修订参数：消费可见目标并返回预设范围；无目标返回 nil。
+  modification_scope 透传现判断工具合同；局部选集只能来自同轮真实章页。
+  这些固定规则仅服务机制夹具，不是产品的原话解释器或实模语义证据。
   """
   def chapter_revision_arguments(prompt) when is_binary(prompt) or is_map(prompt) do
     targets = chapter_revision_targets_from_prompt(prompt)
@@ -5397,8 +5406,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @b28_negated_whole ~r/(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(整章|全章|整篇|全文)[^，,。；;]{0,10}(重写|改写|润色|修订|修改|整理|优化|调整|改)|(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(重写|改写|润色|修订|修改|整理|优化|调整|改)[^，,。；;]{0,10}(整章|全章|整篇|全文)/u
 
   # B28 CP1：此替身保留既有测试场景的预设规则，不充当产品授权判断或实模证据。
-  # 产品原话判定由 ChapterRevisionAuthorInput 统一承担，机械范围/观察绑定归 ChapterRevisionScope；
-  # novel_agent 不反向依赖 application。替身只读/不改拒绝仍返回 nil，不声明镜像完整产品语法。
+  # 产品原话由 Judgment 理解，机械范围/观察绑定归 ChapterRevisionScope；替身不声称验证模型理解。
   defp chapter_revision_intent?(author_text) do
     text = to_string(author_text)
 
@@ -5534,19 +5542,51 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         arguments
 
       revision ->
-        Map.merge(arguments, %{
-          "action" => "execute",
-          "capability" => revision.capability,
-          "adopted_content_ref" => revision.adopted_content_ref,
-          "pending_artifact_ref" => nil,
-          "frame_type" => nil,
-          "dialogue_goal" => revision.dialogue_goal,
-          "candidate_directions" => [],
-          "author_content_registration" => false,
-          "record_only" => false
-        })
+        arguments =
+          Map.merge(arguments, %{
+            "action" => "execute",
+            "capability" => revision.capability,
+            "modification_scope" => revision.modification_scope,
+            "adopted_content_ref" => revision.adopted_content_ref,
+            "pending_artifact_ref" => nil,
+            "frame_type" => nil,
+            "dialogue_goal" => revision.dialogue_goal,
+            "candidate_directions" => [],
+            "author_content_registration" => false,
+            "record_only" => false
+          })
+
+        if revision.modification_scope == "target_segments",
+          do:
+            Map.put(
+              arguments,
+              "target_segment_ids",
+              chapter_revision_observed_target_ids(prompt, revision.adopted_content_ref)
+            ),
+          else: arguments
     end
   end
+
+  # 固定替身仅取本轮真实读页中的首个完整片段，不据作者词句模拟定位理解。
+  defp chapter_revision_observed_target_ids(%RequestIR{} = ir, chapter_ref) do
+    messages =
+      ir.messages |> Enum.reverse() |> Enum.take_while(&(&1.role != "user")) |> Enum.reverse()
+
+    observations = RequestIR.visible_observations(%{ir | messages: messages})
+
+    ids =
+      for %{status: "ok", content: content, coverage: coverage} <- observations,
+          content["tool"] == "chapter_read",
+          coverage["chapter_ref"] == chapter_ref,
+          segment <- content["target_segments"] || [],
+          segment["byte_start"] >= get_in(coverage, ["prose_byte_range", "start"]),
+          segment["byte_end"] <= get_in(coverage, ["prose_byte_range", "end"]),
+          do: segment["segment_id"]
+
+    Enum.take(Enum.uniq(ids), 1)
+  end
+
+  defp chapter_revision_observed_target_ids(_prompt, _chapter_ref), do: []
 
   # Q1c 已采纳设定修订：判断 prompt 在「已采纳可修订对象」段落列出真实 accepted ref。
   # 这里只消费目录，不猜目标；目标缺失时保持原 verdict（生产会走 await/拒绝路径）。

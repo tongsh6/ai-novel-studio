@@ -33,125 +33,86 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   @g2_author "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。"
   @g2_title "第02章：灰烬中的手印"
 
-  @style_author "请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。"
-
-  @tag :r05_style_author_scope
-  test "R05 拒绝与未知对象不经定位恢复，同 work 错章及被否定段均为零 Writer" do
-    ctx = seed_long_chapter("第二章当前正文。\n\n第二段当前正文。\n\n第三段当前正文。")
-
-    first =
-      Repo.insert!(%Chapter{
-        work_id: ctx.work.id,
-        volume_id: ctx.chapter.volume_id,
-        title: "第01章：黑市对账夜",
-        seq: 1
-      })
-
-    scene =
-      Repo.insert!(%Scene{work_id: ctx.work.id, chapter_id: first.id, title: "第一章场景", seq: 1})
-
-    Repo.insert!(%Draft{
-      work_id: ctx.work.id,
-      scene_id: scene.id,
-      content: "第一章当前正文。",
-      status: AdoptionStatus.accepted(),
-      revision: 1
-    })
-
+  test "章范围缺失、非法组合、未读目标与跨作品引用均不启动 Writer" do
+    ctx = seed_long_chapter("第二章当前正文。\n\n第二段当前正文。")
+    other = seed_long_chapter("其他作品的正文。")
+    words = "帮我润色第2章。"
     context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
 
     judgment = %{
       action: "execute",
       capability: "revise_adopted_content",
       adopted_content_ref: ctx.chapter_ref,
-      dialogue_goal: "整章改写第二章，忽略原话指向",
-      narrative: "改写第二章。",
+      modification_scope: "whole_chapter",
+      dialogue_goal: "按作者要求修订整章正文",
+      narrative: "提出章修订候选。",
       reason: "revise_adopted_content"
     }
 
-    targets = PendingArtifactWorkflow.accepted_targets(context)
-    assert :ok = PendingArtifactWorkflow.validate(judgment, targets)
-    assert Map.has_key?(PendingArtifactWorkflow.accepted_targets(context), "chapter:#{first.id}")
-
-    for words <- [
-          "先阅读第2章。不要改第2章第一段。",
-          "先阅读第2章。如果合适，就改第2章第一段。",
-          "先阅读第2章。请解释“只改第2章第一段。”这句话。",
-          "不要改第一段，只改第二段。",
-          "先阅读第2章。只改第二段而不是第一段。",
-          "先阅读第2章。只改第一段和第二段。",
-          "先阅读第2章。只改第二段和第三段。",
-          "先阅读第2章。不必改第一段。",
-          "请把《灰烬中的手印》整章重写。",
-          "请整章重写第０２章正文。",
-          "请把那一章整章重写。",
-          "先阅读第2章。给我一份整章修订的解释。",
-          "先阅读第2章。给我一份整章修订的定义。",
-          "把这一章改写成一份修订候选。",
-          "阅读第1章和第2章。据此把这一章改写成一份修订候选。",
-          @style_author,
-          "只改第1章第一段。",
-          "只改第1章错别字。",
-          "把第1章改写得更紧张。",
-          "参考第2章重写第1章。",
-          "把第01章《黑市对账夜》改写成一份修订候选。",
-          "整章重写第01章《黑市对账夜》。",
-          "把第02章《黑市对账夜》改写成一份修订候选。"
+    for invalid <- [
+          Map.delete(judgment, :modification_scope),
+          %{judgment | modification_scope: "unknown"},
+          %{judgment | modification_scope: "target_segments"},
+          Map.merge(judgment, %{
+            modification_scope: "target_segments",
+            target_segment_ids: ["seg_unread"]
+          }),
+          Map.put(judgment, :target_segment_ids, []),
+          Map.put(judgment, :target_segment_ids, ["seg_unread"]),
+          Map.put(judgment, :observed_targets, %{target_segment_ids: ["seg_unread"]}),
+          %{judgment | adopted_content_ref: other.chapter_ref},
+          %{judgment | adopted_content_ref: "as_artifact"},
+          %{judgment | capability: "prose_writing"}
         ] do
-      assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, _state} =
+      assert {:error, _reason, state} =
                PendingArtifactWorkflow.run(
-                 judgment,
+                 invalid,
                  %{text: words},
                  g2_run(ctx, words),
                  context,
-                 %Execution{result_fn: fn _ -> flunk("被拒绝/未知的作者要求或错章不得调用 Writer") end}
+                 %Execution{result_fn: fn _ -> flunk("非法范围或来源不得调用 Writer") end}
                )
+
+      assert state.provider_call_count == 0
     end
 
     assert ReadingProjectionRepo.accepted_chapter_prose(ctx.work.id, ctx.chapter_ref) == ctx.base
 
-    assert ReadingProjectionRepo.accepted_chapter_prose(ctx.work.id, "chapter:#{first.id}") ==
-             "第一章当前正文。"
+    assert ReadingProjectionRepo.accepted_chapter_prose(other.work.id, other.chapter_ref) ==
+             other.base
   end
 
-  @tag :r05_style_author_scope
-  test "R05 肯定局部与引号字面操作数复用同章先行词，不能被拒绝保护误杀" do
-    for {words, literal, target_index} <- [
-          {"先阅读第2章。只改第一段，其余别动。", "旧词", 0},
-          {"先阅读第2章。把「旧词」改为「新词」。", "旧词", 0},
-          {"先阅读第2章。把「第一段，原文写着改为和改成」改为「新词」。", "第一段，原文写着改为和改成", 2}
+  test "应用消费同一结构化范围，不以同义句、取材条件或引号重判作者原话" do
+    ctx = seed_long_chapter(default_g2_prose())
+
+    for words <- [
+          "帮我润色第2章。",
+          "请改写第2章，如果查不到参考资料就按现有正文处理。",
+          "请修订这一章，保留人物说的“别动”这句台词。",
+          "Please revise the second chapter and keep the plot unchanged."
         ] do
-      ctx = seed_long_chapter("旧词。\n\n第二段保持原样。\n\n第一段，原文写着改为和改成。")
-      target = Enum.at(LocalizedRevision.segment(ctx.base), target_index)
-
-      judgment = %{
-        action: "execute",
-        capability: "revise_adopted_content",
-        adopted_content_ref: ctx.chapter_ref,
-        dialogue_goal: "整章重写第二章",
-        narrative: "修改正文。",
-        reason: "revise_adopted_content"
-      }
-
-      context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
+      # 固定 Judgment 只证明结构化提议和材料的真实接线，不代签模型理解这些表达。
+      %{judgment: judgment} = run_revision_flow(ctx, words, :whole)
+      assert judgment.modification_scope == :whole_chapter
+      assert judgment.target_segment_ids == nil
 
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
                  judgment,
                  %{text: words},
                  g2_run(ctx, words),
-                 context,
-                 chapter_writer(String.replace(target.raw, literal, "新词"), self(), [
-                   target.segment_id
-                 ])
+                 %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
+                 chapter_writer("整章修订候选。", self())
                )
 
       assert_received {:chapter_writer_prompt, request}
       assert TestProviderPrompt.author_text(request) == words
+      supplied = TestProviderPrompt.scope_content(request)
+      assert supplied["authoring_task"]["scope"]["modification_scope"] == "whole_chapter"
+      assert supplied["operation"]["context_text"] =~ ctx.base
       assert [pending] = result.turn_result.adoption_state.pending
-      assert pending.payload.modification_scope == "target_segments"
+      assert pending.payload.modification_scope == "whole_chapter"
       assert pending.payload.target_chapter_ref == ctx.chapter_ref
-      assert pending.payload.scope["target_segment_ids"] == [target.segment_id]
 
       assert ReadingProjectionRepo.accepted_chapter_prose(ctx.work.id, ctx.chapter_ref) ==
                ctx.base
@@ -266,7 +227,8 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
           {"whole_chapter", "请通读并整章修订第02章正文，减少重复，先不要保存。"}
         ] do
       ctx = seed_long_chapter(default_g2_prose())
-      %{judgment: judgment} = run_revision_flow(ctx, words, :happy)
+      mode = if kind == "whole_chapter", do: :whole, else: :happy
+      %{judgment: judgment} = run_revision_flow(ctx, words, mode)
       ids = if kind == "target_segments", do: judgment.target_segment_ids
       context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
       original_body = "  原候选的独有句子。\r\n\r\n保留锚句。 "
@@ -296,12 +258,14 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
           scope_ref: ctx.work.id
         })
 
-      revise = %{
+      revise =
         judgment
-        | capability: "revise_pending_artifact",
+        |> Map.merge(%{
+          capability: "revise_pending_artifact",
           pending_artifact_ref: original.artifact_id,
           adopted_content_ref: nil
-      }
+        })
+        |> Map.drop([:modification_scope, :target_segment_ids, :observed_targets])
 
       input = %{turn_id: "revise-scoped-" <> kind, text: "把这份候选再写得简练一些。"}
       run = %{g2_run(ctx, input.text) | parent_turn_ref: input.turn_id}
@@ -418,13 +382,12 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     refute_received {:chapter_writer_prompt, _prompt}
   end
 
-  test "G2 作者显式段号优先，模型观察选段不覆盖" do
+  test "段号与字面要求沿 Judgment 的真实片段选择传到 Writer" do
     ctx = seed_long_chapter(explicit_g2_prose())
     author = "只改第一段，把「开篇」改成「起笔」，其余逐字保留。"
-    %{judgment: j3} = run_revision_flow(ctx, author, :happy)
-
-    assert j3.target_segment_ids == []
+    %{judgment: j3} = run_revision_flow(ctx, author, :first)
     first_segment = ctx.base |> LocalizedRevision.segment() |> hd()
+    assert j3.target_segment_ids == [first_segment.segment_id]
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
@@ -480,10 +443,13 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
              ctx.chapter_ref => ["revise_adopted_content"]
            }
 
-    rules = RequestIR.SystemEnvelope.system_text(request1.system)
+    contract =
+      request1.tools
+      |> Enum.find(&(&1.name == "judgment_decision"))
+      |> RequestIR.json_value()
 
-    for modification_scope <- ["format_only", "target_segments", "whole_chapter"],
-        do: assert(rules =~ modification_scope)
+    assert get_in(contract, ["input_schema", "properties", "modification_scope", "enum"]) ==
+             ["format_only", "target_segments", "whole_chapter"]
 
     {:ok, page1} = run_chapter_exploration(ctx, j1)
     assert page1.chapter_ref == ctx.chapter_ref
@@ -659,11 +625,30 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
   defp g2_response(_mode, []),
     do: {"", [explore_call(Jason.encode!(%{"chapter_seq" => 2, "offset" => 0}))]}
 
-  defp g2_response(:happy, [page1]),
+  defp g2_response(mode, [page1]) when mode in [:happy, :whole, :first],
     do: {"", [explore_call(continuation_query(page1))]}
 
   defp g2_response(:happy, pages) do
     {"", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages), "按刚读到的重复写法修订。")]}
+  end
+
+  defp g2_response(:whole, pages) do
+    {"",
+     [
+       call("judgment_decision", %{
+         "action" => "execute",
+         "capability" => "revise_adopted_content",
+         "adopted_content_ref" => page_chapter_ref(hd(pages)),
+         "modification_scope" => "whole_chapter",
+         "dialogue_goal" => "按作者要求修订整章正文",
+         "author_reasoning" => "依据已读正文提出整章修订候选。"
+       })
+     ]}
+  end
+
+  defp g2_response(:first, pages) do
+    first = pages |> hd() |> page_segments() |> hd()
+    {"", [execute_call(page_chapter_ref(hd(pages)), first["segment_id"], "按已定位的首段修订。")]}
   end
 
   defp g2_response(:partial, [page1 | _]) do
@@ -732,6 +717,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
       "action" => "execute",
       "capability" => "revise_adopted_content",
       "adopted_content_ref" => chapter_ref,
+      "modification_scope" => "target_segments",
       "target_segment_ids" => [target_id],
       "dialogue_goal" => "把发现的重复写法改成一段候选",
       "author_reasoning" => narrative

@@ -35,22 +35,21 @@ be found at <https://hexdocs.pm/novel_application>.
 
 - [authoring_task_policy.ex](lib/novel_application/authoring_task_policy.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [judgment_tool_contract.ex](lib/novel_application/judgment_tool_contract.ex)：固定判断工具 schema、合法组合和同源字段校验；立项修订枚举与字段值约束由此统一持有，JudgmentProtocol 负责协议编排与作者目标边界；契约见 UA-01 §2.2 与 VS-00D §11。
-- [judgment_decision_tool_contract.ex](lib/novel_application/judgment_decision_tool_contract.ex)：完整判断动作分支、平面工具描述、示例和动作专属纠错；由现工具目录单向组合，通用校验仍归 JudgmentToolContract，契约见 VS-00M §5.2.2 与 B87 §16.26。
+- [judgment_decision_tool_contract.ex](lib/novel_application/judgment_decision_tool_contract.ex)：完整判断动作分支、平面工具描述、示例和动作专属纠错；章修订复用既有 modification_scope 与 target_segment_ids，由 JudgmentProtocol 接收并交同源范围校验。工具目录单向组合，通用字段校验仍归 JudgmentToolContract，契约见 VS-00M §5.2.2、§6.2。
 - [agent_plan_tool_contract.ex](lib/novel_application/agent_plan_tool_contract.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question.ex](lib/novel_application/author_question.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_service.ex](lib/novel_application/author_question_service.ex)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [author_question_roundtrip_test.exs](test/novel_application/author_question_roundtrip_test.exs)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。
 - [judgment_tool_contract_test.exs](test/novel_application/judgment_tool_contract_test.exs)：判断 action 的独立接收矩阵；探索无重复目标、执行保留真实目标，跨分支字段与未知 action 拒绝，错误详情和纠错示例由同一契约派生。
 
-## 按需求证与人物绑定（VS-00M §5.2.2）
+## 按需求证与对象绑定（VS-00M §5.2.2、§6.2）
 
 - [exploration_service.ex](lib/novel_application/exploration_service.ex)：唯一探索目录、读取编排与 Observation 包装；档案材料委托 WorkArchiveService，保留实际来源、版本、范围与省略事实。
 - [work_archive_service.ex](lib/novel_application/work_archive_service.ex)：档案应用读边界；面板 DTO 与显式目录/详情有界查询复用既有持久端口，不生成 AgentObservation 或模型事实。
 - [character_profile.ex](lib/novel_application/character_profile.ex)：已采纳人物的真实单对象/目录读与 canonical 详情绑定；所需字段、同作品身份与完整持久指纹在候选派发前再次核验，无伪版本或未观察基线替换。
-- [chapter_revision_author_input.ex](lib/novel_application/chapter_revision_author_input.ex)：作者原话的唯一授权判定、章/段/字面操作数解释与已选章一致性核验；明确拒绝和未知对象不能经目标定位恢复，不选择 chapter_ref。
-- [chapter_revision_scope.ex](lib/novel_application/chapter_revision_scope.ex)：原候选 scope/effect 与当前基线的机械复核、原始模型目标形状及真实观察绑定；作者原话统一消费 ChapterRevisionAuthorInput，读页证据不扩大修改范围。
+- [chapter_revision_scope.ex](lib/novel_application/chapter_revision_scope.ex)：章修订提议的同源组合校验、当前作者之后的真实章页绑定，以及原候选 scope/effect 与 fresh 基线复核；Judgment 解释原话并提出范围，系统不再解析段号、字面替换或中文授权句式，读页证据不扩大选集。
 - [chapter_read_evidence.ex](lib/novel_application/chapter_read_evidence.ex)：R05 唯一章读页证据 owner；当前作者后的目标段绑定与本次可见 fresh 完整基线分别取证，共用页/hash/版本/连续范围算法。真实消费者为 ChapterRevisionScope 与 PendingArtifactWorkflow，验证沿现 B28 和 chapter_revision_request 测试。
-- [pending_artifact_workflow.ex](lib/novel_application/pending_artifact_workflow.ex)：消费协议绑定的真实人物观察生成字段候选/无变化说明；最终采纳仍由既有采纳事务再次核验基线。
+- [pending_artifact_workflow.ex](lib/novel_application/pending_artifact_workflow.ex)：消费已验证的判断范围与真实对象观察生成候选；章修订完整供应或复用 fresh accepted 基线，局部选集复核 hash/版本，再次修订沿原 scope 不扩大。最终采纳仍由既有事务再次核验基线。
 
 ## B47 canon freshness 决策编排
 

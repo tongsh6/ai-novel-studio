@@ -263,36 +263,14 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     refute Enum.at(body.messages, 2).content =~ @author_a
     assert Enum.count(body.messages, &(&1.role == "user" and &1.content == @author_a)) == 1
 
-    shared_rule = "本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行"
-    assert hd(body.messages).content =~ shared_rule
-    assert occurrences(Jason.encode!(body), shared_rule) == 1
-
-    for target <- @projection_targets do
-      assert {:ok, projected} = Projection.project(request, target)
-      assert occurrences(Jason.encode!(projected), shared_rule) == 1
-
-      for {tool_name, obligation} <- [
-            {"judgment_decision", "explore 不提供，包括 null；content 必须为空"},
-            {"agent_plan_draft", "说明计划的目标、安排和依据，不把计划说成已执行"},
-            {"register_author_content", "不改写原文或声称已被采纳"},
-            {"propose_creative_directions", "说明方向的依据与区别，保留作者选择"},
-            {"propose_work_profile_revision", "这是待采纳提案，不是已生效修改"},
-            {"report_capability_gap", "不把建议说成已执行"}
-          ] do
-        assert [tool] =
-                 Enum.filter(projected.tools, fn tool ->
-                   (get_in(tool, [:function, :name]) || tool[:name]) == tool_name
-                 end)
-
-        schema =
-          get_in(tool, [:function, :parameters]) || tool[:parameters] || tool[:input_schema]
-
-        assert %{"type" => "string", "minLength" => 1, "description" => description} =
-                 schema["properties"]["author_reasoning"]
-
-        assert description =~ obligation
-      end
-    end
+    assert_narrative_contract(request, body, [
+      {"judgment_decision", "explore 不提供，包括 null；content 必须为空"},
+      {"agent_plan_draft", "说明计划的目标、安排和依据，不把计划说成已执行"},
+      {"register_author_content", "不改写原文或声称已被采纳"},
+      {"propose_creative_directions", "说明方向的依据与区别，保留作者选择"},
+      {"propose_work_profile_revision", "这是待采纳提案，不是已生效修改"},
+      {"report_capability_gap", "不把建议说成已执行"}
+    ])
   end
 
   test "两个独立作者输入的同半稳定上下文共享前缀覆盖结构化 Scope 事实边界" do
@@ -508,30 +486,10 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
       assert ir.tools != []
 
-      shared_rule = "本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行"
-      body = capture(ir)
-      assert hd(body.messages).content =~ shared_rule
-      assert occurrences(Jason.encode!(body), shared_rule) == 1
-
-      for target <- @projection_targets do
-        assert {:ok, projected} = Projection.project(ir, target)
-        assert occurrences(Jason.encode!(projected), shared_rule) == 1
-
-        assert [continuation] =
-                 Enum.filter(projected.tools, fn tool ->
-                   (get_in(tool, [:function, :name]) || tool[:name]) == "continuation_decision"
-                 end)
-
-        schema =
-          get_in(continuation, [:function, :parameters]) || continuation[:parameters] ||
-            continuation[:input_schema]
-
-        assert %{"type" => "string", "minLength" => 1, "description" => description} =
-                 schema["properties"]["author_reasoning"]
-
-        assert description =~ "唯一作者说明原文，content 必须为空"
-        assert description =~ "依据已观察到的偏离说明为何这样调整"
-      end
+      assert_narrative_contract(ir, capture(ir), [
+        {"continuation_decision", "唯一作者说明原文，content 必须为空"},
+        {"continuation_decision", "依据已观察到的偏离说明为何这样调整"}
+      ])
     end
 
     test "continuation 没有作者消息时保留 application goal，不伪造 user" do
@@ -792,6 +750,28 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     assert_receive {:captured_request, body}, 1_000
     body
+  end
+
+  defp assert_narrative_contract(request, body, obligations) do
+    shared_rule = "本次调用的工具参数、引用绑定、指纹和版本校验属于内部执行"
+    assert hd(body.messages).content =~ shared_rule
+    assert occurrences(Jason.encode!(body), shared_rule) == 1
+
+    for target <- @projection_targets do
+      assert {:ok, projected} = Projection.project(request, target)
+      assert occurrences(Jason.encode!(projected), shared_rule) == 1
+      tools = Enum.map(projected.tools, &(Map.get(&1, :function) || &1))
+
+      for {tool_name, obligation} <- obligations do
+        assert [tool] = Enum.filter(tools, &(&1.name == tool_name))
+        schema = tool[:parameters] || tool[:input_schema]
+
+        assert %{"type" => "string", "minLength" => 1, "description" => description} =
+                 schema["properties"]["author_reasoning"]
+
+        assert description =~ obligation
+      end
+    end
   end
 
   defp serialize(%{messages: messages}) do

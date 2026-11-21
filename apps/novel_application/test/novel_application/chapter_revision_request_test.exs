@@ -110,7 +110,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
         {"whole-03", @whole_author, "whole_chapter", "第02章：灰烬中的手印", 2}
       ] do
     @tag :r05_style_author_scope
-    test "R05 #{scenario} 自然原话经真实 PWF→Writer 保留 #{kind}，模型 goal 不扩权", c do
+    test "R05 #{scenario} 给定判断范围 #{kind} 经 PWF→Writer 保留，作者原话不变", c do
       Repo.get!(Chapter, String.replace_prefix(c.chapter_ref, "chapter:", ""))
       |> Ecto.Changeset.change(title: unquote(chapter_title), seq: unquote(chapter_seq))
       |> Repo.update!()
@@ -124,7 +124,9 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
-                 judgment(c.chapter_ref, %{dialogue_goal: "整章改写全部正文，不按原话缩小范围"}),
+                 chapter_judgment(c, input, unquote(kind), ids, %{
+                   dialogue_goal: "按本轮目标生成修订候选"
+                 }),
                  input,
                  run,
                  c.context,
@@ -161,7 +163,9 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
-                 judgment(c.chapter_ref, %{dialogue_goal: goal}),
+                 chapter_judgment(c, input, unquote(scope_name), target_ids, %{
+                   dialogue_goal: goal
+                 }),
                  input,
                  run,
                  c.context,
@@ -264,6 +268,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
       capability: "revise_adopted_content",
       adopted_content_ref: state.source.chapter_ref,
       author_input: words,
+      modification_scope: "target_segments",
       target_segment_ids: [target["segment_id"]]
     }
 
@@ -406,7 +411,10 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
-               judgment(source.chapter_ref, %{dialogue_goal: "修订第二章整章正文"}),
+               judgment(source.chapter_ref, %{
+                 dialogue_goal: "修订第二章整章正文",
+                 modification_scope: "whole_chapter"
+               }),
                state.input,
                state.run,
                c.context,
@@ -667,6 +675,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
       action: "execute",
       capability: "revise_adopted_content",
       adopted_content_ref: source.chapter_ref,
+      modification_scope: "whole_chapter",
       dialogue_goal: "修订第二章整章正文，保留待采纳状态",
       author_reasoning: "按作者要求生成整章修订候选"
     }
@@ -721,6 +730,20 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
   defp ref_id(%{ref: ref}), do: ref
   defp ref_id(%{"ref" => ref}), do: ref
   defp ref_id(ref) when is_binary(ref), do: ref
+
+  # 固定模型范围仅验证传递；局部选集仍经真实当前章页和产品绑定，不验证模型语义。
+  defp chapter_judgment(c, input, scope, ids, opts) do
+    proposal = judgment(c.chapter_ref, Map.put(opts, :modification_scope, scope))
+
+    if scope == "target_segments" do
+      request = TestAgenticLoopFixtures.chapter_read_request(c.run, input, c.chapter_ref)
+      proposal = Map.put(proposal, :target_segment_ids, ids)
+      assert {:ok, bound} = ChapterRevisionScope.bind_observed_targets(proposal, request)
+      bound
+    else
+      proposal
+    end
+  end
 
   defp judgment(chapter_ref, opts) do
     Map.merge(
