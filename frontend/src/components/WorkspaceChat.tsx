@@ -4930,6 +4930,8 @@ export function WorkspaceChat() {
           {/* 对话流区域 (Chat Area) */}
           <div
             className={styles.chatArea}
+            role="region"
+            aria-label={WORKBENCH.conversationRegion}
             ref={chatAreaRef}
             onScroll={() => {
               const chatArea = chatAreaRef.current;

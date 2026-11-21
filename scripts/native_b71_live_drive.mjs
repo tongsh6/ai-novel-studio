@@ -20,6 +20,7 @@ import { authorBoundary, axTurnOutcome, countAxAuthorMessages, readingPageFailur
 import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
 import { capturePendingItemViews, isScrollUnsupported } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { actionLabelsFor } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { clippedViewport, r05ReplySurface, r05ReplyEdgeVisible } from "./lib/native_ui/authoring_r05_evidence.mjs";
 import {
   classifyTurnBody,
@@ -68,6 +69,7 @@ async function captureR05Candidates(config) {
   for (const [index, item] of items.entries()) {
     views.push(...await capturePendingItemViews(harness, {
       itemTitle: item.title, itemBody: item.body, knownItems, prefix: `r05-candidate-${index + 1}`,
+      buttonLabel: actionLabelsFor("prose_fragment").accept,
     }));
   }
   return views;
@@ -264,7 +266,7 @@ async function waitVisibleOutcome(message, { baselineAuthorCount, observation, c
       observe(nodes, true);
       const boundary = authorBoundary(nodes, message, baselineAuthorCount);
       return boundary.author && nodes.some((node) =>
-        node.role === "AXButton" && node.title === "保存修订稿" &&
+        node.role === "AXButton" && node.title === actionLabelsFor("prose_fragment").accept &&
         node.enabled !== false && isVisibleNode(node) && withinAuthorBoundary(node, {
           container: boundary.container, afterPath: boundary.authorGroup,
           beforePath: boundary.nextAuthor?.path ?? null,

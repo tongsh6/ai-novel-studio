@@ -102,20 +102,29 @@ function fakeHarness(spec, options = {}) {
   const nodes = () => {
     const text = history ? spec.authors[0].text : spec.authors.at(-1).text;
     const list = [node("0", "AXWindow", "", [0, 0, 1000, 900]),
-      node("0/0", "AXScrollArea", "", [0, 100, 1000, 700]),
-      node("0/0/0", "AXGroup"), node("0/0/0/0", "AXStaticText", "你"),
-      node("0/0/1", "AXGroup"), node("0/0/1/0", "AXStaticText", text,
-        options.originalOffscreen && history ? [40, 1200, 700, 30] : [40, 150, 700, 30])];
+      node("0/0", "AXWebArea", "", [0, 0, 1000, 900]),
+      ...(options.regionMissing ? [] : [{
+        ...node("0/0/10", "AXGroup", "", [0, 100, 1000, 700]),
+        title: options.wrongRegion ? "另一片区域" : "会话消息",
+        desc: "会话消息", subrole: "AXLandmarkRegion",
+      }]),
+      node("0/0/10/0", "AXGroup"), node("0/0/10/0/0", "AXStaticText", "你"),
+      node("0/0/10/1", "AXGroup"), node("0/0/10/1/0", "AXStaticText", text,
+        options.originalOffscreen && history ? [40, 1200, 700, 30] :
+          options.originalBehindRegion && history ? [40, 820, 700, 30] : [40, 150, 700, 30])];
     if (history) return [...list, node("0/1", "AXButton", RETURN, [40, 40, 200, 30])];
-    list.push(node("0/0/2", "AXButton", EXPAND,
+    list.push(node("0/0/10/2", "AXButton", EXPAND,
       options.noticeNeedsScroll && !noticeScrolled ? [40, 1200, 700, 30] : [40, 250, 700, 30]));
     if (expanded) {
       const reason = options.wrongVisibleCount ? "错误计数" : "为了保持这次创作始终清晰连贯，系统整理了较早的记录：" +
         "工作范围记录 1 条" + (spec.counts.discussion_messages ? "、讨论回复 1 条" : "") + "。";
-      list.push(node("0/0/3", "AXGroup", "已整理的较早记录"),
-        node("0/0/3/0", "AXStaticText", reason),
-        node("0/0/3/1", "AXStaticText", "原始记录仍然保留，不会被删除或改写。"),
-        node("0/0/3/2", "AXButton", OPEN));
+      const panelPath = options.panelOutsideConversation ? "0/2" : "0/0/10/3";
+      const panelFrame = options.panelBehindRegion ? [40, 780, 700, 60] :
+        options.panelOutsideConversation ? [40, 40, 700, 30] : [40, 150, 700, 30];
+      list.push(node(panelPath, "AXGroup", "已整理的较早记录", panelFrame),
+        node(panelPath + "/0", "AXStaticText", reason, panelFrame),
+        node(panelPath + "/1", "AXStaticText", "原始记录仍然保留，不会被删除或改写。", panelFrame),
+        node(panelPath + "/2", "AXButton", OPEN, panelFrame));
     }
     return list;
   };
@@ -255,7 +264,7 @@ test("展开面板仅在AX存在但被视口裁切时，不得签完整可见", 
   const spec = fixture(), fake = fakeHarness(spec);
   const poll = fake.harness.pollAx.bind(fake.harness);
   fake.harness.pollAx = (predicate, timeout, label) => poll((_text, current) => {
-    const shifted = current.map((node) => node.path.startsWith("0/0/3")
+    const shifted = current.map((node) => node.path.startsWith("0/0/10/3")
       ? { ...node, frame: [40, 790, 700, 90] } : node);
     return predicate(shifted.map((node) => node.value).join("\n"), shifted);
   }, timeout, label);
@@ -265,12 +274,27 @@ test("展开面板仅在AX存在但被视口裁切时，不得签完整可见", 
     readProviderRecords: fake.readProviderRecords }), /panel_visible/);
 });
 
+test("顶层窗口可见不能替代会话区域：面板与原作者都服从实际区域裁切", async () => {
+  for (const [options, reason] of [
+    [{ panelBehindRegion: true }, /panel_visible/],
+    [{ originalBehindRegion: true }, /original_visible/],
+    [{ regionMissing: true }, /notice_restored/],
+    [{ wrongRegion: true }, /notice_restored/],
+  ]) await assert.rejects(execute(fixture(), options), reason);
+});
+
+test("会话外面板保留窗口裁切用途，不伪造其会话祖先", async () => {
+  const value = await execute(fixture(), { panelOutsideConversation: true });
+  assert.equal(value.result.status, "mechanical_pass_visual_review_required");
+  assert.equal(value.result.checks.original_navigation, true);
+});
+
 test("截图前面板已移出视口时，不借之前AX的成功放行", async () => {
   const spec = fixture(), fake = fakeHarness(spec);
   const capture = fake.harness.capture.bind(fake.harness);
   fake.harness.capture = (name) => capture(name).map((node) =>
     name.endsWith("expanded") || name === "history-expanded-source"
-      ? node.path.startsWith("0/0/3") ? { ...node, frame: [40, 1200, 700, 90] } : node
+      ? node.path.startsWith("0/0/10/3") ? { ...node, frame: [40, 1200, 700, 90] } : node
       : node);
   await assert.rejects(runCompactionHistorySequence({ harness: fake.harness, config: spec.config,
     authors: spec.authors, turns: spec.turns, readFacts: fake.readFacts,

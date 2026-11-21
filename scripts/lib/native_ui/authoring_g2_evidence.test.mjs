@@ -636,13 +636,15 @@ function axProcessGroup(path, statuses = []) {
   ];
 }
 
-const AX_CONTAINER = "0/0/0/0/0";
+const AX_WEB_AREA = "0/0/0/0/0";
+const AX_CONTAINER = AX_WEB_AREA + "/10";
 
 function visibleTurnNodes({ author, reply, status = "已完成" }) {
   return [
-    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
-    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
-    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    axNode("0", "AXWindow"), axNode(AX_WEB_AREA, "AXWebArea"),
+    { ...axNode(AX_CONTAINER, "AXGroup", "会话消息"), subrole: "AXLandmarkRegion" },
+    { ...axNode(`${AX_WEB_AREA}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
+    axNode(`${AX_WEB_AREA}/3`, "AXStaticText", "", "无任务"),
     ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
     ...axMessageGroup(`${AX_CONTAINER}/11`, author),
     ...axMessageGroup(`${AX_CONTAINER}/12`, "AI 助手"),
@@ -733,7 +735,7 @@ test("G2 候选和完整读证已出现，缺终态或仍在运行/等待/失败
   const nodesFor = (status) => visibleTurnNodes({ author: VISIBLE_MESSAGE,
     reply: "指定段落修订稿 他把第七枚手印按进灰里。 创作依据：按作者要求保留原稿其余字句。", status });
   const maintenance = nodesFor("进行中");
-  maintenance.find((node) => node.path === `${AX_CONTAINER}/3`).value = "1 个任务进行中";
+  maintenance.find((node) => node.path === `${AX_WEB_AREA}/3`).value = "1 个任务进行中";
   maintenance.push(...axDock(`${AX_CONTAINER}/20`, "进行中"));
   for (const [label, finalNodes, kind] of [
     ["missing", undefined, "unknown"],
@@ -1189,9 +1191,10 @@ function axDock(path, label = "等待你回复 · 创作") {
 test("普通 Markdown 回复：交付入口与空闲同时成立，不能借旧轮或在途状态", () => {
   const message = "本轮只讨论";
   const nodes = [
-    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
-    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "自定义助手"), desc: "助手名称" },
-    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    axNode("0", "AXWindow"), axNode(AX_WEB_AREA, "AXWebArea"),
+    { ...axNode(AX_CONTAINER, "AXGroup", "会话消息"), subrole: "AXLandmarkRegion" },
+    { ...axNode(`${AX_WEB_AREA}/1`, "AXPopUpButton", "自定义助手"), desc: "助手名称" },
+    axNode(`${AX_WEB_AREA}/3`, "AXStaticText", "", "无任务"),
     ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
     ...axMessageGroup(`${AX_CONTAINER}/11`, message),
     ...axMessageGroup(`${AX_CONTAINER}/12`, "自定义助手"),
@@ -1204,6 +1207,14 @@ test("普通 Markdown 回复：交付入口与空闲同时成立，不能借旧�
     { ...axNode(`${AX_CONTAINER}/16`, "AXButton", "为什么"), desc: "查看这轮回应的依据" },
   ];
   assert.equal(axTurnOutcome(nodes, { message }).kind, "completed");
+  const noIdle = nodes.filter((node) => node.value !== "无任务");
+  for (const foreign of [
+    [...noIdle, axNode("0/9/3", "AXStaticText", "", "无任务")],
+    [...noIdle, axNode(`${AX_CONTAINER}/4`, "AXStaticText", "", "无任务")],
+    [...nodes, axNode("0/9", "AXWebArea")],
+    nodes.filter((node) => node.path !== AX_CONTAINER),
+    [...nodes, { ...axNode(`${AX_WEB_AREA}/30`, "AXGroup", "会话消息"), subrole: "AXLandmarkRegion" }],
+  ]) assert.equal(axTurnOutcome(foreign, { message }).kind, "unknown");
   assert.equal(axTurnOutcome(nodes.filter((n) => n.value !== "无任务"), { message }).kind, "unknown");
   assert.equal(axTurnOutcome(nodes.filter((n) => n.role !== "AXWindow"), { message }).kind, "unknown");
   assert.equal(axTurnOutcome(nodes.filter((n) => n.title !== "为什么"), { message }).kind, "unknown");
@@ -1222,9 +1233,10 @@ test("整理记录不是运行态：同轮回复与空闲成立才完成，细�
   const message = "讨论完成后保留整理记录";
   const group = `${AX_CONTAINER}/15`;
   const base = [
-    axNode("0", "AXWindow"), axNode(AX_CONTAINER, "AXWebArea"),
-    { ...axNode(`${AX_CONTAINER}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
-    axNode(`${AX_CONTAINER}/3`, "AXStaticText", "", "无任务"),
+    axNode("0", "AXWindow"), axNode(AX_WEB_AREA, "AXWebArea"),
+    { ...axNode(AX_CONTAINER, "AXGroup", "会话消息"), subrole: "AXLandmarkRegion" },
+    { ...axNode(`${AX_WEB_AREA}/1`, "AXPopUpButton", "AI 助手"), desc: "助手名称" },
+    axNode(`${AX_WEB_AREA}/3`, "AXStaticText", "", "无任务"),
     ...axMessageGroup(`${AX_CONTAINER}/10`, "你"),
     ...axMessageGroup(`${AX_CONTAINER}/11`, message),
     ...axMessageGroup(`${AX_CONTAINER}/12`, "AI 助手"),

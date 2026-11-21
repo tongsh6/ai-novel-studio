@@ -549,6 +549,21 @@ function capabilityGapFacts(nodes, boundary) {
   return null;
 }
 
+// 会话消息是实际滚动区域；只接受当前 WebArea 的唯一命名 region 及其真实后代。
+// frame 交集仍由可见性 owner 负责，本函数只返回现 AX 节点，不猜正文或布局。
+export function conversationRegion(nodes, node) {
+  const entries = Array.isArray(nodes) ? nodes : [];
+  if (typeof node?.path !== "string") return null;
+  const pages = entries.filter((entry) => entry.role === "AXWebArea");
+  if (pages.length !== 1 || !node.path.startsWith(pages[0].path + "/")) return null;
+  const regions = entries.filter((entry) => entry.role === "AXGroup" &&
+    entry.subrole === "AXLandmarkRegion" && axTitle(entry) === "会话消息" &&
+    typeof entry.path === "string" && entry.path.startsWith(pages[0].path + "/"));
+  if (regions.length !== 1 || (node.path !== regions[0].path &&
+    !node.path.startsWith(regions[0].path + "/"))) return null;
+  return regions[0];
+}
+
 // baselineAuthorCount = 发送前页面里同一原话的作者消息数；只有新增的最后一条才是
 // 本轮消息，重复输入不会回看旧回合终局。
 export function authorBoundary(nodes, message, baselineAuthorCount) {
@@ -637,16 +652,18 @@ export function axTurnOutcome(
     }
     // 普通回复按 46§9.5 隐藏空过程组：真实交付入口 + 顶栏空闲共同证明可见终局。
     // 只认最后作者边界；后台维护/其它活动任务存在时不从回复猜测终态。
-    const idle = list.some((node) => node.role === "AXStaticText" &&
-      axValue(node) === "无任务" && axParentPath(node) === container &&
-      compareAxPath(node, { path: authorGroup }) < 0);
+    const region = conversationRegion(list, author);
+    const page = region?.path === container ? list.find((node) => node.role === "AXWebArea") : null;
+    const idle = page && list.some((node) => node.role === "AXStaticText" &&
+      axValue(node) === "无任务" && axParentPath(node) === page.path);
     const busy = list.some((node) => ["当前创作任务操作", "回答当前问题"]
       .includes(axTitle(node)));
     const following = followingInBoundary(list,
       { container, afterPath: authorGroup, beforePath: null }, { path: authorGroup });
     const why = gapWhyButton(following);
-    const assistantName = list.find((node) => node.role === "AXPopUpButton" &&
-      node.desc === "助手名称")?.title;
+    const names = page ? list.filter((node) => node.role === "AXPopUpButton" &&
+      node.desc === "助手名称" && axParentPath(node) === page.path) : [];
+    const assistantName = names.length === 1 ? names[0].title : null;
     const label = nonBlank(assistantName) ? following.find((node) => node.role === "AXGroup" &&
       directTextValues(list, axPath(node)).includes(assistantName)) : null;
     // Markdown 段落/标题/列表可能成为平级 AX 节点，不能要求 Why 的前一个节点就是整条回复。

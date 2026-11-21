@@ -10,7 +10,8 @@ import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_e
 import { authorVisibleFixtureSpec } from "./fixtures/authoring_live_io_fixture.mjs";
 import { G2_VISIBLE_TARGET, visibleAfterInput, visibleReadingPage } from "./fixtures/authoring_live_facts.mjs";
 
-const ROOT = "0/0/0/0/0";
+const WEB = "0/0/0/0/0";
+const ROOT = WEB + "/10";
 const MESSAGE = "请只分析胜利的代价，指出依据和可改方向，不生成候选，也不要保存。";
 const FRAME = [100, 200, 900, 35];
 const group = (index, value, frame = FRAME) => [
@@ -20,10 +21,12 @@ const group = (index, value, frame = FRAME) => [
 function page(body, { message = MESSAGE, status = "已完成" } = {}) {
   return [
     { path: "0", role: "AXWindow", frame: [0, 0, 1280, 800] },
-    { path: ROOT, role: "AXWebArea", frame: [0, 80, 1280, 660] },
-    { path: ROOT + "/0", role: "AXPopUpButton", title: G2_VISIBLE_TARGET.work_title, desc: "作品" },
-    { path: ROOT + "/1", role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
-    { path: ROOT + "/2", role: "AXStaticText", value: "无任务" },
+    { path: WEB, role: "AXWebArea", frame: [0, 80, 1280, 660] },
+    { path: WEB + "/0", role: "AXPopUpButton", title: G2_VISIBLE_TARGET.work_title, desc: "作品" },
+    { path: WEB + "/1", role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
+    { path: WEB + "/2", role: "AXStaticText", value: "无任务" },
+    { path: ROOT, role: "AXGroup", subrole: "AXLandmarkRegion",
+      title: "会话消息", desc: "会话消息", frame: [0, 100, 1280, 620] },
     ...group(10, "你"), ...group(11, message), ...group(12, "AI 助手"),
     ...body,
     { path: ROOT + "/80", role: "AXGroup", title: "本轮创作过程" },
@@ -228,39 +231,78 @@ test("R05 AX 容器的汇总和标题不重复记文本，数值路径顺序与�
   assert.equal(match("重复。\n\n重复。", group(20, "重复。")).ok, false);
 });
 
-test("R05 助手紧邻的帧标签不是模型正文，同文正文仍完整保留且决定首末视口", () => {
+test("R05 当前独立帧标签不属于模型正文，同文段落仍完整保留", () => {
   const reply = "生成草稿\n\n我已核对首尾线索，候选等你决定。";
-  for (const desc of ["生成草稿", "生成草稿：整章修订"]) {
-    const badge = group(13, "生成草稿");
-    badge[0].desc = desc;
-    const nodes = page([...badge, ...group(20, "生成草稿"),
-      ...group(21, "我已核对首尾线索，候选等你决定。")]);
-    const before = JSON.stringify(nodes);
-    const report = r05.r05ReplyMatch({ reply, nodes, message: MESSAGE });
-    assert.equal(report.ok, true, desc);
-    assert.deepEqual(report.surface.leaves.map((node) => [node.path, node.value]), [
-      [ROOT + "/20/0", "生成草稿"], [ROOT + "/21/0", "我已核对首尾线索，候选等你决定。"],
-    ]);
-    assert.equal(report.surface.first.path, ROOT + "/20/0");
-    assert.equal(report.surface.last.path, ROOT + "/21/0");
-    assert.equal(JSON.stringify(nodes), before);
+  const badge = { path: ROOT + "/13", role: "AXStaticText", value: "生成草稿",
+    title: "", desc: "", frame: [100, 140, 80, 20] };
+  const nodes = page([badge, ...group(20, "生成草稿"),
+    ...group(21, "我已核对首尾线索，候选等你决定。")]);
+  const before = JSON.stringify(nodes);
+  const report = r05.r05ReplyMatch({ reply, nodes, message: MESSAGE });
+  assert.equal(report.ok, true, JSON.stringify(report));
+  assert.deepEqual(report.surface.leaves.map((node) => [node.path, node.value]), [
+    [ROOT + "/20/0", "生成草稿"], [ROOT + "/21/0", "我已核对首尾线索，候选等你决定。"],
+  ]);
+  assert.equal(report.surface.first.path, ROOT + "/20/0");
+  assert.equal(report.surface.last.path, ROOT + "/21/0");
+  assert.equal(JSON.stringify(nodes), before);
+  assert.equal(match("生成草稿", group(20, "生成草稿")).ok, true);
+});
+
+test("R05 多余、错位或旧描述结构不被当作当前帧标签删除", () => {
+  const reply = "完整回复。";
+  const badge = () => ({ path: ROOT + "/13", role: "AXStaticText", value: "生成草稿",
+    title: "", desc: "", frame: [...FRAME] });
+  for (const extra of [
+    [{ ...badge(), path: ROOT + "/30" }],
+    [badge(), { ...badge(), path: ROOT + "/14" }],
+    [{ ...badge(), desc: "生成草稿：内部目标" }],
+    [{ ...badge(), title: "其他说明" }],
+    [badge(), { path: ROOT + "/13/0", role: "AXStaticText", value: "额外正文" }],
+    [{ path: ROOT + "/13", role: "AXGroup", desc: "生成草稿：内部目标" },
+      { path: ROOT + "/13/0", role: "AXStaticText", value: "生成草稿" }],
+  ]) assert.equal(match(reply, [...extra, ...group(20, reply)]).ok, false);
+  assert.equal(r05.r05ReplySurface(page([badge()]), { message: MESSAGE }).ok, false);
+});
+
+test("R05 当前作者与回复必须属于唯一真实会话区域，正文同名不能冒充区域", () => {
+  for (const change of [
+    (nodes) => nodes.filter((node) => node.path !== ROOT),
+    (nodes) => nodes.map((node) => node.path === ROOT ? { ...node, title: "其他区域" } : node),
+    (nodes) => nodes.map((node) => node.path === ROOT ? { ...node, subrole: "" } : node),
+    (nodes) => nodes.map((node) => node.path === ROOT ? { ...node, role: "AXStaticText" } : node),
+    (nodes) => nodes.map((node) => node.path === ROOT ? { ...node, path: WEB + "/30" } : node),
+    (nodes) => [...nodes, { path: WEB + "/30", role: "AXGroup", subrole: "AXLandmarkRegion",
+      title: "会话消息", frame: [0, 100, 1280, 620] }],
+    (nodes) => nodes.map((node) => node.path.startsWith(ROOT + "/20") ?
+      { ...node, path: node.path.replace(ROOT, WEB + "/30") } : node),
+    (nodes) => [...nodes, { path: "0/9", role: "AXWebArea", frame: [0, 0, 1280, 800] }],
+  ]) {
+    const nodes = change(page(group(20, "会话消息")));
+    assert.equal(r05.r05ReplyMatch({ reply: "会话消息", nodes, message: MESSAGE }).ok, false);
   }
 });
 
-test("R05 正文关键词、非紧邻标签及坏结构不能被当作帧标签删除", () => {
-  const reply = "完整回复。";
-  for (const change of [
-    (badge) => { delete badge[0].desc; },
-    (badge) => { badge[0].desc = "另一个标签：目标"; },
-    (badge) => { badge[0].role = "AXHeading"; },
-    (badge) => { badge.push({ path: ROOT + "/13/1", role: "AXStaticText", value: "额外内容" }); },
-    (badge) => { badge.forEach((node) => { node.path = node.path.replace("/13", "/30"); }); },
-  ]) {
-    const badge = group(13, "生成草稿"); badge[0].desc = "生成草稿：整章修订"; change(badge);
-    assert.equal(match(reply, [...badge, ...group(20, reply)]).ok, false);
+test("R05 AX 全文在顶层窗口内但超出会话裁切时，末尾不可签收", () => {
+  const reply = "完整原文在 AX 中，末尾仍须实际出现在会话视口内。";
+  const clipped = page(group(20, reply, [100, 280, 900, 35]));
+  clipped.find((node) => node.path === ROOT).frame = [0, 100, 1280, 200];
+  const surface = r05.r05ReplySurface(clipped, { message: MESSAGE });
+  assert.equal(r05.r05ReplyMatch({ reply, nodes: clipped, message: MESSAGE }).ok, true);
+  assert.equal(r05.r05ReplyEdgeVisible(clipped, surface, "start"), true);
+  assert.equal(r05.r05ReplyEdgeVisible(clipped, surface, "end"), false);
+  const end = structuredClone(clipped);
+  end.find((node) => node.path === ROOT + "/20/0").frame = [100, 250, 900, 35];
+  assert.equal(r05.r05ReplyEdgeVisible(end, r05.r05ReplySurface(end, { message: MESSAGE }), "end"), true);
+  const input = visibleInput(reply, clipped, reply);
+  assert.equal(r05.r05VisibleEvidence(input).ok, false);
+  input.reply_views = replyViews(clipped, end);
+  assert.equal(r05.r05VisibleEvidence(input).ok, true);
+  for (const frame of [undefined, [0, 0, 0, 200], [0, NaN, 1280, 200]]) {
+    const invalid = structuredClone(clipped);
+    invalid.find((node) => node.path === ROOT).frame = frame;
+    assert.equal(r05.r05ReplyEdgeVisible(invalid, r05.r05ReplySurface(invalid, { message: MESSAGE }), "end"), false);
   }
-  const badgeOnly = group(13, "生成草稿"); badgeOnly[0].desc = "生成草稿：整章修订";
-  assert.equal(r05.r05ReplySurface(page(badgeOnly), { message: MESSAGE }).ok, false);
 });
 
 test("R05 完整回复必须保全中段、末句、顺序及数量，不接受前缀或散落子序列", () => {

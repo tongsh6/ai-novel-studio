@@ -4,10 +4,10 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { authorBoundary, axTurnOutcome, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
+import { authorBoundary, axTurnOutcome, conversationRegion, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
 import { observationRefOf, proseObservationBodyReason, singleDraftVersionReason } from "./authoring_request_facts.mjs";
 import { sha256Hex } from "./request_cost_evidence.mjs";
-import { locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
+import { actionLabelsFor, locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
 
 const GOALS = new Set(["count", "quality", "whole", "style"]);
 const list = (value) => Array.isArray(value) ? value : [];
@@ -353,14 +353,12 @@ function replySurfaceFailure(reason) {
   return { ok: false, reason, leaves: [], first: null, last: null,
     assistant_path: null, why_path: null };
 }
-// WorkspaceChat 的帧标签是助手角色之后紧邻的 group，desc 为 label[:goal]。
+// 当前帧标签是助手角色后紧邻的独立文本叶；正文仍由 Markdown 语义容器承载。
 // 只识别该可见结构，不按正文词语删文本，也不复制产品的帧类型/文案表。
 function replyFrameBadge(entries, node) {
-  if (node?.role !== "AXGroup" || !nonBlank(node.desc)) return false;
-  const children = entries.filter((child) => replyParent(child.path) === node.path);
-  if (children.length !== 1 || children[0].role !== "AXStaticText" || !nonBlank(children[0].value)) return false;
-  const label = children[0].value;
-  return node.desc === label || node.desc.startsWith(`${label}：`);
+  return node?.role === "AXStaticText" && nonBlank(node.value) &&
+    !nonBlank(node.title) && !nonBlank(node.desc) &&
+    !entries.some((child) => replyDescendant(child.path, node.path));
 }
 export function r05ReplySurface(nodes, { message = "", baselineAuthorCount = 0 } = {}) {
   const entries = list(nodes);
@@ -373,6 +371,8 @@ export function r05ReplySurface(nodes, { message = "", baselineAuthorCount = 0 }
   const boundary = authorBoundary(entries, message, baselineAuthorCount);
   if (!boundary.author || boundary.nextAuthor !== null ||
     boundary.authors.length !== baselineAuthorCount + 1) return replySurfaceFailure("reply_author_missing");
+  const region = conversationRegion(entries, boundary.author);
+  if (region?.path !== boundary.container) return replySurfaceFailure("reply_region_missing");
   const peers = entries.filter((node) => withinAuthorBoundary(node, {
     container: boundary.container, afterPath: boundary.authorGroup, beforePath: null,
   })).sort(replyPathOrder);
@@ -597,8 +597,10 @@ function validRect(value) {
     value[2] > 0 && value[3] > 0;
 }
 export function clippedViewport(nodes, node) {
+  const region = conversationRegion(nodes, node);
+  if (!region) return null;
   const ancestors = list(nodes).filter((entry) =>
-    ["AXWindow", "AXScrollArea", "AXWebArea"].includes(entry.role) &&
+    (entry === region || ["AXWindow", "AXScrollArea", "AXWebArea"].includes(entry.role)) &&
     (node.path === entry.path || node.path?.startsWith(entry.path + "/")));
   if (!ancestors.some((entry) => entry.role === "AXWindow") ||
     !ancestors.every((entry) => validRect(entry.frame))) return null;
@@ -650,7 +652,7 @@ function candidateViews(items, views, knownItems, context) {
     });
     const action = captures.find((view) => {
       if (!/^r05-candidate-\d+-action$/u.test(view.capture)) return false;
-      const located = locateScopedButton(view.nodes, { ...target, label: "保存修订稿" });
+      const located = locateScopedButton(view.nodes, { ...target, label: actionLabelsFor("prose_fragment").accept });
       return located.ok && currentAuthorItem(view.nodes, located.item_path, context.message, context.baselineAuthorCount ?? 0) &&
         withinViewport(view.nodes, located.button);
     });

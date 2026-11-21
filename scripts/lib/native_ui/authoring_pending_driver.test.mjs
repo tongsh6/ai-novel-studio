@@ -367,7 +367,7 @@ test("drivePending 在发送帧错 work 或 ACK 缺 run_id 时拒绝", async () 
 test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存动作而不点击", async () => {
   const harness = fakeHarness(buildWire());
   const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
-    item.title === "保存到作品档案" ? { ...item, title: "保存修订稿" } : item);
+    item.title === "保存到作品档案" ? { ...item, title: "保存为章节正文" } : item);
   let current = [];
   const decisions = [], scrolled = [], captures = [];
   harness.dumpNodes = () => current;
@@ -388,6 +388,7 @@ test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存�
   const views = await capturePendingItemViews(harness, {
     itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
     knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+    buttonLabel: "保存为章节正文",
   });
   assert.deepEqual(decisions, [false, true]);
   assert.deepEqual(scrolled, ["0/2/0", "0/2/0/0", "0/2/0/2"]);
@@ -395,6 +396,25 @@ test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存�
   assert.deepEqual(views.map((view) => view.capture), captures);
   assert(views.every((view) => view.nodes === shown));
   assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+});
+
+test("capturePendingItemViews 不借用旧质量修订动作，也不默认缺失的动作标签", async () => {
+  for (const [buttonLabel, actualLabel, reason] of [
+    ["保存为章节正文", "保存修订稿", /pending_view_target:action_missing:action/u],
+    [undefined, "保存为章节正文", /pending_view_target:label_missing:action/u],
+  ]) {
+    const harness = fakeHarness(buildWire());
+    const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+      item.title === "保存到作品档案" ? { ...item, title: actualLabel } : item);
+    harness.dumpNodes = () => shown;
+    await assert.rejects(() => capturePendingItemViews(harness, {
+      itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
+      knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+      buttonLabel,
+    }), reason);
+    assert.deepEqual(harness.captures, ["r05-candidate-1-entry"]);
+    assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+  }
 });
 
 test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它们当晚到卡片", async () => {
@@ -412,6 +432,7 @@ test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它�
     await assert.rejects(() => capturePendingItemViews(harness, {
       itemTitle: title, itemBody: REVISION_BODY,
       knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "r05-candidate-1",
+      buttonLabel: "保存为章节正文",
     }), expected);
     assert.equal(reads, 1);
     assert.deepEqual(harness.captures, []);

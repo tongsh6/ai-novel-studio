@@ -143,7 +143,7 @@ export async function revealItem(harness, itemTitle, itemBody) {
 }
 
 // 只观察未采纳候选：入口与所属动作分屏采集，不点击保存。
-export async function capturePendingItemViews(harness, { itemTitle, itemBody, knownItems, prefix }) {
+export async function capturePendingItemViews(harness, { itemTitle, itemBody, knownItems, prefix, buttonLabel }) {
   await harness.pollAx((_text, nodes) => {
     const located = locatePendingItem(nodes, { itemTitle, itemBody });
     if (located.ok) return true;
@@ -156,7 +156,7 @@ export async function capturePendingItemViews(harness, { itemTitle, itemBody, kn
     const nodes = harness.dumpNodes();
     const located = kind === "entry"
       ? locatePendingItem(nodes, { itemTitle, itemBody })
-      : locateScopedButton(nodes, { itemTitle, itemBody, knownItems, label: "保存修订稿" });
+      : locateScopedButton(nodes, { itemTitle, itemBody, knownItems, label: buttonLabel });
     if (!located.ok) throw new Error(`pending_view_target:${located.reason}:${kind}`);
     const target = kind === "entry"
       ? nodes.find((node) => node.path?.startsWith(located.scope.path + "/") && textOf(node) === itemTitle)

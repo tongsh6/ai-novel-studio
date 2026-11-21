@@ -27,7 +27,7 @@ function capturedCandidateFixture() {
         parent_turn_ref: "turn-b29", status: "completed" }] }];
   const nodes = nativeCandidateView().nodes;
   nodes.find((node) => node.role === "AXPopUpButton").title = nativeEvidence.WORK_TITLE;
-  const baseline = nodes.filter((node) => !node.path.startsWith("0/1/"));
+  const baseline = nodes.filter((node) => !node.path.startsWith("0/1/1/"));
   const hash = (value) => createHash("sha256").update(value).digest("hex");
   const captures = [["before", baseline, at(1)], ["candidate", nodes, at(6)]].map(([name, raw, capturedAt]) => {
     const text = flatText(raw), shot = Buffer.from("89504e470d0a1a0a00000000", "hex");
@@ -82,12 +82,12 @@ const NO_CHANGE_MODEL = "MODEL_41c9\n老沈的主角身份已经登记。";
 const NO_CHANGE_SYSTEM = "沈砚（别名：老沈；灯楼查账人；主角）本次无需修改；角色档案未发生变更。";
 function noChangeFixture() {
   const nativeView = nativeCandidateView();
-  nativeView.nodes.push({ path: "0/2", role: "AXPopUpButton", desc: "助手名称", title: "AI 助手" });
-  Object.assign(nativeView.nodes.find((node) => node.path === "0/1/3/0"),
+  nativeView.nodes.push({ path: "0/1/2", role: "AXPopUpButton", desc: "助手名称", title: "AI 助手" });
+  Object.assign(nativeView.nodes.find((node) => node.path === "0/1/1/3/0"),
     { value: NO_CHANGE_MODEL, frame: [20, 200, 700, 60] });
-  nativeView.nodes.find((node) => node.path === "0/1/5/0").value = "系统核对结果";
-  nativeView.nodes.find((node) => node.path === "0/1/5/1").value = NO_CHANGE_SYSTEM;
-  nativeView.nodes = nativeView.nodes.filter((node) => node.path !== "0/1/6");
+  nativeView.nodes.find((node) => node.path === "0/1/1/5/0").value = "系统核对结果";
+  nativeView.nodes.find((node) => node.path === "0/1/1/5/1").value = NO_CHANGE_SYSTEM;
+  nativeView.nodes = nativeView.nodes.filter((node) => node.path !== "0/1/1/6");
   return { nativeView, tokens: loadForbiddenTokens(), turnResult: { assistant_message: { text: NO_CHANGE_MODEL }, actions: [],
     adoption_state: { pending: [] }, ui_cards: [
       { card_type: "result_card", title: "系统核对结果", body: NO_CHANGE_SYSTEM, actions: [] },
@@ -102,9 +102,9 @@ test("同轮 no_change 保留模型换行原文并交付唯一无动作系统结
     (v) => { v.turnResult.adoption_state.pending.push({ artifact_type: "character_profile_revision" }); },
     (v) => { v.turnResult.actions.push({ action_id: "save" }); },
     (v) => { v.turnResult.ui_cards[0].actions.push({ action_id: "save" }); },
-    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/3/0").frame[1] = -200; },
+    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/1/3/0").frame[1] = -200; },
     (v) => { v.nativeView.baselineAuthorCount = 1; },
-    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/5/1").frame[1] = 710; },
+    (v) => { v.nativeView.nodes.find((node) => node.path === "0/1/1/5/1").frame[1] = 710; },
   ]) {
     const value = noChangeFixture(); alter(value);
     assert.equal(evidence.b29RoleNoChangeVisible(value), false);
@@ -170,7 +170,7 @@ const scopeMessage = () => message("scope_update", "application", [{ type: "scop
   { versions: { goal: 1 }, source_refs: [{ ref: "work:" + WORK }] });
 const scopeWire = () => ({
   role: "user",
-  content: "【应用数据 · scope_update · 以最新版本为准】\n版本：" +
+  content: "【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】\n版本：" +
     JSON.stringify({ goal: 1 }) + "\n来源：" +
     JSON.stringify([{ ref: "work:" + WORK }]) + "\n" + JSON.stringify(scope),
 });
@@ -255,7 +255,7 @@ function fixture() {
     message("tool", "tool_result", [{ type: "validation_result", call_id: "call-execute",
       status: "passed", reason_code: "judgment_validated",
       detail: { execution_authorized: false, canon_written: false } }])];
-  const wireBase = [{ role: "user", content: "【应用数据 · application_base】固定判断契约；作品事实按需探索。" },
+  const wireBase = [{ role: "user", content: "【应用数据 · application_base · 非作者原话】\n固定判断契约；作品事实按需探索。" },
     scopeWire(), { role: "user", content: INPUT }];
   const dirPair = [wireCall("directory", directoryArgs),
     { role: "tool", tool_call_id: "call-directory", content: JSON.stringify(directory) }];
@@ -314,17 +314,19 @@ function nativeCandidateView() {
   const node = (path, role, extra = {}) => ({ path, role, frame: [20, 200, 700, 30], ...extra });
   return { message: INPUT, baselineAuthorCount: 0, workTitle: "角色验收作品", nodes: [
     node("0", "AXWindow", { frame: [0, 0, 1280, 800] }),
-    node("0/0", "AXPopUpButton", { desc: "作品", title: "角色验收作品" }),
-    node("0/1", "AXScrollArea", { frame: [0, 100, 1000, 600] }),
-    node("0/1/0", "AXGroup"), node("0/1/0/0", "AXStaticText", { value: "你" }),
-    node("0/1/1", "AXGroup"), node("0/1/1/0", "AXStaticText", { value: INPUT }),
-    node("0/1/2", "AXGroup"), node("0/1/2/0", "AXStaticText", { value: "AI 助手" }),
-    node("0/1/3", "AXGroup"), node("0/1/3/0", "AXStaticText", { value: "已核对老沈的身份。" }),
-    node("0/1/4", "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
-    node("0/1/5", "AXGroup", { frame: [20, 300, 700, 120] }),
-    node("0/1/5/0", "AXStaticText", { value: DISPLAY_TITLE, frame: [20, 300, 700, 30] }),
-    node("0/1/5/1", "AXStaticText", { value: DISPLAY_BODY, frame: [20, 330, 700, 90] }),
-    node("0/1/6", "AXButton", { title: "保存到作品", enabled: true, frame: [20, 430, 140, 30] }),
+    node("0/1", "AXWebArea", { frame: [0, 0, 1280, 800] }),
+    node("0/1/0", "AXPopUpButton", { desc: "作品", title: "角色验收作品" }),
+    node("0/1/1", "AXGroup", { title: "会话消息", subrole: "AXLandmarkRegion",
+      frame: [0, 100, 1000, 600] }),
+    node("0/1/1/0", "AXGroup"), node("0/1/1/0/0", "AXStaticText", { value: "你" }),
+    node("0/1/1/1", "AXGroup"), node("0/1/1/1/0", "AXStaticText", { value: INPUT }),
+    node("0/1/1/2", "AXGroup"), node("0/1/1/2/0", "AXStaticText", { value: "AI 助手" }),
+    node("0/1/1/3", "AXGroup"), node("0/1/1/3/0", "AXStaticText", { value: "已核对老沈的身份。" }),
+    node("0/1/1/4", "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
+    node("0/1/1/5", "AXGroup", { frame: [20, 300, 700, 120] }),
+    node("0/1/1/5/0", "AXStaticText", { value: DISPLAY_TITLE, frame: [20, 300, 700, 30] }),
+    node("0/1/1/5/1", "AXStaticText", { value: DISPLAY_BODY, frame: [20, 330, 700, 90] }),
+    node("0/1/1/6", "AXButton", { title: "保存到作品", enabled: true, frame: [20, 430, 140, 30] }),
   ] };
 }
 test("当前作者的真实单候选与保存入口在实际视口内", () => {
@@ -335,14 +337,14 @@ test("全页相同文字不能代替当前作者、目标卡和真实可见视�
   const cases = [
     { ...clone(view), baselineAuthorCount: 1 },
     { ...clone(view), workTitle: "另一作品" },
-    { ...clone(view), nodes: view.nodes.filter((node) => node.path !== "0/1/0/0") },
+    { ...clone(view), nodes: view.nodes.filter((node) => node.path !== "0/1/1/0/0") },
     { ...clone(view), nodes: view.nodes.map((node) =>
-      node.path === "0/1/5/1" ? { ...node, frame: [20, 710, 700, 90] } : node) },
+      node.path === "0/1/1/5/1" ? { ...node, frame: [20, 710, 700, 90] } : node) },
     { ...clone(view), nodes: view.nodes.map((node) =>
-      node.path === "0/1/6" ? { ...node, path: "0/2/0" } : node) },
+      node.path === "0/1/1/6" ? { ...node, path: "0/2/0" } : node) },
     { ...clone(view), baselineAuthorCount: 1, nodes: [...clone(view.nodes),
-      { path: "0/1/8", role: "AXGroup" }, { path: "0/1/8/0", role: "AXStaticText", value: "你" },
-      { path: "0/1/9", role: "AXGroup" }, { path: "0/1/9/0", role: "AXStaticText", value: INPUT }] },
+      { path: "0/1/1/8", role: "AXGroup" }, { path: "0/1/1/8/0", role: "AXStaticText", value: "你" },
+      { path: "0/1/1/9", role: "AXGroup" }, { path: "0/1/1/9/0", role: "AXStaticText", value: INPUT }] },
   ];
   for (const nativeView of cases) {
     assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView }), false);

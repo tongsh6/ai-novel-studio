@@ -294,14 +294,17 @@ function writeLiveFiles(staging, { usedRefs, nativeCall }) {
 
 // 独立 AX 事实：发送前无本句作者节点；完成后当前作者、回复与过程处于同一消息流。
 function visibleTurnNodes(message, readOnly) {
-  const container = "0/0/0/0/0";
+  const web = "0/0/0/0/0";
+  const container = web + "/10";
   const node = (suffix, role, fields = {}) => ({ path: `${container}/${suffix}`, role, ...fields });
   const baselineNodes = [
     { path: "0", role: "AXWindow", frame: [0, 0, 1200, 800] },
-    { path: container, role: "AXWebArea" },
-    node("0", "AXPopUpButton", { desc: "作品", title: G2_VISIBLE_TARGET.work_title }),
-    node("1", "AXPopUpButton", { desc: "助手名称", title: "AI 助手" }),
-    node("3", "AXStaticText", { value: "无任务" }),
+    { path: web, role: "AXWebArea", frame: [0, 0, 1200, 800] },
+    { path: web + "/0", role: "AXPopUpButton", desc: "作品", title: G2_VISIBLE_TARGET.work_title },
+    { path: web + "/1", role: "AXPopUpButton", desc: "助手名称", title: "AI 助手" },
+    { path: web + "/3", role: "AXStaticText", value: "无任务" },
+    { path: container, role: "AXGroup", subrole: "AXLandmarkRegion",
+      title: "会话消息", desc: "会话消息", frame: [0, 80, 1200, 600] },
   ];
   const reply = readOnly
     ? "我按你的要求只读了现有正文，没有改动，也没有生成候选或保存。"

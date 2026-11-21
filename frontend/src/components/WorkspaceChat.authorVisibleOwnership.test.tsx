@@ -96,6 +96,40 @@ beforeEach(() => {
 });
 describe("WorkspaceChat author-visible semantic ownership", () => {
   it.each([false, true])(
+    "names the actual conversation region without changing source text, history=%s",
+    (history) => {
+      state.history = history;
+      const body = "生成草稿\n\n会话消息是作者要保留的正文词语。";
+      const value: TurnResult = {
+        ...result(body, "answered", "conversation-region"),
+        phase: "completed",
+        status: "completed",
+        next_action: "continue",
+        author_question: undefined,
+        frame_summary: { frame_type: "execution_candidate" },
+      };
+      const author = "请保留生成草稿与会话消息这两个词。";
+      const messages: ChatMessage[] = [
+        { role: "user", text: author, turnId: value.turn_id },
+        { role: "assistant", text: body, turnId: value.turn_id, turnResult: value },
+      ];
+      const original = JSON.stringify(messages);
+      const html = render([], messages);
+      const regions =
+        html.match(/<div(?=[^>]*role="region")(?=[^>]*aria-label="会话消息")[^>]*>/g) ?? [];
+
+      expect(regions).toHaveLength(1);
+      expect(regions[0]).not.toContain("aria-live");
+      expect(regions[0]).not.toContain('role="log"');
+      expect(html).toContain(author);
+      expect(html).toMatch(/<p[^>]*>生成草稿<\/p>/);
+      expect(html).toContain("会话消息是作者要保留的正文词语。");
+      expect(html.split("生成草稿").length - 1).toBe(3);
+      expect(value.assistant_message?.text).toBe(body);
+      expect(JSON.stringify(messages)).toBe(original);
+    },
+  );
+  it.each([false, true])(
     "keeps internal frame goals out of badge text and attributes, history=%s",
     (history) => {
       state.history = history;

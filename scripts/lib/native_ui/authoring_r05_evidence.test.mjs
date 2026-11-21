@@ -456,38 +456,52 @@ function candidateViews(items, message) {
   const [item] = items;
   const original = flatPending.items.revision;
   const knownItems = [flatPending.items.source, { itemTitle: item.title, itemBody: item.body }];
-  const nodesFor = (entry) => structuredClone(flatPending.nodes).map((node) => {
-    if (node.role === "AXPopUpButton" && node.desc === "作品") node.title = G2_VISIBLE_TARGET.work_title;
-    if (node.path === "0/0/0/0/0/25/0") node.value = message;
-    if (node.value === original.itemTitle) node.value = item.title;
-    if (node.value === original.itemBody) node.value = item.body;
-    if (node.path === "0/0/0/0/0/33/0/0") node.frame = [456, entry ? 180 : -1400, 400, 25];
-    if (node.path === "0/0/0/0/0/33/1/0") node.frame = [456, entry ? 215 : -1600, 538, 1900];
-    if (node.path === "0/0/0/0/0/33") node.frame = [443, entry ? 160 : -1650, 564, 2100];
-    if (node.path === "0/0/0/0/0/34") {
-      node.title = "保存修订稿";
-      node.desc = "保存后替换本候选的修订范围。";
-      node.frame = [443, entry ? 2200 : 360, 130, 39];
-    }
-    return node;
-  });
+  const nodesFor = (entry) => {
+    const nodes = structuredClone(flatPending.nodes).map((node) => {
+      if (node.role === "AXPopUpButton" && node.desc === "作品") node.title = G2_VISIBLE_TARGET.work_title;
+      if (node.path === "0/0/0/0/0/25/0") node.value = message;
+      if (node.value === original.itemTitle) node.value = item.title;
+      if (node.value === original.itemBody) node.value = item.body;
+      if (node.path === "0/0/0/0/0/33/0/0") node.frame = [456, entry ? 180 : -1400, 400, 25];
+      if (node.path === "0/0/0/0/0/33/1/0") node.frame = [456, entry ? 215 : -1600, 538, 1900];
+      if (node.path === "0/0/0/0/0/33") node.frame = [443, entry ? 160 : -1650, 564, 2100];
+      if (node.path === "0/0/0/0/0/34") {
+        node.title = "保存为章节正文";
+        node.desc = "保存后会写入章节正文，并出现在阅读模式。";
+        node.frame = [443, entry ? 2200 : 360, 130, 39];
+      }
+      return node;
+    });
+    // 原始采证资产保持不变；本例显式构造当前会话区域与其消息后代。
+    const web = "0/0/0/0/0", region = web + "/100";
+    return [{ path: region, role: "AXGroup", subrole: "AXLandmarkRegion",
+      title: "会话消息", desc: "会话消息", frame: [224, 129, 1000, 600] },
+    ...nodes.map((node) => {
+      const index = Number(node.path.split("/")[5]);
+      return index >= 10 && index <= 36 ?
+        { ...node, path: region + node.path.slice(web.length) } : node;
+    })];
+  };
   return { known_items: knownItems, candidate_views: [
     { capture: "r05-candidate-1-entry", nodes: nodesFor(true), screenshot_present: true, window_capture: true },
     { capture: "r05-candidate-1-action", nodes: nodesFor(false), screenshot_present: true, window_capture: true },
   ] };
 }
 function visibleReplyNodes(message, reply, status = null) {
-  const root = "0/0/0/0/0";
+  const web = "0/0/0/0/0";
+  const root = web + "/10";
   const group = (index, value) => [
     { path: `${root}/${index}`, role: "AXGroup" },
     { path: `${root}/${index}/0`, role: "AXStaticText", value, frame: [100, 200, 900, 35] },
   ];
   return [
     { path: "0", role: "AXWindow", frame: [0, 0, 1280, 800] },
-    { path: root, role: "AXWebArea", frame: [0, 0, 1280, 800] },
-    { path: `${root}/0`, role: "AXPopUpButton", title: G2_VISIBLE_TARGET.work_title, desc: "作品" },
-    { path: `${root}/1`, role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
-    { path: `${root}/3`, role: "AXStaticText", value: "无任务" },
+    { path: web, role: "AXWebArea", frame: [0, 0, 1280, 800] },
+    { path: `${web}/0`, role: "AXPopUpButton", title: G2_VISIBLE_TARGET.work_title, desc: "作品" },
+    { path: `${web}/1`, role: "AXPopUpButton", title: "AI 助手", desc: "助手名称" },
+    { path: `${web}/3`, role: "AXStaticText", value: "无任务" },
+    { path: root, role: "AXGroup", subrole: "AXLandmarkRegion",
+      title: "会话消息", desc: "会话消息", frame: [0, 100, 1280, 620] },
     ...group(10, "你"), ...group(11, message), ...group(12, "AI 助手"), ...group(13, reply),
     ...(status === null ? [] : [
       { path: `${root}/14`, role: "AXGroup", title: "本轮创作过程" },
@@ -525,12 +539,12 @@ test("R05 缺AX、只有无任务、尚无交付入口或仍有任务dock均不�
   const cases = [
     ["missing", (input) => { input.finalNodes = undefined; }],
     ["idle_only", (input) => { input.finalNodes = input.finalNodes.filter((node) =>
-      !["12", "13", "16"].some((part) => node.path === `0/0/0/0/0/${part}` ||
-        node.path.startsWith(`0/0/0/0/0/${part}/`))); }],
+      !["12", "13", "16"].some((part) => node.path === `0/0/0/0/0/10/${part}` ||
+        node.path.startsWith(`0/0/0/0/0/10/${part}/`))); }],
     ["streaming", (input) => { input.finalNodes = input.finalNodes.filter((node) => node.title !== "为什么"); }],
     ["active_dock", (input) => { input.finalNodes.push(
-      { path: "0/0/0/0/0/20", role: "AXGroup", title: "当前创作任务操作" },
-      { path: "0/0/0/0/0/20/0", role: "AXStaticText", value: "进行中" }); }],
+      { path: "0/0/0/0/0/10/20", role: "AXGroup", title: "当前创作任务操作" },
+      { path: "0/0/0/0/0/10/20/0", role: "AXStaticText", value: "进行中" }); }],
   ];
   for (const [label, change] of cases) {
     const input = visibleInput("count"); change(input);
@@ -544,12 +558,12 @@ test("R05 缺AX、只有无任务、尚无交付入口或仍有任务dock均不�
 test("R05 旧原话副本和另一轮回复不能代签，新同文作者消息仍有独立边界", () => {
   for (const change of [
     (input) => { input.baselineAuthorCount = 1; },
-    (input) => { input.finalNodes.find((node) => node.path === "0/0/0/0/0/11/0").value = "上一轮原话"; },
+    (input) => { input.finalNodes.find((node) => node.path === "0/0/0/0/0/10/11/0").value = "上一轮原话"; },
     (input) => { input.finalNodes.push(
-      { path: "0/0/0/0/0/17", role: "AXGroup" },
-      { path: "0/0/0/0/0/17/0", role: "AXStaticText", value: "你" },
-      { path: "0/0/0/0/0/18", role: "AXGroup" },
-      { path: "0/0/0/0/0/18/0", role: "AXStaticText", value: "下一轮问题" }); },
+      { path: "0/0/0/0/0/10/17", role: "AXGroup" },
+      { path: "0/0/0/0/0/10/17/0", role: "AXStaticText", value: "你" },
+      { path: "0/0/0/0/0/10/18", role: "AXGroup" },
+      { path: "0/0/0/0/0/10/18/0", role: "AXStaticText", value: "下一轮问题" }); },
   ]) {
     const input = visibleInput("count"); change(input);
     const report = r05VisibleEvidence(input);
@@ -559,10 +573,10 @@ test("R05 旧原话副本和另一轮回复不能代签，新同文作者消息�
   const current = visibleInput("count");
   current.baselineAuthorCount = 1;
   current.finalNodes.push(
-    { path: "0/0/0/0/0/4", role: "AXGroup" },
-    { path: "0/0/0/0/0/4/0", role: "AXStaticText", value: "你" },
-    { path: "0/0/0/0/0/5", role: "AXGroup" },
-    { path: "0/0/0/0/0/5/0", role: "AXStaticText", value: current.message });
+    { path: "0/0/0/0/0/10/4", role: "AXGroup" },
+    { path: "0/0/0/0/0/10/4/0", role: "AXStaticText", value: "你" },
+    { path: "0/0/0/0/0/10/5", role: "AXGroup" },
+    { path: "0/0/0/0/0/10/5/0", role: "AXStaticText", value: current.message });
   assert.equal(r05VisibleEvidence(current).ok, true);
 });
 test("R05 正文状态词不改变本轮终态，实际running/failed/waiting过程仍不签", () => {
@@ -602,8 +616,8 @@ test("R05 whole/style 候选分屏齐全也必须等同轮AX完成，后续wire�
     const maintenance = visibleReplyNodes(ready.message, ready.reply, "进行中");
     maintenance.find((node) => node.path === "0/0/0/0/0/3").value = "1 个任务进行中";
     maintenance.push(
-      { path: "0/0/0/0/0/20", role: "AXGroup", title: "当前创作任务操作" },
-      { path: "0/0/0/0/0/20/0", role: "AXStaticText", value: "进行中" });
+      { path: "0/0/0/0/0/10/20", role: "AXGroup", title: "当前创作任务操作" },
+      { path: "0/0/0/0/0/10/20/0", role: "AXStaticText", value: "进行中" });
     for (const [label, finalNodes, kind] of [
       ["missing", undefined, "unknown"],
       ["running", visibleReplyNodes(ready.message, ready.reply, "进行中"), "running"],
@@ -625,10 +639,10 @@ test("R05 新同文回合已完成时，候选仍须属于新增作者边界", (
   const input = visibleInput("whole", { candidate: true });
   input.baselineAuthorCount = 1;
   input.finalNodes.push(
-    { path: "0/0/0/0/0/4", role: "AXGroup" },
-    { path: "0/0/0/0/0/4/0", role: "AXStaticText", value: "你" },
-    { path: "0/0/0/0/0/5", role: "AXGroup" },
-    { path: "0/0/0/0/0/5/0", role: "AXStaticText", value: input.message });
+    { path: "0/0/0/0/0/10/4", role: "AXGroup" },
+    { path: "0/0/0/0/0/10/4/0", role: "AXStaticText", value: "你" },
+    { path: "0/0/0/0/0/10/5", role: "AXGroup" },
+    { path: "0/0/0/0/0/10/5/0", role: "AXStaticText", value: input.message });
   const stale = r05VisibleEvidence(input);
   assert.equal(stale.observed.outcome, "completed");
   assert.equal(stale.observed.candidate_entry_visible, false);
@@ -639,7 +653,7 @@ test("R05 新同文回合已完成时，候选仍须属于新增作者边界", (
   // 真实双候选AX里的首条作者在13/0；第二条在25/0，目标候选在33。
   // 两份视图都保留第一轮同文消息后，目标卡才属于新增的第二轮。
   for (const view of input.candidate_views) {
-    const firstAuthor = view.nodes.find((node) => node.path === "0/0/0/0/0/13/0");
+    const firstAuthor = view.nodes.find((node) => node.path === "0/0/0/0/0/100/13/0");
     assert(firstAuthor);
     firstAuthor.value = input.message;
   }
@@ -652,7 +666,7 @@ test("R05 新同文回合已完成时，候选仍须属于新增作者边界", (
 test("R05 候选截图不能借另一作品或缺当前作者原话的旧回合AX", () => {
   for (const change of [
     (node) => { if (node.role === "AXPopUpButton" && node.desc === "作品") node.title = "另一作品"; },
-    (node) => { if (node.path === "0/0/0/0/0/25/0") node.value = "上一轮原话"; },
+    (node) => { if (node.path === "0/0/0/0/0/100/25/0") node.value = "上一轮原话"; },
   ]) {
     const input = visibleInput("whole", { candidate: true });
     for (const view of input.candidate_views) view.nodes.forEach(change);
@@ -663,7 +677,7 @@ test("R05 AX离屏全文/作者仍存在，但viewport仅剩输入框时不能�
   const input = visibleInput("whole", { candidate: true });
   for (const view of input.candidate_views) {
     for (const node of view.nodes) {
-      if (node.path.startsWith("0/0/0/0/0/33") || node.path === "0/0/0/0/0/34") {
+      if (node.path.startsWith("0/0/0/0/0/100/33") || node.path === "0/0/0/0/0/100/34") {
         node.frame[1] = 2500;
       }
     }
@@ -674,18 +688,23 @@ test("R05 正文中的保存字样、兄弟候选按钮、disabled动作及缺�
   for (const change of [
     (input) => {
       for (const view of input.candidate_views) {
-        const node = view.nodes.find((entry) => entry.path === "0/0/0/0/0/34");
-        node.role = "AXStaticText"; node.title = ""; node.desc = ""; node.value = "保存修订稿";
+        const node = view.nodes.find((entry) => entry.path === "0/0/0/0/0/100/34");
+        node.role = "AXStaticText"; node.title = ""; node.desc = ""; node.value = "保存为章节正文";
       }
     },
     (input) => {
       for (const view of input.candidate_views) {
-        view.nodes = view.nodes.filter((entry) => entry.path !== "0/0/0/0/0/34");
+        view.nodes = view.nodes.filter((entry) => entry.path !== "0/0/0/0/0/100/34");
         const old = view.nodes.find((entry) => entry.role === "AXButton" && entry.title === "保存到作品档案");
-        assert(old); old.title = "保存修订稿";
+        assert(old); old.title = "保存为章节正文";
       }
     },
-    (input) => { input.candidate_views[1].nodes.find((node) => node.path === "0/0/0/0/0/34").enabled = false; },
+    (input) => {
+      for (const view of input.candidate_views) {
+        view.nodes.find((node) => node.path === "0/0/0/0/0/100/34").title = "保存修订稿";
+      }
+    },
+    (input) => { input.candidate_views[1].nodes.find((node) => node.path === "0/0/0/0/0/100/34").enabled = false; },
     (input) => { input.candidate_views[0].screenshot_present = false; },
     (input) => { input.candidate_views[1].window_capture = false; },
     (input) => { input.candidate_views = []; },
@@ -698,7 +717,7 @@ test("R05 页面仍拒绝旧作者回合、只剩状态徽标、错误当前候�
   for (const change of [
     (input) => { input.finalText = input.finalText.replace(input.message, "上一轮原话"); },
     (input) => { input.finalNodes = input.finalNodes.filter((node) =>
-      node.path !== "0/0/0/0/0/13" && !node.path.startsWith("0/0/0/0/0/13/")); },
+      node.path !== "0/0/0/0/0/10/13" && !node.path.startsWith("0/0/0/0/0/10/13/")); },
     (input) => { input.items[0].body = "另一个候选的全文"; },
     (input) => { input.readingAfterText += "\n正文已被采纳改写"; },
   ]) {

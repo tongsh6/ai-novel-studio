@@ -1527,11 +1527,14 @@ test("后继可见完成必须由原文和原始AX新回显复核，不能信dri
     const sample=structuredClone({turn,author,observation});mutate(sample);
     assert.equal(verifySuccessorVisible(sample).ok,false,mutate.toString());
   }
-  const container="0/0/0/0/0";
+  const web="0/0/0/0/0",container=web+"/10";
   const ordinaryNodes=[
-    ...axNodes({authors:[author.text]}),
-    {path:container+"/1",role:"AXPopUpButton",title:"AI 助手",desc:"助手名称"},
-    {path:container+"/3",role:"AXStaticText",value:"无任务"},
+    {path:web,role:"AXWebArea"},
+    ...axNodes({authors:[author.text]}).map(node=>node.path===web
+      ? {...node,path:container,title:"会话消息",subrole:"AXLandmarkRegion"}
+      : node.path.startsWith(web+"/") ? {...node,path:container+node.path.slice(web.length)} : node),
+    {path:web+"/1",role:"AXPopUpButton",title:"AI 助手",desc:"助手名称"},
+    {path:web+"/3",role:"AXStaticText",value:"无任务"},
     {path:container+"/12",role:"AXGroup"},
     {path:container+"/12/0",role:"AXStaticText",value:"AI 助手"},
     {path:container+"/13",role:"AXGroup"},

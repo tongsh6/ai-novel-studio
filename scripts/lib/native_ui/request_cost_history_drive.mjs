@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { axAuthorMessages } from "./authoring_g2_evidence.mjs";
+import { axAuthorMessages, conversationRegion } from "./authoring_g2_evidence.mjs";
 import { readAutoMaintenanceDbFacts } from "./authoring_auto_maintenance_evidence.mjs";
 import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
@@ -31,9 +31,10 @@ function visible(nodes, node, fully = false) {
   if (!Array.isArray(frame) || frame.length !== 4 || !frame.every(Number.isFinite) || frame[2] <= 0 || frame[3] <= 0) return false;
   const windows = nodes.filter((entry) => entry.role === "AXWindow" && Array.isArray(entry.frame));
   if (windows.length !== 1) return false;
-  const clips = [windows[0], ...nodes.filter((entry) =>
+  const region = conversationRegion(nodes, node);
+  const clips = [windows[0], ...(region ? [region] : []), ...nodes.filter((entry) =>
     entry.role === "AXScrollArea" && String(node.path).startsWith(entry.path + "/") && Array.isArray(entry.frame))];
-  return clips.every(({ frame: clip }) => clip.length === 4 && clip.every(Number.isFinite) && clip[2] > 0 && clip[3] > 0 &&
+  return clips.every(({ frame: clip }) => Array.isArray(clip) && clip.length === 4 && clip.every(Number.isFinite) && clip[2] > 0 && clip[3] > 0 &&
     (fully ? frame[0] >= clip[0] && frame[1] >= clip[1] &&
       frame[0] + frame[2] <= clip[0] + clip[2] && frame[1] + frame[3] <= clip[1] + clip[3] :
       frame[0] < clip[0] + clip[2] && frame[0] + frame[2] > clip[0] &&
@@ -77,9 +78,11 @@ function captureScene(harness, name) {
 function noticeSource(nodes, authors, turns) {
   // 首个已加载细条是作者可以沿消息流找到的最早入口，不读取 DB 来挑有利目标。
   const notice = nodes.find((node) => button(node, EXPAND));
-  if (!notice) return null;
+  const region = conversationRegion(nodes, notice);
+  if (!notice || !region) return null;
   const position = nodes.indexOf(notice);
-  const owners = authors.flatMap((author) => axAuthorMessages(nodes, author.text).map((node) =>
+  const owners = authors.flatMap((author) => axAuthorMessages(nodes, author.text)
+    .filter((node) => conversationRegion(nodes, node) === region).map((node) =>
     ({ author, node, position: nodes.indexOf(node) }))).filter((owner) => owner.position < position);
   owners.sort((left, right) => left.position - right.position);
   const owner = owners.at(-1);
@@ -376,6 +379,8 @@ export async function runCompactionHistorySequence({
     report.outside_initial_page = !initial.page.turn_ids.includes(binding.target.turn_id);
     expanded = await showExpandedPanel(harness, authors, turns, expanded.source, "history-source-capture");
     const expandedNodes = scene("history-expanded-source");
+    insist(noticeSource(expandedNodes, authors, turns)?.turn.run_id === binding.run_id,
+      "panel_source_missing_at_capture");
     insist(panelVisible(expandedNodes, expandedPanel(expandedNodes)), "panel_not_visible_at_capture");
     assertCounts(expandedPanel(expandedNodes).contents, binding.counts);
     const start = harness.transport().length;
@@ -394,9 +399,11 @@ export async function runCompactionHistorySequence({
       return { canonical_ref: message.canonical_ref, interaction_id: entries[0].id, text_sha256: sha(entries[0].text) };
     });
     await harness.pollAx((_text, nodes) => nodes.some((node) => button(node, RETURN)) &&
-      axAuthorMessages(nodes, binding.author.text).some((node) => visible(nodes, node)), 30_000, "original_visible");
+      axAuthorMessages(nodes, binding.author.text).some((node) =>
+        conversationRegion(nodes, node) && visible(nodes, node)), 30_000, "original_visible");
     const locatedNodes = scene("history-original-located");
-    const authorNodes = axAuthorMessages(locatedNodes, binding.author.text).filter((node) => visible(locatedNodes, node));
+    const authorNodes = axAuthorMessages(locatedNodes, binding.author.text).filter((node) =>
+      conversationRegion(locatedNodes, node) && visible(locatedNodes, node));
     insist(authorNodes.length === 1, "original_author_not_unique_in_viewport");
     report.original_visible = { path: authorNodes[0].path, frame: authorNodes[0].frame,
       author_sha256: sha(binding.author.text) };
