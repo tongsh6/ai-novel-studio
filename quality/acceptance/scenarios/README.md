@@ -209,7 +209,7 @@
 | `judgment-explore-chapter-full-read.yml` | 判断探索：长章按 chapter_ref 分页完整读取 + 续读 footer 逐字复用 + 末页事实引用（B24 CP3） |
 | `b71-first-consumer.yml` | B71：原生 assistant/tool 多轮请求、观察 refs/next_offset 回流与 Base 去重（复用长章页面链） |
 | `b71-authoring-transcript.yml` | B71 CP4a：超时后同 run 续行，原生创作/质量调用与应用结果闭合、阶段工具投影、durable checkpoint 与作者安全文案 |
-| `b71-authoring-revision.yml` | B71 质量发现卡片局部修订：真实档案章行→source 正文/质量 finding→author_action 新 bounded run→两次真实原生调用（首轮 invalid_items failed validation、次轮合法 local 修订）→原稿保留/范围外字节不变/Why 零调用；作品事实两段不变，source 阶段仅按 VS-00E §16.8 落暂定章使命并以逐章设计态见证单独核验，final 仅新增 receipt |
+| `b71-authoring-revision.yml` | B71 质量发现卡片局部修订：真实档案章行→source 正文/质量 finding→author_action 新 bounded run→两次真实原生调用（首轮 arguments={} 产生 provider_response_invalid failed validation、次轮合法 local 修订）→原稿保留/范围外字节不变/Why 零调用；作品事实两段不变，source 阶段仅按 VS-00E §16.8 落暂定章使命并以逐章设计态见证单独核验，final 仅新增 receipt |
 | `judgment-plan-multi-step.yml` | 判断①判复杂 → 模型自产多能力计划 → 多产物停待采纳（ADR-0025 CP4；B13b BB-12 注册） |
 | `au13-arc-ledger-roundtrip.yml` | 弧光账自动更新、探索引用与后续正文投影 |
 | `au13-review-adjudication-roundtrip.yml` | 审读报告逐项裁决 + 提前收官/卷级负债（R10/R11）正触发 |

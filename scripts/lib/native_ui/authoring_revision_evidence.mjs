@@ -322,7 +322,7 @@ function firstRejected(first, firstArguments, firstValidation) {
   return allTrue(
     Object.keys(firstArguments).length === 0,
     firstValidation?.status === "failed",
-    firstValidation?.reason_code === "invalid_items",
+    firstValidation?.reason_code === "provider_response_invalid",
     firstValidation?.call_id === first.call_id,
   );
 }
@@ -400,11 +400,11 @@ function appendedValidationMatches(toolFact, failedPayload, first, expectedId, f
     get(result?.payload, "type") === "validation_result",
     get(result?.payload, "call_id") === first.call_id,
     get(result?.payload, "status") === "failed",
-    get(result?.payload, "reason_code") === "invalid_items",
+    get(result?.payload, "reason_code") === "provider_response_invalid",
     get(failedPayload, "type") === "validation_result",
     get(failedPayload, "call_id") === first.call_id,
     get(failedPayload, "status") === "failed",
-    get(failedPayload, "reason_code") === "invalid_items",
+    get(failedPayload, "reason_code") === "provider_response_invalid",
   );
 }
 
@@ -503,7 +503,7 @@ export function retryExchangeChecks({ transcript, sessionMessages, records, orig
     secondArguments,
     checks: {
       revision_exchange_has_exactly_two_calls: exchangeShape(calls, validationBlocks, bound),
-      first_response_rejected_as_invalid_items:
+      first_response_rejected_as_provider_response_invalid:
         firstRejected(first, firstArguments, firstValidation),
       second_request_is_strict_first_prefix: strictPrefix(firstRequest, secondRequest),
       second_request_appends_only_native_result:

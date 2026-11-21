@@ -40,7 +40,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @writer_timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
   # B71 质量卡修订真实页面：仅测试替身读取 harness env，令当前 quality_finding 局部修订的
   # 首轮原生响应故意缺少 items；后续请求只有在同一 operation 历史里看到该调用已 failed
-  # validation（invalid_items）后才返回合法修订。默认关闭，且不识别 slice id/turn/时间。
+  # validation（provider_response_invalid）后才返回合法修订。默认关闭，且不识别 slice id/turn/时间。
   @quality_revision_retry_env "SLICE_VERIFY_QUALITY_REVISION_RETRY"
   # R06 原生使命纠错验收：只有脚本显式启用时，当前使命先拒收、再依原生失败回执纠正。
   # 不设计数器，不读取 slice/turn 标记；默认仍是合法使命。

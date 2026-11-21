@@ -1353,7 +1353,7 @@ native_action_description() {
       echo "seed chapter plan -> external writer timeout -> author chooses a scoped retry on the real workbench -> same run continues -> native tentative/quality calls and application results accumulate in one durable authoring transcript"
       ;;
     b71-authoring-revision)
-      echo "真实档案里语义定位第02章：矿区追击战 -> 从页面生成源正文并等待质量发现 -> 点击局部修订所选问题 -> 提交新 bounded 修订 run -> 两次真实原生调用（首轮 invalid_items failed validation、次轮合法 local 修订） -> 原稿保留、修订候选独立、Why 零 Provider 调用且 canon 仅新增受理回执"
+      echo "真实档案里语义定位第02章：矿区追击战 -> 从页面生成源正文并等待质量发现 -> 点击局部修订所选问题 -> 提交新 bounded 修订 run -> 两次真实原生调用（首轮 arguments={} 产生 provider_response_invalid failed validation、次轮合法 local 修订） -> 原稿保留、修订候选独立、Why 零 Provider 调用且 canon 仅新增受理回执"
       ;;
     b71-authoring-pending)
       echo "空作品/活动会话 -> 输入带随机 nonce 的 Q1B 原文登记原稿 -> 输入只改沈砚为林渡的修订请求 -> 两稿同会话并存并查看修订 Why（持久 replay/0 Provider） -> 按修订稿可见标题/正文所属 AX 结构保存 -> 原稿仍待采纳后按语义放弃并确认 -> 关闭重启本批精确应用并恢复同 work/session -> 新问句进入新 run，实际请求消费 ACCEPTED/DISCARDED refs/状态与 judgment-only 权限"

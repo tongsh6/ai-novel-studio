@@ -16,7 +16,7 @@ invariants:
   - quality-finding-revision-creates-a-new-bounded-run
   - source-and-child-runs-keep-distinct-canonical-history
   - native-validation-and-application-revision-scope-share-one-exchange
-  - first-invalid-items-response-and-failed-validation-are-preserved
+  - first-raw-contract-rejection-and-failed-validation-are-preserved
   - second-request-strictly-inherits-first-history-and-appends-native-result
   - revision-artifact-bytes-equal-last-legal-provider-response
   - original-artifact-and-out-of-scope-bytes-remain-unchanged
@@ -61,7 +61,7 @@ assertions:
     - source 正文由明确章标题行的真实按钮触发；source run 身份来自该用户输入 ACK 与同 run 质量结果，不按最新结果猜取
     - author_action 的 ACK 按同 join_ref/request_ref/topic 唯一绑定；payload.source_turn_ref 指向 source 结果、target_ref 指向原候选，quality_finding_refs 等于实际 source finding
     - child ACK/action_result/agent_run_state 都绑定同一 receipt、新 run、source、target，且 child run != source run、run_mode=bounded、profile=prose_revision_from_findings_v1
-    - child 私有 canonical 按明确 run 读取；两次真实 pcall/prun 与同次请求/响应配对，第一轮 submit_tentative_artifact arguments={} 产生 invalid_items failed validation，第二轮在该历史后追加原生结果并 passed
+    - child 私有 canonical 按明确 run 读取；两次真实 pcall/prun 与同次请求/响应配对，第一轮 submit_tentative_artifact arguments={} 产生 provider_response_invalid failed validation，第二轮在该历史后追加原生结果并 passed
     - 第二请求严格保留第一请求 messages 前缀，只追加 assistant tool_call 与 tool validation_result，不出现伪 user 纠错
     - 为什么只触发同作品/同会话/同 child turn 的 replay HTTP，观察窗内无新的 Provider 启动或请求
   data:

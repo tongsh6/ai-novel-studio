@@ -22,6 +22,10 @@ import {
 } from "./authoring_revision_evidence.mjs";
 
 import { irBodyFromWire, scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
+import {
+  transcripts as revisionFixtureTranscripts,
+  llmFixtureRecords as revisionFixtureRecords,
+} from "./fixtures/native_b71_revision_facts.mjs";
 const TOPIC = "workspace:owned";
 const FOREIGN = "workspace:foreign";
 const AT = "2026-11-02T03:40:01.000Z";
@@ -905,16 +909,16 @@ test("retryExchangeChecks 接受 JSON 字符串 arguments 且缺 validation 时�
   };
   const validation = {
     role: "tool",
-    blocks: [{ type: "validation_result", call_id: "call-1", status: "failed", reason_code: "invalid_items" }],
+    blocks: [{ type: "validation_result", call_id: "call-1", status: "failed", reason_code: "provider_response_invalid" }],
   };
   const record = {
     provider_call_ref: "pcall-1",
     response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: "{}" }] } },
   };
   const accepted = retryExchangeChecks({ transcript: { messages: [call, validation] }, records: [record] });
-  assert.equal(accepted.checks.first_response_rejected_as_invalid_items, true);
+  assert.equal(accepted.checks.first_response_rejected_as_provider_response_invalid, true);
   const withoutValidation = retryExchangeChecks({ transcript: { messages: [call] }, records: [record] });
-  assert.equal(withoutValidation.checks.first_response_rejected_as_invalid_items, false);
+  assert.equal(withoutValidation.checks.first_response_rejected_as_provider_response_invalid, false);
 });
 
 test("retryExchangeChecks 对重复 pcall 与缺 request_body/空 message 关闭", () => {
@@ -1139,7 +1143,7 @@ test("retryExchangeChecks 拒绝 null 或空 items 的第二响应", () => {
         provider_run_ref: "prun-1",
         blocks: [{ type: "tool_call", call_id: "call-1", name: "submit_tentative_artifact" }],
       },
-      { role: "tool", blocks: [{ type: "validation_result", call_id: "call-1", status: "failed", reason_code: "invalid_items" }] },
+      { role: "tool", blocks: [{ type: "validation_result", call_id: "call-1", status: "failed", reason_code: "provider_response_invalid" }] },
       {
         role: "assistant",
         provider_call_ref: "pcall-2",
@@ -1402,7 +1406,7 @@ test("第二请求必须逐字携带第一轮 assistant tool_calls 与关联 val
       type: "validation_result",
       call_id: "call-1",
       status: "failed",
-      reason_code: "invalid_items",
+      reason_code: "provider_response_invalid",
       ...over,
     }),
   });
@@ -1413,7 +1417,7 @@ test("第二请求必须逐字携带第一轮 assistant tool_calls 与关联 val
       transcript: {
         messages: [
           call("call-1", "pcall-1", "prun-1", {}),
-          validation("call-1", "failed", "invalid_items"),
+          validation("call-1", "failed", "provider_response_invalid"),
           call("call-2", "pcall-2", "prun-2", legal),
           validation("call-2", "passed", "tentative_artifact_validated"),
         ],
@@ -1593,7 +1597,7 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
         type: "validation_result",
         call_id: "call-1",
         status: "failed",
-        reason_code: "invalid_items",
+        reason_code: "provider_response_invalid",
       },
     ],
     source_refs: [],
@@ -1618,7 +1622,7 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
     messages: [
       ...structuredClone(firstBody.messages),
       call("call-1", "pcall-1", "prun-1", {}),
-      validation("call-1", "failed", "invalid_items"),
+      validation("call-1", "failed", "provider_response_invalid"),
       call("call-2", "pcall-2", "prun-2", legal),
       validation("call-2", "passed", "tentative_artifact_validated"),
     ],
@@ -1648,4 +1652,48 @@ test("canonical IR 重试请求按 blocks 证明第一轮 tool_call/validation �
   assert.equal(result.checks.second_request_appends_only_native_result, true);
   assert.equal(result.checks.revision_request_carries_source_bytes_and_findings, true);
   assert.equal(result.checks.second_response_is_legal_local_revision, true);
+});
+
+test("R07 raw={} 的当前 provider_response_invalid 回执可证明两轮纠错", () => {
+  const { childTranscript } = revisionFixtureTranscripts();
+  const records = revisionFixtureRecords().filter(
+    (record) => record.provider_call_ref === "pcall-1" || record.provider_call_ref === "pcall-2",
+  );
+  const first = records.find((record) => record.provider_call_ref === "pcall-1");
+  const second = records.find((record) => record.provider_call_ref === "pcall-2");
+  const rejected = childTranscript.messages.find(
+    (message) => message.role === "tool" && message.blocks[0].call_id === "call-1",
+  );
+  assert.deepEqual(first.response.body.tool_calls[0].arguments, {});
+  rejected.blocks[0].reason_code = "provider_response_invalid";
+  second.request_body.messages.at(-1).blocks[0].reason_code = "provider_response_invalid";
+  const result = retryExchangeChecks({ transcript: childTranscript, records });
+  assert.equal(result.measured.first_reason_code, "provider_response_invalid");
+  assert.equal(result.checks.revision_exchange_has_exactly_two_calls, true);
+  assert.deepEqual({
+    rejected: result.checks.first_response_rejected_as_provider_response_invalid,
+    appended: result.checks.second_request_appends_only_native_result,
+  }, { rejected: true, appended: true });
+});
+
+test("R07 raw={} 不接受旧 invalid_items 代替当前接收合同拒收码", () => {
+  const { childTranscript } = revisionFixtureTranscripts();
+  const records = revisionFixtureRecords().filter(
+    (record) => record.provider_call_ref === "pcall-1" || record.provider_call_ref === "pcall-2",
+  );
+  const first = records.find((record) => record.provider_call_ref === "pcall-1");
+  const second = records.find((record) => record.provider_call_ref === "pcall-2");
+  const rejected = childTranscript.messages.find(
+    (message) => message.role === "tool" && message.blocks[0].call_id === "call-1",
+  );
+  assert.deepEqual(first.response.body.tool_calls[0].arguments, {});
+  rejected.blocks[0].reason_code = "invalid_items";
+  second.request_body.messages.at(-1).blocks[0].reason_code = "invalid_items";
+  const result = retryExchangeChecks({ transcript: childTranscript, records });
+  assert.equal(result.measured.first_reason_code, "invalid_items");
+  assert.equal(result.checks.revision_exchange_has_exactly_two_calls, true);
+  assert.deepEqual({
+    rejected: result.checks.first_response_rejected_as_provider_response_invalid,
+    appended: result.checks.second_request_appends_only_native_result,
+  }, { rejected: false, appended: false });
 });

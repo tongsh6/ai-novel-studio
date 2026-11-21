@@ -126,7 +126,7 @@ export function transcripts() {
       blocks: [{ type: "scope", content: revisionScopeContent() }],
     },
     assistant("pcall-1", "prun-1", "call-1", "submit_tentative_artifact", {}),
-    validation("call-1", "failed", "invalid_items"),
+    validation("call-1", "failed", "provider_response_invalid"),
     assistant("pcall-2", "prun-2", "call-2", "submit_tentative_artifact", {
       items: [revisionItem()],
     }),
@@ -332,7 +332,7 @@ function llmRecords() {
         messages: [
           ...structuredClone(request.messages),
           assistant("pcall-1", "prun-1", "call-1", "submit_tentative_artifact", {}),
-          validation("call-1", "failed", "invalid_items"),
+          validation("call-1", "failed", "provider_response_invalid"),
         ],
         projection: {
           tool_choice: { type: "function", function: { name: "submit_tentative_artifact" } },
