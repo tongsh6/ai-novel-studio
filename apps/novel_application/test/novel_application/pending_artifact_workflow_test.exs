@@ -1325,7 +1325,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert [retry_tool] = Enum.filter(retry_wire, &(&1.role == "tool"))
     retry_validation = Enum.find(retry_tool.blocks, &(&1.type == "validation_result"))
     assert retry_validation.call_id == retry_call.call_id
-    assert retry_validation.reason_code =~ "empty_items"
+    assert retry_validation.reason_code == "provider_response_invalid"
 
     failed_transcript = step_state.judgment_transcript
 
@@ -1351,7 +1351,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert [first_validation, second_validation] = validation_results(new_messages)
     assert first_validation.call_id == first_call.call_id
     assert first_validation.status == "failed"
-    assert first_validation.reason_code == "empty_items"
+    assert first_validation.reason_code == "provider_response_invalid"
     assert is_binary(first_validation.detail["message"])
     assert second_validation.call_id == second_call.call_id
     assert second_validation.status == "failed"

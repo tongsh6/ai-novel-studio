@@ -389,11 +389,9 @@ defmodule NovelApplication.TurnExecutionService do
     quality_provider_execution = quality_provider_execution(input)
 
     {tool_result, writer_session, execution_counts} =
-      dispatch_authoring_task(authoring_task_result, req, provider_execution)
+      dispatch_authoring_task(authoring_task_result, req, provider_execution, input)
 
     writer_request_ir = Map.get(writer_session, :request_ir)
-
-    tool_result = validate_outline_chapter_scope(tool_result, input)
 
     artifact_sets =
       assemble_artifacts(
@@ -430,6 +428,14 @@ defmodule NovelApplication.TurnExecutionService do
         writer_provider_call_ref(tool_result)
       )
 
+    execution_counts =
+      Map.put(
+        execution_counts,
+        :provider_calls,
+        session_provider_calls(writer_session) +
+          session_provider_calls(is_map(quality) && Map.get(quality, :provider_session))
+      )
+
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
         frame,
@@ -439,6 +445,7 @@ defmodule NovelApplication.TurnExecutionService do
         tool_result,
         %{
           turn_id: frame.turn_id,
+          execution_counts: execution_counts,
           omission_notes: omission_notes,
           brief_ref: execution_brief_ref(brief_result),
           chapter_mission_ref: chapter_mission_ref(input[:chapter_mission]),
@@ -465,16 +472,6 @@ defmodule NovelApplication.TurnExecutionService do
         },
         input[:context]
       )
-
-    execution_counts =
-      Map.put(
-        execution_counts,
-        :provider_calls,
-        session_provider_calls(writer_session) +
-          session_provider_calls(is_map(quality) && Map.get(quality, :provider_session))
-      )
-
-    trace_summary = Map.put(trace_summary, :execution_counts, execution_counts)
 
     # ADR-0004 #3：决策 trace 闭合——trace 记录后把本轮 trace ref 回填到决策，
     # 使 TurnResult.orchestrator_decision 可追溯到实际 DecisionTrace。
@@ -2762,47 +2759,46 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 
-  defp dispatch_tool_with_session(%ToolRequest{tool_name: tool_name} = req, result_fn)
+  defp dispatch_tool_with_session(%ToolRequest{tool_name: tool_name} = req, result_fn, opts)
        when tool_name in @creative_tools do
-    AuthorizedToolExecutor.execute_with_session(req, result_fn)
+    AuthorizedToolExecutor.execute_with_session(req, result_fn, opts)
   end
 
-  defp dispatch_tool_with_session(%ToolRequest{} = req, _result_fn) do
-    AuthorizedToolExecutor.execute_with_session(req, nil)
+  defp dispatch_tool_with_session(%ToolRequest{} = req, _result_fn, opts) do
+    AuthorizedToolExecutor.execute_with_session(req, nil, opts)
   end
 
-  defp dispatch_authoring_task({:error, reason}, req, _execution),
+  defp dispatch_authoring_task({:error, reason}, req, _execution, _input),
     do: {authoring_task_failed_result(req, reason), %{}, %{tool_calls: 0}}
 
-  defp dispatch_authoring_task({:ok, _task}, req, execution) do
-    {result, session} = dispatch_tool_with_session(req, execution)
+  defp dispatch_authoring_task({:ok, _task}, req, execution, input) do
+    opts = authoring_execution_options(req, input)
+    {result, session} = dispatch_tool_with_session(req, execution, opts)
 
     {result, session, %{tool_calls: Map.get(session, :tool_call_count, 0) || 0}}
   end
 
-  # B30 CP3-P2：plot_outline 的 chapter_ref 必须指向当前作品已有章；非法/跨作品 → 可解释失败
-  # （不静默丢 ref 退回 title 新建，也不生成候选）。
-  defp validate_outline_chapter_scope(
-         %ToolResult{tool_name: "plot_outline", status: :succeeded, output: %{items: items}} =
-           tool_result,
-         input
-       )
-       when is_list(items) do
-    context = Map.get(input, :context)
+  # 章引用资格在原 Native exchange 内验证；同一交换使用同一可信作品索引，
+  # 不把索引重新预装给模型，也不在成功后再变更 ToolResult 或另开重试。
+  defp authoring_execution_options(%ToolRequest{tool_name: "plot_outline"}, input) do
+    reader = input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader()
+    chapters = outline_chapter_index(reader, input.frame.workspace_id)
 
-    structured =
-      case context do
-        %NovelDomain.DialogueContext{structured_chapters: chapters} -> List.wrap(chapters)
-        _ -> []
-      end
-
-    case PlotOutlineChapterRef.validate_work_scope(items, structured) do
-      :ok -> tool_result
-      {:error, reason} -> PlotOutlineChapterRef.failed_result(tool_result, reason)
-    end
+    [validate_result: &PlotOutlineChapterRef.validate_result(&1, chapters)]
   end
 
-  defp validate_outline_chapter_scope(tool_result, _input), do: tool_result
+  defp authoring_execution_options(_request, _input), do: []
+
+  defp outline_chapter_index(reader, work_id) when is_function(reader, 1) do
+    case reader.(work_id) do
+      chapters when is_list(chapters) -> chapters
+      _unavailable -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp outline_chapter_index(_reader, _work_id), do: nil
 
   defp assemble_artifacts(
          %ToolResult{tool_name: tool_name} = result,

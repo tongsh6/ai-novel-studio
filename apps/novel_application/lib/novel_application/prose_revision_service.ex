@@ -824,7 +824,13 @@ defmodule NovelApplication.ProseRevisionService do
         execution.decision,
         execution.req,
         execution.result,
-        %{turn_id: execution.frame.turn_id},
+        %{
+          turn_id: execution.frame.turn_id,
+          execution_counts: %{
+            provider_calls: metadata.provider_call_count,
+            tool_calls: metadata.tool_call_count
+          }
+        },
         nil
       )
 
@@ -840,11 +846,7 @@ defmodule NovelApplication.ProseRevisionService do
         revision_provider_call_ref: provider_call_ref(artifact_set),
         no_write_reason: "revision draft is tentative and not auto-adopted",
         replay_policy: %{use_recorded_frame: true, recall_provider: false},
-        provider_call_budget: %{revision_writer: provider_call_budget},
-        execution_counts: %{
-          provider_calls: metadata.provider_call_count,
-          tool_calls: metadata.tool_call_count
-        }
+        provider_call_budget: %{revision_writer: provider_call_budget}
       })
 
     # trace 与 author-safe summary 来自同一次 TraceWriter 调用：summary.trace_ref

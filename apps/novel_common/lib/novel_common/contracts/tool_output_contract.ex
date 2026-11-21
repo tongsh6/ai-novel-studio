@@ -28,6 +28,50 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     :constraint_seed
   ]
 
+  @doc "Closed native candidate arguments; the receiver validates this same schema."
+  def creative_output_schema(type, task) do
+    companions =
+      Enum.map(@prose_companion_artifact_types, fn companion_type ->
+        schema = CreativeItemAttributes.schema(companion_type)
+
+        %{
+          schema
+          | required: ["artifact_type" | schema.required],
+            properties:
+              Map.put(schema.properties, :artifact_type, %{enum: [Atom.to_string(companion_type)]})
+        }
+      end)
+
+    %{
+      type: "object",
+      required: ["items"],
+      additionalProperties: false,
+      properties: %{
+        items: %{
+          type: "array",
+          minItems: 1,
+          items: CreativeItemAttributes.schema(type, target_segment_mapping_required?(type, task))
+        },
+        companion_artifacts: %{type: "array", items: %{anyOf: companions}},
+        self_report: %{
+          type: "object",
+          additionalProperties: false,
+          properties: %{
+            assumptions: %{type: "array", items: %{type: "string"}},
+            intended_reader_effect: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+            risk_flags: %{type: "array", items: %{type: "string"}},
+            used_context_refs: %{
+              type: "array",
+              items: %{type: "string"},
+              description:
+                "仅列本次实际使用的材料。成功工具观察使用 content.observation_ref，底座只用实际供应材料的已声明来源；作者消息来源、调用编号不授信。没有使用可省略。"
+            }
+          }
+        }
+      }
+    }
+  end
+
   @spec creative_output_contract_ref() :: String.t()
   def creative_output_contract_ref, do: "tentative_artifact_v2"
 
@@ -76,7 +120,7 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     end)
     |> case do
       {:error, _} = error -> error
-      normalized -> {:ok, Enum.reverse(normalized)}
+      normalized -> normalized |> Enum.reverse() |> validate_unique_chapter_refs()
     end
   end
 
@@ -222,29 +266,38 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   def normalize_creative_self_report(nil), do: {:ok, nil}
 
   def normalize_creative_self_report(report) when is_map(report) do
-    refs = Map.get(report, :used_context_refs, Map.get(report, "used_context_refs", []))
-
-    if is_list(refs) and Enum.all?(refs, &(is_binary(&1) and String.trim(&1) != "")) do
+    with :ok <- validate_creative_self_report_refs(report) do
       normalized = %{
         assumptions: string_list(map_get(report, :assumptions)),
         intended_reader_effect: optional_string(map_get(report, :intended_reader_effect)),
-        used_context_refs: refs,
+        used_context_refs:
+          Map.get(report, :used_context_refs, Map.get(report, "used_context_refs", [])),
         risk_flags: string_list(map_get(report, :risk_flags))
       }
 
       if empty_self_report?(normalized),
         do: {:ok, nil},
         else: {:ok, Map.put(normalized, :quality_action, self_report_quality_action(normalized))}
-    else
-      {:error,
-       %{
-         code: "invalid_used_context_refs",
-         message: "used_context_refs must be a list of non-empty reference strings"
-       }}
     end
   end
 
   def normalize_creative_self_report(_report), do: {:ok, nil}
+
+  @doc "Validate every supplied reference before either raw-schema reception or internal normalization."
+  def validate_creative_self_report_refs(report) when is_map(report) do
+    refs = Map.get(report, :used_context_refs, Map.get(report, "used_context_refs", []))
+
+    if is_list(refs) and Enum.all?(refs, &(is_binary(&1) and String.trim(&1) != "")),
+      do: :ok,
+      else:
+        {:error,
+         %{
+           code: "invalid_used_context_refs",
+           message: "used_context_refs must be a list of non-empty reference strings"
+         }}
+  end
+
+  def validate_creative_self_report_refs(_report), do: :ok
 
   @doc """
   Map self-reported risk flags to the first quality-gate-style action.
@@ -277,12 +330,21 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
 
   def self_report_quality_action(_flags), do: :proceed
 
+  defp validate_unique_chapter_refs(items) do
+    refs = items |> Enum.map(&Map.get(&1, :chapter_ref)) |> Enum.reject(&is_nil/1)
+
+    if length(refs) == length(Enum.uniq(refs)),
+      do: {:ok, items},
+      else: {:error, %{code: "duplicate_chapter_ref", message: "同一已存在章不能被多个条目重复绑定 chapter_ref。"}}
+  end
+
   defp normalize_item(raw) when is_map(raw) do
     with {:ok, item_id} <- fetch_string(raw, :item_id),
          {:ok, title} <- fetch_string(raw, :title),
          {:ok, body} <- fetch_string(raw, :body),
          {:ok, rationale} <-
            validate_rationale(Map.get(raw, :rationale, Map.get(raw, "rationale"))),
+         :ok <- CreativeItemAttributes.validate_chapter_ref(map_get(raw, :chapter_ref)),
          {:ok, changes} <- normalize_line_break_changes(map_get(raw, :line_break_changes)),
          {:ok, segment_mapping} <- normalize_target_segment_ids(raw) do
       item = %{item_id: item_id, title: title, body: body, rationale: rationale}
@@ -381,7 +443,7 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     end
   end
 
-  defp map_get(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp map_get(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   defp string_list(values) when is_list(values) do
     values

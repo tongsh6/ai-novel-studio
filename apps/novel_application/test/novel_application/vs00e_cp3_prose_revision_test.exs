@@ -304,7 +304,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert [validation] = validation_blocks(transcript)
     assert validation.call_id == hd(calls).call_id
     assert validation.status == "failed"
-    assert validation.reason_code == "invalid_items"
+    assert validation.reason_code == "provider_response_invalid"
 
     assert Enum.count(transcript.messages, &(&1.role == "assistant")) == 1
 
@@ -354,7 +354,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     [validation] = validation_blocks(transcript)
     assert validation.call_id == call.call_id
     assert validation.status == "failed"
-    assert validation.reason_code == "invalid_items"
+    assert validation.reason_code == "provider_response_invalid"
 
     [original] = source.adoption_state.pending
     assert original.payload.items |> hd() |> Map.get(:body) == @bad_prose

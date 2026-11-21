@@ -61,7 +61,8 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   defp native_response({:ok, result}, tool_name) when is_map(result) do
     content = Map.get(result, :content) || Map.get(result, "content")
 
-    if is_binary(content) and Map.get(result, :tool_calls) in [nil, []] do
+    if is_binary(content) and
+         Map.get(result, :tool_calls, Map.get(result, "tool_calls")) in [nil, []] do
       arguments =
         case {Jason.decode(content), tool_name} do
           {{:ok, decoded}, _} when is_map(decoded) ->
@@ -76,6 +77,11 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
           _ ->
             content
         end
+
+      result =
+        if is_map(arguments),
+          do: result |> Map.delete("content") |> Map.put(:content, ""),
+          else: result
 
       {:ok,
        result

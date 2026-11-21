@@ -205,7 +205,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     self_report = schema["properties"]["self_report"]
     assert self_report["type"] == "object"
-    assert self_report["additionalProperties"] == true
+    assert self_report["additionalProperties"] == false
     assert Map.get(self_report, "required", []) == []
 
     used_context_refs = self_report["properties"]["used_context_refs"]

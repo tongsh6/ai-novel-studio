@@ -19,7 +19,6 @@ defmodule NovelApplication.TraceWriter do
   @spec record(DialogueFrame.t(), map(), DialogueContext.t() | nil) :: {DecisionTrace.t(), map()}
   def record(%DialogueFrame{} = frame, turn_result, context \\ nil, opts \\ []) do
     trace_id = allocate_trace_id()
-    context_refs = if context, do: context.context_refs, else: []
     decision = Keyword.get(opts, :decision)
 
     trace = %DecisionTrace{
@@ -43,7 +42,7 @@ defmodule NovelApplication.TraceWriter do
         frame_type: frame.frame_type,
         dialogue_goal: frame.dialogue_goal.summary,
         no_tool_reason: trace.no_tool_reason,
-        context_refs: format_context_refs(context_refs),
+        context_refs: format_context_refs(context),
         has_context: context != nil and DialogueContext.has_context?(context)
       }
       |> maybe_put_reply_decision(decision)
@@ -96,7 +95,6 @@ defmodule NovelApplication.TraceWriter do
         context
       ) do
     trace_id = allocate_trace_id()
-    context_refs = if context, do: context.context_refs, else: []
 
     trace = %DecisionTrace{
       trace_id: trace_id,
@@ -138,14 +136,14 @@ defmodule NovelApplication.TraceWriter do
         reason_codes: decision.reason_codes,
         gate_order_version: decision.gate_order_version,
         gate_results: NovelDomain.GateResult.lineage(decision.gate_results),
-        context_refs: format_context_refs(context_refs)
+        context_refs: format_context_refs(context)
       }
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
 
-  @doc "Record trace with tool execution (VS-02)."
+  @doc "Record a tool request/result with the executor's actual dispatch counts (VS-02 / R07)."
   @spec record_with_tool(
           DialogueFrame.t(),
           MicroPlan.t(),
@@ -161,58 +159,79 @@ defmodule NovelApplication.TraceWriter do
         %OrchestratorDecision{} = decision,
         %ToolRequest{} = req,
         %ToolResult{} = result,
-        turn_result,
+        %{execution_counts: %{tool_calls: tool_calls} = counts} = turn_result,
         context
-      ) do
+      )
+      when is_integer(tool_calls) and tool_calls >= 0 do
     trace_id = allocate_trace_id()
-    context_refs = if context, do: context.context_refs, else: []
+    dispatched? = tool_calls > 0
+
+    decision_type =
+      if dispatched?, do: :tool_dispatched, else: decision_type_for(decision.decision_type)
+
+    # 失败 ToolResult 也可能由派发前校验生成；请求/失败证据本身不证明工具已经运行。
+    no_tool_reason =
+      if dispatched? do
+        "tool_was_dispatched"
+      else
+        Enum.find_value(result.errors, "micro_plan_evaluated_by_orchestrator", fn error ->
+          Map.get(error, :code) || Map.get(error, "code")
+        end)
+      end
+
+    event_order =
+      [
+        :author_input_received,
+        :dialogue_frame_validated,
+        :micro_plan_generated,
+        :orchestrator_decision_allow_tool,
+        :tool_request_constructed
+      ] ++
+        if(dispatched?, do: [:tool_dispatched, :tool_result_received], else: []) ++
+        [:tool_trace_recorded, :turn_result_emitted]
 
     trace = %DecisionTrace{
       trace_id: trace_id,
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
       plan_ref: plan.plan_id,
-      decision_type: :tool_dispatched,
-      no_tool_reason: "tool_was_dispatched",
-      no_behavior_reason: "tool_execution_completed",
-      no_write_reason: "tool_result_not_adoption_awaiting_adoption_boundary",
+      decision_type: decision_type,
+      no_tool_reason: no_tool_reason,
+      no_behavior_reason:
+        if(dispatched?, do: "tool_execution_completed", else: "tool execution did not start"),
+      no_write_reason:
+        if(dispatched?,
+          do: "tool_result_not_adoption_awaiting_adoption_boundary",
+          else: "tool execution did not start; no production write"
+        ),
       turn_result_ref: turn_result[:turn_id] || frame.turn_id,
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
       gate_order_version: decision.gate_order_version,
       gate_result_refs: gate_result_refs(decision),
       tool_trace_refs: [tool_trace_ref(req, result, decision)],
-      # WR01c：使命结构化 payload 进 state_trace_refs（既有 {:array,:map} 列，零 migration）——
-      # replay 重建与广播 summary 同源。
+      # WR01c：使命结构化 payload 保留为设计/材料事实，不能当成采纳证据。
       state_trace_refs: mission_state_refs(turn_result) ++ memory_window_state_refs(turn_result),
-      event_order: [
-        :author_input_received,
-        :dialogue_frame_validated,
-        :micro_plan_generated,
-        :orchestrator_decision_allow_tool,
-        :tool_request_constructed,
-        :tool_dispatched,
-        :tool_result_received,
-        :tool_trace_recorded,
-        :turn_result_emitted
-      ]
+      event_order: event_order
     }
 
     summary =
       %{
         trace_ref: trace_id,
         plan_ref: plan.plan_id,
-        decision_type: :tool_dispatched,
+        decision_type: decision_type,
+        no_tool_reason: no_tool_reason,
         tool_name: req.tool_name,
         tool_version: req.tool_version,
         tool_status: result.status,
         tool_request_id: req.tool_request_id,
         tool_result_id: result.tool_result_id,
         decision_ref: decision.decision_id,
+        execution_counts: counts,
         adoption_status: "not_adopted",
         gate_order_version: decision.gate_order_version,
         gate_results: NovelDomain.GateResult.lineage(decision.gate_results),
-        context_refs: format_context_refs(context_refs)
+        context_refs: format_context_refs(context)
       }
       |> maybe_put_omissions(turn_result)
       |> maybe_put_brief_ref(turn_result)
@@ -479,7 +498,7 @@ defmodule NovelApplication.TraceWriter do
     end
   end
 
-  defp format_context_refs(refs) when is_list(refs) do
+  defp format_context_refs(%DialogueContext{context_refs: refs}) when is_list(refs) do
     Enum.map(refs, fn %ContextSourceRef{} = ref ->
       %{
         context_ref: ref.context_ref,

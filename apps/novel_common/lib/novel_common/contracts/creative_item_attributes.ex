@@ -1,11 +1,169 @@
 defmodule NovelCommon.Contracts.CreativeItemAttributes do
   @moduledoc """
-  Normalize the optional attributes of a creative item.
-  Required item fields and source-interval mappings belong to ToolOutputContract.
+  Creative item field schemas and optional-attribute normalization.
+  The native schema excludes application provenance and FactInventory's skeleton wrapper.
   """
 
   alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.NarrativeRole
+
+  @chapter_ref_pattern ~r/^chapter:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+  @doc "The model-facing fields of one creative item; application provenance is excluded."
+  def schema(type, target_segments? \\ false) do
+    properties =
+      Map.merge(
+        %{
+          item_id: %{type: "string", minLength: 1},
+          title: %{type: "string", minLength: 1},
+          body: %{type: "string", minLength: 1},
+          rationale: %{
+            anyOf: [%{type: "string"}, %{type: "null"}],
+            description:
+              "将直接展示给作者的创作说明：解释创作取舍、作品依据及预期作用，遵守共同作者说明规则。" <>
+                "材料引用身份只放 self_report.used_context_refs；无需说明时省略或为 null。"
+          }
+        },
+        type_properties(type)
+      )
+
+    properties =
+      if target_segments? do
+        Map.put(properties, :target_segment_ids, %{
+          type: "array",
+          minItems: 1,
+          uniqueItems: true,
+          items: %{type: "string", minLength: 1}
+        })
+      else
+        properties
+      end
+
+    %{
+      type: "object",
+      properties: properties,
+      required:
+        ["item_id", "title", "body"] ++ if(target_segments?, do: ["target_segment_ids"], else: []),
+      additionalProperties: false
+    }
+  end
+
+  defp type_properties(type) when type in [:character_seed, "character_seed"] do
+    %{
+      narrative_role: %{anyOf: [%{type: "string", enum: NarrativeRole.values()}, %{type: "null"}]},
+      role: %{type: "string", minLength: 1},
+      aliases: %{type: "array", items: %{type: "string", minLength: 1}}
+    }
+  end
+
+  defp type_properties(type)
+       when type in [:character_evolution_seed, "character_evolution_seed"] do
+    %{
+      memory_subtype: %{
+        anyOf: [
+          %{
+            type: "string",
+            enum: [
+              MemoryType.character_profile(),
+              MemoryType.current_state(),
+              MemoryType.relationship()
+            ]
+          },
+          %{type: "null"}
+        ]
+      }
+    }
+  end
+
+  defp type_properties(type) when type in [:outline_draft, "outline_draft"] do
+    %{
+      chapter_ref: %{
+        type: "string",
+        minLength: 1,
+        description: "当前作品已有章的 chapter:<uuid>，逐字复制可信索引；新章省略。"
+      }
+    }
+  end
+
+  defp type_properties(type) when type in [:foreshadowing_seed, "foreshadowing_seed"] do
+    %{
+      planned_reveal: %{
+        anyOf: [
+          %{
+            type: "object",
+            required: ["kind", "seq"],
+            properties: %{
+              kind: %{enum: ["chapter", "volume"]},
+              seq: %{type: "integer", minimum: 1}
+            },
+            additionalProperties: false
+          },
+          %{
+            type: "object",
+            required: ["kind"],
+            properties: %{kind: %{enum: ["whole_book"]}},
+            additionalProperties: false
+          }
+        ]
+      },
+      resolution_target: %{
+        type: "string",
+        minLength: 1,
+        description: "已有伏笔账面引用，形如 foreshadow_<memory_id>。"
+      },
+      resolved_at_seq: %{type: "integer", minimum: 1}
+    }
+  end
+
+  defp type_properties(type) when type in [:prose_formatting_plan, "prose_formatting_plan"] do
+    %{
+      line_break_changes: %{
+        type: "array",
+        minItems: 1,
+        items: %{
+          type: "object",
+          required: ["boundary_id", "lines"],
+          properties: %{
+            boundary_id: %{type: "string", minLength: 1},
+            lines: %{type: "integer", enum: [0, 1, 2]}
+          },
+          additionalProperties: false
+        }
+      }
+    }
+  end
+
+  defp type_properties(_type), do: %{}
+
+  @doc "Reference shape checks remain with their field owner, before normalization."
+  def validate_raw_references(raw) do
+    target = map_get(raw, :resolution_target)
+
+    with :ok <- validate_chapter_ref(map_get(raw, :chapter_ref)) do
+      if is_nil(target) or (is_binary(target) and normalize_resolution_target(target) == target) do
+        :ok
+      else
+        {:error,
+         %{
+           code: "invalid_resolution_target",
+           message: "resolution_target 必须原样引用已有 foreshadow_<memory_id>，不得改写或补猜。"
+         }}
+      end
+    end
+  end
+
+  def validate_chapter_ref(nil), do: :ok
+
+  def validate_chapter_ref(ref) do
+    if valid_chapter_ref?(ref),
+      do: :ok,
+      else:
+        {:error,
+         %{code: "invalid_chapter_ref", message: "chapter_ref 必须形如 chapter:<uuid>，新章省略该字段。"}}
+  end
+
+  def valid_chapter_ref?(ref) when is_binary(ref), do: Regex.match?(@chapter_ref_pattern, ref)
+  def valid_chapter_ref?(_ref), do: false
 
   @spec normalize(map()) :: map()
   def normalize(raw) when is_map(raw) do
@@ -21,6 +179,7 @@ defmodule NovelCommon.Contracts.CreativeItemAttributes do
 
     [
       {:provider_call_ref, if(is_binary(provider_call_ref), do: provider_call_ref)},
+      {:chapter_ref, map_get(raw, :chapter_ref)},
       {:narrative_role, normalize_narrative_role(map_get(raw, :narrative_role))},
       {:memory_subtype, normalize_memory_subtype(map_get(raw, :memory_subtype))},
       {:role, normalize_character_role(map_get(raw, :role))},

@@ -3,8 +3,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   Real provider adapter for creative tools.
 
   `generate/2` and `generate_with_session/2,3` share one native Request IR exchange.
-  JSON text is parsed only as an explicitly marked finite response mode; it never
-  creates another request protocol or supplies demo/adoption wording.
+  Decoded native arguments are validated before normalization. They never pass
+  through a second JSON-text parser or supply adoption facts.
   """
 
   @behaviour NovelAgent.CreativeProvider
@@ -13,8 +13,10 @@ defmodule NovelAgent.CreativeProvider.Real do
   alias NovelAgent.Provider.NativeToolExchange
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
+  alias NovelCommon.Contracts.CreativeItemAttributes
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
+  alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Operation
@@ -31,6 +33,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   - 若创作简述给出"目标字数：约 N 字"，正文篇幅应贴近该字数，不要明显过短，也不要靠重复句子注水。
   - 正文只写故事本身：不得出现"第N章"这类章节编号自指或对后文章节的预告，不得出现"待采纳""草稿""审校"等工作流程词，不要写解释正文的元评论。章节坐标与计划信息只是给你的背景，不是剧情事实。
   """
+
+  @candidate_response_guidance "只返回 submit_tentative_artifact 的候选工具调用；content 必须为 null 或空字符串，纯空白也不允许。"
 
   @impl true
   def generate(%CreativeRequest{} = request, provider_execution) do
@@ -154,7 +158,9 @@ defmodule NovelAgent.CreativeProvider.Real do
             parse_native_result(result, request, actual_request)
           end,
           &exchange_error/2,
-          Keyword.take(opts, [:validate_result, :max_provider_calls])
+          opts
+          |> Keyword.take([:validate_result, :max_provider_calls])
+          |> Keyword.put(:feedback, &candidate_feedback/1)
         )
 
       {result, session}
@@ -191,70 +197,10 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp tentative_artifact_tool(request) do
-    segment_mapping =
-      if ToolOutputContract.target_segment_mapping_required?(request.artifact_type, request.task) do
-        %{
-          target_segment_ids: %{
-            type: "array",
-            minItems: 1,
-            uniqueItems: true,
-            items: %{type: "string", minLength: 1}
-          }
-        }
-      else
-        %{}
-      end
-
     %{
       name: "submit_tentative_artifact",
-      description: "提出待作者审阅的创作候选；不执行采纳、不修改权威作品事实。",
-      input_schema: %{
-        type: "object",
-        required: ["items"],
-        properties: %{
-          items: %{
-            type: "array",
-            minItems: 1,
-            items: %{
-              type: "object",
-              required:
-                ["item_id", "title", "body"] ++
-                  Enum.map(Map.keys(segment_mapping), &Atom.to_string/1),
-              properties:
-                Map.merge(
-                  %{
-                    item_id: %{type: "string", minLength: 1},
-                    title: %{type: "string", minLength: 1},
-                    body: %{type: "string"},
-                    rationale: %{
-                      anyOf: [%{type: "string"}, %{type: "null"}],
-                      description:
-                        "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
-                          "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
-                          "无需说明时可省略或为 null。"
-                    }
-                  },
-                  segment_mapping
-                ),
-              additionalProperties: true
-            }
-          },
-          companion_artifacts: %{type: "array", items: %{type: "object"}},
-          self_report: %{
-            type: "object",
-            properties: %{
-              used_context_refs: %{
-                type: "array",
-                items: %{type: "string"},
-                description:
-                  "仅列本次实际使用的材料。成功工具观察使用 content.observation_ref，底座只用本次实际供应材料的已声明来源；作者消息来源不授信。目标定位、版本、调用编号不能作为观察身份；没有使用可省略，引用只留自报字段。"
-              }
-            },
-            additionalProperties: true
-          }
-        },
-        additionalProperties: false
-      }
+      description: "提出待作者审阅的创作候选；不执行采纳、不修改权威作品事实。" <> @candidate_response_guidance,
+      input_schema: ToolOutputContract.creative_output_schema(request.artifact_type, request.task)
     }
   end
 
@@ -266,11 +212,15 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp exchange_error(code, reason),
     do: provider_error(code, inspect(reason), provider_error_type(reason))
 
+  defp candidate_feedback(%CreativeProviderResult{errors: [error | _]}) do
+    %{reason_code: error.code, detail: %{}, message: error.message}
+  end
+
   # 阶段输出/companion 范围校验属于同一次工具交换：在 parse 成功路径内拒绝，
   # 由 NativeToolExchange 用原 call_id 回流并共享同一重试预算。
   defp parse_native_result(result, request, actual_request) do
     result
-    |> decode_native_result()
+    |> decode_native_result(request)
     |> enforce_companion_scope(request)
     |> enforce_artifact_shape(request)
     |> validate_used_context_refs(actual_request)
@@ -295,14 +245,62 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   # 单工具交换由 NativeToolExchange 的允许响应门保证（恰好一个具名 tool call）；
   # 这里不再保留「无 tool call → 解析纯文本 JSON」的退役 fallback。
-  defp decode_native_result(%{tool_calls: [call]} = result) do
-    case map_get(call, :arguments) do
-      arguments when is_map(arguments) ->
-        arguments |> Jason.encode!() |> parse_content(provider_call_ref(result))
+  defp decode_native_result(%{tool_calls: [call]} = result, request) do
+    arguments = map_get(call, :arguments)
 
-      _ ->
-        provider_error("provider_response_invalid", "native tool arguments must be an object")
+    with :ok <- validate_native_content(result),
+         :ok <-
+           ToolOutputContract.validate_creative_self_report_refs(map_get(arguments, :self_report)),
+         true <-
+           ToolArgumentSchema.valid?(
+             arguments,
+             ToolOutputContract.creative_output_schema(request.artifact_type, request.task)
+           ),
+         :ok <- validate_raw_references(arguments),
+         {:ok, items} <- ToolOutputContract.validate_creative_items(map_get(arguments, :items)),
+         {:ok, companions} <-
+           ToolOutputContract.validate_prose_companion_artifacts(
+             map_get(arguments, :companion_artifacts)
+           ),
+         :ok <- ToolOutputContract.validate_unique_item_ids(items, companions),
+         {:ok, self_report} <-
+           ToolOutputContract.normalize_creative_self_report(map_get(arguments, :self_report)) do
+      call_ref = provider_call_ref(result)
+
+      %CreativeProviderResult{
+        status: :ok,
+        items: put_provider_call_ref(items, call_ref),
+        companion_artifacts: put_companion_provider_call_ref(companions, call_ref),
+        self_report: self_report,
+        provider_call_ref: call_ref
+      }
+    else
+      false ->
+        provider_error(
+          "provider_response_invalid",
+          "原始候选参数不符合本次工具 schema；只提交已声明字段，并遵守字段类型、必填项和嵌套形状。" <> @candidate_response_guidance
+        )
+
+      {:error, %{code: code, message: message}} ->
+        provider_error(code, message)
     end
+  end
+
+  defp validate_native_content(result) do
+    if Map.get(result, :content, Map.get(result, "content")) in [nil, ""],
+      do: :ok,
+      else: {:error, %{code: "provider_response_invalid", message: @candidate_response_guidance}}
+  end
+
+  defp validate_raw_references(arguments) do
+    items = map_get(arguments, :items) ++ (map_get(arguments, :companion_artifacts) || [])
+
+    Enum.find_value(items, fn item ->
+      case CreativeItemAttributes.validate_raw_references(item) do
+        :ok -> nil
+        error -> error
+      end
+    end) || :ok
   end
 
   @creative_tool_names ~w(plot_outline character_design character_evolution world_building)
@@ -494,7 +492,7 @@ defmodule NovelAgent.CreativeProvider.Real do
       对白表面：对白表面在谈什么｜潜台词：对白暗里争什么
       感官：该场时空与感官锚点（如潮湿霉味、风扇噪音）
     - "chapter_ref"（可选）：若该章在上下文「作品章节」索引中已存在，**逐字复制**该条目的
-      `chapter_ref`（形如 `chapter:<uuid>`）；新规划的章不填/留空；不得自行编造、改写 ref，
+      `chapter_ref`（形如 `chapter:<uuid>`）；新规划的章省略该字段；不得自行编造、改写 ref，
       也不得把 ref 拼进 title 或 body。只有确实复制的 ref 才能填。
     """
     |> String.trim()
@@ -632,60 +630,6 @@ defmodule NovelAgent.CreativeProvider.Real do
     }
   end
 
-  defp parse_content(content, provider_call_ref) do
-    trimmed =
-      content
-      |> strip_code_fence()
-      |> String.trim()
-      |> NovelAgent.Provider.repair_unescaped_control_chars()
-
-    with {:ok, decoded} <- Jason.decode(trimmed),
-         {:ok, raw_items, raw_self_report, raw_companions} <- creative_payload(decoded),
-         {:ok, items} <- ToolOutputContract.validate_creative_items(raw_items),
-         {:ok, companion_artifacts} <-
-           ToolOutputContract.validate_prose_companion_artifacts(raw_companions),
-         :ok <- ToolOutputContract.validate_unique_item_ids(items, companion_artifacts),
-         {:ok, self_report} <- ToolOutputContract.normalize_creative_self_report(raw_self_report) do
-      %CreativeProviderResult{
-        status: :ok,
-        items: put_provider_call_ref(items, provider_call_ref),
-        companion_artifacts:
-          put_companion_provider_call_ref(companion_artifacts, provider_call_ref),
-        self_report: self_report,
-        provider_call_ref: provider_call_ref
-      }
-    else
-      {:error, %Jason.DecodeError{} = error} ->
-        provider_error(
-          "provider_response_invalid",
-          "JSON decode error: #{Exception.message(error)}"
-        )
-
-      {:error, %{code: code, message: message}} ->
-        provider_error(code, message)
-
-      {:error, reason} ->
-        provider_error("provider_response_invalid", inspect(reason))
-    end
-  end
-
-  defp creative_payload(items) when is_list(items), do: {:ok, items, nil, []}
-
-  defp creative_payload(%{} = payload) do
-    items = Map.get(payload, "items") || Map.get(payload, :items)
-    self_report = Map.get(payload, "self_report") || Map.get(payload, :self_report)
-
-    companion_artifacts =
-      Map.get(payload, "companion_artifacts") || Map.get(payload, :companion_artifacts) || []
-
-    {:ok, items, self_report, companion_artifacts}
-  end
-
-  defp creative_payload(_decoded) do
-    {:error,
-     %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
-  end
-
   defp map_get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
   defp map_get(_, _), do: nil
 
@@ -704,12 +648,6 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp put_companion_provider_call_ref(items, provider_call_ref) do
     Enum.map(items, &Map.put(&1, :provider_call_ref, provider_call_ref))
-  end
-
-  defp strip_code_fence(content) do
-    content
-    |> String.replace(~r/^```(?:json)?\s*/, "")
-    |> String.replace(~r/```\s*$/, "")
   end
 
   defp provider_error(code, message, type \\ nil) do

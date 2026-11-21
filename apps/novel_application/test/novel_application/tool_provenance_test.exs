@@ -538,6 +538,109 @@ defmodule NovelApplication.ToolProvenanceTest do
       }
     end
 
+    test "a rewrite without a real chapter baseline fails before dispatch and trace agrees" do
+      parent = self()
+
+      {turn_result, trace, _transcript} =
+        TurnExecutionService.execute(%{
+          frame: continuity_frame(),
+          plan: continuity_plan(:rewrite, nil),
+          decision: allow_decision(),
+          context: %NovelDomain.DialogueContext{
+            work_id: "work-cont",
+            current_chapters: [],
+            structured_chapters: []
+          },
+          author_input: %{text: "请把已有正文重写一遍"},
+          chapter_index_reader: fn "work-cont" -> [] end,
+          chapter_prose_reader: fn _work, _title -> nil end,
+          provider_execution: %Execution{
+            result_fn: fn _request ->
+              send(parent, :invalid_rewrite_provider_called)
+              {:error, :unexpected_provider_call}
+            end
+          }
+        })
+
+      refute_received :invalid_rewrite_provider_called
+      assert turn_result.phase == "failed"
+      assert turn_result.tool_result.status == :failed
+      assert [%{code: "authoring_task_invalid"}] = turn_result.tool_result.errors
+      assert turn_result.tool_result.output == nil
+      assert turn_result.tool_result.state_delta == []
+      assert turn_result.trace_summary.execution_counts == %{tool_calls: 0, provider_calls: 0}
+      assert turn_result.truthfulness.tool_called == false
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert [%{tool_status: :failed}] = trace.tool_trace_refs
+      refute trace.decision_type == :tool_dispatched
+      refute :tool_dispatched in trace.event_order
+      refute :tool_result_received in trace.event_order
+      assert turn_result.trace_summary.decision_type == trace.decision_type
+    end
+
+    test "outline chapter scope rejection is corrected inside the original native exchange" do
+      owned_id = "3a57e891-0d69-4c80-8b5f-d352d3a4d001"
+      owned_ref = "chapter:" <> owned_id
+      foreign_ref = "chapter:3a57e891-0d69-4c80-8b5f-d352d3a4d002"
+      {:ok, requests} = Agent.start_link(fn -> [] end)
+
+      result_fn = fn request ->
+        attempt =
+          Agent.get_and_update(requests, fn observed ->
+            {length(observed), observed ++ [request]}
+          end)
+
+        chapter_ref = if attempt == 0, do: foreign_ref, else: owned_ref
+
+        {:ok,
+         %{
+           content: "",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
+               items: [
+                 %{
+                   "item_id" => "outline-scope",
+                   "title" => "已有章",
+                   "body" => "保留章身份，补足冲突推进。",
+                   "rationale" => nil,
+                   "chapter_ref" => chapter_ref
+                 }
+               ]
+             })
+         }}
+      end
+
+      plan = continuity_plan(nil, nil)
+      action = %{hd(plan.proposed_actions) | target_ref: "plot_outline", summary: "规划已有章"}
+
+      {turn_result, _trace, _transcript} =
+        TurnExecutionService.execute(%{
+          frame: continuity_frame(),
+          plan: %{plan | proposed_actions: [action]},
+          decision: allow_decision(),
+          context: %NovelDomain.DialogueContext{
+            work_id: "work-cont",
+            current_chapters: [],
+            structured_chapters: []
+          },
+          author_input: %{text: "请规划已有章的冲突推进"},
+          chapter_index_reader: fn "work-cont" ->
+            [%{id: owned_id, seq: 1, title: "已有章", has_prose: false}]
+          end,
+          provider_execution: %Execution{result_fn: result_fn}
+        })
+
+      observed = Agent.get(requests, & &1)
+      assert length(observed) == 2
+      assert turn_result.trace_summary.execution_counts == %{tool_calls: 1, provider_calls: 2}
+      assert turn_result.tool_result.status == :succeeded
+      assert [%{chapter_ref: ^owned_ref}] = turn_result.tool_result.output.items
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert TestAgenticLoopFixtures.prompt_text(Enum.at(observed, 1)) =~ "cross_work_chapter_ref"
+    end
+
     test "non-creative dispatch reports the real tool count and never receives provider dependency" do
       parent = self()
 

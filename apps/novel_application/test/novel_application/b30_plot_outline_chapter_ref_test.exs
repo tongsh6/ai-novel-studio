@@ -14,7 +14,7 @@ defmodule NovelApplication.B30PlotOutlineChapterRefTest do
     %{id: "22222222-2222-2222-2222-222222222222", seq: 3, title: "第12章：旧钱与旧名"}
   ]
 
-  test "合法 chapter_ref（当前作品已有章）透传 :ok；新章无 ref 允许" do
+  test "合法 chapter_ref 必须来自当前作品索引，新章无 ref 允许" do
     items = [
       %{item_id: "a", title: "第2章：外门名册上的空白", body: "方向", chapter_ref: @valid_ref},
       %{item_id: "b", title: "第4章：新章", body: "方向"}
@@ -23,11 +23,11 @@ defmodule NovelApplication.B30PlotOutlineChapterRefTest do
     assert :ok = PlotOutlineChapterRef.validate_work_scope(items, @structured)
   end
 
-  test "跨作品 ref 被可解释拒绝（不静默丢 ref）" do
+  test "不在当前作品索引中的 ref 可解释拒绝，不静默丢失或退回标题匹配" do
     items = [
       %{
         item_id: "a",
-        title: "第2章：x",
+        title: "第11章：外门名册上的空白",
         body: "方向",
         chapter_ref: "chapter:33333333-3333-3333-3333-333333333333"
       }
@@ -35,29 +35,9 @@ defmodule NovelApplication.B30PlotOutlineChapterRefTest do
 
     assert {:error, {:cross_work_chapter_ref, "chapter:33333333-3333-3333-3333-333333333333"}} =
              PlotOutlineChapterRef.validate_work_scope(items, @structured)
-
-    tool_result = %NovelCommon.Contracts.ToolResult{
-      tool_result_id: "tr",
-      tool_request_ref: "tq",
-      tool_name: "plot_outline",
-      status: :succeeded,
-      output: %{items: items},
-      artifact_refs: ["a"]
-    }
-
-    failed =
-      PlotOutlineChapterRef.failed_result(
-        tool_result,
-        {:cross_work_chapter_ref, "chapter:33333333-3333-3333-3333-333333333333"}
-      )
-
-    assert failed.status == :failed
-    assert failed.output.error_code == "cross_work_chapter_ref"
-    assert failed.output.message =~ "不属于当前作品"
-    assert failed.artifact_refs == []
   end
 
-  test "非法形状/重复绑定拒绝；空章节索引时跳过范围校验（不猜）" do
+  test "非法形状与重复绑定拒绝" do
     assert {:error, {:invalid_chapter_ref, "chapter:nope"}} =
              PlotOutlineChapterRef.validate_work_scope(
                [%{item_id: "a", title: "t", body: "b", chapter_ref: "chapter:nope"}],
@@ -72,12 +52,28 @@ defmodule NovelApplication.B30PlotOutlineChapterRefTest do
                ],
                @structured
              )
+  end
 
-    # 无章节索引不可校验 → :ok（诚实降级，不误杀合法 ref）
-    assert :ok =
+  test "可信空索引不能授权模型自报的已有章" do
+    assert {:error, {:cross_work_chapter_ref, @valid_ref}} =
              PlotOutlineChapterRef.validate_work_scope(
-               [%{item_id: "a", title: "t", body: "b", chapter_ref: @valid_ref}],
+               [%{item_id: "a", title: "第2章", body: "方向", chapter_ref: @valid_ref}],
                []
              )
+  end
+
+  test "索引不可用与空索引区分，已有章引用必须可核验" do
+    assert {:error, {:chapter_index_unavailable, @valid_ref}} =
+             PlotOutlineChapterRef.validate_work_scope(
+               [%{item_id: "a", title: "第2章", body: "方向", chapter_ref: @valid_ref}],
+               nil
+             )
+  end
+
+  test "没有已有章引用的新大纲不依赖索引可用性" do
+    items = [%{item_id: "new", title: "新章", body: "方向"}]
+
+    assert :ok = PlotOutlineChapterRef.validate_work_scope(items, [])
+    assert :ok = PlotOutlineChapterRef.validate_work_scope(items, nil)
   end
 end

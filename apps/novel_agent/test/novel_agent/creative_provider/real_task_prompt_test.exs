@@ -167,10 +167,13 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
        "target_segments", true}
     ]
 
-    expected_description =
-      "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
-        "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
-        "无需说明时可省略或为 null。"
+    expected_description_fragments = [
+      "将直接展示给作者的创作说明",
+      "创作取舍、作品依据及预期作用",
+      "共同作者说明规则",
+      "材料引用身份只放 self_report.used_context_refs",
+      "无需说明时省略或为 null"
+    ]
 
     shared_author_rules =
       """
@@ -228,12 +231,18 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
                "anyOf" => [%{"type" => "string"}, %{"type" => "null"}]
              }
 
-      assert rationale["description"] == expected_description
+      for fragment <- expected_description_fragments do
+        assert rationale["description"] =~ fragment
+      end
 
       used_refs = schema["properties"]["self_report"]["properties"]["used_context_refs"]
       assert used_refs["type"] == "array"
       assert used_refs["items"] == %{"type" => "string"}
-      assert used_refs["description"] =~ "引用只留自报字段"
+      assert used_refs["description"] =~ "仅列本次实际使用的材料"
+      assert used_refs["description"] =~ "成功工具观察使用 content.observation_ref"
+      assert used_refs["description"] =~ "底座只用实际供应材料的已声明来源"
+      assert used_refs["description"] =~ "作者消息来源、调用编号不授信"
+      assert used_refs["description"] =~ "没有使用可省略"
     end
   end
 

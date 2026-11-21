@@ -11,6 +11,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Toolbox
+  alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.TestAgenticLoopFixtures
@@ -322,6 +323,41 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert turn_result.truthfulness.artifact_adopted == false
       assert turn_result.truthfulness.production_write_performed == false
     end
+  end
+
+  test "已有章引用贯穿原生 Real Adapter Assembler，正文与章身份不重建" do
+    provider =
+      native_artifact_provider([
+        %{
+          "item_id" => "outline-existing",
+          "title" => " 旧章标题 Ω ",
+          "body" => " \r\n章功能定位：推进章。\n关键变化：沈砚收回铜钱。\t",
+          "rationale" => "沿用当前作品的既有章。",
+          "chapter_ref" => "chapter:11111111-1111-1111-1111-111111111111"
+        },
+        %{"item_id" => "outline-new", "title" => "新章", "body" => "章功能定位：铺垫章。"}
+      ])
+
+    {tool_result, session} =
+      CreativeToolAdapter.execute_with_session(
+        request("plot_outline"),
+        :outline_draft,
+        provider,
+        NovelAgent.CreativeProvider.Real
+      )
+
+    assert tool_result.status == :succeeded
+    assert session.provider_call_count == 1
+    assert {:ok, artifact} = ArtifactAssembler.assemble(tool_result, "turn:raw-outline")
+
+    assert [%{item_id: "outline-existing"} = existing, %{item_id: "outline-new"} = new] =
+             artifact.items
+
+    assert Map.get(existing, :chapter_ref) == "chapter:11111111-1111-1111-1111-111111111111"
+    assert existing.title == " 旧章标题 Ω "
+    assert existing.body == " \r\n章功能定位：推进章。\n关键变化：沈砚收回铜钱。\t"
+    assert existing.rationale == "沿用当前作品的既有章。"
+    refute Map.has_key?(new, :chapter_ref)
   end
 
   defp request(tool_name, input_overrides \\ %{}) do

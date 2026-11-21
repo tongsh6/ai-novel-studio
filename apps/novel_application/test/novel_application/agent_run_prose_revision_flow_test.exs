@@ -374,7 +374,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert [first_validation, second_validation] = validation_blocks(transcript)
     assert first_validation.call_id == Enum.at(calls, 0).call_id
     assert first_validation.status == "failed"
-    assert first_validation.reason_code == "invalid_items"
+    assert first_validation.reason_code == "provider_response_invalid"
     assert second_validation.call_id == Enum.at(calls, 1).call_id
     assert second_validation.status == "passed"
 
@@ -983,7 +983,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
         assert [stored_failed, stored_passed] = validation_blocks(restored)
         assert stored_failed.status == "failed"
-        assert stored_failed.reason_code == "invalid_items"
+        assert stored_failed.reason_code == "provider_response_invalid"
         assert stored_passed.status == "passed"
 
         assert TraceRepository.list_by_workspace(work.id) == []
@@ -1049,7 +1049,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       assert [first_validation, second_validation] = validation_blocks(transcript)
       assert first_validation.call_id == Enum.at(calls, 0).call_id
       assert first_validation.status == "failed"
-      assert first_validation.reason_code == "invalid_items"
+      assert first_validation.reason_code == "provider_response_invalid"
       assert second_validation.call_id == Enum.at(calls, 1).call_id
       assert second_validation.status == "passed"
 
@@ -1058,7 +1058,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       assert Enum.all?(revision_records, &real_execution_refs?/1)
       [first_record, second_record] = revision_records
       assert first_record["provider_call_ref"] != second_record["provider_call_ref"]
-      assert request_text(second_record) =~ "invalid_items"
+      assert request_text(second_record) =~ "provider_response_invalid"
       assert request_text(second_record) =~ "native-submit_tentative_artifact"
 
       assert revision.trace_summary.revision_provider_call_ref ==

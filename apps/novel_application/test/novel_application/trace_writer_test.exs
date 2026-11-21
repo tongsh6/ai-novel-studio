@@ -79,6 +79,55 @@ defmodule NovelApplication.TraceWriterTest do
       assert summary.reply_record.author_narrative_source == source
     end
 
+    test "records an application rejection without claiming a tool was dispatched" do
+      {request, result} = failed_tool_exchange("authoring_task_invalid")
+
+      {trace, summary} =
+        TraceWriter.record_with_tool(
+          frame(),
+          plan(),
+          allow_tool_decision(),
+          request,
+          result,
+          %{turn_id: "turn-redact", execution_counts: %{tool_calls: 0, provider_calls: 0}},
+          nil
+        )
+
+      refute trace.decision_type == :tool_dispatched
+      refute :tool_dispatched in trace.event_order
+      refute :tool_result_received in trace.event_order
+      refute trace.no_tool_reason == "tool_was_dispatched"
+      refute trace.no_behavior_reason == "tool_execution_completed"
+      refute String.contains?(trace.no_write_reason, "orchestrator blocked")
+      assert [%{tool_request_ref: "tq-not-started", tool_status: :failed}] = trace.tool_trace_refs
+      assert summary.decision_type == trace.decision_type
+      assert summary.tool_status == :failed
+      assert summary.execution_counts == %{tool_calls: 0, provider_calls: 0}
+    end
+
+    test "records a dispatched failure as an attempted execution, not a success" do
+      {request, result} = failed_tool_exchange("provider_unavailable")
+
+      {trace, summary} =
+        TraceWriter.record_with_tool(
+          frame(),
+          plan(),
+          allow_tool_decision(),
+          request,
+          result,
+          %{turn_id: "turn-redact", execution_counts: %{tool_calls: 1, provider_calls: 1}},
+          nil
+        )
+
+      assert trace.decision_type == :tool_dispatched
+      assert :tool_dispatched in trace.event_order
+      assert :tool_result_received in trace.event_order
+      assert [%{tool_status: :failed}] = trace.tool_trace_refs
+      assert summary.tool_status == :failed
+      assert summary.adoption_status == "not_adopted"
+      assert summary.execution_counts == %{tool_calls: 1, provider_calls: 1}
+    end
+
     test "records tool registry snapshot and redacted IO summaries without raw payload" do
       request = %ToolRequest{
         tool_request_id: "tq-redacted",
@@ -119,7 +168,7 @@ defmodule NovelApplication.TraceWriterTest do
           allow_tool_decision(),
           request,
           result,
-          %{turn_id: "turn-redact"},
+          %{turn_id: "turn-redact", execution_counts: %{tool_calls: 1, provider_calls: 0}},
           nil
         )
 
@@ -148,6 +197,33 @@ defmodule NovelApplication.TraceWriterTest do
       refute TraceRedactor.unsafe?(tool_ref)
       refute TraceRedactor.unsafe?(summary)
     end
+  end
+
+  defp failed_tool_exchange(code) do
+    request = %ToolRequest{
+      tool_request_id: "tq-not-started",
+      turn_id: "turn-redact",
+      frame_ref: "frame-redact",
+      plan_ref: "plan-redact",
+      decision_ref: "decision-redact",
+      tool_name: "prose_writing",
+      tool_version: "1.0.0",
+      input: %{},
+      read_scope_grants: [],
+      write_scope_grants: []
+    }
+
+    result = %ToolResult{
+      tool_result_id: "tr-not-started",
+      tool_request_ref: request.tool_request_id,
+      tool_name: request.tool_name,
+      status: :failed,
+      errors: [%{code: code, message: "本轮创作未能完成。"}],
+      artifact_refs: [],
+      state_delta: []
+    }
+
+    {request, result}
   end
 
   defp frame do

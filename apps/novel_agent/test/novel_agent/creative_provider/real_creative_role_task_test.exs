@@ -278,7 +278,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ "本次你承担小说大纲规划助手的角色"
     assert prompt =~ ~s("chapter_ref"（可选）)
     assert prompt =~ "逐字复制"
-    assert prompt =~ "新规划的章不填/留空"
+    assert prompt =~ "新规划的章省略该字段"
     assert prompt =~ "不得自行编造、改写 ref"
     assert prompt =~ "不得把 ref 拼进 title 或 body"
   end

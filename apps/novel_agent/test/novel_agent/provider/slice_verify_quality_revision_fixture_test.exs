@@ -79,7 +79,7 @@ defmodule NovelAgent.Provider.SliceVerifyQualityRevisionFixtureTest do
       NovelTest.TestRequestIR.validation(
         "native-submit_tentative_artifact",
         "failed",
-        "invalid_items"
+        "provider_response_invalid"
       )
 
     call =

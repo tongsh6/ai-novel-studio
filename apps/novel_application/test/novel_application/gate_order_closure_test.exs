@@ -459,7 +459,7 @@ defmodule NovelApplication.GateOrderClosureTest do
           decision,
           req,
           result,
-          %{turn_id: frame.turn_id},
+          %{turn_id: frame.turn_id, execution_counts: %{tool_calls: 1, provider_calls: 1}},
           nil
         )
 

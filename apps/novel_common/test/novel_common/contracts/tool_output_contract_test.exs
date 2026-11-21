@@ -4,6 +4,53 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
   alias NovelCommon.Contracts.CreativeItemAttributes
   alias NovelCommon.Contracts.ToolOutputContract
 
+  test "FactInventory 已有内部 skeleton 槽保留，不因此授权普通创作 schema" do
+    assert {:ok, [item]} =
+             ToolOutputContract.validate_creative_items([
+               %{
+                 artifact_type: "work_skeleton_suggestion",
+                 item_id: "skeleton-target",
+                 title: "目标体量",
+                 body: "建议十万字。",
+                 skeleton_field: "target_length",
+                 skeleton_value: 100_000
+               }
+             ])
+
+    assert item.skeleton_field == "target_length"
+    assert item.skeleton_value == 100_000
+  end
+
+  test "内部候选章引用与应用生成溯源通过共同校验时原样保留" do
+    raw = %{
+      "item_id" => "outline-existing",
+      "title" => " 旧章 Ω ",
+      "body" => " \r\n章功能定位：推进章。\n\t",
+      "rationale" => "保留旧章身份。",
+      "chapter_ref" => "chapter:11111111-1111-1111-1111-111111111111",
+      "provider_call_ref" => "provider_call:application-owned"
+    }
+
+    assert {:ok, [item]} = ToolOutputContract.validate_creative_items([raw])
+    assert Map.get(item, :chapter_ref) == "chapter:11111111-1111-1111-1111-111111111111"
+    assert item.provider_call_ref == "provider_call:application-owned"
+    assert item.title == " 旧章 Ω "
+    assert item.body == " \r\n章功能定位：推进章。\n\t"
+    assert item.rationale == "保留旧章身份。"
+  end
+
+  test "内部候选非法章引用拒绝，不能通过重建静默丢弃" do
+    assert {:error, %{code: "invalid_chapter_ref"}} =
+             ToolOutputContract.validate_creative_items([
+               %{
+                 item_id: "outline-invalid",
+                 title: "旧章",
+                 body: "章功能定位：推进章。",
+                 chapter_ref: "chapter:not-a-uuid"
+               }
+             ])
+  end
+
   @tag :source_interval_mapping
   test "区间映射保留原始 ID 顺序与正文，不猜测或修复绑定" do
     body = " \r\n锚句保持。\n\n第二个自然段。\t\r\n"

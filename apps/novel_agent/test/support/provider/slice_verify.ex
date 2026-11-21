@@ -638,7 +638,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           type: "validation_result",
           call_id: call_id,
           status: "failed",
-          reason_code: "invalid_items"
+          reason_code: "provider_response_invalid"
         } ->
           call_id in call_ids
 

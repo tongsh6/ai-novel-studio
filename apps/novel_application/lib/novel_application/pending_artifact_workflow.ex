@@ -683,6 +683,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           )
         )
 
+      counts = normalize_counts(session)
+
       {trace, summary} =
         TraceWriter.record_with_tool(
           frame,
@@ -690,7 +692,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           decision,
           request,
           result,
-          %{turn_id: frame.turn_id},
+          %{
+            turn_id: frame.turn_id,
+            execution_counts: %{
+              tool_calls: counts.tool_call_count,
+              provider_calls: counts.provider_call_count
+            }
+          },
           context
         )
 
@@ -1652,6 +1660,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
     {result, session} = AuthorizedToolExecutor.execute_with_session(request, provider, opts)
 
+    counts = normalize_counts(session)
+
     {trace, summary} =
       TraceWriter.record_with_tool(
         frame,
@@ -1659,7 +1669,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         decision,
         request,
         result,
-        %{turn_id: frame.turn_id},
+        %{
+          turn_id: frame.turn_id,
+          execution_counts: %{
+            tool_calls: counts.tool_call_count,
+            provider_calls: counts.provider_call_count
+          }
+        },
         context
       )
 
