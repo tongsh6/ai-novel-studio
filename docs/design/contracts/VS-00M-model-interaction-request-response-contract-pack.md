@@ -210,7 +210,7 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 实例：`visible_in_reading=true` 若实际查得是当前事实；“应该只在档案显示”是作者要求；“目录缺少删除章位能力”只有真实目录/校验支持时才能说已证实。卷纲/章节误分类是独立领域缺陷，不得靠 prompt 移花接木。
 
-**引用指针不是当前基线**：单独 `ref` 仅定位对象，不证明其详情已读、覆盖完整、版本有效，更不能自动升格为当前已确认的作品事实。只有当前作品中真实读取、来源/版本/coverage 合法的 Base 或 Observation 才能支撑对应的「当前基线」断言。作者反馈的「该 ref 的详情作为当前基线」同时暴露技术占位指代和事实权威越级两种风险；前者须在模型输入/作者可见输出边界分离，后者须由来源与版本证据约束。未读、partial、stale、跨作品时显式承认缺口或继续真实求证，不能由 prompt 承诺、模型摘要或 UI 替换代替系统校验；不能因词面出现 `ref`/`基线` 就拦截作者主动讨论技术细节。
+**引用指针不是当前基线**：单独 `ref` 仅定位对象，不证明其详情已读、覆盖完整、版本有效，更不能自动升格为当前已确认的作品事实。只有当前作品中真实读取、来源/版本/coverage 合法的 Base 或 Observation 才能支撑对应的「当前基线」断言。作者反馈的「该 ref 的详情作为当前基线」需区分技术占位指代与事实权威越级两种风险（原完整样本是请求先读，不等于已发生后者）；前者须在模型输入/作者可见输出边界分离，后者须由来源与版本证据约束。未读、partial、stale、跨作品时显式承认缺口或继续真实求证，不能由 prompt 承诺、模型摘要或 UI 替换代替系统校验；不能因词面出现 `ref`/`基线` 就拦截作者主动讨论技术细节。
 
 ### 5.4 Scope 去冗余与显式压缩（重要的 Frozen 冲突边界）
 
@@ -255,6 +255,12 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 这些属于不同事实来源和时间，不能用一个 `status=success` 代替。
 
 **内部标识与作者可见面（B86 缺口整体并入 B87 R06，当前 R05 交付的必要依赖见 B87 §16.19/16.23）**：`chapter:<uuid>` 等仅在结构化 ref 字段中出现，普通叙事和摘要使用作者能理解的名称；工具 narrative 字段不可夹带内部标识。遇违规**拒绝模型内容并回流有界纠错**，不把展示过滤后的文本伪装为模型原话。模型作者可见字节必须绑定实际 Provider 输出（`AgentNarrativeSource`、I1/N-NARR）；系统“本轮没有写入”等事实复用 ADR-0024 现有 `ui_cards.result_card` 独立通告，明确系统来源并随同轮结果持久恢复，不覆盖模型助手正文、不新增平行状态字段。模型作者叙述须先通过接收校验，再发布到作者面；未经接受的流式片段不提前展示，原 Provider 证据仍保留。模型自然语言校验消费同一规则源的机器协议字段/引用规则，不能把固定 UI 文案用语约束泛化为对合法姓名和小说分析词语的封禁。ask_author 的唯一正文是原生 question，非空 content 作为第二正文须拒绝纠错；选项标签独立校验且原字节保留。接受事件与最终 reply_record 透传同一个 author_narrative_source，按完整来源身份确定唯一展示归属，机械步骤摘要不得借用模型来源。不能把 `target_issue`、`capability_status` 先验预测塞给模型替其判断。
+
+**使命接收（B87 R06，2026-11-21，实施前）**：chapter_mission/planning_mission 的唯一作者说明是原工具参数 author_reasoning；原响应 content 只能为 nil/空串，非空（含仅空白）作为第二正文拒绝，不作优先选择或失败回退。现 ChapterMissionService 先核既有闭合工具 schema、同次原始工具调用及所有作者可见原字段（author_reasoning、statement、must_advance[].text、must_avoid[].text）的资格，再绑定依据并返回接受结果；两个现役 flow 仅对该成功结果落暂定、发布 mission_derived。失败沿现 NativeToolExchange 原 call_id 和最多两次调用的纠错路径，原 Provider 响应及失败回执保留，末次失败不生成成功使命；技术失败继续沿 VS-00E I-M4 诚实降级，不误宣称整轮零候选。ChapterMission 的构造、持久恢复与作者改写只用 trim 判空，模型原文字段及已有依据标签保留字节，身份/状态规范化职责不扩面。废除旧同名 envelope 解包及双正文兼容，不新增循环、状态或领域对 Common 的依赖。
+
+**探索输入的双面身份（B87 R06）**：在现 ExplorationService/WorkArchiveService/ChapterListBudget 责任内，将候选章与目录条目保留在已有结构事实面，引用、版本和续页控制沿已有 source_refs/versions/coverage/next_offset 传递；普通 summary/omissions 只表达名称、内容、覆盖和不足，不再嵌 ref 索引或 JSON 查询。正文内容仍完整按原页预算供应，预算按实际投影计入，不把成本藏入另一字段。B24 §1.1 的旧文本索引/footer 由此替代，唯一寻址、同章续页及跨作品拒绝不变。旧 Provider/AX 原件不改写，TurnResult/UI 不设过滤器。
+
+**R06 可证明范围**：共同 Text 接收门负责机器协议与身份形状，AgentNarrativeSource 负责原字节来源；两者均不是一般自然语言事实判官。原 role-03 完整原句为“修订主档案字段前必须读取该 ref 的详情作为当前基线，目录信息不足以支撑修改”，当次 action=explore，证明技术化指代，未证明未读却声称已核实。该路由按现 explore 闭合契约不产生作者正文；精确原句作为该接收边界反例，另核真实材料对未读/partial/stale/跨作品声明的约束。普通创作说明与作者主动技术讨论以独立正反例和有限真实场景审读核验，保持原文；不添加 ref/基线/seq 等词黑名单、隐藏模型审查回合或万能语义门，也不将来源有效和结构通过写成普适语境正确。R08 一般意图判断、R17 system 生命周期及 R18/R19 文学/全局评估保持原批次责任。
 
 **现役判断与计划的单一正文（B87 §16.23/16.27 裁决）**：普通 reply 仅消费原生 content；ask_author 仅消费 question；judgment_decision.explore 仅提交结构化读取请求，不产生作者正文，作者字段按闭合分支拒绝；其余判断工具、continuation_decision 与 agent_plan_draft/agent_plan_revision 仅消费已有 author_reasoning。judgment_decision/continuation_decision 的 reason 字段退役，工具响应另带非空 content 须拒绝并闭合原调用；不能优先选取一份、清洗或补写另一份。作者说明不得兼任执行效果的关键词开关，同一结构化只读动作不因“不会保存”等措辞改变资格。计划选择、结构及说明由现 agent_plan_draft 单调用承担，judgment_decision 的 plan 动作与强制双工具组合退役；现 run.goal、计划版本/已完成前缀、inline_plan_meta 与 plan_drafted/plan_revised 的实际职责保留，不增加无消费者的 plan dialogue_goal 副本。合法计划即使只读也保留整体作者说明，不能按执行效果隐藏已接受原话；直接读取保留原始调用校验、观察和系统进度，不制造作者来源或reply_record。Provider/IR 原始记录仍完整保真，历史证据不改写；规则不承诺一般自然语言语境的机械正确，实际作者效果仍需独立验证。
 

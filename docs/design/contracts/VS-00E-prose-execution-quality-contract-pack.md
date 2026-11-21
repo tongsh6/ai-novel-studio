@@ -290,6 +290,8 @@ dropped:      [ ... ]                                # 依据越界、被机械�
 confidence / provider_call_ref / degraded / degraded_reason
 ```
 
+`statement`、`must_advance[].text`、`must_avoid[].text` 是模型原文字段；判空可检查空白，但接受、持久化、恢复及作者展示保留原始字节。`basis_ref` 留在结构身份面，`basis_label` 由实际材料派生，不接受模型另写标签。
+
 它回答的是 §2 链条里缺失的一步：`ChapterPlanDirection`（设计态）与五本账/进度（进度态）
 **对表之后**本章该推进什么。`ProseExecutionBriefV1` 仍回答「每一场怎么演」，使命进入其
 `chapter_context["mission"]`，不改变 scene_units 结构。
@@ -301,11 +303,16 @@ confidence / provider_call_ref / degraded / degraded_reason
   （`ledger:information:foreshadow_*`，无预期只计数）、后续章保密信息
   （`ledger:information:plan_info_*`）、弧光（STALLED 优先）、主线、题材承诺、最近三章
   情绪曲线、全书进度（`skeleton:progress`）、在场角色。不新设阈值（VS00F 刀④口径）。
-- 模型推导（`NovelApplication.ChapterMissionService`，1 次 native tool-call
-  `chapter_mission`）：返回 statement / must_advance / must_avoid / author_reasoning。
+- 模型推导（`NovelApplication.ChapterMissionService`）：以 native tool-call
+  `chapter_mission` 返回 statement / must_advance / must_avoid / author_reasoning；失败复用现
+  NativeToolExchange，最多两次调用，不另增纠错循环。
 - 依据绑定（I-M1）：`basis_ref ∉ 材料 ref 集合` 的条目进 `dropped`，不进简报、不进 prompt。
-- 叙事绑定（I-M3）：`author_reasoning` 走 N-NARR 绑定（content 优先 / tool arguments 回退），
-  以 `mission_derived` 事件进作者推理区；绑定失败不作废使命，只不发作者可见事件。
+- 接收与叙事绑定（I-M3，B87 R06 修订）：唯一作者说明为原工具参数 `author_reasoning`；
+  `content` 只允许 nil/空串，非空（含仅空白）作为第二正文拒绝，不回退、不裁剪。
+  既有闭合工具 schema、同次原 Provider 工具参数绑定及所有作者可见原字段的
+  `AuthorVisible.Text` 资格均通过，才接受使命、落暂定并发布 `mission_derived`。
+  违规按原 call_id 进入既有有界纠错；末次失败保留原响应/失败回执，不持久使命、不发布
+  使命作者事件，沿 I-M4 诚实降级。旧同名 envelope 解包兼容同步退役。
 
 ### 16.3 运行形态（ADR-0023 N-PLAN 合规）
 
@@ -344,7 +351,7 @@ confidence / provider_call_ref / degraded / degraded_reason
 - I-M1 依据绑定：简报中每条使命条目的 `basis_ref` ∈ 本步材料 ref 集合。
 - I-M2 设计态：使命不写 `chapters` / `memory_items` / `ledger_entries`；
   `production_write_performed=false`。
-- I-M3 叙事只来自模型输出字节。
+- I-M3 使命作者字段先通过接收资格，再按同次模型输出原字节持久/发布；不得 trim、改写或换源回退。结构依据引用保持可操作，原始失败证据完整保留。
 - I-M4 降级不拦稿：推理失败/缺席时正文照常生成，`brief_source` 如实标注。
 - I-M5 预期归对象，不设全局阈值。
 
@@ -384,7 +391,7 @@ confidence / provider_call_ref / degraded / degraded_reason
 ### 16.9 规划前推理：本轮规划使命（2026-08-24 WR02）
 
 写前推理层的第三刀：把「先想一步」接到规划路径。复用 `ChapterMissionV1` 值对象与
-I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（叙事 source-bound）/ I-M4（失败降级继续）；
+I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（按 §16.2 同一原文字段接收与 source-bound）/ I-M4（失败降级继续）；
 两类调用点独立登记（prompt 目录 SSOT）：
 
 - **工具名 / 锚点**：`planning_mission` /「规划前推理器」（`ChapterMissionService`

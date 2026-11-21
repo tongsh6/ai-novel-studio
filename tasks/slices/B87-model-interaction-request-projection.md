@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。下一独立入口 R06，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 已按 §17 开始独立实施，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -2588,3 +2588,49 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 | REC `native/style-05/summary.json` | `2028f1d4d862c39e5bb0d83653325f52b04aa3c486448fc1cb77360db3a8dfec` |
 | REC `cost-final-04-independent-review-01/review.json` | `cbf7cc59d406f1925ccb78bbe4dd9a53e8c85f20195cb8649e094c433d666e4f` |
 | cost-final-04 `analysis/request-cost-pairs.json` | `b20ccf8c061580b28c16a10b31908205a2161ea01215ab14ae7ce0c4603f9911` |
+
+## 17. R06 开始范围与实施裁决（2026-11-21）
+
+**状态：doing，尚未验收。** 当前批次仅关闭作者可见内部身份泄漏、原文字节及其真实输入/接收/发布链；R07–R19 不在本次实施范围。独立 R06 审查上下文已重新读取共享 README、R06、愿景与当前实现；根协调者承担同一 scope 的门禁、提交和最终核账，不借 R05 证据签收 R06。
+
+### 17.1 开始身份与原始反例
+
+- 分支 `develop/dialogue-based-novel-workbench`；HEAD/远端均为 `627c32012121b3270205c96ceed4c1ddd67f0037`，工作树 clean。R05 F1 原生与 task_done 原件已核终态后才开始本批。
+- 实施前实际 `task_done --begin`：`artifacts/slice-verify/b87-r06-20261121/scope.json`，scope_id `e8df46ab-a05a-46bf-b8f9-ab89858e8763`，SHA-256 `c9600b28c2dacb5ff90846bcb06fa88ed3b5f6c9b70d947d77516af6879ec58d`。后文 R6 指该父目录。
+- 原始编译 `mix compile --warnings-as-errors` 退出 0；R6 `baseline-compile-01`，owner `ef104e59a1f2a60c`，源前后不变，0 模型/0 原生。仅为开始基线，不是实现验收。
+- 原 C9 `b82-g2-observed-target-04` 的第 4 次请求/响应和 final AX 同源：`pcall_mwby2v5n_12/prun_mwby2v5n_13`、`call_a126291721a64393b875577c` 的 reason 原文 492 UTF-8 字节，SHA `1620a8bd0fa80d6e390b92a5e636d93714314f66edfd02eed1c2e1ef1cebeb49`。实际含短 `chapter:22660419`、`draft:57dceaf4…:2` 与内部动作称谓，不仅是完整 UUID。原 reading_not_complete 与泄漏两项失败各自保留。
+- 原 role-03 完整“必须读取该 ref…”是在 explore 请求详情，下一调用才依据真实详情执行。它证明技术化指代，不能截断成“未读已证实”的历史事实；后者保留为独立负例。
+- 已撤销的 `Text.new`/TurnResult 末端替换方案不恢复。R05 已交付的唯一判断/计划正文、explore 无作者正文、Writer rationale/used_refs 门复用，不重复造门。
+
+### 17.2 七问与存在性审计
+
+| 问题 | 本批裁决 |
+|---|---|
+| Contract | VS-00M §5–6、VS-00E §16、I1/N-NARR；先修订旧使命双通道/失败仍成功及 B24 混合文本投影冲突，再实施。 |
+| Invariant | 真实 ref 仍唯一寻址；自然摘要不夹操作身份；接受后的作者原字段逐字节绑定 Provider；坏使命不得落库或发作者事件；有限纠错保留原 call_id/响应；作者版不覆盖。 |
+| Boundary | 只修改现使命服务/值对象/两个 flow、探索和档案目录投影、其现测试替身及既有 native 证据 owner；无数据库 schema、权限/采纳或跨角色 system 重构。 |
+| Consumer | Judgment/计划内探索；ProseDraftingWithQuality 与 PlotOutlineWithContext 的使命持久化及 mission_derived；真实工作台、档案使命与同轮历史恢复。 |
+| Proof | 源头结构化、同名唯一 ref/跨作品/分页负例；唯一作者通道、闭合 schema、原输出绑定、首尾空白、两次失败/纠错、两 flow 的事件与持久化；真实页面/有限 Splash 独立核账。 |
+| Acceptance Driver | 复用 native_b71_batch、tauri_slice_verify、NativeScenarioHarness/InputBoundary、现 live/call/mission/canon evidence。WR01/WR02 当前未准入 AX，须在同一 owner 迁移现使命场景，不能借 b71-authoring-planning 或 R05 名称代签。 |
+| Exploration | 本批修现读取投影与使命设计态消费者，不新造作品要素；既有 chapter_read/archive_read 可见性和同作品/版本/覆盖约束必须保持。 |
+
+| 需求/对象 | 现存 owner 与实际消费者 | 决策及退役 |
+|---|---|---|
+| 使命正文选择/接收 | ChapterMissionService；上述两 flow | refactor-and-retire：仅 author_reasoning，移除 content fallback、trim 改写及同名 envelope 宽收。 |
+| schema/来源/纠错 | JudgmentToolContract、AgentNarrativeSource、NativeToolExchange | reuse：在原接收点组合现接口，最多两次；不新建工具、循环或 schema 副本。 |
+| 使命值与存储 | ChapterMission、ChapterMissionRepo、PlanningMissionRepo；简报/trace/档案 | refactor：原字段判空与保字节分离；无新表/列/状态，领域仍只依赖 foundation。 |
+| 章节和目录双面身份 | ChapterListBudget、ExplorationService、WorkArchiveService、RequestIR.Observation | refactor-and-retire：结构条目进入已有 facts，既有 ref/coverage/续页仍有效，移除文本索引与 JSON footer 的第二职责。 |
+| 作者叙述与展示 | AuthorVisible.Text、AgentNarrativeSource、现事件/TurnResult/ViewModel | reuse：接收后透传，不造展示清洗器；普通语言语义不由词表冒签。 |
+| 原生使命/Canon 证据 | authoring_chapter_mission_evidence、authoring_canon_evidence、authoring_live_evidence | refactor：实际绑定原字段/事件/暂定设计态，规划只允许被证明的 planning_mission 变化，其他 works 字段仍保护。 |
+| 两使命原生拒收→纠错测试刺激 | 现 test/support SliceVerify；既有质量纠错 env 只服务 Writer，author-behavior corpus 只服务判断表达，无使命纠错入口 | truly-new：只在现测试 owner 增 `SLICE_VERIFY_MISSION_CORRECTION=reject_then_valid`，首消费者为现 WR01/WR02 确定性 native。从同工具 failed validation 识别第二次，不新计数/循环；脚本显式设置、批次退出清理，默认合法，生产代码与 Splash 不消费；不增 always_invalid 模式，封顶失败由现注入测试覆盖。 |
+| 新生产实体 | none | reject：不新增模块、DTO、表列、工具、API、事件、配置、规则库、语义审查器或平行验收 runner。 |
+
+### 17.3 文件边界、先验负例与受控实模
+
+可触及现 `chapter_mission_service.ex`、`chapter_mission.ex`、两个对应 flow、`exploration_service.ex`、`chapter_list_budget.ex`、`work_archive_service.ex` 及其直接测试/既有 Stub/SliceVerify/helper；现 `seed_judgment_explore_chapter_full_read.exs` 只迁观察断言到结构事实，原 seed 数据与作者全文保持，实际预注册绑定更新后 hash；Common 作者可见/来源合同测试和既有 native/live/mission/canon 证据脚本及场景登记仅按实际消费者需要迁移。设计与状态回填沿现 VS-00E/VS-00M、B24 指向、本总文档/NEXT，不建平行任务说明。模型预算、生产 Provider、历史 scope、旧失败原件、真实作者数据库和 R17 system 责任禁止借机改动。
+
+先补独立预期，再运行有归属的红/绿验证：两种使命同合同；坏正文/额外字段/原来源不符不得换字段接受；合法空白/Unicode 保真；两次失败零坏使命事件和持久化，诚实降级仍可产生合法后续候选；已有作者使命 0 推导且不覆盖。探索检查同名/同序不取首项、跨作品拒绝、目录不等于详情、partial/stale 不授完整基线、分页同 ref/覆盖与实际预算。精确“该 ref”旧 explore 反例和作者技术讨论分别覆盖，不新设词面规则；一般语境结论由当前真实输出和来源独立审读。
+
+预注册目标集固定为 **3 个 Splash 批次**：原 C9 作者全文/原 full-read seed、WR01 原正文使命请求/seed、WR02 原规划使命请求/同 seed。每批 1 次作者发送、0 人工重试、900 秒场景上限；使命内部仍受现 NativeToolExchange 两次上限约束。沿既有 `b87-r03-splash-product-maintenance-budget` runtime recipe，不改 Provider 服务配置。确切 preregistration/seed/hash/运行归属须在执行前由现唯一捕获 owner 封存；未触发使命即缺证，不刷绿或冒签。确定性真实 Tauri 另覆盖坏使命→纠错/最终发布及恢复；固定响应证明机制，Splash 证明实际行为，两者不互代。
+
+全部适用共同工程门禁与原 scope task_done 完成后才签收；按用户授权将已验证的可 review 实现分组正常 commit/push。不得把先提交等同本批 PASS。R08 一般意图/材料后行为、R17 system 责任和 R18/R19 文学/全局 A/B 仍留各自批次。

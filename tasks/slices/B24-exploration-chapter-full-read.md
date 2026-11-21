@@ -84,6 +84,8 @@
 
 ### 1.1 契约冻结（CP0）：`chapter_read` 观察合同 v2
 
+**B87 R06 现行投影裁决（2026-11-21，实施前）**：本节曾冻结的 `[chapter_ref=…]` 文本索引和内嵌 JSON 续读 footer 由 VS-00M §6 的结构化身份投影替代。章节身份、候选条目、版本、覆盖与续读坐标进入现 Observation 的 facts/source_refs/coverage/next_offset 等专用结构字段；summary/omissions 只说明作者可读的章节名称、范围和材料不足。模型继续按同一真实 ref 寻址和续读，页覆盖、正文预算、作品隔离及 I-EXPLORE-READ-7/8/9 不变；本次不修订查询解析或另建读取路径。以下旧布局保留为历史实施依据，不能据其恢复混合文本投影。
+
 **(a) 章节寻址：唯一 `chapter_ref` 优先，seq / title 只能唯一解析**
 
 ```text
