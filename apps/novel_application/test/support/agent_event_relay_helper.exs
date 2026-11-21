@@ -12,6 +12,8 @@ defmodule NovelApplication.TestAgentEventRelay do
     测试进程因此失败——这里不吞掉观察者的真实失败。
   """
 
+  import ExUnit.Assertions, only: [flunk: 1]
+
   alias NovelApplication.AgentRunService
   alias NovelCommon.Contracts.AgentEvent
 
@@ -57,6 +59,33 @@ defmodule NovelApplication.TestAgentEventRelay do
       {:agent_event_relay_ready, ^relay} -> relay
     after
       1_000 -> raise "agent event relay did not subscribe in time"
+    end
+  end
+
+  def collect_agent_events_until(type, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_collect_agent_events_until(type, deadline, [])
+  end
+
+  defp do_collect_agent_events_until(type, deadline, acc) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:agent_event, ^type, event} ->
+        Enum.reverse([{type, event} | acc])
+
+      {:agent_event, event_type, event} ->
+        do_collect_agent_events_until(type, deadline, [{event_type, event} | acc])
+    after
+      remaining ->
+        received =
+          acc
+          |> Enum.map(fn {event_type, _event} -> event_type end)
+          |> Enum.reverse()
+
+        flunk(
+          "expected agent event #{inspect(type)} before timeout, received: #{inspect(received)}"
+        )
     end
   end
 

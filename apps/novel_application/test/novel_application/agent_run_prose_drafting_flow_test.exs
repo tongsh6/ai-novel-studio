@@ -12,7 +12,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   alias NovelTest.TestProviderPrompt
 
   @work "work-agent-prose-flow"
-  @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
 
   test "bounded prose run uses run work identity for reads, persistence, quality and finalization" do
     parent = self()
@@ -23,12 +22,19 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-planner")}
+          {:ok,
+           with_provider_call(
+             TestAgenticLoopFixtures.prose_plan_draft(prompt),
+             "pc-agent-prose-planner"
+           )}
 
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content:
+               TestAgenticLoopFixtures.reasoning_tail(
+                 TestAgenticLoopFixtures.prose_next_step_decision(prompt)
+               )
            }}
 
         true ->
@@ -46,7 +52,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                      %{
                        item_id: "agent-prose-item",
                        title: "第01章：开端",
-                       body: @bad_prose,
+                       body: TestAgenticLoopFixtures.prose_drafting_body(),
                        rationale: "首稿候选。"
                      }
                    ],
@@ -323,7 +329,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     quality_scope = TestProviderPrompt.scope_content(evaluator_prompt)
     assert quality_scope["authoring_task"]["kind"] == "quality_evaluation"
     assert quality_scope["authoring_task"]["scope"]["coverage"] == "single"
-    assert quality_scope["operation"]["prose_text"] == @bad_prose
+
+    assert quality_scope["operation"]["prose_text"] ==
+             TestAgenticLoopFixtures.prose_drafting_body()
+
     refute Map.has_key?(quality_scope["operation"], "creative_brief")
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "质量复核已完成"
@@ -392,147 +401,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Enum.any?(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
   end
 
-  for {correction, response_sequence, expected_statuses, expected_missions, expected_degraded?} <-
-        [
-          {:accepted, [:rejected, :accepted], ["failed", "passed"], 1, false},
-          {:exhausted, [:rejected, :rejected], ["failed", "failed"], 0, true}
-        ] do
-    test "R06 prose #{correction}: 拒收使命无坏写入或发布，两次封顶后仍可合法写作" do
-      correction = unquote(correction)
-      response_sequence = unquote(response_sequence)
-      expected_missions = unquote(expected_missions)
-      expected_degraded? = unquote(expected_degraded?)
-      expected_statuses = unquote(expected_statuses)
-      parent = self()
-      {:ok, attempts} = Agent.start_link(fn -> 0 end)
-      reasoning = " \n先让主角兑现选择，再保留房间来历的悬念。Ω\r\n"
-      statement = "\t主角主动找到出口。\r\n"
-      advance = "  让主角主动寻找出口。\n"
-      avoid = "\n暂不解释房间来历。\t"
-
-      writer = fn prompt ->
-        cond do
-          mission_prompt?(prompt) ->
-            attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
-            assert attempt <= 2
-            response = Enum.fetch!(response_sequence, attempt - 1)
-
-            result =
-              TestAgenticLoopFixtures.mission_tool_call_result(
-                reasoning,
-                Map.fetch!(%{accepted: statement, rejected: "本章先读取 chapter:22660419。"}, response),
-                must_advance: [%{"text" => advance, "basis_ref" => "plan:1:plot_progress"}],
-                must_avoid: [%{"text" => avoid, "basis_ref" => "plan:1:information_release"}]
-              )
-
-            {:ok, with_provider_call(result, "pc-r06-prose-mission-#{attempt}")}
-
-          plan_draft_prompt?(prompt) ->
-            {:ok, with_provider_call(prose_plan_draft(prompt), "pc-r06-prose-plan")}
-
-          prompt_contains?(prompt, "AgentRun 下一步规划器") ->
-            {:ok, %{content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))}}
-
-          true ->
-            send(parent, {:r06_writer_prompt, prompt})
-
-            {:ok,
-             TestAgenticLoopFixtures.native_artifact_result(
-               [%{item_id: "r06-prose", title: "第01章：开端", body: @bad_prose, rationale: nil}],
-               provider_call_id: "pc-r06-prose-writer"
-             )}
-        end
-      end
-
-      evaluator = fn _prompt ->
-        {:ok,
-         %{
-           content: "",
-           provider_call_id: "pc-r06-prose-quality",
-           tool_calls:
-             TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{findings: []})
-         }}
-      end
-
-      run_id =
-        start_prose_run!(
-          %{
-            turn_id: "turn-r06-prose-#{correction}",
-            ledger_reader: fn _ -> [] end,
-            written_progress_reader: fn _ -> nil end,
-            quality_provider_execution: %Execution{result_fn: evaluator},
-            chapter_mission_writer: fn _, _, mission ->
-              send(parent, {:r06_mission_persisted, mission})
-              {:ok, :stored, mission}
-            end
-          },
-          writer,
-          parent
-        )
-
-      events = collect_agent_events_until(:run_completed, 5_000)
-      assert Agent.get(attempts, & &1) == 2
-      assert_received {:r06_writer_prompt, _}
-      assert find_event!(events, :artifact_created)
-      assert {:ok, state} = AgentRunService.state(run_id)
-      assert state.run.status == :completed
-      assert length(state.final_turn_result.adoption_state.pending) == 1
-
-      mission_events = for {:mission_derived, event} <- events, do: event
-      mission = state.stage_state.chapter_mission
-
-      assert length(mission_events) == expected_missions
-
-      for event <- mission_events do
-        assert event.payload.author_narrative == reasoning
-        assert event.payload.author_narrative_source.provider_call_ref == "pc-r06-prose-mission-2"
-
-        assert event.payload.author_narrative_source.source_type ==
-                 "provider_output_tool_narrative"
-
-        assert event.payload.author_narrative_source.source_byte_range == %{
-                 start: 0,
-                 length: byte_size(reasoning)
-               }
-
-        assert_received {:r06_mission_persisted, persisted}
-        assert persisted["statement"] == statement
-        assert hd(persisted["must_advance"])["text"] == advance
-        assert hd(persisted["must_avoid"])["text"] == avoid
-        assert state.final_turn_result.trace_summary.chapter_mission["statement"] == statement
-      end
-
-      refute_received {:r06_mission_persisted, _}
-      assert !!mission["degraded"] == expected_degraded?
-      assert mission["statement"] == List.first(Enum.take([statement], expected_missions))
-
-      assert Enum.any?(state.observations, fn observation ->
-               observation.structured_payload[:stage] == :mission_degraded
-             end) == expected_degraded?
-
-      transcript = state.stage_state.judgment_transcript
-
-      calls =
-        for message <- transcript.messages,
-            block <- message.blocks,
-            block.type == "tool_call" and block.name == "chapter_mission",
-            do: block.call_id
-
-      assert length(calls) == 2
-
-      statuses =
-        for message <- transcript.messages,
-            block <- message.blocks,
-            block.type == "validation_result" and block.call_id in calls,
-            do: block.status
-
-      assert statuses == expected_statuses
-
-      assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-      assert {:ok, []} = RequestIR.pending_call_ids(ir)
-    end
-  end
-
   test "作者已定使命在场：推理步 0 调用直取作者版进简报，不推导不覆盖（WR01b I-M6）" do
     parent = self()
 
@@ -542,12 +410,19 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           flunk("author version present: chapter_mission must not be derived by the model")
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-author-mission-planner")}
+          {:ok,
+           with_provider_call(
+             TestAgenticLoopFixtures.prose_plan_draft(prompt),
+             "pc-author-mission-planner"
+           )}
 
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content:
+               TestAgenticLoopFixtures.reasoning_tail(
+                 TestAgenticLoopFixtures.prose_next_step_decision(prompt)
+               )
            }}
 
         true ->
@@ -638,7 +513,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
              "chapter:22660419"
 
-    events = collect_agent_events_until(:run_completed, 3_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:run_completed, 3_000)
+
     refute Enum.any?(events, fn {event_type, _event} -> event_type == :mission_derived end)
 
     author_observation =
@@ -680,7 +557,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt, target_chapter_ref: chapter_ref),
+             TestAgenticLoopFixtures.prose_plan_draft(prompt, target_chapter_ref: chapter_ref),
              "pc-agent-prose-cont-planner"
            )}
 
@@ -829,7 +706,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           # 本例验证前文注入不看该字段，只看目标章是否已有正文。
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt, authoring_intent: nil),
+             TestAgenticLoopFixtures.prose_plan_draft(prompt, authoring_intent: nil),
              "pc-agent-prose-noint-planner"
            )}
 
@@ -946,7 +823,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           else
             {:ok,
              Map.put(
-               prose_plan_draft(prompt),
+               TestAgenticLoopFixtures.prose_plan_draft(prompt),
                :provider_call_id,
                "pc-agent-prose-retry-planner"
              )}
@@ -955,7 +832,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
            %{
-             content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+             content:
+               TestAgenticLoopFixtures.reasoning_tail(
+                 TestAgenticLoopFixtures.prose_next_step_decision(prompt)
+               )
            }}
 
         true ->
@@ -973,7 +853,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                      %{
                        item_id: "agent-prose-retry-item",
                        title: "第01章：开端",
-                       body: @bad_prose,
+                       body: TestAgenticLoopFixtures.prose_drafting_body(),
                        rationale: "首稿候选。"
                      }
                    ],
@@ -1063,7 +943,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d1-plan")}
+          {:ok,
+           with_provider_call(
+             TestAgenticLoopFixtures.prose_plan_draft(prompt),
+             "pc-agent-prose-d1-plan"
+           )}
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("await_author", "")
@@ -1088,11 +972,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 2_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:awaiting_author, 2_000)
+
     assert_receive {:writer_prompt, _prompt}, 500
 
     # CP3a：偏离信号走判断②（观察 + 续行），不再产 plan_revised 伪修订。
-    awaiting = find_event!(events, :awaiting_author)
+    awaiting = NovelApplication.TestAssertions.find_event!(events, :awaiting_author)
     assert "judgment_continuation" in awaiting.reason_codes
     assert "agentic_deviation:D1" in awaiting.reason_codes
     assert awaiting.summary =~ "停下来"
@@ -1120,7 +1006,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-timeout-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-timeout-plan")}
+          {:ok,
+           with_provider_call(
+             TestAgenticLoopFixtures.prose_plan_draft(prompt),
+             "pc-agent-prose-timeout-plan"
+           )}
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("continue", "先拆场景，逐段写，缩小单次输出。")
@@ -1145,11 +1035,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 2_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:awaiting_author, 2_000)
+
     assert_receive {:writer_prompt, _prompt}, 500
     assert_receive {:writer_prompt, _prompt}, 500
 
-    awaiting = find_event!(events, :awaiting_author)
+    awaiting = NovelApplication.TestAssertions.find_event!(events, :awaiting_author)
     assert awaiting.summary =~ "正文写作调用超时（2 次）"
     assert awaiting.summary =~ "未生成草稿"
     assert "writer_timeout" in awaiting.reason_codes
@@ -1253,7 +1145,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-b17-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-b17-plan")}
+          {:ok,
+           with_provider_call(
+             TestAgenticLoopFixtures.prose_plan_draft(prompt),
+             "pc-agent-b17-plan"
+           )}
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("continue", "先拆成场景，缩小单次范围后再生成。")
@@ -1327,8 +1223,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 3_000)
-    awaiting = find_event!(events, :awaiting_author)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:awaiting_author, 3_000)
+
+    awaiting = NovelApplication.TestAssertions.find_event!(events, :awaiting_author)
     assert "writer_timeout" in awaiting.reason_codes
     assert "writer_timeout_retry_recommended" in awaiting.reason_codes
 
@@ -1337,8 +1235,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert {:ok, _receipt} = AgentRunService.steer(run_id, raw_steer)
 
-    recovery_events = collect_agent_events_until(:run_completed, 5_000)
-    assert find_event!(recovery_events, :run_completed)
+    recovery_events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:run_completed, 5_000)
+
+    assert NovelApplication.TestAssertions.find_event!(recovery_events, :run_completed)
     assert_receive {:scoped_writer_prompt, scoped_prompt}, 1_000
     assert TestProviderPrompt.author_text(scoped_prompt) == raw_steer
 
@@ -1419,7 +1319,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              restored_message == original_message
            end) == []
 
-    author_result = find_event!(recovery_events, :artifact_created).payload.turn_result
+    author_result =
+      NovelApplication.TestAssertions.find_event!(recovery_events, :artifact_created).payload.turn_result
+
     refute Map.has_key?(author_result, :request_ir)
     refute Map.has_key?(author_result, :provider_session)
     assert author_result.assistant_message.text =~ "正文草稿"
@@ -1442,7 +1344,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           # （p1-chapter-overwrite-confirm 实锤：坐标丢失 → 采纳 append 绕过覆盖确认）。
           {:ok,
            with_provider_call(
-             prose_plan_draft(
+             TestAgenticLoopFixtures.prose_plan_draft(
                prompt,
                authoring_intent: "rewrite",
                target_chapter_ref: rewrite_ref
@@ -1544,7 +1446,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     # CP3b：quality confirm finding → 判断② continue（观察 + 修正指引）→ 中间稿被
     # supersede（预算放行 + 作者可见说明）→ writer 重试产改进稿 → 复评通过 → 完成。
-    events = collect_agent_events_until(:run_completed, 3_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:run_completed, 3_000)
 
     [{:plan_revised, continued}] =
       Enum.filter(events, fn {type, event} ->
@@ -1562,7 +1465,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              :crypto.hash(:sha256, "松灯408\n我会保留原有线索，再补足这次复活的代价。")
              |> Base.encode16(case: :lower)
 
-    superseded = find_event!(events, :artifact_superseded)
+    superseded = NovelApplication.TestAssertions.find_event!(events, :artifact_superseded)
     assert superseded.refs != []
     assert "judgment_continuation" in superseded.reason_codes
 
@@ -1617,7 +1520,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt, risk_hint: "high"),
+             TestAgenticLoopFixtures.prose_plan_draft(prompt, risk_hint: "high"),
              "pc-agent-prose-d4-plan"
            )}
 
@@ -1651,16 +1554,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 2_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:awaiting_author, 2_000)
+
     refute_receive {:unexpected_writer_prompt, _prompt}, 200
 
-    gate = find_event!(events, :gate_decided)
+    gate = NovelApplication.TestAssertions.find_event!(events, :gate_decided)
     assert gate.payload.decision_type == :require_confirmation
     assert gate.payload.first_blocking_gate == "authority"
 
     # AU-04 回归修复：require_confirmation 必须直接以 confirmation TurnResult 停等，
     # 不再把 gate block 交给判断②续行（否则确认卡被 generic author_question 覆盖）。
-    awaiting = find_event!(events, :awaiting_author)
+    awaiting = NovelApplication.TestAssertions.find_event!(events, :awaiting_author)
     assert "author_confirmation_required" in awaiting.reason_codes
     refute "judgment_continuation" in awaiting.reason_codes
     refute "agentic_deviation:D4" in awaiting.reason_codes
@@ -1685,7 +1590,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt,
+             TestAgenticLoopFixtures.prose_plan_draft(prompt,
                authoring_intent: "continuation",
                requested_chapter_raw: "第99章",
                target_chapter: nil
@@ -1726,11 +1631,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 2_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:awaiting_author, 2_000)
+
     refute_receive {:unexpected_writer_prompt, _prompt}, 200
 
     # CP3a：缺章 gap → 判断②观察（目标章裁决权在作者）→ 停等，不再产伪修订。
-    awaiting = find_event!(events, :awaiting_author)
+    awaiting = NovelApplication.TestAssertions.find_event!(events, :awaiting_author)
     assert "judgment_continuation" in awaiting.reason_codes
     assert "agentic_deviation:D7" in awaiting.reason_codes
 
@@ -1833,7 +1740,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt, exploration: {"archive_read", "stats"}),
+             TestAgenticLoopFixtures.prose_plan_draft(prompt,
+               exploration: {"archive_read", "stats"}
+             ),
              "pc-b39-cp1-plan"
            )}
 
@@ -1914,9 +1823,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:run_completed, 8_000)
+    events =
+      NovelApplication.TestAgentEventRelay.collect_agent_events_until(:run_completed, 8_000)
 
-    plan_event = find_event!(events, :plan_drafted)
+    plan_event = NovelApplication.TestAssertions.find_event!(events, :plan_drafted)
     target_refs = Enum.map(plan_event.payload.plan_steps, & &1.target_tool_ref)
     assert "archive_read" in target_refs
 
@@ -2023,7 +1933,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     # CP1c / R05：越界引用先被拒绝并留真实回执；纠正响应只绑定本次供应的材料。
     # 失败调用不能授予证据信用，最终候选保留纠正调用的字节与来源。
-    artifact_event = find_event!(events, :artifact_created)
+    artifact_event = NovelApplication.TestAssertions.find_event!(events, :artifact_created)
     turn_result = artifact_event.payload.turn_result
     summary = turn_result.trace_summary
 
@@ -2039,96 +1949,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Enum.any?(turn_result.adoption_state.pending, &(&1.artifact_type == :prose_fragment))
   end
 
-  defp prose_plan_draft(prompt, opts \\ []) do
-    prompt = prompt_text(prompt)
-
-    # 嗅作者目标短语而非全 prompt（生产指引文案自身含"接着写"枚举说明，全文嗅探会误翻分支）
-    {authoring_intent, target_chapter, requested_chapter_raw, reasoning} =
-      if String.contains?(prompt, "接着第01章") do
-        {"continuation", "第01章：开端", "第01章", "先读取第01章上下文，再按续写意图生成正文草稿。"}
-      else
-        {"none", "第01章：开端", "第01章", "先读取正文写作上下文，再生成一份待采纳正文草稿并复核。"}
-      end
-
-    authoring_intent = Keyword.get(opts, :authoring_intent, authoring_intent)
-    target_chapter = Keyword.get(opts, :target_chapter, target_chapter)
-    target_chapter_ref = Keyword.get(opts, :target_chapter_ref)
-    requested_chapter_raw = Keyword.get(opts, :requested_chapter_raw, requested_chapter_raw)
-    risk_hint = Keyword.get(opts, :risk_hint, "low")
-
-    exploration_step =
-      case Keyword.get(opts, :exploration) do
-        {tool, query} ->
-          [
-            Map.put(
-              TestAgenticLoopFixtures.plan_step(
-                "explore_readonly_prose",
-                tool,
-                "按需读取作品事实。",
-                success_criteria: ["exploration_observed"]
-              ),
-              "exploration_query",
-              query
-            )
-          ]
-
-        _ ->
-          []
-      end
-
-    TestAgenticLoopFixtures.plan_tool_call_result(
-      reasoning,
-      [
-        TestAgenticLoopFixtures.plan_step(
-          "assemble_prose_context",
-          "context_assemble",
-          "读取正文写作上下文",
-          success_criteria: ["prose_context_attached"]
-        )
-      ] ++
-        exploration_step ++
-        [
-          TestAgenticLoopFixtures.plan_step(
-            "derive_chapter_mission",
-            "chapter_mission",
-            "按本章计划与作品脉络推导本章使命",
-            success_criteria: ["chapter_mission_derived"]
-          ),
-          TestAgenticLoopFixtures.plan_step(
-            "draft_prose_with_quality",
-            "prose_writing",
-            "生成正文草稿并触发质量复核",
-            kind: "act",
-            write_intent: "tentative",
-            risk_hint: risk_hint,
-            authoring_intent: authoring_intent,
-            target_chapter: target_chapter,
-            target_chapter_ref: target_chapter_ref,
-            requested_chapter_raw: requested_chapter_raw,
-            success_criteria: ["prose_fragment_created", "quality_review_completed"]
-          )
-        ],
-      reason_codes: Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
-      tool_name: Keyword.get(opts, :tool_name, "agent_plan_draft")
-    )
-  end
-
   defp with_provider_call(result, provider_call_id),
     do: Map.put(result, :provider_call_id, provider_call_id)
 
   defp start_prose_run!(input_overrides, writer, parent) do
-    input =
-      %{
-        text: "先写第01章正文草稿，再做质量复核。",
-        workspace_id: @work,
-        work_id: @work,
-        session_id: "session-agent-prose-deviation",
-        turn_id: "turn-agent-prose-deviation",
-        chapter_prose_reader: fn _work_id, _chapter -> "" end,
-        chapter_summary_reader: %{},
-        character_reader: fn _work_id -> [] end
-      }
-      |> Map.merge(input_overrides)
+    input = TestAgenticLoopFixtures.prose_drafting_input(@work, input_overrides)
 
     {context_override, input} = Map.pop(input, :context_override)
 
@@ -2155,40 +1980,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     run_id
   end
 
-  defp collect_agent_events_until(type, timeout_ms) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    do_collect_agent_events_until(type, deadline, [])
-  end
-
-  defp do_collect_agent_events_until(type, deadline, acc) do
-    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
-
-    receive do
-      {:agent_event, ^type, event} ->
-        Enum.reverse([{type, event} | acc])
-
-      {:agent_event, event_type, event} ->
-        do_collect_agent_events_until(type, deadline, [{event_type, event} | acc])
-    after
-      remaining ->
-        received =
-          acc
-          |> Enum.map(fn {event_type, _event} -> event_type end)
-          |> Enum.reverse()
-
-        flunk(
-          "expected agent event #{inspect(type)} before timeout, received: #{inspect(received)}"
-        )
-    end
-  end
-
-  defp find_event!(events, type) do
-    case Enum.find(events, fn {event_type, _event} -> event_type == type end) do
-      {^type, event} -> event
-      nil -> flunk("expected collected event #{inspect(type)}")
-    end
-  end
-
   defp continuation_next_step_decision(prompt) do
     prompt = prompt_text(prompt)
 
@@ -2212,30 +2003,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         TestAgenticLoopFixtures.continue_next(
           "先读取正文写作上下文。",
           "context_assemble"
-        )
-    end
-  end
-
-  defp next_step_decision(prompt) do
-    prompt = prompt_text(prompt)
-
-    cond do
-      String.contains?(prompt, "/ artifact_created:") ->
-        TestAgenticLoopFixtures.done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。")
-
-      String.contains?(prompt, "prose_context /") ->
-        TestAgenticLoopFixtures.continue_next(
-          "基于已读取的正文上下文生成正文草稿并完成质量复核。",
-          "prose_writing",
-          write_intent: "tentative",
-          reason_codes: ["agentic_next_step", "prose_context_consumed"]
-        )
-
-      true ->
-        TestAgenticLoopFixtures.continue_next(
-          "先读取正文写作上下文。",
-          "context_assemble",
-          reason_codes: ["agentic_next_step", "missing_prose_context"]
         )
     end
   end

@@ -22,6 +22,53 @@ defmodule NovelApplication.TestAssertions do
     assert is_integer(start) and start >= 0
     assert is_integer(length) and length > 0
   end
+
+  def find_event!(events, type) do
+    case Enum.find(events, fn {event_type, _event} -> event_type == type end) do
+      {^type, event} -> event
+      nil -> flunk("expected collected event #{inspect(type)}")
+    end
+  end
+
+  def assert_bound_narrative(
+        source,
+        raw,
+        %NovelCommon.Contracts.ProviderOutput{} = output,
+        tool_fields \\ %{}
+      ) do
+    source_type =
+      case tool_fields do
+        fields when fields == %{} ->
+          "provider_output"
+
+        %{tool_call_name: name, tool_call_narrative_field: field} = fields
+        when is_binary(name) and is_binary(field) and map_size(fields) == 2 ->
+          "provider_output_tool_narrative"
+      end
+
+    hash = :crypto.hash(:sha256, raw) |> Base.encode16(case: :lower)
+
+    expected =
+      Map.merge(
+        %{
+          source_type: source_type,
+          provider_run_ref: output.provider_run_ref,
+          provider_call_ref: output.provider_call_ref,
+          provider_output_ref: output.provider_run_ref,
+          source_hash: hash,
+          source_byte_range: %{start: 0, length: byte_size(raw)},
+          narrative_hash: hash
+        },
+        tool_fields
+      )
+
+    assert source == expected
+
+    assert :ok =
+             NovelApplication.AgentNarrativeSource.verify(raw, source, %{
+               output.provider_run_ref => output
+             })
+  end
 end
 
 defmodule NovelApplication.TestAgenticLoopFixtures do
@@ -487,6 +534,138 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     |> Repo.insert!()
 
     {work.id, "chapter:#{chapter.id}"}
+  end
+
+  def prose_drafting_body do
+    "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
+  end
+
+  def prose_drafting_input(work_id, input_overrides \\ %{}) do
+    %{
+      text: "先写第01章正文草稿，再做质量复核。",
+      workspace_id: work_id,
+      work_id: work_id,
+      session_id: "session-agent-prose-deviation",
+      turn_id: "turn-agent-prose-deviation",
+      chapter_prose_reader: fn _work_id, _chapter -> "" end,
+      chapter_summary_reader: %{},
+      character_reader: fn _work_id -> [] end
+    }
+    |> Map.merge(input_overrides)
+  end
+
+  def prose_plan_draft(prompt, opts \\ []) do
+    prompt = prompt_text(prompt)
+
+    # 嗅作者目标短语而非全 prompt（生产指引文案自身含"接着写"枚举说明，全文嗅探会误翻分支）
+    {authoring_intent, target_chapter, requested_chapter_raw, reasoning} =
+      if String.contains?(prompt, "接着第01章") do
+        {"continuation", "第01章：开端", "第01章", "先读取第01章上下文，再按续写意图生成正文草稿。"}
+      else
+        {"none", "第01章：开端", "第01章", "先读取正文写作上下文，再生成一份待采纳正文草稿并复核。"}
+      end
+
+    authoring_intent = Keyword.get(opts, :authoring_intent, authoring_intent)
+    target_chapter = Keyword.get(opts, :target_chapter, target_chapter)
+    target_chapter_ref = Keyword.get(opts, :target_chapter_ref)
+    requested_chapter_raw = Keyword.get(opts, :requested_chapter_raw, requested_chapter_raw)
+    risk_hint = Keyword.get(opts, :risk_hint, "low")
+
+    exploration_step =
+      case Keyword.get(opts, :exploration) do
+        {tool, query} ->
+          [
+            Map.put(
+              plan_step(
+                "explore_readonly_prose",
+                tool,
+                "按需读取作品事实。",
+                success_criteria: ["exploration_observed"]
+              ),
+              "exploration_query",
+              query
+            )
+          ]
+
+        _ ->
+          []
+      end
+
+    plan_tool_call_result(
+      reasoning,
+      [
+        plan_step(
+          "assemble_prose_context",
+          "context_assemble",
+          "读取正文写作上下文",
+          success_criteria: ["prose_context_attached"]
+        )
+      ] ++
+        exploration_step ++
+        [
+          plan_step(
+            "derive_chapter_mission",
+            "chapter_mission",
+            "按本章计划与作品脉络推导本章使命",
+            success_criteria: ["chapter_mission_derived"]
+          ),
+          plan_step(
+            "draft_prose_with_quality",
+            "prose_writing",
+            "生成正文草稿并触发质量复核",
+            kind: "act",
+            write_intent: "tentative",
+            risk_hint: risk_hint,
+            authoring_intent: authoring_intent,
+            target_chapter: target_chapter,
+            target_chapter_ref: target_chapter_ref,
+            requested_chapter_raw: requested_chapter_raw,
+            success_criteria: ["prose_fragment_created", "quality_review_completed"]
+          )
+        ],
+      reason_codes: Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
+      tool_name: Keyword.get(opts, :tool_name, "agent_plan_draft")
+    )
+  end
+
+  def prose_next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
+    cond do
+      String.contains?(prompt, "/ artifact_created:") ->
+        done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。")
+
+      String.contains?(prompt, "prose_context /") ->
+        continue_next(
+          "基于已读取的正文上下文生成正文草稿并完成质量复核。",
+          "prose_writing",
+          write_intent: "tentative",
+          reason_codes: ["agentic_next_step", "prose_context_consumed"]
+        )
+
+      true ->
+        continue_next(
+          "先读取正文写作上下文。",
+          "context_assemble",
+          reason_codes: ["agentic_next_step", "missing_prose_context"]
+        )
+    end
+  end
+
+  def plot_outline_context(work_id) do
+    %NovelDomain.DialogueContext{
+      work_id: work_id,
+      current_chapters: [],
+      structured_chapters: [
+        %{
+          title: "第00章：开局设定",
+          seq: 0,
+          summary: "矿区旧债与主角压力已经建立。",
+          has_prose: false
+        }
+      ],
+      assembly_policy: NovelDomain.AssemblyPolicy.for_tier(:floor)
+    }
   end
 
   @doc "正文运行回归共享的完整章节与计划材料。"

@@ -1,6 +1,9 @@
 defmodule NovelApplication.JudgmentProtocolTest do
   use ExUnit.Case, async: true
 
+  import NovelApplication.TestAssertions,
+    only: [assert_bound_narrative: 3, assert_bound_narrative: 4]
+
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Test.Provider.SliceVerify
@@ -195,22 +198,9 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.reply_record.model_interpretation == nil
     assert judgment.reply_record.supplied_context_refs == ["work:work-judgment-fixture"]
 
-    source_hash = :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+    assert judgment.reply_record.author_narrative_source == judgment.narrative_source
 
-    assert judgment.reply_record.author_narrative_source == %{
-             source_type: "provider_output",
-             provider_run_ref: "run-call-1",
-             provider_call_ref: "call-1",
-             provider_output_ref: "run-call-1",
-             source_hash: source_hash,
-             source_byte_range: %{start: 0, length: byte_size(text)},
-             narrative_hash: source_hash
-           }
-
-    assert :ok =
-             AgentNarrativeSource.verify(text, judgment.narrative_source, %{
-               "run-call-1" => result.provider_output
-             })
+    assert_bound_narrative(judgment.narrative_source, text, result.provider_output)
 
     assert_receive {:provider_request, %{projection: %{tool_choice: "auto"}}}
     refute_receive {:provider_request, _}, 10
@@ -228,10 +218,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert judgment.provider_call_count == 1
     assert judgment.narrative == text
 
-    assert :ok =
-             AgentNarrativeSource.verify(text, judgment.narrative_source, %{
-               "run-technical-reply" => result.provider_output
-             })
+    assert_bound_narrative(judgment.narrative_source, text, result.provider_output)
   end
 
   test "提问以question唯一交付，原字节与选项均绑定实际Provider字段" do
@@ -258,24 +245,14 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert judgment.narrative_source.tool_call_narrative_field == "question"
       assert judgment.narrative == question
 
-      source_hash = :crypto.hash(:sha256, question) |> Base.encode16(case: :lower)
+      assert judgment.reply_record.author_narrative_source == judgment.narrative_source
 
-      assert judgment.reply_record.author_narrative_source == %{
-               source_type: "provider_output_tool_narrative",
-               provider_run_ref: "run-call-1",
-               provider_call_ref: "call-1",
-               provider_output_ref: "run-call-1",
-               tool_call_name: "ask_author",
-               tool_call_narrative_field: "question",
-               source_hash: source_hash,
-               source_byte_range: %{start: 0, length: byte_size(question)},
-               narrative_hash: source_hash
-             }
-
-      assert :ok =
-               AgentNarrativeSource.verify(question, judgment.narrative_source, %{
-                 "run-call-1" => result.provider_output
-               })
+      assert_bound_narrative(
+        judgment.narrative_source,
+        question,
+        result.provider_output,
+        %{tool_call_name: "ask_author", tool_call_narrative_field: "question"}
+      )
     end
   end
 
@@ -666,10 +643,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
       assert judgment.narrative == good_text
       assert judgment.narrative_source.provider_call_ref == "good"
 
-      assert :ok =
-               AgentNarrativeSource.verify(good_text, judgment.narrative_source, %{
-                 "run-good" => good.provider_output
-               })
+      assert_bound_narrative(judgment.narrative_source, good_text, good.provider_output)
 
       assert_receive {:provider_request, _}
       assert_receive {:provider_request, corrected}
@@ -2653,10 +2627,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert judgment.narrative == text
 
-    assert :ok =
-             AgentNarrativeSource.verify(text, judgment.narrative_source, %{
-               "run-call-1" => result.provider_output
-             })
+    assert_bound_narrative(judgment.narrative_source, text, result.provider_output)
 
     refute judgment.narrative_source.source_type =~ "application"
   end
