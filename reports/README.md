@@ -8,7 +8,7 @@
 
 | 文件 | 内容与承接 |
 |---|---|
-| [2026-11-14-b84-implementation-review.md](2026-11-14-b84-implementation-review.md) | B84 实现独立审查及历次整改复核；最新[§15 REV-01 复核缺口整改](2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)记录 PGID 回退、外部借用 attach/release、onSpawn 早期收尾与 scope 74/74（待独立复核）；[§14 REV-05/04 整改](2026-11-14-b84-implementation-review.md#14-rev-05-与-rev-04-整改结果2026-11-14)、[§13 REV-01 独立复核](2026-11-14-b84-implementation-review.md#13-rev-01-第二轮整改独立复核)及 §9–12 保留历史审查/整改记录；执行状态见 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md) |
+| [2026-11-14-b84-implementation-review.md](2026-11-14-b84-implementation-review.md) | B84 实现独立审查及历次整改复核；最新[§16 REV-05/REV-04 独立复核](2026-11-14-b84-implementation-review.md#16-rev-05-与-rev-04-整改独立复核)：REV-04 精确用例及旧逻辑对照通过、可关闭；REV-05 独立16/16，但首次ready断言前blocker未登记兜底，继续开放。[§15 REV-01 第三轮整改](2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)保留PGID/借用/onSpawn修复与74/74，待另行独立复核；§9–14保留历史；执行状态见 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md) |
 
 ## 子目录
 

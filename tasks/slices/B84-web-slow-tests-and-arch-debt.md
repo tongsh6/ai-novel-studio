@@ -1,7 +1,7 @@
 # B84：全项目测试环境作用域、fixture 体系与剩余架构/测试债务
 
-- 状态：**deferred（2026-11-14 作者决定退出当前任务队列，B87 提为当前任务；A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；REV-01 第三轮整改已覆盖 §13.3–13.5，scope 74/74，待独立复核；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 cleanup 16/16；REV-04 精确回归已入库；B84未签收；Windows/Linux不在本次验收范围；恢复条件：作者重新排期或 B87 对应批次后由作者决定）**
-- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新整改见[报告 §15](../../reports/2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)，§14（REV-05/04）、§13（REV-01 独立复核）、§12/§11 保留历史；执行状态见下方“独立实现审查与整改承接”。
+- 状态：**deferred（2026-11-14 作者决定退出当前任务队列，B87 提为当前任务；A0完成；A1/A2已有实施，A2随R01 WIP与b71-pending债务保留；A3/A4及A5 macOS已有验收记录；REV-01 第三轮整改已覆盖 §13.3–13.5，scope 74/74，待独立复核；REV-02 仍开放；REV-03/06 源码修复进展保留；REV-05 独立16/16但首次ready断言前blocker未登记兜底，继续开放；REV-04 精确回归和旧逻辑对照独立通过，已关闭；B84未签收；Windows/Linux不在本次验收范围；恢复条件：作者重新排期或 B87 对应批次后由作者决定）**
+- 独立审查报告：[B84 实现审查（2026-11-14）](../../reports/2026-11-14-b84-implementation-review.md)；最新独立复核见[报告 §16](../../reports/2026-11-14-b84-implementation-review.md#16-rev-05-与-rev-04-整改独立复核)；[§15 REV-01 第三轮整改](../../reports/2026-11-14-b84-implementation-review.md#15-rev-01-复核缺口整改结果2026-11-14)待独立复核；§14/§13及更早章节保留历史；执行状态见下方“独立实现审查与整改承接”。
 - 来源：
   - [00f 能力图谱 P2-E](../../docs/design/00f-capability-atlas.md)：`novel_web` 193 tests / 532s 慢测试仍待收敛；`novel_common` 日志 I/O 部分已由 ADR-0034（`novel_telemetry`）闭环，本任务只承接 web 慢测试与剩余债务。
   - B71 审核轮架构 P2-10 记录与 2026-11-08 候选。
@@ -665,13 +665,13 @@ Tauri surface：
 - **首次审查版本（历史）**：`reapOrphanScopes` 及新增用例为首次审查时未提交实现；其余 finding 由已提交逻辑或 B84 新调用方依赖的既有 helper 触发。首次审查不能描述为 clean HEAD 验收；整改后复核基线另见报告 §9。
 - **首次审查后果（历史）**：首次仅落审查文档，未修复代码或增加正式回归。随后实施与独立复核已发生，当前执行状态以下表及本任务后续 checkpoint 为准；原有 R01 WIP、b71-pending、driver/G2、dogfood 与门禁接线等承接保留。
 
-| 报告编号 | 级别 | 本任务承接内容 | 执行状态（2026-11-14，REV-01 第二轮整改独立复核） |
+| 报告编号 | 级别 | 本任务承接内容 | 执行状态（2026-11-14，REV-05/REV-04 独立复核） |
 |---|---|---|---|
 | B84-REV-01 | P1 | 失联 owner 的活子进程先收口，归档后无原路径再生；保留必要证据 | **第三轮整改已落实，待独立复核**：PGID 查询失败回退 detached PID、owned/shared 身份区分、外部借用 attach/release、onSpawn 早期收尾；scope 74/74，见报告 §15.2–15.5 |
 | B84-REV-02 | P2 | 恢复判据核对本 run 可见叙事，零叙事不能通过；复核相关流式采样 | **仍开放**：哈希类名选择器已修；首个区域、空 expected 放行、文本前缀比较尚未绑定当前 run；数量/purpose 契约与真实页面待闭环，见 §11.4 |
 | B84-REV-03 | P2 | 打通 process_tree 返回契约与 runner cleanup 失败传播，等待有界 | **上轮缺陷已在源码中补齐**：slice/Tauri cleanup 已接有界 reap，失败继续后续资源；7/7 为实施者记录，本轮未复跑，见 §11.6 |
-| B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | **精确回归已入库，待独立复核**：双进程屏障重放“未发布观察→owner 发布退出→waiter 复用”，定向 1/1；scope 71/71，见报告 §14.3 |
-| B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | **测试治理已补，待独立复核**：资源创建即登记 on_exit、shutdown 回执替代 sleep、失败退出探针；cleanup 16/16、scope 71/71，见报告 §14.2 |
+| B84-REV-04 | P2 | owner 退出前后重核 fixture 最终发布事实，补竞争时序回归 | **已关闭**：固定提交的精确用例独立1/1通过；仅去掉二次outcome读取后0/1、exit 1且重现原误判，见报告 §16.2；原scope 71/71保留为实施者证据 |
+| B84-REV-05 | P2 | Task.Supervisor 枚举纳入同一 deadline，迟到空集合不签成功 | **仍开放，仅剩测试早期失败窗口**：独立16/16；owned task兜底和shutdown回执已认可，但blocker创建后先在helper内断言ready、返回后才登记清理；受控失败后仍活，见报告 §16.3–16.4 |
 | B84-REV-06 | P2 | 自有 DB 删除失败保留诊断并反映退出结果；核对 Rust 同类静态观察 | **上轮 DB 缺陷已在源码中修复**：先尝试全部路径再决定退出码；四态为实施者受控证据，本轮未复跑。Rust 静态观察仍未修，见 §11.6 |
 
 再次签收以报告中的对应反例、既有覆盖与修改面适用门禁共同判断。页面判据或 runner 修改须补受影响真实页面证据；不通过删断言、提高超时或把清理错误视作成功收口。
@@ -757,6 +757,8 @@ Tauri surface：
 
 ### REV-05/REV-04 整改 checkpoint（2026-11-14）
 
+> **后续独立复核已完成：**见[报告 §16](../../reports/2026-11-14-b84-implementation-review.md#16-rev-05-与-rev-04-整改独立复核)及下方最新 checkpoint。REV-04 已关闭；REV-05 的“创建即登记”仍遗漏 helper 内首次 ready 断言前窗口。下列实施者自检保留为历史记录。
+
 > 本段对应[报告 §14](../../reports/2026-11-14-b84-implementation-review.md#14-rev-05-与-rev-04-整改结果2026-11-14)。只处理 §13.7 的 REV-05/REV-04 待补项；REV-01 的 §13.3–13.5 仍开放。
 
 - **基线与改动面**：`fc8aecf4` 加工作区；改 `agent_run_cleanup_test.exs`、`test_env_scope.test.mjs`；未改 cleanup helper、`test_env.mjs`、产品、driver 或页面。
@@ -776,7 +778,19 @@ Tauri surface：
 - **回归**：scope **74/74**、受影响子集 **7/7**；`test_env.test.mjs` 仍 15/16 既有失败，未扩大范围修复。证据为 Node 机制级，不是页面/模型/完整 Mix/Cargo；macOS；未 push。
 - **关闭判断**：§13.3/13.4/13.5 关闭条件已覆盖，待独立复核。REV-02 仍开放；REV-03/06 保留；Rust 静态观察保留；B84 保持 `doing`。
 
+
+### REV-05 与 REV-04 整改独立复核 checkpoint（2026-11-14）
+
+- **入口与范围**：[报告 §16](../../reports/2026-11-14-b84-implementation-review.md#16-rev-05-与-rev-04-整改独立复核)；整改提交 `fd40df25`、报告/起始 HEAD `4112ecb7`。复核期间 REV-01 文件另有并行 WIP，本轮保留且不签收；REV-04 固定到提交镜像，REV-05 按执行前后指纹绑定证据。
+- **REV-04 已关闭**：新精确竞争用例独立 **1/1、exit 0**；仅去掉二次 outcome 读取后，同一测试 **0/1、exit 1** 并准确重现旧错误。探针 `b47e24ff5f6e482d` 是外层探针 ID，不是 scope/Runner Job ID；两版子进程均自行清空，临时镜像已删。原 71/71 保留为实施者结果，本轮未重跑全套。
+- **REV-05 进展保留但仍开放**：独立 cleanup **16/16**，scope `42c4d89dd4765a66`、exit 0；owned task 的及时登记、已返回 blocker 的兜底和 shutdown 回执均认可。剩余窗口位于 `start_blocked_shutdown/2`：创建后先在 463 行等待 ready，返回后调用方才登记 `on_exit`。
+- **早期失败已确认**：隔离探针消费 ready/shutdown 回执后执行原断言，ExUnit 退出处理完成、shutdown 开始约 1061ms 时 blocker 仍活、stopper 已死；scope `bd92d00ae05dc8bb`，预期 exit 2。随后由探针自有兜底回收至 child_count=0，不算测试自身已清理。前一次 AST 构造错误单独记录于报告，不计项目失败。
+- **下一步**：在 allocation helper 获得 blocker PID 后立即登记兜底；ready 回执先于 shutdown 发起；补 helper 未返回时的断言失败回归。无需重新扩为全量模型/页面批次。
+- **其他状态与边界**：REV-01 第三轮整改及74/74记录保留、待另行独立复核，REV-02 继续按原条件处理；REV-03/06 和其他债务保持已有证据层级。macOS 范围；保留并行更新后的 B84 `deferred` 排期和恢复条件，整体未签收；本轮只改报告/任务/索引，未改实现、未 commit/push。
+
 ## 变更记录
+
+- 2026-11-14：写回 REV-05/REV-04 独立复核（报告 §16）；REV-04 精确回归和旧逻辑对照通过，关闭；REV-05 正常16/16但helper内部ready断言前清理未登记，受控反例确认后继续开放。并行REV-01第三轮整改记录保留待复核，B84未签收。
 
 - 2026-11-14：完成 REV-01 第三轮整改：PGID 回退与 owned/shared 身份、外部借用 attach/release、onSpawn 早期收尾；scope 74/74，写入报告 §15。REV-02 与既有债务仍开放。
 

@@ -218,7 +218,7 @@ B31 CP1/Q05 新增文案（`frontend/src/lib/copy.ts` 现有条目，仅登记�
 
 约束：提示使用可见文案与既有 notice/selector 机制，不新增隐藏 hook、`data-testid` 或验收专用属性；文案不使用内部 run_id/技术术语，目标任务以作者可见 goal 摘要表示。
 
-### 7.9 长任务上下文整理记录文案（2026-11-03 作者拍板方案 A）
+### 7.9 长任务上下文整理记录文案（2026-11-03 方案 A；2026-11-15 B87 R03 修订）
 
 对应 UI 46 §9.9 与 Pencil 帧 `46§9.9-transcript-compaction-inline` /
 `46§9.9-transcript-compaction-expanded`。作者可见文案只表达「系统整理过较早记录、原文仍在」，
@@ -229,10 +229,10 @@ B31 CP1/Q05 新增文案（`frontend/src/lib/copy.ts` 现有条目，仅登记�
 | `transcriptCompactionSummary(count)` | `较早的 {count} 项创作过程已整理` | 消息流内整理细条（收起态，单行） |
 | `transcriptCompactionExpandLabel` | `查看已整理的较早创作过程` | 细条的无障碍标签（展开/收起共用） |
 | `transcriptCompactionTitle` | `已整理的较早记录` | 展开面板标题 |
-| `transcriptCompactionReason(count)` | `为了保持这次创作始终清晰连贯，系统整理了较早的 {count} 项已完成操作。` | 展开面板说明 |
+| `transcriptCompactionReason(toolExchanges, scopeUpdates, discussionMessages)` | `为了保持这次创作始终清晰连贯，系统整理了较早的记录：{categories}。` | 分类依次为 `已完成操作 {N} 项`、`工作范围记录 {N} 条`、`讨论回复 {N} 条`；零项省略，以顿号连接 |
 | `transcriptCompactionKept` | `原始记录仍然保留，不会被删除或改写。` | 展开面板说明（必须显示） |
 | `transcriptCompactionSources(list)` | `涉及：{list}` | 展开面板来源行（仅来源显示名；无显示名时整行省略） |
-| `transcriptCompactionOpenHistory` | `查看完整记录` | 展开面板入口（打开既有 Why/历史） |
+| `transcriptCompactionOpenHistory` | `查看完整记录` | 按真实来源回合进入既有 Interaction 历史并高亮原文；不以 Why 摘要代替 |
 
 失败路径不提供作者可见文案：整理失败必须静默（不打断创作、不显示错误），只保留
 developer 日志；作者可见面只在成功后出现细条（见 46 §9.9 第 5 条）。
@@ -242,7 +242,9 @@ developer 日志；作者可见面只在成功后出现细条（见 46 §9.9 第
 1. 禁用词（作者界面）：`上下文`、`压缩`、`token`、`window/窗口`、`checkpoint`、
    `canonical`、`ref`、`run`、`compact`、百分比数字（§6）。
 2. 不承诺「已保存/已采纳/已生效」；整理不改变作品事实、候选状态或执行授权。
-3. 数量只来自服务端真实整理记录；不估算、不按消息数计算。
+3. 数量只来自成功提交事件的 `covered_counts`：工具交换、旧工作范围消息、纯讨论消息
+   分别计数，细条显示总和；不估算整段历史，不把作者消息计作已整理。工具交换为零不能
+   隐藏范围/讨论记录；重连重复事件不重复累计。原文导航仅使用真实来源坐标，不解析说明文本。
 4. 文案为系统口径，不是模型叙事（46 §9.1）；不使用「AI 认为/模型记得」类表述。
 5. 不新增隐藏 hook、`data-testid` 或验收专用属性；展开/收起使用原生按钮语义与
    `aria-expanded`。

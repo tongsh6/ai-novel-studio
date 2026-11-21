@@ -2,7 +2,7 @@
 
 ## 模型交互协议候选的验收输入
 
-[场景/反例覆盖矩阵](model-interaction-coverage.md) 与 [VS-00M 设计材料](../contracts/model-interaction/README.md) 对应。这里描述离线 Schema 与合成案例覆盖，不把它注册成已通过的原生页面/实模场景；执行状态仍由 B87 管理。
+[场景/反例覆盖矩阵](model-interaction-coverage.md) 第 1–4 节与 [VS-00M 设计材料](../contracts/model-interaction/README.md) 的候选归档对应；第 5 节为现役 R03 的真实讨论、交错待答、取消与恢复验收设计，引用 VS-00L/VS-00M 和 B87 §14。设计与离线覆盖均不等于已通过原生页面/实模验收；执行状态仍由 B87 管理。
 
 > 最后更新：2026-06-22
 >

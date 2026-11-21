@@ -2,7 +2,7 @@
 
 > 本文件保存本次审查的版本、发现、证据摘要与复验要求，是固定时间点的审查记录。
 > B84 的执行状态、整改 checkpoint 与后续签收只维护在[原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)；本报告不建立第二份活动状态台账。
-> **最新入口：**请先读 [§15 REV-01 复核缺口整改结果](#15-rev-01-复核缺口整改结果2026-11-14)：必要 PGID 回退、外部借用 attach/release、onSpawn 早期收尾已落实（scope 74/74），待独立复核。[§14 REV-05/REV-04 整改](#14-rev-05-与-rev-04-整改结果2026-11-14)保留上一轮记录；[§13 REV-01 独立复核](#13-rev-01-第二轮整改独立复核)的开放前提已由 §15 回应。§9–14 为历史复核与整改记录，不冒充新一轮运行验收。
+> **最新入口：**请先读 [§16 REV-05 与 REV-04 整改独立复核](#16-rev-05-与-rev-04-整改独立复核)：REV-04 精确回归与旧逻辑对照已独立通过，可关闭；REV-05 正常套件16/16，但首次ready断言前blocker未登记兜底，继续开放。[§15 REV-01 第三轮整改](#15-rev-01-复核缺口整改结果2026-11-14)保留并行实施者的PGID/借用/onSpawn修复与74/74记录，待另行独立复核；[§14](#14-rev-05-与-rev-04-整改结果2026-11-14)和[§13](#13-rev-01-第二轮整改独立复核)保留历史。§1–15 不冒充本轮运行验收。
 
 ## 1. 结论与验收边界
 
@@ -946,6 +946,8 @@ SIGKILL owner 17578 并确认退出后，令 root 正常退出，保留同组静
 
 ## 14. REV-05 与 REV-04 整改结果（2026-11-14）
 
+> **后续独立复核：**[§16](#16-rev-05-与-rev-04-整改独立复核)已确认 REV-04 可关闭；REV-05 正常回归通过，但 helper 内首次 ready 断言失败时清理尚未登记，继续开放。以下保留实施者原始记录。
+
 > 本节由整改实施者按 §13.7 的 REV-05/REV-04 待补项追加；§13 对 REV-01 的开放结论、§13.3–13.5 的新缺口保持不变。执行状态仍只维护在 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)。
 
 ### 14.1 基线与改动面
@@ -1024,3 +1026,114 @@ SIGKILL owner 17578 并确认退出后，令 root 正常退出，保留同组静
 - **test_env.test.mjs**：仍 **15/16**，唯一失败与 HEAD 基线相同（借用测试的 parent owner 已退出），本轮未扩大范围修复。
 - **证据层级**：Node 机制/回归级，使用真实子进程、进程组与文件系统；不是真实页面、模型、Tauri 或完整 Mix/Cargo。PGID/借用反例只终止已核实的本次 PID/组，探针临时文件已清理。
 - **关闭判断**：§13.3、§13.4、§13.5 的关闭条件已由实现与回归覆盖，待独立复核确认。REV-02 仍开放；REV-03/06 沿用既有源码修复；Rust `TempDir::drop` 静态观察保留。B84 保持 `doing`。
+
+## 16. REV-05 与 REV-04 整改独立复核
+
+> 本节响应作者“REV-05/REV-04 已修”，复核 §14 的实施声明。**REV-04 可关闭；REV-05 仍留一个 P2 早期失败清理窗口。** 本节只更新本轮复核结论，执行状态继续由 [B84 原任务](../tasks/slices/B84-web-slow-tests-and-arch-debt.md)维护。
+
+### 16.1 版本与证据范围
+
+- **整改提交**：`fd40df2539634eafa624d9e6e853e2c22e24bca6`；报告提交／本轮开始 HEAD 为 `4112ecb7cf2c7bb5ec4e86f6634bcc9eaa56e49b`。只审 REV-04/05 的新增测试治理；原 cleanup helper 与 fixture 实现修复不被重新描述为未修。
+- **并行工作区变化**：复核期间另有 REV-01 工作修改 `test_env.mjs` 与 scope 测试，不能把本轮结果写成整个当前工作区的 clean HEAD 验收。REV-04 使用 `git show 4112ecb7:<path>` 得到的固定临时镜像；REV-05 的目标测试/helper 在执行前后指纹不变，scope 包装入口则明确使用当时的 WIP 版本。并行 REV-01 改动不在本节签收，§13 保留为上一轮固定版本的证据。
+- **平台**：macOS；REV-04 实测环境为 macOS 26.6.2 / arm64 / Node 24.19.0。A5 macOS 已验的裁决继续有效，Windows/Linux 不作为缺项。
+- **本轮行为**：独立定向验证、隔离对照及报告写回；没有修改仓库实现或正式测试，没有 commit/push，没有真实页面、真实模型或全量 Mix/Cargo 验收。
+
+| 本轮独立执行 | 实际结果 | 结论边界 |
+|---|---|---|
+| REV-04：提交版本的精确发布竞争用例 | 1 PASS / 0 FAIL，exit 0，外层耗时 194ms | 精确目标时序通过 |
+| REV-04：仅删除二次 outcome 读取的旧逻辑对照 | 0 PASS / 1 FAIL，exit 1，外层耗时 186ms | 预期失败，证明新用例能捕获原缺陷；不计当前实现失败 |
+| REV-05：现有 cleanup 定向套件 | 16 tests / 0 failures，ExUnit 0.5s，scope exit 0 | 正常路径与已有边界回归通过 |
+| REV-05：ready 断言前的定向失败探针 | 1 test / 1 failure，exit 2；用例结束后 blocker 仍活 | 预期注入失败，同时确认兜底尚未登记的窗口 |
+
+§14 的 scope **71/71** 与 compile 通过保留为实施者证据；本轮未重跑完整 scope 套件或 compile，不将这些数字改标为本轮独立运行结果。
+
+### 16.2 REV-04：精确回归能捕获旧缺陷，可关闭
+
+已核对 [scope 测试](../scripts/lib/test_env_scope.test.mjs) 在提交 `4112ecb7` 的 1244–1270、1373–1393 行，以及 [awaitFixtureOwner](../scripts/lib/test_env.mjs) 的 1488–1496 行：
+
+1. owner 取得 claim，在首次 payload 写入前被测试侧 preload 阻塞。
+2. waiter 已经从 `ownerOutcome()` 读到未发布，随后停在对 fixture owner PID 的存活检查之前；父 scope 的 owner PID 与此不同，不会误触发屏障。
+3. 测试放行 owner，并等到 owner 真实退出 0，才放行 waiter。
+4. waiter 观察 owner 已死后复查最终 outcome，复用同一目录；断言 `alpha.txt` 字节为 `alpha\n`，且没有 staging 或 waiter 重建副本。
+
+两个临时镜像只复制提交内的五个依赖：`scripts/node_test.sh`、`scripts/lib/test_env.sh`、`scripts/lib/test_env.mjs`、`scripts/lib/process_tree.sh`、`scripts/lib/test_env_scope.test.mjs`。均运行既有入口：
+
+```bash
+/bin/bash scripts/node_test.sh --self \
+  --test-reporter=tap \
+  '--test-name-pattern=^发布竞争：' \
+  scripts/lib/test_env_scope.test.mjs
+```
+
+命令使用 Node 24.19.0 的明确 PATH，移除继承的 run/entry/base scope 变量和 `NODE_OPTIONS`，并把临时目录及测试证据指向各自镜像。旧逻辑对照仅删除 `const finalOutcome = ownerOutcome(request, normalized);` 和紧接的返回语句，测试文件保持提交原样。它在新测试 1382 行的 waiter 退出码断言失败，实际错误为“初始化 owner 已退出且未发布完整模板/failed，本 run 按基础设施失败处理”。错误来自 waiter stderr，经断言进入 TAP stdout；外层命令 stderr 为空。
+
+探针 ID 为 `b47e24ff5f6e482d`，时间 `2026-11-14T15:33:41.838032Z`；该 ID 由外层脚本生成，**不是 scope runId 或 Runner Job ID**。工具同步完成，未返回独立 Job ID。两次运行结束时自有进程组均空，外层未执行杀进程兜底；临时镜像均已删除。
+
+**证据限制。** 本次动态对照只验证成功发布竞争；failed outcome 的统一处理有源码和既有失败用例支撑，本轮未另跑“首次 miss 后发布 failed”的竞争。外层每次设置 20s 总期限；新用例内部有 marker/fixture 等待期限，但两次 `done` 等待没有独立总时限，因此不外推为任意未来挂起都已有测试内建总超时。上述边界不影响本次原发布竞争缺口的关闭。
+
+### 16.3 REV-05：正常回归通过，ready 断言前仍未登记 blocker 清理
+
+**已认可的修复。** [agent_run_cleanup_test.exs](../apps/novel_application/test/novel_application/agent_run_cleanup_test.exs) 已为 owned task 在创建后立即登记 `track_task`（549 行）；三个共享 Supervisor 用例使用 `:blocker_shutdown_received` 回执替代原固定 sleep；ready 成功返回后的 blocker 有 `on_exit` 兜底。新增“跳过显式 tail cleanup”结构测试也通过。现有 helper 的 deadline、逐 Supervisor 收集和超期标记修复继续保留。
+
+独立运行使用明确工具链 PATH、清除继承 scope 后，经统一入口执行：
+
+```bash
+node scripts/lib/test_env.mjs run --timeout-ms 120000 -- \
+  /usr/bin/env MIX_ENV=test mix test \
+  apps/novel_application/test/novel_application/agent_run_cleanup_test.exs
+```
+
+实际为 seed `888335`、**16 tests / 0 failures**、ExUnit 0.5s；scope runId `42c4d89dd4765a66`，exit 0、duration 1550ms、`tree_finalized=true`，未见 warning。入口 `test_env.mjs` 是并行 WIP 的 `52425249…25a5`；目标测试、cleanup helper、config 与该入口在这次执行前后均未变化。
+
+**剩余 P2 的精确路径。** 当前测试文件 `start_blocked_shutdown/2` 在 447–460 行创建 blocker，462 行启动 stopper，463 行先执行 `assert_receive {:blocker_ready, ^blocker}, 1_000`，464 行才返回；调用方在 496、515、555、596 行才调用 `track_blocked_shutdown`。因此首次 ready 断言失败时，helper 不返回，清理登记也没有发生。§14 的“blocker 一创建就登记”只覆盖了 ready 成功后的路径，不能据此关闭 §11.5 条件 1。
+
+**定向复现。** 从当前测试源码提取 `start_blocked_shutdown/2` 与 `track_blocked_shutdown/1` 到独立 Elixir/ExUnit 探针；只在原 ready 断言前消费一次 ready 和 shutdown 回执，再执行原断言，强制覆盖该早期失败出口。没有改变资源创建／登记顺序，也没有修改仓库文件。探针同样经 `node scripts/lib/test_env.mjs run --timeout-ms 20000 -- elixir -e <内存 AST 探针>` 执行；同步完成，无独立 Runner Job ID，scope duration 为 1353ms。实际输出：
+
+```json
+{
+  "scope_run_id": "bd92d00ae05dc8bb",
+  "exunit_seed": 535064,
+  "tests": 1,
+  "failures": 1,
+  "exit_code": 2,
+  "failed_assertion_source_line": 463,
+  "after_test_shutdown_elapsed_ms": 1061,
+  "blocker_alive_after_test": true,
+  "stopper_alive_after_test": false,
+  "after_probe_cleanup": {
+    "blocker_alive": false,
+    "stopper_alive": false,
+    "supervisor_child_count": 0,
+    "tree_finalized": true
+  }
+}
+```
+
+此时仍未到 Supervisor 默认 5s shutdown 兜底；事实是**用例失败并完成退出后，本 case 的 blocker 仍活，清理依赖外部 Supervisor 后续超时或探针兜底**，不能写成永久泄漏，也不能把探针最终回收算作测试自身已归还。该探针验证注入的早期失败出口，不表示自然调度发生率，也不是产品 AgentRun 整链证据。
+
+**无效尝试单独归因。** 第一份探针在构造 AST 时误用 prewalk，使替换节点重复展开，未进入 ExUnit；外层 20s 期限终止，Job `wc_job_ZmVmPkF9220JIN2C`、scope `bcee542a499765bd`、exit 124、`tree_finalized=true`。修正为 postwalk 后才得到上面的有效反例。此构造错误不计作项目失败，且未改变仓库源码。
+
+### 16.4 REV-05 剩余关闭条件
+
+1. 在 `start_blocked_shutdown/2` 成功获得 blocker PID 后立即登记其幂等兜底，早于任何等待、断言或可能失败的后续操作；不要把登记留在 helper 成功返回后的调用方。
+2. 将 ready 回执作为发起 shutdown 的前置顺序，然后用 shutdown 回执确认进入被测状态。当前 462→463 顺序仍先发起 shutdown 再等 ready；这是源码顺序观察，本轮未测试自然调度发生率。
+3. 补本次“首次 ready 断言失败／helper 未返回”的定向验证，确认 ExUnit 用例结束时自有 blocker 已死、共享 Supervisor 可用；保留已登记路径和其他 owner 的既有覆盖。不能仅验证 `track_task` 已执行后的 flunk。
+4. 继续区分 SUT 的正常清理、测试自己的 `on_exit` 和最外层探针兜底；只回收本用例资源，不增加平行 owner 框架或扩展为模型／页面批次。
+
+### 16.5 指纹、状态与交接
+
+| 证据输入 | SHA-256 |
+|---|---|
+| REV-04 固定提交 `test_env.mjs` | `f63ccd43d6d8e0169adbc3fa90eb00633d1af5c8eeab98731a1e339b0b76d308` |
+| REV-04 固定提交 scope 测试 | `a37437c1d1204dcb08f31452459158859776e736cd91166bbe985aaeb7af5fb0` |
+| REV-04 旧逻辑对照 SUT | `0afa3e496506d0a6ede4793ae7a9b676e64140aeb1b4237e65993434e284a207` |
+| REV-05 当前测试 | `8f8ff02eddd6d92cfbbb1a610bf53b80f77416e5489c1cdb3c0a5b8939245688` |
+| REV-05 cleanup helper | `3251d1cee678bc491ec75d537e9c659791edaec472be522133a1cf11b4e7e0c7` |
+| REV-05 config | `11543a134e0a3850b245fe6cdfc4c56bc228b92f9c5f3001b5e759f6017156ba` |
+| REV-05 执行时 scope 入口 WIP | `524252491a0c1793c07b95bd3a467d07ad355e15fb5afa7e6d06a3c6ae8825a5` |
+
+- **REV-04：关闭。** 原实现修复、精确时序入库和本轮旧逻辑对照形成闭环。
+- **REV-05：继续开放，仅剩上述测试早期失败窗口。** 16/16、已有资源兜底及 shutdown 回执进展保留，不退回“helper 实现仍无界”的旧判断。
+- **REV-01：§15 的第三轮整改待独立复核，尚未关闭。** 已保留并行实施者新增的 PGID 回退、attach/release、onSpawn 与 74/74 记录；本轮未复核这些新增实现，也不把 §13 固定版本的旧反例机械外推为新 WIP 已验证结果。
+- **REV-02、REV-03/06 与其他债务**：沿用既有状态和证据边界，不在本轮重签。B84 未取得整体签收；写回时原任务在并行更新中已改为 `deferred`，并记录 B87 提为当前任务及恢复条件。本轮保留该排期，不因局部复核重排或改成 done。
+- 本次只写回原报告、B84 状态和报告索引；§1–15 保留历史记录并补充后续复核提示，具体实现继续交后续处理人。

@@ -170,6 +170,12 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 
 2026-11-04 R1 复核：判断样本必须直接捕获当前 `JudgmentProtocol.request_for_production/2`，不再测退役的 `prompt/2`。原独立输入、会话摘要边界、required tails 和 enforce 保持；首次快照源头按 [VS-00L §19.2](VS-00L-authoring-run-transcript-request-ir-contract-pack.md#192-初始快照与追加历史的职责r1-真实前缀反例) 构造，已有 transcript 不排序、不重写。不能用共享第一轮 transcript 替换原第二样本来取得通过。
 
+### 4.3 R03 最小供给后的判断 L2（2026-11-17）
+
+依据上位愿景 §2.4、VS-00M §5.2.2 与 VS-00L §19.2，默认判断不再预装章节/角色全集或重复作者目标。L2 是**本次确实供应的作品身份、标题与版本**，不把未读章节登记成 Base。L0/L1 与这些 L2 字节仍须完整位于共享前缀；两个独立作者输入各走同一真实生产入口，不能共享伪造的第一轮历史。
+
+I-CACHE 判断样本迁移现行 `judgment_scope(context, keyword_opts)` 入口，显式检查 `facts.work` 三字段与 work ref/version，并拒绝默认 `facts.chapters` 和虚假的章节 Base refs。required tails 由旧默认章目录尾项重锚为完整作品标题与身份；共享字节算法、边界比较、schema 恒等及每行 enforce=true 不变，三 wire 一起核对。独立计划/使命/写作所需的完整材料及原有全章节断言不变；不能以缓存为理由删除其业务输入。本修订是材料责任已改变后的探针迁移，不代表真实缓存命中或 R03 的实模/页面验收通过。
+
 ## 5. 厂商适配矩阵
 
 分层模型（§2）与调用对规则（§3）产出的 prompt 字节对所有 provider 相同；本表只列**adapter 层**为命中缓存需要做的事、能读到的命中字段、以及运行侧前提。"待核实"项在 CP-AB 以真实响应核实后回填，不预设。

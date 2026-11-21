@@ -128,6 +128,13 @@
     "handling": "B84 首批全仓扫描复核：命中位于 R01 既有未提交测试。firstRecord 来自同文件 makeSource 创建的本地合成日志，Object.assign 的源对象是四个固定字段的零值字面量，目标为测试自己的 response.usage；不存在不受信任字段合并、HTTP 响应写入或产品权限边界。这是验证合法零值的用例设置，不是 mass assignment 漏洞。不为消除扫描命中改写受保护的测试语义。",
     "recommendation": "保留 Semgrep 原规则；后续 fixture 拆分或输入来源改变时按实际来源重新审核，不用本条为产品 Object.assign 或其他行号放行。"
   },
+  "semgrep|javascript.lang.security.insecure-object-assign.insecure-object-assign|scripts/model_contracts/request_cost_capture.test.mjs|851|javascript.lang.security.insecure-object-assign.insecure-object-assign": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-11-14",
+    "handling": "B84 快照族复核：原850行因新增import移至851行，表达式及其输入来源未改变。firstRecord来自同文件makeSource创建的本地合成JSONL，Object.assign源对象仅input_tokens/cached_tokens/output_tokens/ttft_ms四个固定零值，目标为测试自身response.usage；没有外部可控字段合并、HTTP响应或产品权限边界。保留零值测试，不为消除命中改代码；原指纹保留为历史处置。",
+    "recommendation": "保留 Semgrep 原规则；后续 fixture 拆分或输入来源改变时按实际来源重新审核，不用本条为产品 Object.assign 或其他行号放行。"
+  },
   "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/lib/native_ui/authoring_request_facts.test.mjs|112|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
     "status": "false_positive",
     "owner": "codex",

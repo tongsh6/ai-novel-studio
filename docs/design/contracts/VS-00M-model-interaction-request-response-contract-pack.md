@@ -210,6 +210,8 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 ### 5.4 Scope 去冗余与显式压缩（重要的 Frozen 冲突边界）
 
+**R03 修订入口（2026-11-15）**：本节目标保持；精确选择器、纯讨论语义摘要、原文回查、义务保护及失败恢复的现行工程裁决见 VS-00L §16.2.1，完整独立判据见 B87 §14。此前 R00 的不能覆盖结论保留为历史，不冒充此前已批准；新契约不等于已实现。
+
 当前 B81 已把会话 Canonical → Request IR 接通，且能对**闭合工具交换**做 checkpoint，但纯讨论中旧完整 Scope 可能随历史重复进入 Provider 请求。
 
 **目标行为**：
@@ -400,7 +402,7 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 |---|---|---|---|
 | 第二 Request/Exchange/ModelInteraction 主模型 | VS-00L §4/§16.1、ADR-0035 决策 1/2；候选规范 §2 明确 Exchange 只是离线容器 | **禁止**新建平行聚合/存储/控制环；候选四层视图只能映射现役事实。R02 在现役 IR 细化，不能照搬候选 Request 顶层替换主链 | Judgment/专业创作 |
 | Scope 的事实/来源/覆盖结构化 | VS-00L §19.2 已区分 application_base/scope_update/author；候选 Source/Material 是建议表达 | **修改现役归属**，R02 逐字段对账、明确版本与全消费者迁移后实施；保持作者原文独立，不制造 Observation；不另建 ContextBlock 总线 | ContextAssembler → JudgmentProtocol → RequestIR |
-| 纯讨论或旧 Scope 的显式覆盖 | VS-00L §16.2 要求非空 `covers.call_ids`；`RequestIR.Compaction.require_call_ids/1`、`project/1` 只选择 assistant/tool 的交换 ID；ADR-0035 决策 3/4/10 | **待冻结裁决**：现行契约不能承载 Scope/无工具回合覆盖。禁止伪造 call_id、仅用 turn_range 或直接过滤旧 Scope。R03 必须先修订选择器/来源/义务保留/提交失败/恢复契约及版本、负例矩阵，所有三 wire 同批迁移，不新增第二压缩器 | SessionHistory/Compaction/Replay/三 wire |
+| 纯讨论或旧 Scope 的显式覆盖 | VS-00L §16.2 要求非空 `covers.call_ids`；`RequestIR.Compaction.require_call_ids/1`、`project/1` 只选择 assistant/tool 的交换 ID；ADR-0035 决策 3/4/10 | **2026-11-15 R03 工程裁决已写入 VS-00L §16.2.1 / ADR-0035（实施仍见 B87 §14）**：复用真实 run/message 坐标、唯一 covers 与已绑定模型来源的纯讨论摘要，保留作者原文/当前范围/未解义务，精确原文通过现有探索链回查；所有三 wire/恢复/事件/验收同批迁移。禁止只去 Scope 代签纯讨论、伪 call_id、turn_range 截断或第二压缩器 | SessionHistory/Compaction/Replay/三 wire |
 | `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **R05 现役归属已明确**：按 §6/§6.2 复用 `submit_tentative_artifact` 及原生有界纠错，不新增或双注册同义工具；本裁决不代签 R07 的其余输出治理 | NativeToolExchange/ArtifactAssembler |
 | `change_reason`/`coverage_note`/`paragraph_only` 与 `rationale`/`target_segments` | 候选包 §4.3、§7 的建议字段不等于现役事实；I1/N-NARR 与现 rationale 原文约束保持 | **R05 必要字段已前向裁决，见 §6.2/B87 §16.34**：保留原 rationale；仅新增 item.target_segment_ids 与 action.payload.edited_items 两个位置，复用原 body 和 scope/effect，不新增同义说明、patch 正文或 region_changes。观察 coverage_note 原职责不变；R07/R08 其它未决项不据此签完成 | Writer/局部修订/作者编辑/采纳 |
 | 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **修改现役契约前先对账**；R07 为各结果类型给出七字段来源及不适用值、原 call_id 与重试语义，保留验证≠授权≠执行≠采纳，不新建一套响应事实。校验反馈不得伪造 observation_ref | Judgment correction/三 wire/Replay |
