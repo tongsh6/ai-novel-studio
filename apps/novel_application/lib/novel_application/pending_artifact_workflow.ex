@@ -15,6 +15,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AuthorContentRegistration,
     AuthoringOperation,
     AuthoringTaskBuilder,
+    AuthoringTaskPolicy,
     CapabilityRegistry,
     ChapterReadEvidence,
     ChapterRevisionScope,
@@ -40,14 +41,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   alias NovelFoundation.Enums.AdoptionStatus, as: Status
   require NovelTelemetry.LogEmit, as: LogEmit
 
-  @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
-  @adopted_capabilities ~w(revise_adopted_content)
-  @structure_capabilities ~w(maintain_chapter_structure)
-  @character_profile_capabilities ~w(revise_character_profile)
-  @capabilities @pending_capabilities ++
-                  @adopted_capabilities ++
-                  @structure_capabilities ++
-                  @character_profile_capabilities
+  @pending_capabilities AuthoringTaskPolicy.artifact_capabilities(:pending)
+  @structure_capabilities AuthoringTaskPolicy.artifact_capabilities(:structure)
+  @character_profile_capabilities AuthoringTaskPolicy.artifact_capabilities(:character_profile)
+  @capabilities AuthoringTaskPolicy.artifact_capabilities(:all)
   @adopted_revision_types ~w(world_setting world_rule_seed style_rule_seed constraint_seed prose_fragment)
   @revision_tools %{
     "prose_fragment" => "prose_writing",
@@ -528,7 +525,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           "character_profile_revision_#{:erlang.phash2({payload.character_ref, payload.changes, frame.turn_id})}",
         title: title,
         body: presentation.body,
-        rationale: "只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆。"
+        rationale: nil
       }
 
       artifact = %NovelDomain.TentativeArtifactSet{

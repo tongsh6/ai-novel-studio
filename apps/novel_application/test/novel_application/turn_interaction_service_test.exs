@@ -207,6 +207,10 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert user.content["text"] == input.text
     assert user.content["candidate_selection"] == %{"candidate_ref" => "direction-1"}
     assert assistant.content["text"] == "读取完成，没有写入。"
+    assert assistant.content["turn_result"]["agent_run"]["status"] == "completed"
+
+    assert assistant.content["turn_result"]["agent_run"]["phase"] ==
+             AgentRunLog.get_run(run_id).phase
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(%{attrs | run_id: run_id <> "-retry"},

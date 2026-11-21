@@ -14,6 +14,12 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。选择按钮标签必须非空且可区分，不能只靠首尾或重复空白；仅用已知事实区分，材料仍不可辨认时提出开放问题并用空 options，不追加内部引用或序号制造区分。"
 
+  @work_profile_revision_fields ~w(
+    premise theme main_goal core_selling_point target_reader tone_preference
+    target_length planned_volumes serial_form
+  )
+  @work_profile_numeric_fields ~w(target_length planned_volumes)
+
   @text %{type: "string", minLength: 1}
   @strings %{type: "array", items: %{type: "string"}}
 
@@ -165,11 +171,7 @@ defmodule NovelApplication.JudgmentToolContract do
       %{
         title: @text,
         body: @text,
-        field: %{
-          type: "string",
-          enum:
-            ~w(premise theme main_goal core_selling_point target_reader tone_preference target_length planned_volumes serial_form)
-        },
+        field: %{type: "string", enum: @work_profile_revision_fields},
         value: %{anyOf: [%{type: "string", minLength: 1}, %{type: "integer", minimum: 1}]},
         author_reasoning:
           Map.put(
@@ -181,6 +183,39 @@ defmodule NovelApplication.JudgmentToolContract do
       },
       ~w(title body field value author_reasoning)
     )
+  end
+
+  @doc "立项字段提案的同源值约束；不读取作品、不授权采纳。"
+  @spec validate_work_profile_revision(map()) :: :ok | {:error, term()}
+  def validate_work_profile_revision(args) do
+    field = field(args, :field)
+    value = field(args, :value)
+
+    with :ok <- validate_work_profile_field(field),
+         :ok <- validate_work_profile_text(args, :title, :work_profile_revision_title_missing),
+         :ok <- validate_work_profile_text(args, :body, :work_profile_revision_body_missing) do
+      validate_work_profile_value(field, value)
+    end
+  end
+
+  defp validate_work_profile_field(field) when field in @work_profile_revision_fields, do: :ok
+  defp validate_work_profile_field(field), do: {:error, {:invalid_work_profile_field, field}}
+
+  defp validate_work_profile_text(args, key, error) do
+    value = field(args, key)
+    if is_binary(value) and String.trim(value) != "", do: :ok, else: {:error, error}
+  end
+
+  defp validate_work_profile_value(field, value) when field in @work_profile_numeric_fields do
+    if is_integer(value) and value > 0,
+      do: :ok,
+      else: {:error, {:invalid_work_profile_value, field}}
+  end
+
+  defp validate_work_profile_value(field, value) do
+    if is_binary(value) and String.trim(value) != "",
+      do: :ok,
+      else: {:error, {:invalid_work_profile_value, field}}
   end
 
   defp gap do

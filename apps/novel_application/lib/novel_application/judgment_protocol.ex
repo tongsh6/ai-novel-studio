@@ -973,7 +973,7 @@ defmodule NovelApplication.JudgmentProtocol do
     if Keyword.get(options, :discussion_only, false) do
       {:error, :discussion_only_violation}
     else
-      validate_work_profile_revision(args)
+      JudgmentToolContract.validate_work_profile_revision(args)
     end
   end
 
@@ -1260,43 +1260,6 @@ defmodule NovelApplication.JudgmentProtocol do
       unavailable_sources: input[:unavailable_sources] || [],
       rendered_context_sections: input[:rendered_context_sections] || []
     }
-  end
-
-  @work_profile_revision_fields ~w(
-    premise theme main_goal core_selling_point target_reader tone_preference
-    target_length planned_volumes serial_form
-  )
-  @work_profile_numeric_fields ~w(target_length planned_volumes)
-
-  defp validate_work_profile_revision(args) do
-    field = field(args, :field)
-    value = field(args, :value)
-
-    with :ok <- validate_work_profile_field(field),
-         :ok <- validate_work_profile_text(args, :title, :work_profile_revision_title_missing),
-         :ok <- validate_work_profile_text(args, :body, :work_profile_revision_body_missing) do
-      validate_work_profile_value(field, value)
-    end
-  end
-
-  defp validate_work_profile_field(field) when field in @work_profile_revision_fields, do: :ok
-  defp validate_work_profile_field(field), do: {:error, {:invalid_work_profile_field, field}}
-
-  defp validate_work_profile_text(args, key, error) do
-    value = field(args, key)
-    if is_binary(value) and String.trim(value) != "", do: :ok, else: {:error, error}
-  end
-
-  defp validate_work_profile_value(field, value) when field in @work_profile_numeric_fields do
-    if is_integer(value) and value > 0,
-      do: :ok,
-      else: {:error, {:invalid_work_profile_value, field}}
-  end
-
-  defp validate_work_profile_value(field, value) do
-    if is_binary(value) and String.trim(value) != "",
-      do: :ok,
-      else: {:error, {:invalid_work_profile_value, field}}
   end
 
   defp profile_revision_args(args) do

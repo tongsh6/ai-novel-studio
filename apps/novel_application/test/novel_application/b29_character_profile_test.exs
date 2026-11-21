@@ -213,6 +213,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
              ["character:#{previous.id}"]
 
     assert [item] = pending.payload.items
+    assert item.rationale == nil
     assert item.body =~ "叙事身份：群像视角 → 主角"
     assert item.body =~ "候选尚未采纳，角色档案尚未修改。"
     assert item.body =~ "其它角色（需作者逐项裁决"
