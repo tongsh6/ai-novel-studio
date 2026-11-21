@@ -748,7 +748,8 @@ export const TRACE = {
     noToolNeeded: "本轮由 AgentRun 对话模式处理，不需要调用工具或写入作品状态。",
     exploratoryOnly: "本轮是在探索创作方向，候选内容不会自动写入作品档案、设定或正文。",
     userRequestedDiscussion: "你提出的是讨论或解释请求，系统没有执行写入动作。",
-    toolWasDispatched: "本轮调用了创作工具，工具结果仍需通过卡片确认后才会进入作品。",
+    toolWasDispatched: "本轮实际调用了工具；调用本身不表示草稿已生成或内容已采纳。",
+    toolNotDispatched: "本轮请求未通过调用前检查，未调用工具，也没有因此写入作品。",
     microPlanEvaluated: "系统先评估了执行计划，再按权限和范围决定是否继续。",
     microPlanFailed: "执行计划生成失败，系统已降级为安全的 AI 回应。",
     confirmationRequired: "本轮需要你的确认，系统不会在确认前执行高影响操作。",
@@ -773,6 +774,7 @@ export const TRACE = {
     avoidPrefix: "不得：",
     basisPrefix: "依据：",
   },
+  toolNotCalled: (name: string) => `本轮未调用工具：${name}。`,
   toolUsed: (name: string) => `本轮使用了工具：${name}。`,
   toolWithStatus: (name: string, status: string) =>
     `本轮使用了工具：${name}，结果状态为 ${status}。`,

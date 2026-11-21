@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   agentRunActivityQueryTurn,
+  agentRunRuntimeAuthority,
   mergeAgentRunRuntimeState,
   stateFromTurnResult,
   upsertAssistantTurnResultMessage,
   type AgentRunAnchorMessage,
 } from "../lib/agentRunAnchoring";
 import { agentRunEventsFor, isAgentEventData, mergeAgentRunEvents } from "../lib/agentRunTimeline";
+import { parseAgentRunState } from "../lib/agentRunStateWire";
 import type { AgentEventData } from "../lib/socket";
 import { AgentRunDialogueFlow, type TurnResult } from "./WorkspaceChat";
 import { MarkdownText } from "./MarkdownText";
@@ -72,6 +74,74 @@ describe("WorkspaceChat AgentRun activity hydration query turn", () => {
       ),
     ).toBe("turn_plain");
   });
+});
+
+describe("持久运行事实恢复", () => {
+  it.each(["activity_first", "receipt_first"] as const)(
+    "%s：保留实际完成步骤和待保存引用，业务摘要不授予运行权限",
+    (order) => {
+      // HTTP 输入由持久事实独立给定：计划曾有 3 步，实际完成引用为 5 个。
+      // 此 SSR 回归验证现 wire parser/merge/展示，不代签组件异步补拉与原生重开。
+      const activityRun = parseAgentRunState({
+        run_id: "run-restored-facts",
+        run_mode: "bounded",
+        workspace_id: "workspace-facts",
+        work_id: "work-facts",
+        session_id: "session-facts",
+        parent_turn_ref: "turn-restored-facts",
+        status: "completed",
+        phase: "stopped",
+        completed_step_refs: ["step-1", "step-2", "step-3", "step-4", "step-5"],
+        pending_artifact_refs: ["artifact:pending-one", "artifact:pending-two"],
+        current_activity: {
+          kind: "agent_run_execution",
+          phase: "finalizing",
+          completed_steps: 5,
+          total_steps: 5,
+        },
+      })!;
+      const receipt = turnResult({
+        turn_id: "turn-restored-facts",
+        agent_run: {
+          run_id: "run-restored-facts",
+          parent_turn_ref: "turn-restored-facts",
+          run_mode: "bounded",
+          status: "running",
+          phase: "executing",
+        },
+      });
+      const association = stateFromTurnResult(receipt)!;
+      const runtime =
+        order === "activity_first"
+          ? mergeAgentRunRuntimeState(activityRun, association)
+          : mergeAgentRunRuntimeState(association, activityRun);
+
+      expect(runtime.status).toBe("completed");
+      expect(runtime.completed_step_refs).toEqual([
+        "step-1",
+        "step-2",
+        "step-3",
+        "step-4",
+        "step-5",
+      ]);
+      expect(runtime.pending_artifact_refs).toEqual([
+        "artifact:pending-one",
+        "artifact:pending-two",
+      ]);
+      expect(agentRunRuntimeAuthority(runtime)).toBe("unknown");
+      expect(receipt.agent_run).not.toHaveProperty("completed_step_refs");
+      expect(receipt.agent_run).not.toHaveProperty("pending_artifact_refs");
+      expect(receipt.agent_run).not.toHaveProperty("current_activity");
+      expect(receipt.agent_run).not.toHaveProperty("runtime_live");
+
+      const html = renderToStaticMarkup(<AgentRunDialogueFlow run={runtime} events={[]} />);
+      expect(html).toContain("第 5/5 步");
+      expect(html).toContain("2 份草稿待采纳");
+      expect(html).toContain("已完成");
+      expect(html).not.toContain("第 0/3 步");
+      expect(html).not.toContain("spinnerIcon");
+    },
+  );
 });
 
 // 原生十轮失败的独立输入顺序：resume -> HTTP activity -> pending submission 旧 ACK。

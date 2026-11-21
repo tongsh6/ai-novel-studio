@@ -249,6 +249,8 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     {:ok, work} = WorkService.create(%{"title" => "恢复中的作品"})
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
     run_id = "run-durable-channel-#{System.unique_integer([:positive, :monotonic])}"
+    completed = Enum.map(1..5, &"step-durable-channel-#{&1}")
+    pending = ["artifact:durable-one", "artifact:durable-two"]
 
     {:ok, task} =
       LongRunTaskLog.create(%{
@@ -294,18 +296,21 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
                  "allowed_tools" => ["character_roster"]
                },
                budget: %{
-                 "max_steps" => 2,
+                 "max_steps" => 8,
                  "max_tool_calls" => 2,
                  "max_provider_calls" => 1,
                  "max_replans" => 1
                },
                consumed_budget: %{
-                 "steps" => 1,
+                 "steps" => 5,
                  "tool_calls" => 1,
                  "provider_calls" => 0,
                  "replans" => 0
                },
-               completed_step_refs: ["step-durable-channel-1"],
+               # 最新持久事实晚于旧 checkpoint；不能按旧计划或 checkpoint 回退计数。
+               plan: %{"steps" => Enum.map(1..3, &%{"step_ref" => "planned-#{&1}"})},
+               completed_step_refs: completed,
+               pending_artifact_refs: pending,
                interrupt_state: %{"status" => "none"},
                long_run_task_ref: task.id
              })
@@ -344,6 +349,9 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
         run_mode: "durable",
         status: "awaiting_author",
         long_run_task_ref: ^task_id,
+        completed_step_refs: ^completed,
+        pending_artifact_refs: ^pending,
+        current_activity: %{completed_steps: 5, total_steps: 5},
         recovered: true,
         runtime_live: false,
         long_run_task: %{phase: "CHECKPOINT", status: "PAUSED"}

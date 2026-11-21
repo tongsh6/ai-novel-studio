@@ -1655,11 +1655,14 @@ export function WorkspaceChat() {
 
       const runId = turnResultAgentRunId(result);
       const agentRun = agentRunActivityAgentRun(activity, runId);
-      if (!agentRun) return;
-      const state = stateFromTurnResult({
-        ...result,
-        agent_run: { ...result.agent_run, ...agentRun },
-      });
+      if (!agentRun || agentRun.work_id !== workId || agentRun.session_id !== sessionId) return;
+      // HTTP 直接供应持久运行事实；事件仍入唯一事件视图，业务摘要不承载运行字段。
+      const statePayload = { ...agentRun };
+      delete statePayload.events;
+      delete statePayload.event_count;
+      delete statePayload.provider_run_count;
+      delete statePayload.runtime_live;
+      const state = parseAgentRunState(statePayload);
       if (!state) return;
       const events = agentRunActivityEvents(activity, runId);
       setAgentEvents((prev) => mergeAgentRunEvents(prev, events));

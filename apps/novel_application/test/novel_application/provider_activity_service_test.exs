@@ -224,6 +224,106 @@ defmodule NovelApplication.ProviderActivityServiceTest do
     assert activity.totals.provider_run_count == 1
   end
 
+  test "restores persisted completion and pending refs without trusting the older turn summary",
+       %{
+         work: work,
+         session: session
+       } do
+    turn_id = "turn-restored-progress"
+    run_id = "run-restored-progress"
+    completed = Enum.map(1..5, &"step-restored-#{&1}")
+    pending = ["artifact:pending-one", "artifact:pending-two"]
+    seed_provider_activity!(work.id, session.id, turn_id, run_id)
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: "workspace-progress-namespace",
+               plan: %{"steps" => Enum.map(1..3, &%{"step_ref" => "planned-#{&1}"})},
+               completed_step_refs: completed,
+               pending_artifact_refs: pending,
+               trigger: %{"kind" => "author_action", "action_type" => "revise_from_findings"}
+             })
+
+    assert {:ok, _interaction} =
+             NovelPersistence.MemoryLog.record(%{
+               workspace_id: work.id,
+               session_id: session.id,
+               turn_id: turn_id,
+               role: "assistant",
+               content: %{
+                 text: "已生成待保存草稿。",
+                 agent_run_id: run_id,
+                 turn_result: %{
+                   turn_id: turn_id,
+                   agent_run: %{
+                     run_id: run_id,
+                     parent_turn_ref: turn_id,
+                     run_mode: "bounded",
+                     status: "running",
+                     phase: "executing"
+                   }
+                 }
+               }
+             })
+
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, turn_id)
+
+    assert [
+             %{
+               run_id: ^run_id,
+               status: "completed",
+               phase: "stopped",
+               workspace_id: "workspace-progress-namespace",
+               completed_step_refs: ^completed,
+               pending_artifact_refs: ^pending
+             } = restored
+           ] = activity.agent_runs
+
+    assert restored.current_activity == %{
+             kind: "revision_draft_generation",
+             phase: "finalizing",
+             completed_steps: 5,
+             total_steps: 5
+           }
+
+    refute Map.has_key?(restored, :runtime_live)
+    assert activity.totals.provider_run_count == 1
+    assert AgentRunLog.get_run(run_id).completed_step_refs == completed
+    assert AgentRunLog.get_run(run_id).pending_artifact_refs == pending
+  end
+
+  test "a foreign-work run binding cannot hydrate state or provider activity", %{
+    work: work,
+    session: session
+  } do
+    {:ok, other_work} = WorkService.create(%{title: "另一作品的运行"})
+    {:ok, other_session} = WorkSessionRepo.create(%{work_id: other_work.id, title: "另一会话"})
+    turn_id = "turn-bound-to-foreign"
+    run_id = "run-owned-by-other-work"
+    seed_provider_activity!(other_work.id, other_session.id, turn_id, run_id)
+
+    assert {:ok, _interaction} =
+             NovelPersistence.MemoryLog.record(%{
+               workspace_id: work.id,
+               session_id: session.id,
+               turn_id: turn_id,
+               role: "assistant",
+               content: %{
+                 agent_run_id: run_id,
+                 turn_result: %{turn_id: turn_id, agent_run: %{run_id: run_id}}
+               }
+             })
+
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, turn_id)
+
+    assert activity.agent_runs == []
+    assert activity.provider_runs == []
+    assert activity.totals.provider_run_count == 0
+  end
+
   test "keeps an unknown plain turn id empty instead of failing", %{work: work, session: session} do
     assert {:ok, activity} =
              ProviderActivityService.fetch_turn_activity(work.id, session.id, "turn-without-run")

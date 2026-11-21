@@ -128,13 +128,62 @@ describe("traceSummaryView", () => {
       decision_type: "tool_dispatched",
       no_tool_reason: "tool_was_dispatched",
       tool_name: "internal_story_generation_v9",
-      tool_status: "ok",
+      tool_status: "succeeded",
     });
 
     const visibleText = JSON.stringify(view);
     expect(visibleText).toContain("本轮使用了工具：创作操作");
     expect(visibleText).toContain("已完成");
     expect(visibleText).not.toContain("internal_story_generation_v9");
+  });
+
+  it.each([
+    ["succeeded", "已完成"],
+    ["failed", "执行失败"],
+    ["partial", "部分完成"],
+    ["cancelled", "已取消"],
+  ])("renders the canonical ToolResult status %s without a running fallback", (status, label) => {
+    const view = toAuthorTraceSummary({
+      decision_type: "tool_dispatched",
+      no_tool_reason: "tool_was_dispatched",
+      tool_name: "prose_writing",
+      tool_status: status,
+      execution_counts: { tool_calls: 1 },
+    });
+
+    expect(view?.detailLines.join("\n")).toContain(label);
+    expect(view?.detailLines.join("\n")).not.toContain("处理中");
+    expect(view?.detailLines.join("\n")).not.toContain(status);
+  });
+
+  it.each(["unrecognized", "ok", "success"])(
+    "reports an unknown tool status %s as unknown",
+    (status) => {
+      const view = toAuthorTraceSummary({
+        decision_type: "tool_dispatched",
+        tool_name: "prose_writing",
+        tool_status: status,
+        execution_counts: { tool_calls: 1 },
+      });
+
+      expect(view?.detailLines.join("\n")).toContain("状态未知");
+      expect(view?.detailLines.join("\n")).not.toMatch(/处理中|已完成/);
+    },
+  );
+
+  it("does not describe a rejected request as a tool that was used", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "tool_allowed",
+      no_tool_reason: "authoring_task_invalid",
+      tool_name: "prose_writing",
+      tool_status: "failed",
+      execution_counts: { tool_calls: 0, provider_calls: 0 },
+    });
+
+    const visibleText = JSON.stringify(view);
+    expect(visibleText).toContain("未调用");
+    expect(visibleText).not.toContain("本轮使用了工具");
+    expect(visibleText).not.toContain("已调用工具");
   });
 
   it("adds persisted replay integrity without exposing trace ids", () => {

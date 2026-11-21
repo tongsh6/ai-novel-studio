@@ -54,7 +54,10 @@ export function toAuthorTraceSummary(
 
   const decisionType = stringValue(traceSummary.decision_type);
   const noToolReason = stringValue(traceSummary.no_tool_reason);
-  const primaryReason = reasonText(noToolReason, decisionType);
+  const primaryReason =
+    toolDispatchFact(traceSummary) === false
+      ? TRACE.reasons.toolNotDispatched
+      : reasonText(noToolReason, decisionType);
   const contextSources = contextSourceViews(traceSummary.context_refs);
   const details = [...detailLines(traceSummary), ...approvalLines(traceSummary.approvals)];
 
@@ -280,9 +283,16 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const toolStatus = stringValue(summary.tool_status);
   if (toolName) {
     const label = displayName("tool", toolName);
-    lines.push(
-      toolStatus ? TRACE.toolWithStatus(label, toolStatusLabel(toolStatus)) : TRACE.toolUsed(label),
-    );
+    const dispatched = toolDispatchFact(summary);
+    if (dispatched === false) {
+      lines.push(TRACE.toolNotCalled(label));
+    } else if (dispatched === true) {
+      lines.push(
+        toolStatus
+          ? TRACE.toolWithStatus(label, toolStatusLabel(toolStatus))
+          : TRACE.toolUsed(label),
+      );
+    }
   }
 
   const recovery = stringValue(summary.recovery);
@@ -429,9 +439,18 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function toolDispatchFact(summary: TraceSummaryLike): boolean | null {
+  const count = objectValue(summary.execution_counts)?.tool_calls;
+  if (typeof count === "number" && Number.isInteger(count) && count >= 0) return count > 0;
+
+  const decision = stringValue(summary.decision_type);
+  if (decision === "tool_dispatched") return true;
+  if (decision === "tool_allowed") return false;
+  return null;
+}
+
 function toolStatusLabel(status: string): string {
-  const normalized = status === "ok" || status === "success" ? "completed" : status;
-  return displayName("run_status", normalized);
+  return displayName("tool_status", status);
 }
 
 function stringValue(value: unknown): string | null {

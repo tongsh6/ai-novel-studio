@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "36d387de9771904dc8c376fab22ea5ba41629da37dcd117367fd34f8ea01c6a7"
+  @source_hash "f43b30101655a1962f0ac097ea557621a6dfe376ca49512dfe744f2dbae96aa7"
 
   @domains %{
     "action" => %{
@@ -239,6 +239,12 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "report_quality_findings" => "质量核对",
       "submit_tentative_artifact" => "保存候选草稿",
       "text_analysis" => "文本分析"
+    },
+    "tool_status" => %{
+      "cancelled" => "已取消",
+      "failed" => "执行失败",
+      "partial" => "部分完成",
+      "succeeded" => "已完成"
     }
   }
 
@@ -263,7 +269,8 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
     "run_status" => "处理中",
     "session_status" => "状态未知",
     "status" => "处理中",
-    "tool" => "创作操作"
+    "tool" => "创作操作",
+    "tool_status" => "状态未知"
   }
 
   @forbidden_tokens %{

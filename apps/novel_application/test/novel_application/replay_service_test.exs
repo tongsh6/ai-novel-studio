@@ -394,6 +394,99 @@ defmodule NovelApplication.ReplayServiceTest do
              ] = report.state_explanations
     end
 
+    test "mission and memory-window refs do not establish adoption" do
+      for kind <- ["chapter_mission", "planning_mission", "memory_window"] do
+        trace = %DecisionTrace{
+          trace_id: "tr-mission-boundary",
+          turn_id: "turn-mission-boundary",
+          frame_ref: "frame-mission-boundary",
+          plan_ref: "plan-mission-boundary",
+          decision_type: :tool_dispatched,
+          turn_result_ref: "turn_result:mission-boundary",
+          tool_trace_refs: [
+            %{
+              tool_request_ref: "tq-mission",
+              tool_result_ref: "tr-mission",
+              tool_name: "plot_outline",
+              tool_status: :succeeded
+            }
+          ],
+          state_trace_refs: [%{"kind" => kind, "ref" => "mission:design-only"}],
+          event_order: [:tool_dispatched, :tool_trace_recorded, :turn_result_emitted]
+        }
+
+        report = ReplayService.build_report(trace)
+        boundary = Enum.find(report.required_questions, &(&1.id == :adoption_boundary))
+
+        assert report.result_status == :complete
+        assert boundary.status == :answered
+        assert boundary.answer =~ "non-adopted"
+        refute boundary.answer =~ "adopted_state_ref="
+        refute Enum.any?(report.chain_summary, &(&1.step == "state_trace"))
+        assert [%{step: "candidate_boundary"}] = report.state_explanations
+      end
+    end
+
+    test "an adoption claim remains partial without a committed adoption ref" do
+      uncommitted = %{
+        state_trace_ref: "state_trace:uncommitted",
+        event_type: :candidate_adopted,
+        adopted_state_ref: "chapter:not-written",
+        production_write_performed: false
+      }
+
+      for ref <- [
+            %{"kind" => "planning_mission", "ref" => "mission:design-only"},
+            %{"kind" => "memory_window", "ref" => "memory_window:chapter"},
+            uncommitted
+          ] do
+        report = ReplayService.build_report(adoption_trace([ref]))
+        boundary = Enum.find(report.required_questions, &(&1.id == :adoption_boundary))
+
+        assert report.result_status == :partial
+        assert "state_trace_refs" in report.missing_trace_refs
+        assert boundary.status == :missing
+        assert [%{step: "state_trace_missing", status: :partial}] = report.state_explanations
+        refute Enum.any?(report.chain_summary, &(&1.step == "state_trace"))
+      end
+    end
+
+    test "adoption evidence is selected by committed fields rather than ref order" do
+      mission = %{"kind" => "planning_mission", "ref" => "mission:design-only"}
+
+      committed = %{
+        state_trace_ref: "state_trace:accepted",
+        event_type: :candidate_adopted,
+        action_turn_ref: "turn-author-save",
+        source_turn_ref: "turn-candidate",
+        adoption_decision_ref: "adoption:accepted",
+        candidate_ref: "artifact:accepted",
+        target_ref: "chapter:accepted",
+        adopted_state_ref: "chapter:accepted",
+        mutation_ref: "mutation:accepted",
+        production_write_performed: true,
+        projection_ref: "reading_projection:accepted"
+      }
+
+      # 持久 JSON 与内存 ref 两种真实表示都要选中同一写入事实。
+      for refs <- [[mission, committed], [committed, mission]],
+          persisted_refs <- [refs, refs |> Jason.encode!() |> Jason.decode!()] do
+        report = ReplayService.build_report(adoption_trace(persisted_refs))
+        boundary = Enum.find(report.required_questions, &(&1.id == :adoption_boundary))
+
+        assert report.result_status == :complete
+        assert boundary.status == :answered
+        assert boundary.answer =~ "adopted_state_ref=chapter:accepted"
+        refute boundary.answer =~ "mission:design-only"
+
+        assert [%{step: "state_transition", adopted_state_ref: "chapter:accepted"}] =
+                 report.state_explanations
+
+        assert [%{ref: "state_trace:accepted"}] =
+                 Enum.filter(report.chain_summary, &(&1.step == "state_trace"))
+      end
+    end
+
     test "state trace refs explain adoption and projection changes" do
       trace = %DecisionTrace{
         trace_id: "tr-state",
@@ -408,6 +501,7 @@ defmodule NovelApplication.ReplayServiceTest do
           %{
             state_trace_ref: "state_trace:t-state",
             event_type: :candidate_adopted,
+            production_write_performed: true,
             adopted_state_ref: "chapter:1",
             projection_ref: "reading_projection:chapter:1"
           }
@@ -493,5 +587,17 @@ defmodule NovelApplication.ReplayServiceTest do
       assert report.result_status == :partial
       assert [%{step: "state_trace_missing", status: :partial}] = report.state_explanations
     end
+  end
+
+  defp adoption_trace(refs) do
+    %DecisionTrace{
+      trace_id: "tr-adoption-boundary",
+      turn_id: "turn-author-save",
+      frame_ref: "frame-author-save",
+      decision_type: :adopt_tentative,
+      turn_result_ref: "turn_result:author-save",
+      state_trace_refs: refs,
+      event_order: [:candidate_adopted, :state_trace_recorded, :turn_result_emitted]
+    }
   end
 end

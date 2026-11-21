@@ -58,6 +58,12 @@
       "failed": "失败",
       "pending": "待处理"
     },
+    "tool_status": {
+      "succeeded": "已完成",
+      "failed": "执行失败",
+      "partial": "部分完成",
+      "cancelled": "已取消"
+    },
     "provider": {
       "strata": "本地模型",
       "splash": "本地模型",
@@ -238,6 +244,7 @@
     "capability": "创作能力",
     "status": "处理中",
     "run_status": "处理中",
+    "tool_status": "状态未知",
     "provider": "当前模型服务",
     "model": "当前模型",
     "artifact_type": "创作内容",

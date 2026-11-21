@@ -2,11 +2,11 @@ defmodule NovelApplication.ProviderActivityService do
   @moduledoc """
   Author-safe ProviderRun activity query scoped by work/session/turn.
 
-  This service reads persisted ProviderExecution facts only. It never calls a
-  provider while building the activity report.
+  This service reads persisted AgentRun and ProviderExecution facts. It never
+  calls a provider or claims live runtime authority while building the report.
   """
 
-  alias NovelApplication.{AgentRunHistory, WorkService}
+  alias NovelApplication.{AgentRunHistory, AgentRunState, WorkService}
   alias NovelPersistence.{AgentRunLog, ProviderRunLog, WorkSessionRepo}
 
   @doc """
@@ -58,21 +58,13 @@ defmodule NovelApplication.ProviderActivityService do
   end
 
   defp agent_run_summary(run, events_by_run) do
-    %{
-      run_id: run.id,
-      run_mode: run.run_mode,
-      profile_ref: run.profile_ref,
-      status: run.status,
-      phase: run.phase,
-      parent_turn_ref: run.parent_turn_ref,
-      trigger: run.trigger,
-      long_run_task_ref: run.long_run_task_ref,
-      plan_ref: run.plan_ref,
-      plan_version: run.plan_version,
+    run
+    |> AgentRunState.project()
+    |> Map.merge(%{
       event_count: length(Map.get(events_by_run, run.id, [])),
       provider_run_count: length(ProviderRunLog.list_runs(run.id)),
       events: Enum.map(Map.get(events_by_run, run.id, []), &agent_event_summary(&1, run))
-    }
+    })
   end
 
   defp agent_event_summary(event, run) do

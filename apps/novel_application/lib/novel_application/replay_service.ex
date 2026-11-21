@@ -87,17 +87,21 @@ defmodule NovelApplication.ReplayService do
     behavior_steps = behavior_explanation_steps(trace)
 
     cond do
-      state_steps != [] or behavior_steps != [] ->
+      state_steps != [] ->
         behavior_steps ++ state_steps
 
       state_chain_required?(trace) ->
-        [
-          %{
-            step: "state_trace_missing",
-            status: :partial,
-            note: "state change requires StateTrace"
-          }
-        ]
+        behavior_steps ++
+          [
+            %{
+              step: "state_trace_missing",
+              status: :partial,
+              note: "state change requires StateTrace"
+            }
+          ]
+
+      behavior_steps != [] ->
+        behavior_steps
 
       true ->
         [%{step: "candidate_boundary", note: "no production write in this turn"}]
@@ -126,7 +130,7 @@ defmodule NovelApplication.ReplayService do
       missing_if(
         missing,
         state_chain_required?(trace),
-        trace.state_trace_refs,
+        adoption_state_refs(trace),
         "state_trace_refs"
       )
 
@@ -259,20 +263,24 @@ defmodule NovelApplication.ReplayService do
     end
   end
 
-  defp adoption_boundary_answer(%DecisionTrace{state_trace_refs: [ref | _]}) do
-    {:answered,
-     "state_event=#{ref_value(ref, :event_type)}; adopted_state_ref=#{ref_value(ref, :adopted_state_ref)}; projection_ref=#{ref_value(ref, :projection_ref)}"}
-  end
-
-  defp adoption_boundary_answer(%DecisionTrace{tool_trace_refs: [_ | _]}) do
-    {:answered, "ToolResult remained non-adopted; adoption requires a separate StateTrace."}
-  end
-
   defp adoption_boundary_answer(%DecisionTrace{} = trace) do
-    if state_chain_required?(trace) do
-      {:missing, "State-changing trace requires state_trace_refs."}
-    else
-      {:not_applicable, "This trace did not change adopted production state."}
+    case adoption_state_refs(trace) do
+      [ref | _] ->
+        {:answered,
+         "state_event=#{ref_value(ref, :event_type)}; adopted_state_ref=#{ref_value(ref, :adopted_state_ref)}; projection_ref=#{ref_value(ref, :projection_ref)}"}
+
+      [] ->
+        cond do
+          state_chain_required?(trace) ->
+            {:missing, "State-changing trace requires committed adoption state_trace_refs."}
+
+          trace.tool_trace_refs != [] ->
+            {:answered,
+             "ToolResult remained non-adopted; adoption requires a separate StateTrace."}
+
+          true ->
+            {:not_applicable, "This trace did not change adopted production state."}
+        end
     end
   end
 
@@ -352,7 +360,7 @@ defmodule NovelApplication.ReplayService do
   end
 
   defp state_chain_steps(%DecisionTrace{} = trace) do
-    Enum.map(trace.state_trace_refs, fn ref ->
+    Enum.map(adoption_state_refs(trace), fn ref ->
       %{
         step: "state_trace",
         ref: ref_value(ref, :state_trace_ref),
@@ -378,7 +386,7 @@ defmodule NovelApplication.ReplayService do
   end
 
   defp state_explanation_steps(%DecisionTrace{} = trace) do
-    Enum.map(trace.state_trace_refs, fn ref ->
+    Enum.map(adoption_state_refs(trace), fn ref ->
       %{
         step: "state_transition",
         state_trace_ref: ref_value(ref, :state_trace_ref),
@@ -415,6 +423,25 @@ defmodule NovelApplication.ReplayService do
 
   defp behavior_decision?(%DecisionTrace{} = trace) do
     trace.decision_type in [:confirmation_required, :clarification_required]
+  end
+
+  # 此数组也保存使命与记忆窗口。只有现 AdoptionWorkflow 写入的采纳摘要
+  # 才能建立作品写入链；保留原 ref 全部字段，尤其是作者动作与采纳决定的绑定。
+  defp adoption_state_refs(%DecisionTrace{} = trace) do
+    Enum.filter(trace.state_trace_refs, fn ref ->
+      is_nil(ref_value(ref, :kind)) and
+        ref_value(ref, :production_write_performed) == true and
+        ref_value(ref, :event_type) in [
+          :candidate_adopted,
+          "candidate_adopted",
+          :artifact_edited_accepted,
+          "artifact_edited_accepted"
+        ] and
+        Enum.all?([:state_trace_ref, :adopted_state_ref], fn key ->
+          value = ref_value(ref, key)
+          is_binary(value) and String.trim(value) != ""
+        end)
+    end)
   end
 
   defp state_chain_required?(%DecisionTrace{} = trace) do

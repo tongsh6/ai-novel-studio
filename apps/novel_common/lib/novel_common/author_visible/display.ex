@@ -18,6 +18,7 @@ defmodule NovelCommon.AuthorVisible.Display do
           | :capability
           | :status
           | :run_status
+          | :tool_status
           | :provider
           | :model
           | :artifact_type

@@ -12,6 +12,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   alias NovelApplication.AgentRunEventQuery
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AgentRunState
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
@@ -1118,64 +1119,17 @@ defmodule NovelWeb.WorkspaceChannel do
   defp stringify_atom_values(value), do: value
 
   defp agent_run_state_payload(%{run: run} = state, socket) do
-    %{
-      run_id: run.run_id,
-      run_mode: Atom.to_string(run.run_mode),
-      status: Atom.to_string(run.status),
-      phase: Atom.to_string(run.phase),
-      long_run_task_ref: run.long_run_task_ref,
+    run
+    |> AgentRunState.project()
+    |> Map.merge(%{
       workspace_id: socket.assigns[:workspace_id],
-      work_id: run.work_id,
-      session_id: run.session_id,
-      parent_turn_ref: run.parent_turn_ref,
-      origin_frame_ref: run.origin_frame_ref,
-      profile_ref: run.profile_ref,
-      trigger: stringify_atom_values(run.trigger),
-      current_activity: agent_run_current_activity(run),
-      goal: run.goal,
-      plan_ref: run.plan_ref,
-      plan_version: run.plan_version,
-      current_step_ref: run.current_step_ref,
-      completed_step_refs: run.completed_step_refs,
-      pending_artifact_refs: run.pending_artifact_refs,
-      interrupt_state: stringify_atom_values(run.interrupt_state),
-      budget: run.budget,
-      consumed_budget: run.consumed_budget,
       current_task: Map.get(state, :current_task?),
       remaining_steps: Map.get(state, :remaining_steps),
       recovered: Map.get(state, :recovered?, false),
       runtime_live: Map.get(state, :runtime_live?),
       long_run_task: long_run_task_payload(Map.get(state, :long_run_task))
-    }
+    })
   end
-
-  defp agent_run_current_activity(run) do
-    completed_steps = length(run.completed_step_refs || [])
-    total_steps = max(agent_run_plan_step_count(run.plan), completed_steps)
-
-    %{
-      kind:
-        if(get_in(run.trigger || %{}, [:action_type]) == "revise_from_findings",
-          do: "revision_draft_generation",
-          else: "agent_run_execution"
-        ),
-      phase: agent_run_activity_phase(run),
-      completed_steps: completed_steps,
-      total_steps: total_steps
-    }
-  end
-
-  defp agent_run_plan_step_count(%{steps: steps}) when is_list(steps), do: length(steps)
-  defp agent_run_plan_step_count(%{"steps" => steps}) when is_list(steps), do: length(steps)
-  defp agent_run_plan_step_count(_plan), do: 0
-
-  defp agent_run_activity_phase(%{status: status})
-       when status in [:completed, :cancelled, :failed],
-       do: "finalizing"
-
-  defp agent_run_activity_phase(%{phase: :planning}), do: "preparing"
-  defp agent_run_activity_phase(%{phase: :finalizing}), do: "finalizing"
-  defp agent_run_activity_phase(_run), do: "generating"
 
   defp long_run_task_payload(nil), do: nil
 
