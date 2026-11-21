@@ -160,6 +160,188 @@ const proseArtifact = (overrides: Partial<ArtifactEntry> = {}): ArtifactEntry =>
 });
 
 describe("WorkspaceChat quality revision action labels", () => {
+  it.each(["card", "artifact", "trace"] as const)(
+    "keeps a saved-chapter revision on prose actions when its source is carried by %s",
+    (source) => {
+      const chapterRef = "chapter:saved-chapter-1";
+      const artifact = proseArtifact({
+        artifact_id: "as_chapter_revision_1",
+        target_chapter_ref: chapterRef,
+        payload: {
+          title: "已保存章节的整章候选",
+          modification_scope: "whole_chapter",
+          scope: { kind: "whole_chapter", target_chapter_ref: chapterRef },
+        },
+        ...(source === "artifact" ? { revision_base: chapterRef } : {}),
+      });
+      const result = turnResult({
+        adoption_state: { pending: [artifact], resolved: [] },
+        trace_summary: source === "trace" ? { revision_base: chapterRef } : {},
+        ui_cards:
+          source === "card"
+            ? [
+                {
+                  card_type: "candidate_set",
+                  artifact_refs: [artifact.artifact_id],
+                  revision_of: chapterRef,
+                },
+              ]
+            : [],
+      });
+
+      expect(qualityRevisionArtifactRole(result, artifact)).toBeNull();
+    },
+  );
+
+  it("keeps a pending candidate rerevision identifiable despite its retained chapter scope", () => {
+    const sourceRef = "as_pending_chapter_revision_1";
+    const artifact = proseArtifact({
+      artifact_id: "as_pending_chapter_revision_2",
+      target_chapter_ref: "chapter:saved-chapter-1",
+      payload: {
+        title: "待处理候选的再次修订",
+        revision_of: sourceRef,
+        modification_scope: "whole_chapter",
+        scope: { kind: "whole_chapter", target_chapter_ref: "chapter:saved-chapter-1" },
+      },
+    });
+    const result = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      ui_cards: [
+        {
+          card_type: "candidate_set",
+          artifact_refs: [artifact.artifact_id],
+          revision_of: sourceRef,
+        },
+        {
+          card_type: "candidate_set",
+          artifact_refs: ["as_unrelated_candidate_1"],
+          revision_of: "chapter:another-saved-chapter",
+        },
+      ],
+    });
+
+    expect(qualityRevisionArtifactRole(result, artifact)).toBe("revision");
+  });
+
+  it("does not claim an already accepted artifact source is an independently pending original", () => {
+    const sourceRef = "as_accepted_original_1";
+    const artifact = proseArtifact({
+      revision_base: sourceRef,
+      payload: {
+        title: "已采纳内容的修订候选",
+        revision_of: sourceRef,
+        revision_target_status: "ACCEPTED",
+      },
+    });
+    const result = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      trace_summary: { revision_base: sourceRef },
+      ui_cards: [
+        {
+          card_type: "candidate_set",
+          artifact_refs: [artifact.artifact_id],
+          revision_of: sourceRef,
+        },
+      ],
+    });
+
+    expect(qualityRevisionArtifactRole(result, artifact)).toBeNull();
+  });
+
+  it.each(["artifact", "trace", "card"] as const)(
+    "does not infer a pending original when the %s source conflicts with another artifact source",
+    (chapterSource) => {
+      const chapterRef = "chapter:saved-chapter-1";
+      const originalRef = "as_original_1";
+      const artifact = proseArtifact({
+        revision_base: chapterSource === "artifact" ? chapterRef : originalRef,
+      });
+      const result = turnResult({
+        adoption_state: { pending: [artifact], resolved: [] },
+        trace_summary: {
+          revision_base: chapterSource === "trace" ? chapterRef : originalRef,
+        },
+        ui_cards: [
+          {
+            card_type: "candidate_set",
+            artifact_refs: [artifact.artifact_id],
+            revision_of: chapterSource === "card" ? chapterRef : originalRef,
+          },
+        ],
+      });
+
+      expect(qualityRevisionArtifactRole(result, artifact)).toBeNull();
+    },
+  );
+
+  it.each(["trigger", "action", "findings"] as const)(
+    "does not reinterpret a chapter source through the quality %s fallback",
+    (fallback) => {
+      const artifact = proseArtifact();
+      const result = turnResult({
+        adoption_state: { pending: [artifact], resolved: [] },
+        ui_cards: [
+          {
+            card_type: "candidate_set",
+            artifact_refs: [artifact.artifact_id],
+            revision_of: "chapter:saved-chapter-1",
+          },
+        ],
+        agent_run:
+          fallback === "trigger"
+            ? {
+                run_id: "run-revision-1",
+                run_mode: "bounded",
+                status: "completed",
+                trigger: {
+                  kind: "author_action",
+                  action_type: "revise_from_findings",
+                  target_artifact_ref: "as_original_1",
+                },
+              }
+            : undefined,
+        available_actions:
+          fallback === "action"
+            ? [
+                {
+                  action_id: "revise-from-findings-1",
+                  action_type: "revise_from_findings",
+                  source_turn_ref: "turn-original-1",
+                  target_ref: artifact.artifact_id,
+                  enabled: true,
+                },
+              ]
+            : [],
+        quality_review:
+          fallback === "findings"
+            ? {
+                status: "failed",
+                policy_action: "warn",
+                review_status: "completed",
+                findings: [
+                  {
+                    quality_finding_id: "qf_prose_quality",
+                    quality_gate: "style",
+                    validator: "prose_quality",
+                    severity: "warning",
+                    action: "revise",
+                    summary: "句式节奏单一",
+                    reasoning: "连续句段结构相同且没有形成递进。",
+                    confidence: 0.88,
+                    impact_scope: "local",
+                    revision_scope: "local",
+                    evidence_spans: [],
+                  },
+                ],
+              }
+            : undefined,
+      });
+
+      expect(qualityRevisionArtifactRole(result, artifact)).toBeNull();
+    },
+  );
+
   it("recognizes a revision from the trace summary emitted by the revision flow", () => {
     const artifact = proseArtifact();
     const result = turnResult({

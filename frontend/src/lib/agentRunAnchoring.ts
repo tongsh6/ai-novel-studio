@@ -43,6 +43,7 @@ export interface QualityRevisionArtifactLike {
   artifact_id: string;
   artifact_type: string;
   revision_base?: string | null;
+  payload?: Record<string, unknown>;
 }
 
 export interface QualityRevisionTurnResultLike {
@@ -87,16 +88,20 @@ export function qualityRevisionArtifactRole(
     return null;
   }
 
-  if (normalizedString(artifact.revision_base)) return "revision";
-  if (normalizedString(turnResult.trace_summary?.revision_base)) return "revision";
+  if (artifact.payload?.revision_target_status === "ACCEPTED") return null;
 
-  const revisionCardMatches = (turnResult.ui_cards ?? []).some((card) => {
-    const artifactRefs = Array.isArray(card.artifact_refs) ? card.artifact_refs : [];
-    return (
-      normalizedString(card.revision_of) !== null && artifactRefs.includes(artifact.artifact_id)
-    );
-  });
-  if (revisionCardMatches) return "revision";
+  const revisionSources = [
+    artifact.revision_base,
+    turnResult.trace_summary?.revision_base,
+    ...(turnResult.ui_cards ?? [])
+      .filter(
+        (card) =>
+          Array.isArray(card.artifact_refs) && card.artifact_refs.includes(artifact.artifact_id),
+      )
+      .map((card) => card.revision_of),
+  ].map(normalizedString);
+  if (revisionSources.some((source) => source?.startsWith("chapter:"))) return null;
+  if (revisionSources.some((source) => source !== null)) return "revision";
 
   const trigger = turnResult.agent_run?.trigger;
   const artifactIsPending = (turnResult.adoption_state?.pending ?? []).some(
