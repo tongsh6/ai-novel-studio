@@ -2,7 +2,6 @@ defmodule NovelApplication.JudgmentToolContract do
   @moduledoc "B26：固定判断工具 schema 与同源字段校验，合法对象在派发前另行验证。"
 
   alias NovelApplication.JudgmentDecisionToolContract
-  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
 
   @version "b26-tools-v5"
@@ -93,8 +92,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "后续调整的唯一作者说明原文，content 必须为空；依据已观察到的偏离说明为何这样调整。" <>
-              AuthoringSemantics.author_narrative_rules()
+            "后续调整的唯一作者说明原文，content 必须为空；依据已观察到的偏离说明为何这样调整。"
           )
       },
       ~w(action guidance author_reasoning)
@@ -136,8 +134,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "登记作者原文的作者说明，说明登记的材料及其用途，不改写原文或声称已被采纳。" <>
-              AuthoringSemantics.author_narrative_rules()
+            "登记作者原文的作者说明，说明登记的材料及其用途，不改写原文或声称已被采纳。"
           )
       },
       ~w(author_content_source_ref dialogue_goal author_reasoning)
@@ -156,8 +153,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "候选创作方向的作者说明，说明方向的依据与区别，保留作者选择。" <>
-              AuthoringSemantics.author_narrative_rules()
+            "候选创作方向的作者说明，说明方向的依据与区别，保留作者选择。"
           )
       },
       ~w(candidate_directions author_reasoning)
@@ -177,8 +173,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "立项字段修订的作者说明，说明当前字段为何需要所提调整；这是待采纳提案，不是已生效修改。" <>
-              AuthoringSemantics.author_narrative_rules()
+            "立项字段修订的作者说明，说明当前字段为何需要所提调整；这是待采纳提案，不是已生效修改。"
           )
       },
       ~w(title body field value author_reasoning)
@@ -229,8 +224,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "能力缺口的作者说明，说明当前目标缺少的效果及最近可行路径，不把建议说成已执行。" <>
-              AuthoringSemantics.author_narrative_rules()
+            "能力缺口的作者说明，说明当前目标缺少的效果及最近可行路径，不把建议说成已执行。"
           ),
         alternative_operation_refs: @strings
       },

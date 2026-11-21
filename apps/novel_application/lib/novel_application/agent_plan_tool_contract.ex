@@ -1,8 +1,6 @@
 defmodule NovelApplication.AgentPlanToolContract do
   @moduledoc "B26：计划工具输入单一真源，判断选择计划与独立起草/修订共用。"
 
-  alias NovelCommon.AuthoringSemantics
-
   @draft_tool_name "agent_plan_draft"
   def tool(tool_name \\ @draft_tool_name) do
     %{
@@ -136,9 +134,7 @@ defmodule NovelApplication.AgentPlanToolContract do
         author_reasoning: %{
           type: "string",
           minLength: 1,
-          description:
-            "本响应唯一的作者可见计划说明原文，content 必须为空；说明计划的目标、安排和依据，不把计划说成已执行。" <>
-              AuthoringSemantics.author_narrative_rules()
+          description: "本响应唯一的作者可见计划说明原文，content 必须为空；说明计划的目标、安排和依据，不把计划说成已执行。"
         },
         plan: %{
           type: "object",

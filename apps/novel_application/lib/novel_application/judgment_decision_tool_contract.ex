@@ -1,8 +1,6 @@
 defmodule NovelApplication.JudgmentDecisionToolContract do
   @moduledoc "判断动作的完整分支、wire schema 与专属纠错。"
 
-  alias NovelCommon.AuthoringSemantics
-
   @text %{type: "string", minLength: 1}
   @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
 
@@ -93,8 +91,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
       Map.put(
         @text,
         :description,
-        "仅 execute 时必填的唯一作者说明原文，explore 不提供，包括 null；content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。" <>
-          AuthoringSemantics.author_narrative_rules()
+        "仅 execute 时必填的唯一作者说明原文，explore 不提供，包括 null；content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。"
       )
 
     [
