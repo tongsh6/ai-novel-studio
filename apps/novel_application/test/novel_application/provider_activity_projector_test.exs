@@ -10,10 +10,10 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.{Execution, Result}
-  alias NovelApplication.ProviderActivityProjector
+  alias NovelAgent.Provider.{Execution, Result, RuntimeConfig}
+  alias NovelApplication.{ChapterMissionService, ProviderActivityProjector}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
-  alias NovelDomain.AgentRun
+  alias NovelDomain.{AgentRun, ChapterMissionInputs}
   alias NovelPersistence.{ProviderRunLog, Repo}
 
   setup do
@@ -338,6 +338,169 @@ defmodule NovelApplication.ProviderActivityProjectorTest do
              result
 
     assert state.provider_call_count == 2
+  end
+
+  for kind <- [:prose, :planning] do
+    @mission_kind kind
+
+    @tag :r06_mission_stream
+    test "#{kind} 使命拒收前关闭继承的作者正文流，保留两次真实 SSE 证据与既有 sink" do
+      run = agent_run(unique("run-mission-stream"))
+      owner = self()
+      tool_name = ChapterMissionService.tool_name(@mission_kind)
+      prior = RuntimeConfig.provider_config(:strata)
+      on_exit(fn -> RuntimeConfig.put_provider_config(:strata, prior) end)
+
+      chunks = [
+        ~s({"body":"尚未接受的 charac),
+        "ter:e9fe5f90-c939-4f9e-abee-",
+        ~s(da235d1eaa45。"})
+      ]
+
+      content = Enum.join(chunks)
+
+      arguments = %{
+        "author_reasoning" => "先核对已读材料，再形成使命。",
+        "statement" => "本阶段推进已确认的故事目标。",
+        "must_advance" => [],
+        "must_avoid" => [],
+        "confidence" => 0.9
+      }
+
+      raw_arguments = Jason.encode!(arguments)
+
+      stream = fn _url, body, _options, emit ->
+        call_id = unique("native-mission")
+        send(owner, {:mission_wire_call, call_id})
+
+        Enum.each(chunks, fn chunk ->
+          emit.(
+            "data: " <>
+              Jason.encode!(%{
+                model: body.model,
+                choices: [%{delta: %{content: chunk}}]
+              }) <> "\n\n"
+          )
+        end)
+
+        emit.(
+          "data: " <>
+            Jason.encode!(%{
+              model: body.model,
+              choices: [
+                %{
+                  delta: %{
+                    tool_calls: [
+                      %{
+                        index: 0,
+                        id: call_id,
+                        type: "function",
+                        function: %{name: tool_name, arguments: raw_arguments}
+                      }
+                    ]
+                  }
+                }
+              ]
+            }) <> "\n\n"
+        )
+
+        emit.("data: [DONE]\n\n")
+        {:ok, 200, ""}
+      end
+
+      RuntimeConfig.put_provider_config(:strata,
+        endpoint: "http://mission-stream.test/v1",
+        model: "mission-stream-test",
+        eventsource_fn: stream,
+        log_fn: nil
+      )
+
+      snapshot = %{
+        run: run,
+        stage_sink: fn event ->
+          send(
+            owner,
+            {:published, event, ProviderRunLog.list_runs(run.run_id),
+             ProviderRunLog.list_events(event.payload.provider_run_ref),
+             ProviderRunLog.get_output(event.payload.provider_run_ref)}
+          )
+        end
+      }
+
+      execution =
+        Execution.dependency(provider: :strata, purpose: :writer, content_visibility: :author)
+        |> Execution.with_purpose(:planner)
+        |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+
+      # 保留真实阶段 sink，另捕获其收到的原 ProviderOutput；持久表仍只保存现有摘要。
+      projector_sink = Keyword.fetch!(execution.gateway_opts, :event_sink)
+
+      execution =
+        Execution.with_event_sink(execution, fn facts ->
+          case facts do
+            {:ok,
+             %{
+               events: [%ProviderEvent{event_type: :final_output}],
+               output: %ProviderOutput{} = output
+             }} ->
+              send(owner, {:mission_provider_output, output})
+
+            _ ->
+              :ok
+          end
+
+          projector_sink.(facts)
+        end)
+
+      inputs = ChapterMissionInputs.build(%{mode: @mission_kind})
+
+      assert {:error, :author_narrative_content_conflict, meta} =
+               ChapterMissionService.derive(inputs, execution,
+                 kind: @mission_kind,
+                 run: run,
+                 snapshot: snapshot,
+                 author_text: "先核对材料，再确定本阶段使命。",
+                 source_input_ref: run.parent_turn_ref
+               )
+
+      assert meta.provider_call_count == 2
+      refute Map.has_key?(meta, :narrative)
+
+      for _attempt <- 1..2 do
+        assert_receive {:mission_wire_call, call_id}
+        assert_receive {:mission_provider_output, output}
+        assert output.content.text == content
+        assert [call] = output.content.tool_calls
+        assert call["id"] == call_id
+        assert call["name"] == tool_name
+        assert call["arguments"] == arguments
+        assert call["raw_arguments"] == raw_arguments
+
+        stored = ProviderRunLog.get_output(output.provider_run_ref)
+        assert stored.provider_call_ref == output.provider_call_ref
+        assert stored.content_length == String.length(content)
+
+        assert stored.content_summary["content_sha256"] ==
+                 Base.encode16(:crypto.hash(:sha256, content), case: :lower)
+      end
+
+      refute_received {:mission_wire_call, _}
+      refute_received {:mission_provider_output, _}
+
+      publications = collect_publications()
+      assert length(ProviderRunLog.list_runs(run.run_id)) == 2
+
+      assert Enum.any?(publications, fn {event, _, _, _} ->
+               event.payload.provider_event_type == :chunk
+             end)
+
+      Enum.each(publications, fn {event, _runs, _events, _output} ->
+        assert event.event_type == :provider_progress
+        assert event.visibility == :developer
+        refute Map.has_key?(event.payload, :author_narrative_delta)
+        refute Map.has_key?(event.payload, :author_content_delta)
+      end)
+    end
   end
 
   test "public chunk bytes do not become the required event summary, including whitespace" do

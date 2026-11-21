@@ -176,18 +176,30 @@ defmodule NovelApplication.WorkArchiveServiceTest do
       })
 
     assert {:ok, directory} = ExplorationService.run(work.id, "archive_read", "characters")
-    rows = directory.summary |> String.split("\n") |> Enum.map(&Jason.decode!/1)
-    protagonists = rows |> Enum.filter(&(&1["narrative_role"] == "PROTAGONIST"))
-    assert Enum.sort(Enum.map(protagonists, & &1["name"])) == Enum.sort(["林澈", "顾青"])
+    rows = directory.facts.characters
+    protagonists = Enum.filter(rows, &(&1.narrative_role == "PROTAGONIST"))
+    assert Enum.sort(Enum.map(protagonists, & &1.name)) == Enum.sort(["林澈", "顾青"])
 
-    assert Enum.sort(Enum.map(rows, & &1["ref"])) ==
-             Enum.sort(Enum.map([first, second, unmarked], &"character:#{&1.id}"))
+    expected_refs = Enum.map([first, second, unmarked], &"character:#{&1.id}")
+    assert Enum.sort(Enum.map(rows, & &1.ref)) == Enum.sort(expected_refs)
+    assert Enum.sort(directory.refs) == Enum.sort(expected_refs)
+    assert directory.facts.total_count == 3
+    assert directory.facts.returned_count == 3
+
+    for row <- rows do
+      assert Enum.sort(Map.keys(row)) ==
+               Enum.sort([:ref, :name, :aliases, :narrative_role, :status])
+
+      refute directory.summary =~ row.ref
+    end
 
     refute directory.summary =~ hidden.id
     refute directory.summary =~ outside.id
     refute directory.summary =~ first.summary
-    assert Enum.all?(rows, &(&1["status"] in ["ACCEPTED", "EDITED_ACCEPTED"]))
-    assert Enum.find(rows, &(&1["ref"] == "character:#{unmarked.id}"))["narrative_role"] == nil
+    refute directory.summary =~ "PROTAGONIST"
+    refute directory.summary =~ "{"
+    assert Enum.all?(rows, &(&1.status in ["ACCEPTED", "EDITED_ACCEPTED"]))
+    assert Enum.find(rows, &(&1.ref == "character:#{unmarked.id}")).narrative_role == nil
     assert directory.next_offset == nil
     assert directory.coverage.kind == "directory"
 
@@ -213,8 +225,21 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     assert directory.coverage.work_id == work.id
     assert directory.refs == [ref]
     assert directory.versions == %{ref => current.base_fingerprint}
-    assert directory.summary =~ "林澈"
-    assert directory.summary =~ ref
+
+    assert directory.facts.characters == [
+             %{
+               ref: ref,
+               name: "林澈",
+               aliases: ["旧称"],
+               narrative_role: "ENSEMBLE_POV",
+               status: AdoptionStatus.accepted()
+             }
+           ]
+
+    assert directory.summary =~ "角色"
+    refute directory.summary =~ ref
+    refute directory.summary =~ "{"
+    refute directory.activity_summary =~ ref
     refute directory.summary =~ character.summary
     refute directory.summary =~ "未采纳人物"
     refute directory.summary =~ "外作品人物"
@@ -237,23 +262,31 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     written_ref = "chapter:#{written.id}"
 
     assert {:ok, directory} = ExplorationService.run(work.id, "archive_read", "chapters")
-    rows = directory.summary |> String.split("\n") |> Enum.map(&Jason.decode!/1)
-    by_ref = Map.new(rows, &{&1["ref"], &1})
-    assert by_ref[planned_ref]["has_prose"] == false
-    assert by_ref[written_ref]["has_prose"] == true
-    assert by_ref[planned_ref]["title"] == by_ref[written_ref]["title"]
+    rows = directory.facts.chapters
+    by_ref = Map.new(rows, &{&1.ref, &1})
+
+    assert rows == [
+             %{ref: planned_ref, seq: 1, title: "同名章", volume: volume.title, has_prose: false},
+             %{ref: written_ref, seq: 2, title: "同名章", volume: volume.title, has_prose: true}
+           ]
+
+    assert by_ref[planned_ref].has_prose == false
+    assert by_ref[written_ref].has_prose == true
+    refute directory.summary =~ planned_ref
+    refute directory.summary =~ written_ref
+    refute directory.summary =~ "{"
     assert "has_prose" in directory.coverage.complete_fields
     refute directory.summary =~ "B章真实已采纳正文"
     refute directory.summary =~ "A章只有未采纳稿"
 
-    [selected] = Enum.filter(rows, & &1["has_prose"])
-    assert selected["ref"] == written_ref
+    [selected] = Enum.filter(rows, & &1.has_prose)
+    assert selected.ref == written_ref
 
     assert {:ok, detail} =
              ExplorationService.run(
                work.id,
                "chapter_read",
-               Jason.encode!(%{chapter_ref: selected["ref"], offset: 0})
+               Jason.encode!(%{chapter_ref: selected.ref, offset: 0})
              )
 
     assert detail.summary =~ "B章真实已采纳正文"
@@ -264,7 +297,7 @@ defmodule NovelApplication.WorkArchiveServiceTest do
   test "显式章节目录可发现真实章坐标，正文仍经同作品 chapter_read 按需读取" do
     {:ok, work} = WorkService.create(%{"title" => "按需章节"})
     {:ok, other} = WorkService.create(%{"title" => "他作章节"})
-    %{chapter: chapter, scene: scene} = insert_structure(work.id)
+    %{volume: volume, chapter: chapter, scene: scene} = insert_structure(work.id)
     %{chapter: foreign} = insert_structure(other.id)
     insert_draft(work.id, scene.id, "已经采纳的正文证据", AdoptionStatus.accepted())
     insert_draft(work.id, scene.id, "未采纳秘密正文", AdoptionStatus.tentative())
@@ -273,7 +306,14 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     assert {:ok, directory} = ExplorationService.run(work.id, "archive_read", "chapters")
     assert directory.coverage.kind == "directory"
     assert directory.refs == [ref]
-    assert directory.summary =~ ref
+
+    assert directory.facts.chapters == [
+             %{ref: ref, seq: 1, title: chapter.title, volume: volume.title, has_prose: true}
+           ]
+
+    refute directory.summary =~ ref
+    refute directory.summary =~ "{"
+    refute directory.activity_summary =~ ref
     refute directory.summary =~ foreign.id
     refute directory.summary =~ "已经采纳的正文证据"
     refute directory.summary =~ "未采纳秘密正文"
@@ -396,7 +436,7 @@ defmodule NovelApplication.WorkArchiveServiceTest do
   end
 
   @tag :scope_archive
-  test "长目录按完整对象续页，所有真实 ref 有序可达且不夹带档案正文" do
+  test "长目录按完整结构条目续页，摘要与事实共同计入6000字符预算" do
     {:ok, work} = WorkService.create(%{"title" => "完整目录"})
 
     characters =
@@ -409,18 +449,53 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     assert length(pages) > 1
     expected_refs = Enum.map(characters, &"character:#{&1.id}")
     assert Enum.flat_map(pages, & &1.refs) == expected_refs
+    rows = Enum.flat_map(pages, & &1.facts.characters)
+    assert Enum.map(rows, & &1.ref) == expected_refs
+    assert Enum.map(rows, & &1.name) == Enum.map(characters, & &1.name)
+    assert length(Enum.uniq_by(rows, & &1.ref)) == 55
 
-    assert Enum.map_join(pages, "\n", & &1.summary)
-           |> String.split("\n")
-           |> Enum.map(&Jason.decode!(&1)["ref"]) == expected_refs
-
-    for page <- pages do
-      assert String.length(page.summary) <= 6_000
+    for {page, index} <- Enum.with_index(pages) do
+      material = Jason.encode!(%{summary: page.summary, facts: page.facts})
+      assert String.length(material) <= 6_000
       assert page.coverage.offset_unit == "item"
       assert page.coverage.total_items == 55
       assert page.coverage.returned_items == length(page.refs)
+      assert page.facts.returned_count == length(page.facts.characters)
+      assert page.facts.total_count == 55
+      assert Enum.map(page.facts.characters, & &1.ref) == page.refs
       assert Enum.sort(Map.keys(page.versions)) == Enum.sort(page.refs)
+
+      expected_offset =
+        pages |> Enum.take(index) |> Enum.reduce(0, &(&1.coverage.returned_items + &2))
+
+      assert page.coverage.offset == expected_offset
+
+      if index < length(pages) - 1 do
+        assert page.next_offset == expected_offset + length(page.refs)
+      else
+        assert page.next_offset == nil
+      end
+
       refute page.summary =~ "只能经详情读取的正文"
+      refute page.summary =~ "character:"
+      refute page.summary =~ "{"
+      assert Enum.all?(page.facts.characters, &(not Map.has_key?(&1, :version)))
+    end
+  end
+
+  test "空目录仍提供空结构名单和覆盖事实，不冒充对象详情" do
+    {:ok, work} = WorkService.create(%{"title" => "空目录"})
+
+    for {facet, key} <- [{"characters", :characters}, {"chapters", :chapters}] do
+      assert {:ok, directory} = ExplorationService.run(work.id, "archive_read", facet)
+      assert directory.facts == %{key => [], :total_count => 0, :returned_count => 0}
+      assert directory.refs == []
+      assert directory.versions == %{}
+      assert directory.next_offset == nil
+      assert directory.coverage.kind == "directory"
+      assert directory.coverage.total_items == 0
+      assert directory.coverage.returned_items == 0
+      refute directory.summary =~ "{"
     end
   end
 
@@ -486,6 +561,12 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     refute preview.summary =~ "章计划最后一页独有句"
     refute preview.summary =~ "摘要最后一页独有句"
     assert preview.omissions != []
+
+    for omission <- preview.omissions do
+      refute omission =~ ref
+      refute omission =~ "archive_read"
+      refute omission =~ "{"
+    end
   end
 
   @tag :r05_exploration

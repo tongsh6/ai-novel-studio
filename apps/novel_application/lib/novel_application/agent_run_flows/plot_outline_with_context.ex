@@ -527,26 +527,24 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         source: "model",
         provider_call_ref: meta.provider_call_ref,
         provider_call_count: meta.provider_call_count,
-        narrative_bound: is_binary(meta.narrative),
+        narrative_bound: true,
         persisted: persisted
       })
     )
 
-    if is_binary(meta.narrative) and is_map(meta.narrative_source) do
-      emit_stage(
-        snapshot,
-        :mission_derived,
-        meta.narrative,
-        ["mission_derived"],
-        [mission_ref],
-        Map.merge(counts, %{
-          stage: :mission_derived,
-          mission_ref: mission_ref,
-          author_narrative: meta.narrative,
-          author_narrative_source: meta.narrative_source
-        })
-      )
-    end
+    emit_stage(
+      snapshot,
+      :mission_derived,
+      meta.narrative,
+      ["mission_derived"],
+      [mission_ref],
+      Map.merge(counts, %{
+        stage: :mission_derived,
+        mission_ref: mission_ref,
+        author_narrative: meta.narrative,
+        author_narrative_source: meta.narrative_source
+      })
+    )
 
     {:ok, observation} =
       AgentObservation.new(%{

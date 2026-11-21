@@ -217,7 +217,7 @@ defmodule NovelAgent.Provider.Stub do
     reasoning = mission_reasoning(planning?, foreshadow, arc)
     statement = mission_statement(planning?, foreshadow)
 
-    Result.new(reasoning, nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           "name" => tool,

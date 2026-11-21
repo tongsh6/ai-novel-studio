@@ -423,14 +423,14 @@ defmodule NovelApplication.ExplorationService do
   # 契约：tasks/slices/B24-exploration-chapter-full-read.md §1.1。旧观察把
   # 【计划】【摘要】【正文】拼成一条 1500 字符 clip——设计态材料持续加料把正文挤到
   # 4.9%（2026-10-23 stage 实锤）。v2 分段预算：设计态材料另计上限、正文单页
-  # 6000 字符、续读页不重复计划/摘要，并在 footer 给出下一页 query。
+  # 6000 字符、续读页不重复计划/摘要；同章身份与下页起点由结构观察供应。
   #
   # query 语法（B24 CP0 §1.1(a)，I-EXPLORE-READ-7 唯一编码寻址）：
   #   - 规范     JSON {"chapter_ref":"chapter:<uuid>","offset":<n>}（唯一寻址）
   #   - 便利别名 JSON {"chapter_seq":<n>,"offset":<n>}（必须 work 内唯一命中）
-  #   - 旧兼容   纯章标题 / JSON {"chapter":<TOC 真实标题>,"offset":<n>}
+  #   - 名称别名 纯章标题 / JSON {"chapter":<TOC 真实标题>,"offset":<n>}
   #              （必须唯一命中；歧义即错误并列出候选 ref，禁止 first-match）
-  # 分页续读必须复用同一 chapter_ref（footer 给出的正是它）。
+  # 分页续读复用观察 coverage 中同一 chapter_ref 与 next_offset。
 
   defp chapter_read(_work_id, ""), do: {:error, :empty_query}
 
@@ -603,84 +603,125 @@ defmodule NovelApplication.ExplorationService do
 
   defp chapter_ref(chapter), do: "chapter:#{chapter_uuid(chapter)}"
 
-  # 章索引（模型面，I-EXPLORE-READ-9）：与判断/计划章节索引同格式。
-  defp chapter_index_lines([]), do: "（当前作品还没有章节）"
+  # 候选身份只进入结构事实；完整条目与自然摘要共同遵守原错误观察预算。
+  defp chapter_index_material(summary, chapters, counts) do
+    entries =
+      Enum.reduce_while(chapters, [], fn chapter, entries ->
+        entry = %{
+          ref: chapter_ref(chapter),
+          title: chapter_title(chapter),
+          seq: Map.get(chapter, :seq),
+          has_prose: Map.get(chapter, :word_count, 0) > 0
+        }
 
-  defp chapter_index_lines(chapters) do
-    Enum.map_join(chapters, "\n", fn chapter ->
-      NovelApplication.ChapterListBudget.entry_line(%{
-        title: chapter_title(chapter),
-        seq: Map.get(chapter, :seq),
-        id: chapter_uuid(chapter),
-        has_prose: Map.get(chapter, :word_count, 0) > 0
-      })
-    end)
+        candidate = entries ++ [entry]
+        material = %{summary: summary, facts: Map.put(counts, :chapters, candidate)}
+
+        if String.length(Jason.encode!(material)) <= @summary_max_chars,
+          do: {:cont, candidate},
+          else: {:halt, entries}
+      end)
+
+    returned = length(entries)
+    total = length(chapters)
+
+    %{
+      summary: summary,
+      facts: Map.put(counts, :chapters, entries),
+      coverage: %{
+        chapters: %{
+          status: if(returned == total, do: "complete", else: "partial"),
+          returned: returned,
+          total: total,
+          read_query: Jason.encode!(%{facet: "chapters", offset: 0})
+        }
+      },
+      omissions:
+        if(returned == total,
+          do: [],
+          else: ["候选名单受读取预算限制，尚有 #{total - returned} 章未列出；完整章节目录需继续查阅。"]
+        )
+    }
   end
 
-  # 三种解析失败都是**已完成检索**的观察（informational）：检索确实执行完并得到
-  # 了「不存在/有歧义/参数不可识别」的事实，不是工具失败。失败类文案只由调用方在
-  # `{:error, _}` 时使用（activity_failure_summary/1）。
+  defp chapter_index_note([]), do: "（当前作品还没有章节）"
+
+  defp chapter_index_note(chapters),
+    do: "当前作品共有 #{length(chapters)} 章，可从候选名单重新选择。"
+
+  # 未找到、歧义和参数不可识别都是已完成检索的事实，不是工具执行失败。
   defp ambiguous_chapter_observation(query, spec, candidates) do
+    material =
+      chapter_index_material(
+        "匹配到 #{length(candidates)} 章，存在歧义；请先确定要读取的章节。",
+        candidates,
+        %{matched_count: length(candidates)}
+      )
+
     observation(
       "chapter_read",
       query,
-      "章节「#{chapter_query_label(spec)}」匹配到 #{length(candidates)} 章，存在歧义；" <>
-        "请从章索引复制 chapter_ref 后重试：\n" <> chapter_index_lines(candidates),
-      Enum.map(candidates, &chapter_ref/1),
+      material.summary,
+      Enum.map(material.facts.chapters, & &1.ref),
       outcome: :ambiguous_target,
-      facts: %{matched_count: length(candidates)},
+      facts: material.facts,
+      extra: Map.take(material, [:coverage, :omissions]),
       activity_summary:
-        "已检索章节#{chapter_activity_target(spec)}：匹配到 #{length(candidates)} 章，需要先确定唯一章节。"
+        "已检索#{chapter_activity_target(spec)}：匹配到 #{length(candidates)} 章，需要先确定唯一章节。"
     )
   end
 
   defp not_found_chapter_observation(query, spec, chapters) do
+    material =
+      chapter_index_material(
+        "没有找到指定章节。" <> chapter_index_note(chapters),
+        chapters,
+        %{chapter_count: length(chapters)}
+      )
+
     observation(
       "chapter_read",
       query,
-      "没有找到「#{chapter_query_label(spec)}」。现有章索引：\n" <> chapter_index_lines(chapters),
+      material.summary,
       [],
       outcome: :target_not_found,
-      facts: %{chapter_count: length(chapters)},
+      facts: material.facts,
+      extra: Map.take(material, [:coverage, :omissions]),
       activity_summary: chapter_not_found_activity(spec, length(chapters))
     )
   end
 
   defp invalid_chapter_query_observation(query, chapters) do
+    material =
+      chapter_index_material(
+        "章节检索参数无法识别；请根据候选名单选择唯一章节，续读时保持同一章节。" <>
+          chapter_index_note(chapters),
+        chapters,
+        %{chapter_count: length(chapters)}
+      )
+
     observation(
       "chapter_read",
       query,
-      "章节检索参数无法识别：请优先复制章索引里的 chapter_ref（章节唯一标识）；" <>
-        ~s(续读时用观察 footer 给出的 JSON {"chapter_ref":"chapter:<uuid>","offset":<下页起点>}；) <>
-        "标题/序号只是唯一命中时的别名。\n现有章索引：\n" <> chapter_index_lines(chapters),
+      material.summary,
       [],
       outcome: :invalid_query,
-      facts: %{chapter_count: length(chapters)},
+      facts: material.facts,
+      extra: Map.take(material, [:coverage, :omissions]),
       activity_summary: "已检索章节：检索参数无法识别，没能定位到章节。"
     )
   end
 
-  # 作者面章节指代只用人话（章名/序号）；内部 ref 形态不进入 activity（B24
-  # I-EXPLORE-READ-8：作者面不含内部 id）。
-  defp chapter_activity_target({:title, title}), do: "「#{title}」"
-  defp chapter_activity_target({:seq, seq}), do: "「第 #{seq} 章」"
-  defp chapter_activity_target({:ref, _uuid}), do: ""
-
-  defp chapter_not_found_activity({:ref, _uuid}, 0), do: "已检索指定章节：作品当前还没有章节。"
-
-  defp chapter_not_found_activity({:ref, _uuid}, chapter_count),
-    do: "已检索指定章节：当前作品有 #{chapter_count} 章，但该章节标识没有匹配到章节。"
+  # 未定位的查询只留在结构观察；活动说明只消费明确序号，不把查询当作章名。
+  defp chapter_activity_target({:seq, seq}), do: "章节「第 #{seq} 章」"
+  defp chapter_activity_target(_spec), do: "指定章节"
 
   defp chapter_not_found_activity(spec, 0),
-    do: "已检索章节#{chapter_activity_target(spec)}：作品当前还没有章节。"
+    do: "已检索#{chapter_activity_target(spec)}：作品当前还没有章节。"
 
   defp chapter_not_found_activity(spec, chapter_count) do
-    "已检索章节#{chapter_activity_target(spec)}：当前作品有 #{chapter_count} 章，但没有这个章名。"
+    "已检索#{chapter_activity_target(spec)}：当前作品有 #{chapter_count} 章，但没有找到匹配章节。"
   end
-
-  defp chapter_query_label({:ref, uuid}), do: "chapter:#{uuid}"
-  defp chapter_query_label({:seq, seq}), do: "第 #{seq} 章"
-  defp chapter_query_label({:title, title}), do: title
 
   defp chapter_read_page(work_id, chapter, volume, query, offset) do
     case ReadingProjectionService.chapter_content(chapter.id, work_id) do
@@ -794,7 +835,7 @@ defmodule NovelApplication.ExplorationService do
     sections =
       header.sections ++
         [prose_page_section(offset, page_end, total, word_count, page_text)] ++
-        continue_section(chapter, next_offset, total, page_end)
+        continue_section(next_offset, total, page_end)
 
     {:ok,
      observation(
@@ -860,7 +901,7 @@ defmodule NovelApplication.ExplorationService do
             else: %{status: "unavailable", read_query: read_query}
           )
       },
-      omissions: ["本页计划/摘要是预览；完整设计材料经 archive_read #{read_query} 读取，预览不证明全文已读。"]
+      omissions: ["本页计划与摘要仅为预览；完整设计材料需另行查阅，预览不证明全文已读。"]
     }
   end
 
@@ -917,16 +958,10 @@ defmodule NovelApplication.ExplorationService do
     "【正文】第 #{offset + 1}–#{page_end} 字符 / 共 #{total} 字符（有效字数 #{word_count}）\n#{page_text}"
   end
 
-  defp continue_section(_chapter, nil, _total, _page_end), do: []
+  defp continue_section(nil, _total, _page_end), do: []
 
-  defp continue_section(chapter, next_offset, total, page_end) do
-    # 逐字冻结 footer 形状（contract §1.1(b)）：分页必须复用同一 chapter_ref，
-    # JSON 键序固定为 chapter_ref → offset，便于模型照抄与外部验收断言。
-    query =
-      "{\"chapter_ref\":\"" <>
-        chapter_ref(chapter) <> "\",\"offset\":" <> Integer.to_string(next_offset) <> "}"
-
-    ["【续读】剩余 #{total - page_end} 字符；用 #{query} 继续。"]
+  defp continue_section(_next_offset, total, page_end) do
+    ["【续读】剩余 #{total - page_end} 字符，可继续阅读本章。"]
   end
 
   # 所有成功正文页都从本页实际分页范围给作者可辨认读证；首页额外保留整章
@@ -1212,15 +1247,7 @@ defmodule NovelApplication.ExplorationService do
   defp normalize_metadata_outcome(value) when is_binary(value), do: value
   defp normalize_metadata_outcome(_value), do: "observed"
 
-  defp activity_text("chapter_read", query) do
-    text = to_string(query)
-
-    if String.starts_with?(String.trim(text), "{") do
-      "已阅读章节正文。"
-    else
-      "已阅读章节正文「#{text}」。"
-    end
-  end
+  defp activity_text("chapter_read", _query), do: "已完成章节检索。"
 
   defp activity_text("prose_search", query), do: "已检索正文「#{query}」。"
   defp activity_text("session_adoptions", _query), do: "已查询当前会话候选。"

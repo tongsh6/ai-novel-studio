@@ -286,11 +286,10 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     }
   end
 
-  # WR01：写前推理步的确定性 tool-call 结果（content=作者可见叙事，arguments 同带
-  # author_reasoning 以覆盖强制 tool_choice 下空 content 的回退绑定路径）。
+  # WR01：作者说明只在工具 author_reasoning；content 仅供显式第二正文负例。
   def mission_tool_call_result(reasoning, statement, opts \\ []) do
     %{
-      content: Keyword.get(opts, :content, reasoning),
+      content: Keyword.get(opts, :content, ""),
       tool_calls: [
         %{
           "name" => "chapter_mission",

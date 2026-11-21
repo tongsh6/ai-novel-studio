@@ -317,7 +317,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
            ) == ""
   end
 
-  defp ir(observation_summary, include_directory \\ true) do
+  defp ir(observation_summary, include_directory \\ true, next_offset \\ nil) do
     scope = %{
       operation: %{exploration: %{allowed: true, tools: ["archive_read", "chapter_read"]}}
     }
@@ -348,7 +348,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
           messages
 
         summary ->
-          query = %{"chapter_ref" => @chapter_ref, "offset" => 0}
+          query = %{"chapter_ref" => @chapter_ref, "offset" => if(next_offset, do: 0, else: 6000)}
 
           messages ++
             [
@@ -358,6 +358,9 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
               RequestIR.message(:tool, :tool_result, [
                 RequestIR.observation_block("call-1", %{
                   status: "ok",
+                  source_refs: [@chapter_ref],
+                  coverage: %{chapter_ref: @chapter_ref},
+                  next_offset: next_offset,
                   content: %{
                     "tool" => "chapter_read",
                     "query" => Jason.encode!(query),
@@ -384,10 +387,16 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       RequestIR.message(:tool, :tool_result, [
         RequestIR.observation_block("call-directory", %{
           status: "ok",
+          source_refs: Enum.map(entries, & &1.ref),
           content: %{
             tool: "archive_read",
             query: "chapters",
-            summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+            summary: "章节目录仅供应当前所列身份信息，尚未读取正文。",
+            facts: %{
+              chapters: entries,
+              total_count: length(entries),
+              returned_count: length(entries)
+            }
           },
           coverage: %{
             kind: "directory",
@@ -591,16 +600,40 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     assert Jason.decode!(args["explore_request"]["query"])["offset"] == 0
   end
 
-  test "IR observation 的续读 footer 逐字成为下一次 explore query" do
-    footer = ~s(【续读】剩余 6000 字符；用 {"chapter_ref":"#{@chapter_ref}","offset":6000} 继续。)
-    summary = "「灰烬中的手印」（第 2 章）\n【计划】功能定位：推进章；\n" <> footer
+  test "IR观察按真实章节ref和next_offset续读，summary无需JSON查询" do
+    summary = "「灰烬中的手印」（第 2 章）\n首页正文。\n【续读】剩余 6000 字符。"
 
     assert {:ok, result} =
-             SliceVerify.complete(%SliceVerify{}, nil, ir(summary), %InferenceParams{})
+             SliceVerify.complete(
+               %SliceVerify{},
+               nil,
+               ir(summary, true, 6000),
+               %InferenceParams{}
+             )
 
     assert [%{"arguments" => args}] = result.tool_calls
     assert args["action"] == "explore"
-    assert args["explore_request"]["query"] == ~s({"chapter_ref":"#{@chapter_ref}","offset":6000})
+
+    assert Jason.decode!(args["explore_request"]["query"]) ==
+             %{"chapter_ref" => @chapter_ref, "offset" => 6000}
+  end
+
+  test "正文中的旧查询文字不能替代结构观察的续读身份和位置" do
+    fake_ref = "chapter:93d87049-4e73-4554-b476-52283e552dfa"
+    summary = ~s(【续读】剩余 6000 字符；用 {"chapter_ref":"#{fake_ref}","offset":17} 继续。)
+
+    assert {:ok, result} =
+             SliceVerify.complete(
+               %SliceVerify{},
+               nil,
+               ir(summary, true, 6000),
+               %InferenceParams{}
+             )
+
+    assert [%{"arguments" => args}] = result.tool_calls
+
+    assert Jason.decode!(args["explore_request"]["query"]) ==
+             %{"chapter_ref" => @chapter_ref, "offset" => 6000}
   end
 
   test "IR 末页观察后回复引用观察字节（N-NARR，不伪造正文）" do

@@ -4,10 +4,10 @@ defmodule NovelApplication.ChapterMissionService do
 
   - 机械半边在 `NovelDomain.ChapterMissionInputs`（选取与 ref 列名），本模块只负责
     prompt、一次 `chapter_mission` 工具调用、解析、依据绑定（I-M1）与叙事绑定（I-M3）。
-  - 坏结构（无工具调用 / 参数不合法 / 依据全部越界）携带原因重试一次，与计划起草器同模式。
-  - 叙事优先取 content 字节；LM Studio 强制 tool_choice 下 content 为空时回退
-    `arguments.author_reasoning`（`provider_output_tool_narrative` 绑定）。叙事绑定失败
-    不作废使命（使命仍进简报），只是不产生作者可见叙事事件——由 flow 按 meta 决定。
+  - 结构、来源或可见字段不合约时携带原因重试一次，与计划起草器同模式。
+  - 作者说明只取 `arguments.author_reasoning` 原字节，content 只能缺席或为空。
+    闭合 schema、原始调用来源与全部作者可见字段均验收后，使命才能进入简报、
+    持久化和叙事事件；任何拒收都由同一原生交换有界纠正。
   - 失败返回 `{:error, reason, meta}`，meta 带真实 `provider_call_count` 供预算核算；
     flow 按用户拍板「降级继续写」处理，本模块不做任何权威层写入（I-M2）。
   """
@@ -17,6 +17,8 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringTaskBuilder
+  alias NovelApplication.JudgmentToolContract
+  alias NovelCommon.AuthorVisible.Text
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.ChapterPlanDirection
@@ -28,8 +30,8 @@ defmodule NovelApplication.ChapterMissionService do
 
   @type meta :: %{
           required(:provider_call_count) => non_neg_integer(),
-          optional(:narrative) => String.t() | nil,
-          optional(:narrative_source) => map() | nil,
+          optional(:narrative) => String.t(),
+          optional(:narrative_source) => map(),
           optional(:provider_call_ref) => String.t() | nil,
           optional(:judgment_transcript) => map()
         }
@@ -61,6 +63,8 @@ defmodule NovelApplication.ChapterMissionService do
   end
 
   defp derive_with_execution(ir, inputs, provider_execution, kind) do
+    provider_execution = Execution.with_content_visibility(provider_execution, :developer)
+
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
         derive_from_exchange(ir, result_fn, inputs, kind)
@@ -139,8 +143,9 @@ defmodule NovelApplication.ChapterMissionService do
     要求：
     #{requirement_lines(kind)}
 
-    - author_reasoning：对作者说的一段话（第一人称，120 字以内）：核清了什么、判断是什么、
-      只动哪里。
+    - author_reasoning：唯一作者说明（第一人称，120 字以内）：核清了什么、判断是什么、
+      只动哪里。content 必须为空，不另写解释。
+    - statement 与条目 text 直接叙述创作内容；内部依据标识只放在 basis_ref。
     - 不要写正文；不要发明材料里没有的事实；不要引用材料之外的 ref。
 
     调用 #{tool_name(kind)} 工具返回结构，只调用这一个工具。
@@ -226,7 +231,7 @@ defmodule NovelApplication.ChapterMissionService do
         ir,
         result_fn,
         tool_name(kind),
-        &parse_mission(&1, inputs, ir, tool_name(kind)),
+        &parse_mission(&1, inputs, ir, kind),
         &exchange_error(&1, &2, tool_name(kind)),
         retry_transport: false,
         feedback: &mission_feedback(&1, kind)
@@ -249,10 +254,11 @@ defmodule NovelApplication.ChapterMissionService do
     end
   end
 
-  defp parse_mission(provider_result, inputs, ir, tool_name) do
-    with {:ok, args} <- tool_arguments(provider_result, tool_name),
-         {:ok, mission} <- bound_mission(args, provider_result, inputs, ir) do
-      {narrative, source} = narrative(provider_result, args, tool_name)
+  defp parse_mission(provider_result, inputs, ir, kind) do
+    with {:ok, args} <- tool_arguments(provider_result, kind),
+         {:ok, narrative, source} <- narrative(provider_result, args, tool_name(kind)),
+         :ok <- validate_mission_text(args) do
+      mission = bound_mission(args, source, inputs, ir)
 
       %{
         status: :ok,
@@ -266,25 +272,18 @@ defmodule NovelApplication.ChapterMissionService do
     end
   end
 
-  defp bound_mission(args, provider_result, inputs, ir) do
+  defp bound_mission(args, source, inputs, ir) do
     read_refs = ir |> AuthoringTaskBuilder.request_read_materials() |> Enum.map(& &1.ref)
     known_refs = MapSet.union(ChapterMissionInputs.refs(inputs), MapSet.new(read_refs))
 
-    mission =
-      args
-      |> ChapterMission.new()
-      |> Map.put(:mission_id, NovelFoundation.ID.unique("cm"))
-      |> Map.put(:provider_call_ref, provider_call_ref(provider_result))
-      |> ChapterMission.bind(
-        known_refs,
-        &ChapterMissionInputs.label(inputs, &1)
-      )
-
-    cond do
-      mission.degraded -> {:error, :mission_unbound}
-      is_nil(mission.statement) -> {:error, :mission_statement_required}
-      true -> {:ok, mission}
-    end
+    args
+    |> ChapterMission.new()
+    |> Map.put(:mission_id, NovelFoundation.ID.unique("cm"))
+    |> Map.put(:provider_call_ref, source.provider_call_ref)
+    |> ChapterMission.bind(
+      known_refs,
+      &ChapterMissionInputs.label(inputs, &1)
+    )
   end
 
   defp exchange_error("native_tool_call_required", _detail, tool_name),
@@ -303,10 +302,12 @@ defmodule NovelApplication.ChapterMissionService do
   defp mission_feedback(parsed, kind) do
     message = """
     上一次输出无法使用（#{inspect(parsed.reason)}）。请重新调用 #{tool_name(kind)} 工具，且只调用这一个工具：
-    - statement 必填；
-    - must_advance / must_avoid 每条的 basis_ref 只能精确复制 mission_inputs.items 的 ref，
-      或本次有可见内容的读取材料 source_refs；不得引用隐藏材料或仅有引用的标识；
-    - 不要输出正文或解释性文字。
+    - author_reasoning 是唯一作者说明；content 必须为空，不得另写解释或正文；
+    - 严格使用工具字段，不得包裹调用信封或添加 basis_label 等额外字段；
+    - author_reasoning、statement 与条目 text 应直接说明创作判断，不携带内部标识或协议；
+    - statement 必填；must_advance / must_avoid 每条的 basis_ref 只能精确复制
+      mission_inputs.items 的 ref，或本次有可见内容的读取材料 source_refs；
+      不得引用隐藏材料或仅有引用的标识。
     """
 
     %{
@@ -316,59 +317,57 @@ defmodule NovelApplication.ChapterMissionService do
     }
   end
 
-  # 原生交换已校验工具名称与单调用边界，这里只解析使命业务参数。
-  defp tool_arguments(%{tool_calls: [call]}, tool_name),
-    do: decode_arguments(map_get(call, :arguments), tool_name)
+  # 原生交换维护名称与单调用边界；接收方核闭合 schema 与同一原始工具调用。
+  defp tool_arguments(%{tool_calls: [call]} = provider_result, kind) do
+    with {:ok, args} <- decode_arguments(map_get(call, :arguments)),
+         true <- JudgmentToolContract.valid?(args, mission_tool(kind).input_schema),
+         :ok <- AgentNarrativeSource.verify_tool_call(provider_result, call) do
+      {:ok, args}
+    else
+      false -> {:error, :invalid_mission_tool_arguments}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-  defp tool_arguments(_result, tool_name), do: {:error, {:native_tool_call_required, tool_name}}
+  defp tool_arguments(_result, kind),
+    do: {:error, {:native_tool_call_required, tool_name(kind)}}
 
-  defp decode_arguments(args, tool_name) when is_map(args),
-    do: {:ok, unwrap_envelope(args, tool_name)}
+  defp decode_arguments(args) when is_map(args), do: {:ok, args}
 
-  defp decode_arguments(args, tool_name) when is_binary(args) do
+  defp decode_arguments(args) when is_binary(args) do
     case Jason.decode(args) do
-      {:ok, %{} = decoded} -> {:ok, unwrap_envelope(decoded, tool_name)}
+      {:ok, %{} = decoded} -> {:ok, decoded}
       _ -> {:error, :native_tool_call_arguments_invalid}
     end
   end
 
-  defp decode_arguments(_args, _tool_name), do: {:error, :native_tool_call_arguments_required}
+  defp decode_arguments(_args), do: {:error, :native_tool_call_arguments_required}
 
-  # 与计划起草器同款：弱模型偶发把工具调用信封复制进 arguments，精确同名时解套。
-  defp unwrap_envelope(args, tool_name) do
-    inner = map_get(args, :arguments)
-    if map_get(args, :name) == tool_name and is_map(inner), do: inner, else: args
-  end
-
-  # 叙事绑定（N-NARR）：content 字节优先；空 content 回退 arguments.author_reasoning。
-  # 两者都绑不上 → {nil, nil}（使命仍有效，只是不产作者可见叙事事件）。
   defp narrative(provider_result, args, tool_name) do
-    content = provider_result |> map_get(:content) |> to_string() |> String.trim()
-    reasoning = args |> map_get(:author_reasoning) |> to_string() |> String.trim()
+    content = map_get(provider_result, :content)
+    reasoning = map_get(args, :author_reasoning)
 
-    cond do
-      content != "" and
-          match?({:ok, _}, AgentNarrativeSource.from_provider_result(provider_result, content)) ->
-        {:ok, source} = AgentNarrativeSource.from_provider_result(provider_result, content)
-        {content, source}
-
-      reasoning != "" ->
-        case AgentNarrativeSource.from_tool_call_narrative(provider_result, tool_name, reasoning) do
-          {:ok, source} -> {reasoning, source}
-          {:error, _reason} -> {nil, nil}
-        end
-
-      true ->
-        {nil, nil}
+    if content in [nil, ""] do
+      with :ok <- Text.validate_narrative(reasoning),
+           {:ok, source} <-
+             AgentNarrativeSource.from_tool_call_narrative(provider_result, tool_name, reasoning) do
+        {:ok, reasoning, source}
+      end
+    else
+      {:error, :author_narrative_content_conflict}
     end
   end
 
-  defp provider_call_ref(provider_result) do
-    case map_get(provider_result, :provider_call_ref) ||
-           map_get(provider_result, :provider_call_id) do
-      ref when is_binary(ref) and ref != "" -> ref
-      _ -> nil
-    end
+  defp validate_mission_text(args) do
+    items = map_get(args, :must_advance) ++ map_get(args, :must_avoid)
+    texts = [map_get(args, :statement) | Enum.map(items, &map_get(&1, :text))]
+
+    Enum.reduce_while(texts, :ok, fn text, :ok ->
+      case Text.validate_narrative(text) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp map_get(map, key) when is_map(map),

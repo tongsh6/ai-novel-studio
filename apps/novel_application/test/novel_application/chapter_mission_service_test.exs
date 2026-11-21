@@ -2,9 +2,11 @@ defmodule NovelApplication.ChapterMissionServiceTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AuthoringCheckpoint
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
+  alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelDomain.ChapterMission
@@ -42,22 +44,24 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     Execution.with_event_sink(%Execution{result_fn: result_fn}, fn _ -> :ok end)
   end
 
-  defp tool_call_result(reasoning, arguments, opts \\ []) do
+  defp tool_call_result(arguments, opts \\ []) do
     %{
-      content: Keyword.get(opts, :content, reasoning),
+      content: Keyword.get(opts, :content, ""),
       provider_call_id: Keyword.get(opts, :call_id, "pc-mission"),
-      tool_calls: [%{"name" => "chapter_mission", "arguments" => arguments}]
+      tool_calls: [
+        %{"name" => Keyword.get(opts, :tool_name, "chapter_mission"), "arguments" => arguments}
+      ]
     }
   end
 
-  test "一次 tool-call 产使命：依据越界条目被机械丢弃，叙事绑定 content，prompt 只列名材料 ref" do
+  test "一次 tool-call 产使命：依据越界条目被机械丢弃，唯一工具说明绑定原文，prompt 只列名材料 ref" do
     parent = self()
 
     result_fn = fn prompt ->
       send(parent, {:prompt, prompt})
 
       {:ok,
-       tool_call_result("我核对了计划与脉络：旧账牌伏笔已超期，本章先收这条线。", %{
+       tool_call_result(%{
          "author_reasoning" => "我核对了计划与脉络：旧账牌伏笔已超期，本章先收这条线。",
          "statement" => "本章必须回收旧账牌伏笔。",
          "must_advance" => [
@@ -111,14 +115,17 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     assert meta.provider_call_count == 1
     assert meta.narrative =~ "旧账牌伏笔已超期"
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(meta.narrative_source)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      meta.narrative_source,
+      "provider_output_tool_narrative"
+    )
   end
 
-  test "content 为空时叙事回退 tool arguments.author_reasoning（强制 tool_choice 判例）" do
+  test "content 为空且工具 author_reasoning 完整时绑定唯一作者说明" do
     result_fn = fn _prompt ->
       {:ok,
        tool_call_result(
-         "",
          %{
            "author_reasoning" => "本章按计划推进，没有到期压力。",
            "statement" => "按计划推进。",
@@ -158,10 +165,10 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     assert Agent.get(counter, & &1) == 2
   end
 
-  test "依据全部越界且无 statement → 重试后仍失败 mission_unbound；statement 在场则成功保留" do
+  test "空 statement 不满足工具契约；合法 statement 在场时仍保留原依据丢弃规则" do
     result_fn = fn _prompt ->
       {:ok,
-       tool_call_result("x", %{
+       tool_call_result(%{
          "author_reasoning" => "x",
          "statement" => "",
          "must_advance" => [%{"text" => "a", "basis_ref" => "nope"}],
@@ -170,12 +177,12 @@ defmodule NovelApplication.ChapterMissionServiceTest do
        })}
     end
 
-    assert {:error, :mission_unbound, %{provider_call_count: 2}} =
+    assert {:error, :invalid_mission_tool_arguments, %{provider_call_count: 2}} =
              ChapterMissionService.derive(inputs(), execution(result_fn), run: fixture_run())
 
     ok_fn = fn _prompt ->
       {:ok,
-       tool_call_result("核清了。", %{
+       tool_call_result(%{
          "author_reasoning" => "核清了。",
          "statement" => "按计划推进。",
          "must_advance" => [%{"text" => "a", "basis_ref" => "nope"}],
@@ -213,7 +220,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
         {:ok,
          %{
-           content: "本轮只明确卷级冲突和弧光。",
+           content: "",
            provider_call_id: "pc-r05-volume-mission",
            tool_calls: [
              %{
@@ -257,7 +264,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     provider =
       execution(fn prompt ->
         send(parent, {:mission_prompt, prompt})
-        {:ok, tool_call_result("按紧凑要求回收旧账牌。", valid_arguments())}
+        {:ok, tool_call_result(valid_arguments())}
       end)
 
     assert {:ok, _mission, _meta} =
@@ -333,7 +340,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     provider =
       execution(fn prompt ->
         send(parent, {:canonical_mission_prompt, prompt})
-        {:ok, tool_call_result("先回收旧账牌。", valid_arguments())}
+        {:ok, tool_call_result(valid_arguments())}
       end)
 
     assert {:ok, mission, meta} =
@@ -421,7 +428,7 @@ defmodule NovelApplication.ChapterMissionServiceTest do
             },
             else: valid_arguments()
 
-        {:ok, tool_call_result("核对材料。", args, call_id: "pc-mission-#{attempt}")}
+        {:ok, tool_call_result(args, call_id: "pc-mission-#{attempt}")}
       end)
 
     assert {:ok, _mission, meta} =
@@ -437,7 +444,8 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     feedback =
       Enum.find(second.messages, fn message ->
         Enum.any?(message.blocks, fn block ->
-          block.type == "validation_result" and block.reason_code == "mission_unbound"
+          block.type == "validation_result" and
+            block.reason_code == "invalid_mission_tool_arguments"
         end)
       end)
 
@@ -462,11 +470,10 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     invalid =
       execution(fn _ ->
-        {:ok,
-         tool_call_result("错误依据。", %{valid_arguments() | "statement" => "", "must_advance" => []})}
+        {:ok, tool_call_result(%{valid_arguments() | "statement" => "", "must_advance" => []})}
       end)
 
-    assert {:error, :mission_unbound, invalid_meta} =
+    assert {:error, :invalid_mission_tool_arguments, invalid_meta} =
              ChapterMissionService.derive(inputs(), invalid, opts)
 
     assert invalid_meta.provider_call_count == 2
@@ -479,6 +486,252 @@ defmodule NovelApplication.ChapterMissionServiceTest do
 
     assert Enum.take(failed_meta.judgment_transcript.messages, length(transcript.messages)) ==
              transcript.messages
+  end
+
+  for {kind, tool_name} <- [{:prose, "chapter_mission"}, {:planning, "planning_mission"}] do
+    test "R06 #{kind}: 唯一工具说明与使命内容保留首尾空白、换行及 Unicode 原字节" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+      author_text = "  请讨论 ref 与基线的技术含义，再推进第三章。\r\n"
+      reasoning = " \n我会先收回旧账牌，再让人物承担选择的代价。\u00A0"
+      statement = "\t本章回收旧账牌。\r\n"
+      advance = "  让旧账牌编号兑现。\n"
+      avoid = "\n暂不揭示第五章信息。\t"
+
+      args = %{
+        "author_reasoning" => reasoning,
+        "statement" => statement,
+        "must_advance" => [
+          %{"text" => advance, "basis_ref" => "ledger:information:foreshadow_a"}
+        ],
+        "must_avoid" => [
+          %{"text" => avoid, "basis_ref" => "ledger:information:plan_info_5"}
+        ],
+        "confidence" => 0.9
+      }
+
+      for content <- [nil, ""] do
+        result =
+          args
+          |> tool_call_result(tool_name: tool_name, content: content)
+          |> with_provider_output()
+
+        provider = %Execution{
+          result_fn: fn prompt ->
+            assert NovelTest.TestProviderPrompt.author_text(prompt) == author_text
+            {:ok, result}
+          end
+        }
+
+        assert {:ok, mission, meta} =
+                 ChapterMissionService.derive(inputs(), provider,
+                   kind: kind,
+                   run: fixture_run(),
+                   author_text: author_text,
+                   source_input_ref: "input:r06-mission"
+                 )
+
+        assert meta.provider_call_count == 1
+        assert meta.narrative == reasoning
+        assert mission.statement == statement
+        assert hd(mission.must_advance)["text"] == advance
+        assert hd(mission.must_avoid)["text"] == avoid
+        assert hd(mission.must_advance)["basis_ref"] == "ledger:information:foreshadow_a"
+        assert meta.narrative_source.source_type == "provider_output_tool_narrative"
+        assert meta.narrative_source.tool_call_name == tool_name
+
+        assert meta.narrative_source.source_byte_range == %{
+                 start: 0,
+                 length: byte_size(reasoning)
+               }
+
+        assert :ok ==
+                 AgentNarrativeSource.verify(reasoning, meta.narrative_source, %{
+                   result.provider_output.provider_run_ref => result.provider_output
+                 })
+      end
+    end
+
+    test "R06 #{kind}: 第二正文即使与工具说明相同或仅含空白也必须拒绝" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+
+      for content <- ["先回收旧账牌。", "改为回收另一条线。", " \t\r\n"] do
+        provider =
+          execution(fn _ ->
+            {:ok, tool_call_result(valid_arguments(), tool_name: tool_name, content: content)}
+          end)
+
+        assert {:error, :author_narrative_content_conflict, meta} =
+                 ChapterMissionService.derive(inputs(), provider, kind: kind, run: fixture_run())
+
+        assert_rejected_mission(meta)
+      end
+    end
+
+    test "R06 #{kind}: 说明与每个使命内容字段均在接收前校验，不能接受一段好说明掩盖坏使命" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+      leaked = "应推进 chapter:22660419，并保留原有选择。"
+
+      cases = [
+        Map.put(valid_arguments(), "author_reasoning", leaked),
+        Map.put(valid_arguments(), "statement", leaked),
+        Map.put(valid_arguments(), "must_advance", [
+          %{"text" => leaked, "basis_ref" => "ledger:information:foreshadow_a"}
+        ]),
+        Map.put(valid_arguments(), "must_avoid", [
+          %{"text" => leaked, "basis_ref" => "ledger:information:plan_info_5"}
+        ])
+      ]
+
+      for args <- cases do
+        provider = execution(fn _ -> {:ok, tool_call_result(args, tool_name: tool_name)} end)
+
+        assert {:error, _reason, meta} =
+                 ChapterMissionService.derive(inputs(), provider, kind: kind, run: fixture_run())
+
+        assert_rejected_mission(meta)
+      end
+    end
+
+    test "R06 #{kind}: 闭合工具参数拒绝额外标签、额外字段、缺失说明和旧嵌套信封" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+
+      cases = [
+        Map.put(valid_arguments(), "extra", "不属于使命的字段"),
+        Map.put(valid_arguments(), "must_advance", [
+          %{
+            "text" => "回收旧账牌",
+            "basis_ref" => "ledger:information:foreshadow_a",
+            "basis_label" => "模型伪造的依据标签"
+          }
+        ]),
+        Map.delete(valid_arguments(), "author_reasoning"),
+        Map.put(valid_arguments(), "author_reasoning", 42),
+        %{"name" => tool_name, "arguments" => valid_arguments()}
+      ]
+
+      for args <- cases do
+        provider = execution(fn _ -> {:ok, tool_call_result(args, tool_name: tool_name)} end)
+
+        assert {:error, _reason, meta} =
+                 ChapterMissionService.derive(inputs(), provider, kind: kind, run: fixture_run())
+
+        assert_rejected_mission(meta)
+      end
+    end
+
+    test "R06 #{kind}: 核对整个原工具调用，缺来源或替换使命、调用身份、原 content 都不接受" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+      original = tool_call_result(valid_arguments(), tool_name: tool_name)
+
+      changed_statement =
+        update_in(original.tool_calls, fn [call] ->
+          [put_in(call, ["arguments", "statement"], "应用改写了使命。")]
+        end)
+
+      changed_call_id =
+        update_in(original.tool_calls, fn [call] -> [Map.put(call, "id", "forged-call")] end)
+
+      cases = [
+        original,
+        with_provider_output(changed_statement, original),
+        with_provider_output(changed_call_id, original),
+        with_provider_output(original, %{original | content: "原输出还包含第二正文。"})
+      ]
+
+      for result <- cases do
+        provider = %Execution{result_fn: fn _ -> {:ok, result} end}
+
+        assert {:error, _reason, meta} =
+                 ChapterMissionService.derive(inputs(), provider, kind: kind, run: fixture_run())
+
+        assert_rejected_mission(meta)
+      end
+    end
+
+    test "R06 #{kind}: 拒绝原调用后只接受第二次纠正，原坏字节与关联回执进入下一请求" do
+      kind = unquote(kind)
+      tool_name = unquote(tool_name)
+      parent = self()
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      bad = %{valid_arguments() | "author_reasoning" => "先读 chapter:22660419。"}
+      good = %{valid_arguments() | "author_reasoning" => " \n先回收旧账牌。\r\n"}
+
+      provider =
+        execution(fn prompt ->
+          attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
+          send(parent, {:r06_mission_attempt, attempt, prompt})
+          args = if attempt == 1, do: bad, else: good
+
+          {:ok,
+           tool_call_result(args,
+             tool_name: tool_name,
+             call_id: "pc-r06-mission-#{attempt}"
+           )}
+        end)
+
+      assert {:ok, _mission, meta} =
+               ChapterMissionService.derive(inputs(), provider, kind: kind, run: fixture_run())
+
+      assert Agent.get(attempts, & &1) == 2
+      assert meta.provider_call_count == 2
+      assert meta.narrative == good["author_reasoning"]
+      assert meta.narrative_source.provider_call_ref == "pc-r06-mission-2"
+      assert_receive {:r06_mission_attempt, 1, first}
+      assert_receive {:r06_mission_attempt, 2, second}
+      assert Enum.take(second.messages, length(first.messages)) == first.messages
+
+      [rejected] =
+        for message <- second.messages,
+            %{type: "validation_result", status: "failed"} = block <- message.blocks,
+            do: block
+
+      assert Enum.any?(second.messages, fn message ->
+               Enum.any?(message.blocks, fn block ->
+                 block.type == "tool_call" and block.call_id == rejected.call_id and
+                   RequestIR.json_value(block.arguments) == bad
+               end)
+             end)
+
+      assert {:ok, restored} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+      assert {:ok, []} = RequestIR.pending_call_ids(restored)
+      refute_receive {:r06_mission_attempt, 3, _}
+    end
+  end
+
+  defp with_provider_output(result, original \\ nil) do
+    original = original || result
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun-#{result.provider_call_id}",
+        provider_call_ref: result.provider_call_id,
+        status: :ok,
+        output_type: :text,
+        content: %{text: original.content, tool_calls: original.tool_calls},
+        refs: [result.provider_call_id]
+      })
+
+    Map.put(result, :provider_output, output)
+  end
+
+  defp assert_rejected_mission(meta) do
+    assert meta.provider_call_count == 2
+    refute Map.has_key?(meta, :narrative)
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(meta.judgment_transcript)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+
+    failures =
+      for message <- ir.messages,
+          %{type: "validation_result", status: "failed"} = block <- message.blocks,
+          do: block
+
+    assert length(failures) == 2
+    assert length(Enum.uniq_by(failures, & &1.call_id)) == 2
   end
 
   defp text(%RequestIR{} = ir), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(ir)

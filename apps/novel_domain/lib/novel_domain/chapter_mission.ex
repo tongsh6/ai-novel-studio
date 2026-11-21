@@ -55,7 +55,7 @@ defmodule NovelDomain.ChapterMission do
   def new(attrs) when is_map(attrs) do
     %__MODULE__{
       mission_id: clean(get(attrs, :mission_id)),
-      statement: clean(get(attrs, :statement)),
+      statement: content_text(get(attrs, :statement)),
       must_advance: attrs |> get(:must_advance) |> normalize_items(),
       must_avoid: attrs |> get(:must_avoid) |> normalize_items(),
       confidence: normalize_confidence(get(attrs, :confidence)),
@@ -111,7 +111,7 @@ defmodule NovelDomain.ChapterMission do
   @doc "作者改写版：statement 必填，条目只有 text（依据归作者本人）。"
   @spec from_author(map()) :: {:ok, t()} | {:error, :statement_required}
   def from_author(attrs) when is_map(attrs) do
-    statement = clean(get(attrs, :statement))
+    statement = content_text(get(attrs, :statement))
 
     if is_nil(statement) do
       {:error, :statement_required}
@@ -150,7 +150,9 @@ defmodule NovelDomain.ChapterMission do
 
   @doc "稳定引用 `mission:<id>`。"
   @spec ref(t() | map() | nil) :: String.t() | nil
-  def ref(%__MODULE__{mission_id: id}) when is_binary(id) and id != "", do: "mission:#{id}"
+  def ref(%__MODULE__{mission_id: id}),
+    do: if(is_binary(id) and id != "", do: "mission:#{id}", else: nil)
+
   def ref(%{} = map), do: map |> from_map() |> ref()
   def ref(_), do: nil
 
@@ -190,7 +192,7 @@ defmodule NovelDomain.ChapterMission do
   def from_map(%{} = map) do
     %__MODULE__{
       mission_id: clean(get(map, :mission_id)),
-      statement: clean(get(map, :statement)),
+      statement: content_text(get(map, :statement)),
       must_advance: map |> get(:must_advance) |> normalize_items(),
       must_avoid: map |> get(:must_avoid) |> normalize_items(),
       dropped: map |> get(:dropped) |> normalize_items(),
@@ -277,13 +279,13 @@ defmodule NovelDomain.ChapterMission do
   defp normalize_items(_), do: []
 
   defp normalize_item(%{} = item) do
-    text = clean(get(item, :text))
+    text = content_text(get(item, :text))
 
     if text do
       %{
         "text" => text,
         "basis_ref" => clean(get(item, :basis_ref)),
-        "basis_label" => clean(get(item, :basis_label))
+        "basis_label" => content_text(get(item, :basis_label))
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new()
@@ -291,7 +293,7 @@ defmodule NovelDomain.ChapterMission do
   end
 
   defp normalize_item(text) when is_binary(text) do
-    case clean(text) do
+    case content_text(text) do
       nil -> nil
       value -> %{"text" => value}
     end
@@ -306,6 +308,12 @@ defmodule NovelDomain.ChapterMission do
   defp normalize_confidence(_), do: nil
 
   defp get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  # 内容只判空；模型、作者与来源材料的非空字节不得在值对象中被改写。
+  defp content_text(value) when is_binary(value),
+    do: if(String.trim(value) == "", do: nil, else: value)
+
+  defp content_text(_), do: nil
 
   defp clean(value) when is_binary(value) do
     case String.trim(value) do

@@ -478,7 +478,7 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
         {:ok,
          %{
            provider_call_id: "pc-r05-visible-mission",
-           content: "只依照本次实际可见的材料安排推进。",
+           content: "",
            tool_calls:
              NovelApplication.TestAgenticLoopFixtures.native_tool_calls("planning_mission", %{
                author_reasoning: "只依照本次实际可见的材料安排推进。",
@@ -495,6 +495,8 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
          }}
       end
     }
+
+    provider = Execution.with_event_sink(provider, fn _ -> :ok end)
 
     assert {:ok, mission, meta} =
              NovelApplication.ChapterMissionService.derive(inputs, provider,

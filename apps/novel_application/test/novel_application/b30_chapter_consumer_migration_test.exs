@@ -69,19 +69,12 @@ defmodule NovelApplication.B30ChapterConsumerMigrationTest do
            ) == %{title: "第11章：外门名册上的空白", ref: "chapter:#{@ch2.id}"}
   end
 
-  test "章索引展示：第<当前 seq>章 + title core（规划/判断/探索同一 helper）" do
-    line =
-      ChapterListBudget.entry_line(%{
-        title: "第11章：外门名册上的空白",
-        seq: 2,
-        id: @ch2.id,
-        has_prose: true
-      })
-
-    assert line =~ "第 2 章"
-    assert line =~ "外门名册上的空白"
-    refute line =~ "第 11 章"
-    assert line =~ "chapter_ref=chapter:#{@ch2.id}"
+  test "结构章索引保留真实身份、当前序号与原始标题，展示仍由ChapterDisplay负责" do
+    entry = Map.put(@ch2, :has_prose, true)
+    assert ChapterListBudget.project_entries([entry]) == {[entry], 0}
+    assert entry.seq == 2
+    assert entry.title == "第11章：外门名册上的空白"
+    assert ChapterDisplay.display_title(entry) == "第2章：外门名册上的空白"
   end
 
   test "章使命输入：chapter_ref 进材料头，展示用当前 seq + core title" do

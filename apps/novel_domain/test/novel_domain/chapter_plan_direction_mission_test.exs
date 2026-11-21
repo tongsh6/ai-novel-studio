@@ -13,6 +13,30 @@ defmodule NovelDomain.ChapterPlanDirectionMissionTest do
     "source" => "model"
   }
 
+  test "R06: 作者改写的原词和排版不套用模型接收门，恢复后字节保持" do
+    statement = " \n作者要讨论 ref 与当前基线的意义。\u00A0"
+    advance = "\t保留作者写下的 chapter:22660419。\r\n"
+    avoid = "  不替作者改写技术词。\n"
+
+    assert {:ok, mission} =
+             ChapterMission.from_author(%{
+               "statement" => statement,
+               "must_advance" => [advance],
+               "must_avoid" => [%{"text" => avoid}]
+             })
+
+    assert mission.statement == statement
+    assert hd(mission.must_advance)["text"] == advance
+    assert hd(mission.must_avoid)["text"] == avoid
+
+    restored = mission |> ChapterMission.persisted_map() |> ChapterMission.from_map()
+    assert restored.statement == statement
+    assert restored.must_advance == [%{"text" => advance}]
+    assert restored.must_avoid == [%{"text" => avoid}]
+    assert ChapterMission.author_version?(restored)
+    assert {:error, :statement_required} = ChapterMission.from_author(%{statement: " \t\r\n"})
+  end
+
   test "chapter_mission 随 plan_direction 存储往返透传，不进 prompt_lines/summary" do
     storage = %{"chapter_role" => "推进章", "chapter_mission" => @mission}
     direction = ChapterPlanDirection.from_storage(storage)

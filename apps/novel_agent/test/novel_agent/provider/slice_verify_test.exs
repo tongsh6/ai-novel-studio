@@ -680,7 +680,12 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
         content: %{
           tool: "archive_read",
           query: "chapters",
-          summary: Enum.map_join(directory, "\n", &Jason.encode!/1)
+          summary: "章节目录仅供应当前所列身份信息，尚未读取正文。",
+          facts: %{
+            chapters: directory,
+            total_count: length(directory),
+            returned_count: length(directory)
+          }
         },
         coverage: %{
           kind: "directory",
@@ -935,7 +940,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
          facet: "chapters",
          returned_items: length(chapters),
          total_items: length(chapters)
-       }, Enum.map_join(chapters, "\n", &Jason.encode!/1), Enum.map(chapters, & &1.ref)}
+       }, "章节目录仅供应当前所列身份信息，尚未读取正文。", Enum.map(chapters, & &1.ref)}
 
     profile =
       if Keyword.get(opts, :profile, true),
@@ -948,6 +953,15 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
 
     observations =
       Enum.flat_map([directory] ++ profile, fn {query, coverage, summary, refs} ->
+        facts =
+          if query == "chapters",
+            do: %{
+              chapters: chapters,
+              total_count: length(chapters),
+              returned_count: length(chapters)
+            },
+            else: %{}
+
         [
           IR.assistant("", [
             IR.tool_call(
@@ -960,7 +974,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
             status: "ok",
             source_refs: refs,
             coverage: coverage,
-            content: %{tool: "archive_read", query: query, summary: summary}
+            content: %{tool: "archive_read", query: query, summary: summary, facts: facts}
           })
         ]
       end)
@@ -1241,7 +1255,12 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
             content: %{
               tool: "archive_read",
               query: "characters",
-              summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+              summary: "角色目录仅供应当前所列身份信息，尚未读取完整档案。",
+              facts: %{
+                characters: entries,
+                total_count: length(entries),
+                returned_count: length(entries)
+              }
             }
           })
         ]
@@ -1447,7 +1466,12 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
             content: %{
               tool: "archive_read",
               query: "characters",
-              summary: Enum.map_join(entries, "\n", &Jason.encode!/1)
+              summary: "角色目录仅供应当前所列身份信息，尚未读取完整档案。",
+              facts: %{
+                characters: entries,
+                total_count: length(entries),
+                returned_count: length(entries)
+              }
             }
           })
         ]

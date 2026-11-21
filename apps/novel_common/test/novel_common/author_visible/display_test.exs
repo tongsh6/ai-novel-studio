@@ -86,6 +86,8 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
     test "narrative 校验拒绝内部协议与真实身份形状，不生成清洗文本" do
       for text <- [
             "角色 character:e9fe5f90-c939-4f9e-abee-da235d1eaa45",
+            "第2章 chapter:22660419",
+            "正文版本 draft:57dceaf4…:2",
             "候选 as_mwnwwxoe_11",
             "调用 pcall_mwnwe414_s / prun_mwnwe414_t",
             "事件 pevt_mwnwe414_u，回合 turn_mwnwe414_v",
@@ -107,6 +109,7 @@ defmodule NovelCommon.AuthorVisible.DisplayTest do
             "  老沈目前是群像视角。\n\n拟改为主角。\n",
             "笔名 Red_Moon，人物阿鸢。",
             "查看第三段。",
+            "ref 用来定位对象，当前基线还需要实际内容和有效版本。",
             "他的工作过程缺少具体细节。",
             "Stub 与 Strata 在门口争论任务控制权。"
           ] do

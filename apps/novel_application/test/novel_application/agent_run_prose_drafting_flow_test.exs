@@ -226,7 +226,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert mission_event.payload.author_narrative =~ "我核对了第01章计划与作品脉络"
 
     NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      mission_event.payload.author_narrative_source
+      mission_event.payload.author_narrative_source,
+      "provider_output_tool_narrative"
     )
 
     assert mission_event.payload.must_advance_count == 1
@@ -391,6 +392,147 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Enum.any?(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
   end
 
+  for {correction, response_sequence, expected_statuses, expected_missions, expected_degraded?} <-
+        [
+          {:accepted, [:rejected, :accepted], ["failed", "passed"], 1, false},
+          {:exhausted, [:rejected, :rejected], ["failed", "failed"], 0, true}
+        ] do
+    test "R06 prose #{correction}: 拒收使命无坏写入或发布，两次封顶后仍可合法写作" do
+      correction = unquote(correction)
+      response_sequence = unquote(response_sequence)
+      expected_missions = unquote(expected_missions)
+      expected_degraded? = unquote(expected_degraded?)
+      expected_statuses = unquote(expected_statuses)
+      parent = self()
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      reasoning = " \n先让主角兑现选择，再保留房间来历的悬念。Ω\r\n"
+      statement = "\t主角主动找到出口。\r\n"
+      advance = "  让主角主动寻找出口。\n"
+      avoid = "\n暂不解释房间来历。\t"
+
+      writer = fn prompt ->
+        cond do
+          mission_prompt?(prompt) ->
+            attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
+            assert attempt <= 2
+            response = Enum.fetch!(response_sequence, attempt - 1)
+
+            result =
+              TestAgenticLoopFixtures.mission_tool_call_result(
+                reasoning,
+                Map.fetch!(%{accepted: statement, rejected: "本章先读取 chapter:22660419。"}, response),
+                must_advance: [%{"text" => advance, "basis_ref" => "plan:1:plot_progress"}],
+                must_avoid: [%{"text" => avoid, "basis_ref" => "plan:1:information_release"}]
+              )
+
+            {:ok, with_provider_call(result, "pc-r06-prose-mission-#{attempt}")}
+
+          plan_draft_prompt?(prompt) ->
+            {:ok, with_provider_call(prose_plan_draft(prompt), "pc-r06-prose-plan")}
+
+          prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+            {:ok, %{content: TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))}}
+
+          true ->
+            send(parent, {:r06_writer_prompt, prompt})
+
+            {:ok,
+             TestAgenticLoopFixtures.native_artifact_result(
+               [%{item_id: "r06-prose", title: "第01章：开端", body: @bad_prose, rationale: nil}],
+               provider_call_id: "pc-r06-prose-writer"
+             )}
+        end
+      end
+
+      evaluator = fn _prompt ->
+        {:ok,
+         %{
+           content: "",
+           provider_call_id: "pc-r06-prose-quality",
+           tool_calls:
+             TestAgenticLoopFixtures.native_tool_calls("report_quality_findings", %{findings: []})
+         }}
+      end
+
+      run_id =
+        start_prose_run!(
+          %{
+            turn_id: "turn-r06-prose-#{correction}",
+            ledger_reader: fn _ -> [] end,
+            written_progress_reader: fn _ -> nil end,
+            quality_provider_execution: %Execution{result_fn: evaluator},
+            chapter_mission_writer: fn _, _, mission ->
+              send(parent, {:r06_mission_persisted, mission})
+              {:ok, :stored, mission}
+            end
+          },
+          writer,
+          parent
+        )
+
+      events = collect_agent_events_until(:run_completed, 5_000)
+      assert Agent.get(attempts, & &1) == 2
+      assert_received {:r06_writer_prompt, _}
+      assert find_event!(events, :artifact_created)
+      assert {:ok, state} = AgentRunService.state(run_id)
+      assert state.run.status == :completed
+      assert length(state.final_turn_result.adoption_state.pending) == 1
+
+      mission_events = for {:mission_derived, event} <- events, do: event
+      mission = state.stage_state.chapter_mission
+
+      assert length(mission_events) == expected_missions
+
+      for event <- mission_events do
+        assert event.payload.author_narrative == reasoning
+        assert event.payload.author_narrative_source.provider_call_ref == "pc-r06-prose-mission-2"
+
+        assert event.payload.author_narrative_source.source_type ==
+                 "provider_output_tool_narrative"
+
+        assert event.payload.author_narrative_source.source_byte_range == %{
+                 start: 0,
+                 length: byte_size(reasoning)
+               }
+
+        assert_received {:r06_mission_persisted, persisted}
+        assert persisted["statement"] == statement
+        assert hd(persisted["must_advance"])["text"] == advance
+        assert hd(persisted["must_avoid"])["text"] == avoid
+        assert state.final_turn_result.trace_summary.chapter_mission["statement"] == statement
+      end
+
+      refute_received {:r06_mission_persisted, _}
+      assert !!mission["degraded"] == expected_degraded?
+      assert mission["statement"] == List.first(Enum.take([statement], expected_missions))
+
+      assert Enum.any?(state.observations, fn observation ->
+               observation.structured_payload[:stage] == :mission_degraded
+             end) == expected_degraded?
+
+      transcript = state.stage_state.judgment_transcript
+
+      calls =
+        for message <- transcript.messages,
+            block <- message.blocks,
+            block.type == "tool_call" and block.name == "chapter_mission",
+            do: block.call_id
+
+      assert length(calls) == 2
+
+      statuses =
+        for message <- transcript.messages,
+            block <- message.blocks,
+            block.type == "validation_result" and block.call_id in calls,
+            do: block.status
+
+      assert statuses == expected_statuses
+
+      assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+      assert {:ok, []} = RequestIR.pending_call_ids(ir)
+    end
+  end
+
   test "作者已定使命在场：推理步 0 调用直取作者版进简报，不推导不覆盖（WR01b I-M6）" do
     parent = self()
 
@@ -455,9 +597,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     author_mission = %{
       "mission_id" => "cm_author_test",
-      "statement" => "这一章只写主角找到出口，不解释房间来历。",
-      "must_advance" => [%{"text" => "找到出口"}],
-      "must_avoid" => [%{"text" => "不解释房间来历"}],
+      "statement" => " \t这一章只写主角找到出口；chapter:22660419 是作者保留的技术备注。\r\n",
+      "must_advance" => [%{"text" => " \n找到出口。\t"}],
+      "must_avoid" => [%{"text" => "\t不解释房间来历。\n"}],
       "status" => "AUTHOR_EDITED",
       "source" => "author"
     }
@@ -491,10 +633,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:writer_prompt, writer_prompt}, 2_000
 
     assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
-             "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
+             "本章使命（作者已定）"
 
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "· 必须推进：找到出口"
-    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~ "· 不得：不解释房间来历"
+    assert NovelApplication.TestAgenticLoopFixtures.prompt_text(writer_prompt) =~
+             "chapter:22660419"
 
     events = collect_agent_events_until(:run_completed, 3_000)
     refute Enum.any?(events, fn {event_type, _event} -> event_type == :mission_derived end)
@@ -516,7 +658,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement)
 
     assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement) ==
-             "这一章只写主角找到出口，不解释房间来历。"
+             author_mission["statement"]
+
+    assert state.stage_state.chapter_mission["must_advance"] == author_mission["must_advance"]
+    assert state.stage_state.chapter_mission["must_avoid"] == author_mission["must_avoid"]
 
     # 规划 1 + writer 1 + evaluator 1 = 3：没有写前推理调用。
     assert state.run.consumed_budget.provider_calls == 3

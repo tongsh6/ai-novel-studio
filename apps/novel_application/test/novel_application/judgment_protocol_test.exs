@@ -216,6 +216,24 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute_receive {:provider_request, _}, 10
   end
 
+  test "作者主动讨论 ref 和基线时原话正常交付，不因普通词面拒绝" do
+    text = "  ref 用来定位对象；当前基线还需要同一作品的实际内容和有效版本。\r\n"
+    result = response(text, [], "technical-reply")
+    request = Map.put(input(), :author_text, "解释 ref 与当前基线之间有什么区别，只讨论机制。")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([result]), %{}, request)
+
+    assert judgment.action == "reply"
+    assert judgment.provider_call_count == 1
+    assert judgment.narrative == text
+
+    assert :ok =
+             AgentNarrativeSource.verify(text, judgment.narrative_source, %{
+               "run-technical-reply" => result.provider_output
+             })
+  end
+
   test "提问以question唯一交付，原字节与选项均绑定实际Provider字段" do
     for options <- [
           [],
@@ -599,6 +617,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
   @tag :r05_explore_contract
   test "非法叙述仅纠错一次，不换用干净字段，最终字节只绑定纠正响应" do
     leak = "character:e9fe5f90-c939-4f9e-abee-da235d1eaa45"
+    # 原 b82-g2-observed-target-04 的 Provider reason；保留短引用和部分读取原话。
+    c9 =
+      "已按页面章序消歧到唯一有已采纳正文的第2章 chapter:22660419（版本 draft:57dceaf4…:2），并读到 1–6000/7000 字符：开篇锚点之后同一整句被逐行重复上百次，构成明显重复写法；作者要求把发现的重复写法改成一段候选且先不保存，故用章级 revise_adopted_content 定向改一段，其余正文由确定性合并逐字保留。剩余 6001–7000 字符尚未读取，会在可见结论中标明覆盖范围与缺口。"
+
     execute = %{action: "execute", capability: "character_design", dialogue_goal: "设计人物"}
     gap = %{dialogue_goal: "修改身份", missing_effect: "主档案修改", author_reasoning: leak}
     good_text = "  已核对老沈的身份。\n\n请确认这份建议。\n"
@@ -607,6 +629,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     bad_responses = [
       response("错误说明", [call("judgment_decision", %{action: "reply"})], "bad"),
       response(leak, [], "bad"),
+      response(c9, [], "bad"),
+      response("", [call("judgment_decision", Map.put(execute, :author_reasoning, c9))], "bad"),
       response("", [call("judgment_decision", Map.put(execute, :author_reasoning, leak))], "bad"),
       response(
         leak,
@@ -1544,7 +1568,12 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     opts = [explore: true, explore_tools: ["chapter_read"], capabilities: ["work_archive_read"]]
 
-    for {field, value} <- [{"capability", "work_archive_read"}, {"dialogue_goal", "取得章节引用"}] do
+    for {field, value} <- [
+          {"capability", "work_archive_read"},
+          {"dialogue_goal", "取得章节引用"},
+          {"author_reasoning", "修订主档案字段前必须读取该 ref 的详情作为当前基线，目录信息不足以支撑修改。"},
+          {"author_reasoning", "先查看该 ref。"}
+        ] do
       bad =
         good
         |> Map.put(:id, "rejected-explore")

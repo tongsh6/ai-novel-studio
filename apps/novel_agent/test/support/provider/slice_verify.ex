@@ -42,6 +42,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 首轮原生响应故意缺少 items；后续请求只有在同一 operation 历史里看到该调用已 failed
   # validation（invalid_items）后才返回合法修订。默认关闭，且不识别 slice id/turn/时间。
   @quality_revision_retry_env "SLICE_VERIFY_QUALITY_REVISION_RETRY"
+  # R06 原生使命纠错验收：只有脚本显式启用时，当前使命先拒收、再依原生失败回执纠正。
+  # 不设计数器，不读取 slice/turn 标记；默认仍是合法使命。
+  @mission_correction_env "SLICE_VERIFY_MISSION_CORRECTION"
   # B71 失败历史正式负例：仅 test-support 在显式 env + 作者文本标记同时出现时，
   # 把已唯一选中的合法目标替换为受控非法 ref，使真实 Gateway 仍走
   # target_not_available 的两次判断失败路径；正常场景不命中。
@@ -59,12 +62,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # B24 CP3 真实页面场景（判断循环内部翼全章可读）：仅当作者请求同时点名本场景
   # 章标题与「全章/核对/重复」措辞时启用。寻址必须复制判断 prompt 章节索引里的
   # 唯一 chapter_ref（seed 故意放了一章同名标题——标题查询只会歧义）；续读 query
-  # 逐字取上一页观察 footer 的 JSON。仅依据 prompt 文本，不识别 slice id/env，
-  # 其它场景 prompt 不命中时行为逐字节不变。
+  # 来自 canonical 观察的 coverage.chapter_ref 与 next_offset，不解析正文里的查询文字。
   @full_read_chapter_title "灰烬中的手印"
   @full_read_request_probes ["全章", "核对", "重复"]
   @full_read_last_page_anchor_marker "末页锚点"
-  @full_read_footer_pattern ~r/【续读】剩余 \d+ 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u
 
   defstruct []
 
@@ -1525,10 +1526,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> Enum.reject(&(&1 in [nil, false]))
 
     planning? = tool == "planning_mission"
-    reasoning = mission_reasoning(planning?, foreshadow, arc)
+
+    reasoning =
+      mission_reasoning(planning?, foreshadow, arc)
+      |> mission_correction_reasoning(text, tool)
+
     statement = mission_statement(planning?, foreshadow)
 
-    Result.new(reasoning, nil,
+    Result.new("", nil,
       tool_calls: [
         %{
           "name" => tool,
@@ -1543,6 +1548,37 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       ]
     )
   end
+
+  defp mission_correction_reasoning(reasoning, %RequestIR{} = prompt, tool) do
+    if System.get_env(@mission_correction_env) == "reject_then_valid" do
+      blocks =
+        prompt
+        |> TestProviderPrompt.current_operation_messages()
+        |> Enum.flat_map(& &1.blocks)
+
+      call_ids =
+        for block <- blocks,
+            block.type == "tool_call" and block.name == tool,
+            do: block.call_id
+
+      rejected? =
+        Enum.any?(blocks, fn
+          %{type: "validation_result", status: "failed", call_id: call_id} ->
+            call_id in call_ids
+
+          _ ->
+            false
+        end)
+
+      if rejected?,
+        do: " \n" <> reasoning <> "\nR06MISSIONACCEPTEDΩ\r\n",
+        else: "先读取 chapter:22660419，再按原计划推进。R06MISSIONREJECTED"
+    else
+      reasoning
+    end
+  end
+
+  defp mission_correction_reasoning(reasoning, _prompt, _tool), do: reasoning
 
   defp mission_must_advance(foreshadow, arc, plan) do
     [
@@ -3982,7 +4018,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         no_progress_probe_request?(prompt) ->
           no_progress_narrative(prompt)
 
-        # B24 CP3：全章分页读取——首页后按 footer 继续，末页后给引用观察字节的回复。
+        # B24 CP3：全章分页读取——按结构观察续页，末页后给引用正文的回复。
         full_read_request?(prompt) ->
           full_read_narrative(prompt, ir)
 
@@ -4027,8 +4063,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # ── B24 CP3：判断循环内部翼「全章可读」确定性替身 ────────────────────────
   # 场景：作者怀疑某章有重复，要求核对全章。替身只做三件机械事：
   #   1) 首轮从判断 prompt 的章节索引复制唯一 chapter_ref，query offset=0；
-  #   2) 拿到观察后逐字使用页面 footer 里的续读 JSON（不自己拼 offset）；
-  #   3) 末页（无 footer）后回复字节引用观察里含末页锚点的行（N-NARR：不伪造内容）。
+  #   2) 拿到观察后用 coverage.chapter_ref 与 next_offset 构造下一页 query；
+  #   3) 末页（next_offset 为 nil）后原样引用观察里含末页锚点的行。
   # 触发条件用本场景章标题 + 「全章/核对/重复」唯一锚定，其它场景 prompt 不命中。
   defp full_read_request?(prompt) do
     author_text = judgment_author_input(prompt)
@@ -4037,10 +4073,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       contains_any?(author_text, @full_read_request_probes)
   end
 
-  # 判断 prompt 的章节索引行（模型可见，B24 I-READ-9 双面身份）：
-  #   - 第 N 章「<title>」[chapter_ref=chapter:<uuid>]（计划中）
-  # 复制**有已采纳正文**那个章（索引行无「（计划中）」= 目标章 B）的 ref；
-  # 同名干扰章 A 带「（计划中）」被排除。绝不按标题直接当查询（会命中歧义观察）。
+  # 从档案观察 facts.chapters 选择有已采纳正文的唯一同名章；
+  # 计划中的同名干扰章不能替代目标章的结构化 ref。
   defp full_read_chapter_ref(prompt) do
     case Enum.filter(
            judgment_chapters(prompt),
@@ -4071,13 +4105,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       nil ->
         nil
 
-      %{coverage: %{"returned_items" => 0, "total_items" => 0}} ->
-        []
-
       leaf ->
-        leaf.content["summary"]
-        |> String.split("\n", trim: true)
-        |> Enum.map(&Jason.decode!/1)
+        get_in(leaf, [:content, "facts", facet])
     end
   end
 
@@ -4093,39 +4122,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       explore_context?("", request_ir(prompt), "archive_read")
   end
 
-  # 判断 prompt 里已渲染的观察段（`### 观察 N（tool「query」）\n<observation.summary>`）。
-  # 观察 summary 内无空行（seed 正文不含 "\n\n"），因此每条观察以空行/文末为界；
-  # 用惰性匹配逐条切出，避免观察正文里的换行干扰分界。
-  defp full_read_observation_summaries(prompt) do
-    ~r/### 观察 \d+（[^\n]*）\n(.*?)(?:\n\n|\z)/su
-    |> Regex.scan(prompt, capture: :all_but_first)
-    |> Enum.map(fn
-      [summary] -> summary
-      _ -> ""
-    end)
-  end
-
-  defp full_read_last_observation(_prompt, %NovelCommon.RequestIR{} = ir) do
+  defp full_read_last_observation(_prompt, %RequestIR{} = ir) do
     ir
     |> TestProviderPrompt.visible_observations()
     |> Enum.filter(&(get_in(&1, [:content, "tool"]) == "chapter_read" and &1.status == "ok"))
-    |> Enum.flat_map(&observation_summary_text/1)
     |> List.last()
   end
 
-  defp full_read_last_observation(prompt, _ir) do
-    case full_read_observation_summaries(prompt) do
-      [] -> nil
-      summaries -> List.last(summaries)
-    end
-  end
+  defp full_read_continuation_query(%{
+         coverage: %{"chapter_ref" => chapter_ref},
+         next_offset: next_offset
+       })
+       when is_binary(chapter_ref) and is_integer(next_offset) and next_offset >= 0,
+       do: Jason.encode!(%{chapter_ref: chapter_ref, offset: next_offset})
 
-  defp full_read_continuation_query(summary) do
-    case Regex.run(@full_read_footer_pattern, summary) do
-      [_, query] -> query
-      _ -> nil
-    end
-  end
+  defp full_read_continuation_query(_observation), do: nil
 
   # 末页观察里「含末页锚点的行」——回复按字节引用它，保持 N-NARR。
   defp full_read_cited_excerpt(summary) do
@@ -4134,7 +4145,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.find(&String.contains?(&1, @full_read_last_page_anchor_marker))
     |> case do
       nil -> String.slice(summary, 0, 80)
-      line -> String.trim(line)
+      line -> line
     end
   end
 
@@ -4143,10 +4154,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       nil ->
         "要核对全章是否有重复，需要先把整章读完。我先按章节唯一编号读取「#{@full_read_chapter_title}」的完整正文。"
 
-      summary ->
-        if full_read_continuation_query(summary) do
+      observation ->
+        if full_read_continuation_query(observation) do
           "首页只返回了前 6000 字符，剩余部分还没读到；我接着往后读完整章。"
         else
+          summary = observation.content["summary"]
+
           "我逐页读完了整章正文，依据如下：\n\n#{full_read_cited_excerpt(summary)}\n\n" <>
             "以上就是第二页正文里关于手印的原文。"
         end
@@ -4168,9 +4181,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             })
         end
 
-      summary ->
-        # 第二轮：footer 里的续读 JSON 逐字作为下一次 explore query。
-        case full_read_continuation_query(summary) do
+      observation ->
+        # 第二轮：同章结构化续读位置进入下一次 explore query。
+        case full_read_continuation_query(observation) do
           nil ->
             judgment_cited_reply_decision_result(prompt)
 
@@ -4346,7 +4359,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "query" => @no_progress_query
         })
 
-      # B24 CP3：全章分页读取的决策（首轮 ref 寻址 → footer JSON 续读 → reply）。
+      # B24 CP3：全章分页读取的决策（首轮 ref 寻址 → 结构化位置续读 → reply）。
       full_read_request?(prompt) ->
         full_read_decision_result(prompt, ir)
 

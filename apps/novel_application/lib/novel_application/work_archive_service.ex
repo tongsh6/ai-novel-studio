@@ -244,10 +244,10 @@ defmodule NovelApplication.WorkArchiveService do
     total = length(items)
 
     with :ok <- valid_offset(offset, total),
-         {:ok, page} <- directory_page(Enum.drop(items, offset)) do
+         {:ok, page} <- directory_page(Enum.drop(items, offset), facet, total) do
       next = next_offset(offset + length(page), total)
       versions = for %{ref: ref, version: version} <- page, into: %{}, do: {ref, version}
-      summary = Enum.map_join(page, "\n", &directory_line/1)
+      material = directory_material(facet, page, total)
       omissions = ["目录只含所列身份字段，未读取对象正文或完整角色修订基线。"]
 
       fields =
@@ -265,7 +265,7 @@ defmodule NovelApplication.WorkArchiveService do
 
       {:ok,
        %{
-         summary: if(summary == "", do: "目录暂无条目。", else: summary),
+         summary: material.summary,
          refs: Enum.map(page, & &1.ref),
          versions: versions,
          coverage: %{
@@ -279,7 +279,7 @@ defmodule NovelApplication.WorkArchiveService do
            complete_fields: fields
          },
          omissions: if(next, do: omissions ++ ["目录尚有后续条目。"], else: omissions),
-         facts: %{total_count: total, returned_count: length(page)},
+         facts: material.facts,
          next_offset: next,
          outcome:
            cond do
@@ -291,23 +291,46 @@ defmodule NovelApplication.WorkArchiveService do
     end
   end
 
-  defp directory_page(items) do
-    Enum.reduce_while(items, {[], 0}, fn item, {page, chars} ->
-      required = String.length(directory_line(item)) + if(page == [], do: 0, else: 1)
+  defp directory_page(items, facet, total) do
+    Enum.reduce_while(items, [], fn item, page ->
+      candidate = [item | page]
+      material = directory_material(facet, Enum.reverse(candidate), total)
 
       cond do
-        chars + required <= @page_chars -> {:cont, {[item | page], chars + required}}
+        String.length(Jason.encode!(material)) <= @page_chars -> {:cont, candidate}
         page == [] -> {:halt, {:error, :archive_directory_entry_too_large}}
-        true -> {:halt, {page, chars}}
+        true -> {:halt, page}
       end
     end)
     |> case do
       {:error, _} = error -> error
-      {page, _chars} -> {:ok, Enum.reverse(page)}
+      page -> {:ok, Enum.reverse(page)}
     end
   end
 
-  defp directory_line(item), do: item |> Map.delete(:version) |> Jason.encode!()
+  defp directory_material(facet, page, total) do
+    {key, label, unit} =
+      case facet do
+        "characters" -> {:characters, "角色", "个角色"}
+        "chapters" -> {:chapters, "章节", "章"}
+      end
+
+    returned = length(page)
+
+    summary =
+      if total == 0,
+        do: "#{label}目录暂无条目。",
+        else: "#{label}目录：本页列出 #{returned} #{unit}，共 #{total} #{unit}；仅提供目录信息。"
+
+    %{
+      summary: summary,
+      facts: %{
+        key => Enum.map(page, &Map.delete(&1, :version)),
+        :total_count => total,
+        :returned_count => returned
+      }
+    }
+  end
 
   defp text_page(text, offset) do
     total = String.length(text)

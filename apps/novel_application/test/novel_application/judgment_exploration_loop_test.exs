@@ -286,7 +286,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert {:ok, context_result} = context_step.(run, 1, empty)
     snapshot1 = %{empty | stage_state: context_result.stage_state}
 
-    # 第 1 页：纯章标题（offset=0）→ 观察 v2 首页（正文 1–6000 + 【续读】footer）
+    # 首次按作者给出的章名读取；正文页与结构续读位置同时返回。
     assert {:execute, judgment_step1, _d1, _m1} = spec.next_step_planner.(run, 2, snapshot1)
     assert {:ok, explore1} = judgment_step1.(run, 2, snapshot1)
 
@@ -299,6 +299,8 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert page1.next_offset == 6000
     assert page1.summary =~ "【正文】第 1–6000 字符 / 共 7000 字符"
     assert page1.summary =~ "【续读】剩余 1000 字符"
+    refute page1.summary =~ "chapter_ref"
+    refute page1.summary =~ ~s("offset")
     refute page1.summary =~ @last_page_anchor
 
     # 单次判断只构造一个既有 AgentObservation：本步返回的观察即请求观察的稳定身份。
@@ -330,7 +332,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     snapshot2 = %{empty | stage_state: Map.merge(snapshot1.stage_state, explore1.stage_state)}
 
-    # 第 2 页：模型从 footer 抄 JSON offset 续读 → 观察 v2 续读页（正文 6001–7000，无 footer）
+    # 下一页由观察coverage中的同章ref和next_offset寻址，不解析自然摘要。
     assert {:execute, judgment_step2, _d2, _m2} = spec.next_step_planner.(run, 3, snapshot2)
     assert {:ok, explore2} = judgment_step2.(run, 3, snapshot2)
 
@@ -596,10 +598,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       )
 
     assert [first_exploration | _] = exploration_events
-    assert first_exploration.summary == "已检索章节「第一章」：作品当前还没有章节。"
+    assert first_exploration.summary == "已检索指定章节：作品当前还没有章节。"
     refute first_exploration.summary =~ "检索未完成"
     assert first_exploration.payload.outcome == "target_not_found"
-    assert first_exploration.payload.facts == %{chapter_count: 0}
+    assert first_exploration.payload.facts == %{chapter_count: 0, chapters: []}
 
     # 零写入、无候选、不路由写能力（仍停在判断循环 profile）
     assert {:ok, %{run: run, final_turn_result: nil}} = AgentRunService.state(run_id)

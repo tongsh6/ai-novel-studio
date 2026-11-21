@@ -2,7 +2,17 @@ defmodule NovelApplication.ExplorationServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{AdoptionWorkflow, ExplorationService, WorkService}
+
+  alias NovelApplication.{
+    AdoptionWorkflow,
+    AuthoringTranscript,
+    ExplorationService,
+    JudgmentProtocol,
+    WorkService
+  }
+
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
   alias NovelDomain.ProseFormatting
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
@@ -58,7 +68,7 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:ok, miss} = ExplorationService.run(work_id, "chapter_read", "第99章")
     assert miss.summary =~ "没有找到"
-    assert miss.summary =~ "第01章"
+    assert [%{title: "第01章：底层灵气账单"}] = miss.facts.chapters
   end
 
   test "chapter_read：结构化章计划与治理摘要在场时按段渲染（CP5b 补面 A/B）" do
@@ -268,8 +278,10 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert String.contains?(page1.summary, String.slice(prose, 0, 6000))
     refute String.contains?(page1.summary, anchor)
 
-    assert page1.summary =~
-             ~s(【续读】剩余 1000 字符；用 {"chapter_ref":"#{chapter_ref}","offset":6000} 继续。)
+    assert page1.summary =~ "【续读】剩余 1000 字符"
+    refute page1.summary =~ chapter_ref
+    refute page1.summary =~ "chapter_ref"
+    refute page1.summary =~ ~s("offset")
 
     # I-EXPLORE-READ-2：正文页不被设计态材料挤占；整条观察 ≤7200。
     assert String.length(page1.summary) <= 7200
@@ -281,8 +293,8 @@ defmodule NovelApplication.ExplorationServiceTest do
     refute page1.activity_summary =~ boundary.segment_id
     refute page1.activity_summary =~ "source_hash"
 
-    # 续读必须复用同一 chapter_ref（footer 逐字复制）。
-    continuation = ~s({"chapter_ref":"#{chapter_ref}","offset":6000})
+    # 同章续读只消费既有结构身份与下页起点，不解析自然说明。
+    continuation = Jason.encode!(%{chapter_ref: page1.chapter_ref, offset: page1.next_offset})
     assert {:ok, page2} = ExplorationService.run(work_id, "chapter_read", continuation)
 
     assert page2.next_offset == nil
@@ -304,6 +316,19 @@ defmodule NovelApplication.ExplorationServiceTest do
     # I-EXPLORE-READ-1：页首尾相接 = page1 末字符之后就是 page2 首字符。
     assert page2.prose_range.start == page1.prose_range.end + 1
     assert page2.prose_range.end == page1.prose_total_chars
+
+    first_payload = projected_observation(work_id, page1)
+    second_payload = projected_observation(work_id, page2)
+    assert first_payload["source_refs"] == [chapter_ref]
+    assert first_payload["coverage"]["chapter_ref"] == chapter_ref
+    assert first_payload["coverage"]["prose_range"] == %{"start" => 1, "end" => 6000}
+    assert first_payload["next_offset"] == 6000
+    assert first_payload["content"]["source_hash"] == ProseFormatting.source_hash(prose)
+    assert first_payload["content"]["summary"] == page1.summary
+    assert second_payload["source_refs"] == [chapter_ref]
+    assert second_payload["coverage"]["prose_range"] == %{"start" => 6001, "end" => 7000}
+    assert second_payload["next_offset"] == nil
+    assert second_payload["content"]["summary"] == page2.summary
   end
 
   test "chapter_read v2：短章一页返回完整正文，无续读 footer" do
@@ -326,10 +351,13 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert observation.activity_summary =~ ~r/；有效字数 \d+）。\z/
   end
 
-  test "chapter_read v2：chapter_ref 是规范寻址（含 JSON offset），无效/跨作品 ref 诚实报错不 fallback" do
-    prose = long_prose(1000)
+  test "chapter_read：真实ref唯一寻址，非法及跨作品ref不回退且不进入摘要和活动说明" do
+    prose = "本作品已经采纳的正文"
     {work_id, chapter_id} = seed_work_with_chapter(@long_title, prose)
+    {_other_work, other_id} = seed_work_with_chapter(@long_title, "外作品独有正文")
     chapter_ref = "chapter:#{chapter_id}"
+    other_ref = "chapter:#{other_id}"
+    expected_chapters = [%{ref: chapter_ref, seq: 1, title: @long_title, has_prose: true}]
 
     assert {:ok, by_ref} =
              ExplorationService.run(
@@ -340,33 +368,88 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert by_ref.refs == [chapter_ref]
     assert by_ref.chapter_ref == chapter_ref
-    assert by_ref.summary =~ "「#{@long_title}」"
+    assert by_ref.summary =~ prose
+    assert by_ref.activity_summary =~ @long_title
+    refute by_ref.activity_summary =~ chapter_ref
 
-    # 格式非法的 ref → 参数错误（不 fallback 到标题/序号）
     for bad_ref <- ["chapter:not-a-uuid", "chapter:", "not-a-ref"] do
       assert {:ok, invalid} =
                ExplorationService.run(
                  work_id,
                  "chapter_read",
-                 Jason.encode!(%{chapter_ref: bad_ref, offset: 0})
+                 Jason.encode!(%{chapter_ref: bad_ref, chapter: @long_title, offset: 0})
                )
 
+      assert invalid.outcome == :invalid_query
       assert invalid.summary =~ "章节检索参数无法识别"
+      assert invalid.facts.chapters == expected_chapters
       refute invalid.summary =~ "【正文】第"
+      refute invalid.summary =~ "chapter_ref"
+      refute invalid.summary =~ "{"
+      refute invalid.activity_summary =~ bad_ref
     end
-
-    # 合法 UUID 但不属于当前 work → 找不到（不泄露其它作品章节）
-    other_ref = "chapter:#{Ecto.UUID.generate()}"
 
     assert {:ok, foreign} =
              ExplorationService.run(
                work_id,
                "chapter_read",
-               Jason.encode!(%{chapter_ref: other_ref, offset: 0})
+               Jason.encode!(%{chapter_ref: other_ref, chapter: @long_title, offset: 0})
              )
 
+    assert foreign.outcome == :target_not_found
     assert foreign.summary =~ "没有找到"
-    refute foreign.summary =~ "【正文】第"
+    assert foreign.facts.chapters == expected_chapters
+    refute other_ref in foreign.refs
+
+    for text <- [foreign.summary, foreign.activity_summary] do
+      refute text =~ other_ref
+      refute text =~ chapter_ref
+      refute text =~ prose
+      refute text =~ "外作品独有正文"
+      refute text =~ "chapter_ref"
+      refute text =~ "{"
+    end
+  end
+
+  test "未解析标题查询中的短引用或完整引用不成为活动章名，原查询仍在结构观察" do
+    {work_id, chapter_id} = seed_work_with_chapter(@long_title, "已定位章节的真实正文")
+    chapter_ref = "chapter:#{chapter_id}"
+
+    for query <- [
+          "chapter:22660419",
+          Jason.encode!(%{chapter: chapter_ref, offset: 0})
+        ] do
+      assert {:ok, missing} = ExplorationService.run(work_id, "chapter_read", query)
+      assert missing.outcome == :target_not_found
+      assert missing.query == query
+      assert missing.activity_summary == "已检索指定章节：当前作品有 1 章，但没有找到匹配章节。"
+      refute missing.summary =~ "chapter:"
+      refute missing.activity_summary =~ "chapter:"
+      assert projected_observation(work_id, missing)["content"]["query"] == query
+
+      assert ExplorationService.activity_summary(%{tool: "chapter_read", query: query}) ==
+               "已完成章节检索。"
+    end
+
+    assert {:ok, by_seq} =
+             ExplorationService.run(
+               work_id,
+               "chapter_read",
+               Jason.encode!(%{chapter_seq: 99, offset: 0})
+             )
+
+    assert by_seq.activity_summary ==
+             "已检索章节「第 99 章」：当前作品有 1 章，但没有找到匹配章节。"
+
+    assert {:ok, success} =
+             ExplorationService.run(
+               work_id,
+               "chapter_read",
+               Jason.encode!(%{chapter_ref: chapter_ref, offset: 0})
+             )
+
+    assert success.activity_summary =~ @long_title
+    refute success.activity_summary =~ chapter_ref
   end
 
   test "chapter_read v2：chapter_seq 是 work 内唯一序号（CP3 唯一索引），唯一命中可读" do
@@ -399,26 +482,67 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert by_seq.refs == ["chapter:#{chapter_id}"]
   end
 
-  test "chapter_read v2：重复标题歧义即错误并列候选 ref（禁止 first-match）" do
-    prose = long_prose(300)
-    {work_id, first_id} = seed_work_with_chapter("午夜来电", prose, seq: 1)
+  test "同名章歧义保留结构候选与真实引用，目录和续读请求不从summary解析身份" do
+    {work_id, first_id} = seed_work_with_chapter("午夜来电", "第一章独有正文", seq: 1)
 
     {^work_id, second_id} =
-      seed_work_with_chapter("午夜来电", prose, work_id: work_id, seq: 2)
+      seed_work_with_chapter("午夜来电", "第二章独有正文", work_id: work_id, seq: 2)
+
+    expected = [
+      %{ref: "chapter:#{first_id}", seq: 1, title: "午夜来电", has_prose: true},
+      %{ref: "chapter:#{second_id}", seq: 2, title: "午夜来电", has_prose: true}
+    ]
 
     assert {:ok, ambiguous} = ExplorationService.run(work_id, "chapter_read", "午夜来电")
+    assert ambiguous.outcome == :ambiguous_target
+    assert ambiguous.facts == %{matched_count: 2, chapters: expected}
+    assert ambiguous.refs == Enum.map(expected, & &1.ref)
     assert ambiguous.summary =~ "存在歧义"
-    assert ambiguous.summary =~ "chapter:#{first_id}"
-    assert ambiguous.summary =~ "chapter:#{second_id}"
+    refute ambiguous.summary =~ "chapter:"
+    refute ambiguous.summary =~ "chapter_ref"
+    refute ambiguous.summary =~ "{"
     refute ambiguous.summary =~ "【正文】第"
+    refute ambiguous.activity_summary =~ "chapter:"
 
-    # 标题片段命中多章同样歧义
     assert {:ok, partial} = ExplorationService.run(work_id, "chapter_read", "来电")
-    assert partial.summary =~ "存在歧义"
+    assert partial.outcome == :ambiguous_target
+    assert partial.facts.chapters == expected
 
-    # 精确标题唯一命中的正常路径不受影响（追加一个不同的标题，精确优先）
+    selected = Enum.at(ambiguous.facts.chapters, 1)
+
+    assert {:ok, detail} =
+             ExplorationService.run(
+               work_id,
+               "chapter_read",
+               Jason.encode!(%{chapter_ref: selected.ref, offset: 0})
+             )
+
+    assert detail.refs == ["chapter:#{second_id}"]
+    assert detail.summary =~ "第二章独有正文"
+    refute detail.summary =~ "第一章独有正文"
+
+    candidate_payload = projected_observation(work_id, ambiguous)
+    assert candidate_payload["source_refs"] == Enum.map(expected, & &1.ref)
+
+    assert candidate_payload["content"]["facts"]["chapters"] ==
+             Jason.decode!(Jason.encode!(expected))
+
+    assert candidate_payload["content"]["summary"] == ambiguous.summary
+
+    assert {:ok, directory} = ExplorationService.run(work_id, "archive_read", "chapters")
+    directory_payload = projected_observation(work_id, directory)
+    expected_directory = Enum.map(expected, &Map.put(&1, :volume, "卷一"))
+    assert directory_payload["source_refs"] == Enum.map(expected, & &1.ref)
+    assert directory_payload["coverage"]["kind"] == "directory"
+
+    assert directory_payload["content"]["facts"]["chapters"] ==
+             Jason.decode!(Jason.encode!(expected_directory))
+
+    refute directory_payload["content"]["summary"] =~ "chapter:"
+    refute directory_payload["content"]["summary"] =~ "{"
+
     {^work_id, third_id} =
-      seed_work_with_chapter("午夜来电·终章", prose, work_id: work_id, seq: 3)
+      seed_work_with_chapter("午夜来电·终章", "第三章独有正文", work_id: work_id, seq: 3)
 
     assert {:ok, exact} = ExplorationService.run(work_id, "chapter_read", "午夜来电·终章")
     assert exact.refs == ["chapter:#{third_id}"]
@@ -593,7 +717,7 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert ExplorationService.activity_summary(%{
              tool: "chapter_read",
              query: @long_title
-           }) =~ "已阅读章节正文「#{@long_title}」"
+           }) == "已完成章节检索。"
 
     assert ExplorationService.activity_summary(%{}) == "已完成一次作品检索。"
   end
@@ -605,11 +729,11 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:ok, missing} = ExplorationService.run(work.id, "chapter_read", "第一章")
     assert missing.outcome == :target_not_found
-    assert missing.facts == %{chapter_count: 0}
+    assert missing.facts == %{chapter_count: 0, chapters: []}
     refute missing.activity_summary =~ "检索未完成"
-    assert missing.activity_summary == "已检索章节「第一章」：作品当前还没有章节。"
+    assert missing.activity_summary == "已检索指定章节：作品当前还没有章节。"
     # 模型面摘要仍是检索事实，不是失败叙述
-    assert missing.summary =~ "没有找到「第一章」"
+    assert missing.summary =~ "没有找到"
     assert missing.summary =~ "（当前作品还没有章节）"
   end
 
@@ -618,9 +742,10 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:ok, miss} = ExplorationService.run(work_id, "chapter_read", "第99章")
     assert miss.outcome == :target_not_found
-    assert miss.facts == %{chapter_count: 1}
+    assert miss.facts.chapter_count == 1
+    assert [%{title: @long_title, seq: 1, has_prose: true}] = miss.facts.chapters
     refute miss.activity_summary =~ "检索未完成"
-    assert miss.activity_summary == "已检索章节「第99章」：当前作品有 1 章，但没有这个章名。"
+    assert miss.activity_summary == "已检索指定章节：当前作品有 1 章，但没有找到匹配章节。"
   end
 
   test "歧义/非法检索参数同属已完成检索：给出可解释分类而非失败类文案" do
@@ -629,8 +754,9 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:ok, ambiguous} = ExplorationService.run(work_id, "chapter_read", "同名章")
     assert ambiguous.outcome == :ambiguous_target
-    assert ambiguous.facts == %{matched_count: 2}
-    assert ambiguous.activity_summary == "已检索章节「同名章」：匹配到 2 章，需要先确定唯一章节。"
+    assert ambiguous.facts.matched_count == 2
+    assert Enum.map(ambiguous.facts.chapters, & &1.seq) == [1, 2]
+    assert ambiguous.activity_summary == "已检索指定章节：匹配到 2 章，需要先确定唯一章节。"
     refute ambiguous.activity_summary =~ "检索未完成"
 
     assert {:ok, invalid} = ExplorationService.run(work_id, "chapter_read", ~s({"offset":5}))
@@ -719,21 +845,123 @@ defmodule NovelApplication.ExplorationServiceTest do
              %{tool: "prose_search", query: "x", outcome: "observed", facts: %{}, source_refs: []}
   end
 
-  test "章索引（模型面）带 chapter_ref 与 seq/title 双面身份；找不到时列出索引" do
-    prose = long_prose(200)
-    {work_id, chapter_id} = seed_work_with_chapter(@long_title, prose)
+  test "未找到章时结构索引保留真实ref、当前seq和原始标题，不在自然说明混入身份" do
+    title = "第11章：外门名册上的空白"
+    {work_id, chapter_id} = seed_work_with_chapter(title, long_prose(200), seq: 2)
 
     assert {:ok, miss} = ExplorationService.run(work_id, "chapter_read", "不存在的章名")
-    assert miss.summary =~ "现有章索引"
-    assert miss.summary =~ "- 第 1 章「#{@long_title}」[chapter_ref=chapter:#{chapter_id}]"
 
-    # 判断/计划共用的章索引行号真源单点（ChapterListBudget.entry_line/1）
-    assert NovelApplication.ChapterListBudget.entry_line(%{
-             title: @long_title,
-             seq: 1,
-             id: chapter_id,
-             has_prose: false
-           }) == "- 第 1 章「#{@long_title}」[chapter_ref=chapter:#{chapter_id}]（计划中）"
+    assert miss.facts == %{
+             chapter_count: 1,
+             chapters: [%{ref: "chapter:#{chapter_id}", seq: 2, title: title, has_prose: true}]
+           }
+
+    assert miss.summary =~ "没有找到"
+    refute miss.summary =~ "chapter:"
+    refute miss.summary =~ "chapter_ref"
+    refute miss.summary =~ "{"
+    refute miss.activity_summary =~ "chapter:"
+  end
+
+  test "错误候选保留原1500材料预算，裁减不改变全量歧义结论或授予正文资格" do
+    {:ok, work} = WorkService.create(%{"title" => "候选预算"})
+    volume = Repo.insert!(%Volume{work_id: work.id, title: "卷一", seq: 1})
+    chapters = for seq <- 1..40, do: insert_chapter(work.id, volume.id, "同名候选", seq)
+
+    assert {:ok, ambiguous} = ExplorationService.run(work.id, "chapter_read", "同名候选")
+    assert ambiguous.outcome == :ambiguous_target
+    assert ambiguous.facts.matched_count == 40
+    listed = ambiguous.facts.chapters
+    assert listed != [] and length(listed) < 40
+
+    assert Enum.map(listed, & &1.ref) ==
+             chapters |> Enum.take(length(listed)) |> Enum.map(&"chapter:#{&1.id}")
+
+    assert ambiguous.refs == Enum.map(listed, & &1.ref)
+    assert ambiguous.coverage.chapters.status == "partial"
+    assert ambiguous.coverage.chapters.returned == length(listed)
+    assert ambiguous.coverage.chapters.total == 40
+    assert ambiguous.omissions != []
+
+    assert String.length(Jason.encode!(%{summary: ambiguous.summary, facts: ambiguous.facts})) <=
+             1500
+
+    assert {:ok, missing} = ExplorationService.run(work.id, "chapter_read", "没有这个章名")
+    assert missing.outcome == :target_not_found
+    assert missing.facts.chapter_count == 40
+    assert missing.refs == []
+    assert missing.coverage.chapters.status == "partial"
+    assert missing.omissions != []
+    assert String.length(Jason.encode!(%{summary: missing.summary, facts: missing.facts})) <= 1500
+
+    query = ambiguous.coverage.chapters.read_query
+    assert Jason.decode!(query) == %{"facet" => "chapters", "offset" => 0}
+    assert {:ok, directory} = ExplorationService.run(work.id, "archive_read", query)
+    assert length(directory.facts.chapters) > length(listed)
+    assert Enum.all?(directory.facts.chapters, &(&1.has_prose == false))
+  end
+
+  test "单条标题转义后超出索引预算时不截断身份，零候选仍保留歧义与真实目录入口" do
+    {:ok, work} = WorkService.create(%{"title" => "长标题预算"})
+    volume = Repo.insert!(%Volume{work_id: work.id, title: "卷一", seq: 1})
+    title = String.duplicate(<<1>>, 250)
+    first = insert_chapter(work.id, volume.id, title, 1)
+    second = insert_chapter(work.id, volume.id, title, 2)
+
+    assert {:ok, ambiguous} = ExplorationService.run(work.id, "chapter_read", title)
+    assert ambiguous.outcome == :ambiguous_target
+    assert ambiguous.facts == %{matched_count: 2, chapters: []}
+    assert ambiguous.refs == []
+    assert ambiguous.coverage.chapters.status == "partial"
+    assert ambiguous.coverage.chapters.returned == 0
+    assert ambiguous.coverage.chapters.total == 2
+    assert ambiguous.omissions != []
+
+    assert String.length(Jason.encode!(%{summary: ambiguous.summary, facts: ambiguous.facts})) <=
+             1500
+
+    assert {:ok, directory} =
+             ExplorationService.run(
+               work.id,
+               "archive_read",
+               ambiguous.coverage.chapters.read_query
+             )
+
+    assert Enum.map(directory.facts.chapters, & &1.ref) ==
+             ["chapter:#{first.id}", "chapter:#{second.id}"]
+
+    assert Enum.map(directory.facts.chapters, & &1.title) == [title, title]
+  end
+
+  defp projected_observation(work_id, observation) do
+    author_text = "核对当前作品材料，再决定下一步。"
+    call_id = "r06-observation"
+
+    transcript =
+      AuthoringTranscript.new(
+        %{
+          run_id: "r06-projection",
+          work_id: work_id,
+          workspace_id: "r06-workspace",
+          goal: %{text: author_text}
+        },
+        base_text: "按实际供应的作品材料判断。",
+        author_text: author_text,
+        author_turn_ref: "author_turn:r06-projection",
+        tools: [%{name: observation.tool, description: "读取作品材料", input_schema: %{type: "object"}}]
+      )
+      |> AuthoringTranscript.append_assistant("", [
+        RequestIR.tool_call_block(observation.tool, %{"query" => observation.query}, call_id)
+      ])
+      |> JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, observation)
+
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
+    assert :ok = RequestIR.validate(ir)
+    assert {:ok, body} = Projection.project(ir, "chat_completions")
+    [tool] = Enum.filter(body.messages, &(&1.role == "tool"))
+    assert tool.tool_call_id == call_id
+    assert Enum.any?(body.messages, &(&1 == %{role: "user", content: author_text}))
+    Jason.decode!(tool.content)
   end
 
   defp page_body(observation) do
@@ -831,19 +1059,24 @@ defmodule NovelApplication.ExplorationServiceTest do
 
   # AU08 CP3（08 §8 探索面同步律）：卷划分落地即须同批可达——判断循环里读到的章清单
   # 必须体现实际卷结构，否则规划期只知「预计卷数」而不知已经分成了哪几卷。
-  test "chapter_read：章索引单卷/多卷都逐章列出 chapter_ref（模型唯一寻址）" do
+  test "chapter_read：单卷和多卷索引的所有章节身份都保留在结构事实中" do
     single_work = seed_work_with_prose()
-
     assert {:ok, miss} = ExplorationService.run(single_work, "chapter_read", "第99章")
-    assert miss.summary =~ "现有章索引"
-    assert miss.summary =~ ~r/- 第 1 章「第01章：底层灵气账单」\[chapter_ref=chapter:/
-    refute miss.summary =~ "卷一："
+
+    assert [%{seq: 1, title: "第01章：底层灵气账单", ref: single_ref}] = miss.facts.chapters
+    assert single_ref =~ "chapter:"
+    refute miss.summary =~ single_ref
 
     multi_work = seed_work_with_two_volumes()
-
     assert {:ok, multi_miss} = ExplorationService.run(multi_work, "chapter_read", "第99章")
-    assert multi_miss.summary =~ ~r/- 第 1 章「第01章：起」\[chapter_ref=chapter:/
-    assert multi_miss.summary =~ ~r/- 第 2 章「第02章：承」\[chapter_ref=chapter:/
+
+    assert Enum.map(multi_miss.facts.chapters, &{&1.seq, &1.title}) ==
+             [{1, "第01章：起"}, {2, "第02章：承"}]
+
+    refs = Enum.map(multi_miss.facts.chapters, & &1.ref)
+    assert length(Enum.uniq(refs)) == 2
+    assert Enum.all?(refs, &String.starts_with?(&1, "chapter:"))
+    refute multi_miss.summary =~ "chapter:"
   end
 
   # B11A CP4（VS-00J §4 消费面 4 / 08 §8 探索面同步律）：章计划渲染同批暴露所属卷与

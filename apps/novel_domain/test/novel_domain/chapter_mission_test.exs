@@ -57,6 +57,21 @@ defmodule NovelDomain.ChapterMissionTest do
     assert ChapterMission.present?(mission)
   end
 
+  test "R06: 降级使命直接返回空引用，实际 stage map 与恢复后也不循环" do
+    degraded = ChapterMission.degraded("mission_validation_exhausted")
+    stage_map = ChapterMission.to_map(degraded)
+
+    restored =
+      stage_map
+      |> Jason.encode!()
+      |> Jason.decode!()
+      |> ChapterMission.from_map()
+
+    for mission <- [degraded, stage_map, restored] do
+      assert ChapterMission.ref(mission) == nil
+    end
+  end
+
   test "全部依据越界且无 statement → 降级 mission_unbound；有 statement 则保留" do
     unbound =
       %{"must_advance" => [%{"text" => "x", "basis_ref" => "nope"}]}
@@ -76,6 +91,58 @@ defmodule NovelDomain.ChapterMissionTest do
     assert statement_only.must_advance == []
     assert length(statement_only.dropped) == 1
     assert ChapterMission.present?(statement_only)
+  end
+
+  test "R06: 使命原文与材料标签经过构造、绑定、持久形状和恢复仍逐字节相同" do
+    statement = " \n本章回收旧账牌。\u00A0"
+    advance = "\t让旧账牌编号兑现。\r\n"
+    avoid = "\n暂不揭示第五章信息。  "
+    label = "  伏笔：旧账牌\n"
+
+    mission =
+      %{
+        "statement" => statement,
+        "must_advance" => [
+          %{"text" => advance, "basis_ref" => "ledger:information:foreshadow_a"}
+        ],
+        "must_avoid" => [
+          %{"text" => avoid, "basis_ref" => "ledger:information:plan_info_5"}
+        ]
+      }
+      |> ChapterMission.new()
+      |> ChapterMission.bind(@known, fn _ -> label end)
+      |> ChapterMission.as_tentative()
+
+    assert mission.statement == statement
+    assert hd(mission.must_advance)["text"] == advance
+    assert hd(mission.must_avoid)["text"] == avoid
+
+    restored =
+      mission
+      |> ChapterMission.persisted_map()
+      |> Jason.encode!()
+      |> Jason.decode!()
+      |> ChapterMission.from_map()
+
+    assert restored.statement == statement
+
+    assert hd(restored.must_advance) == %{
+             "text" => advance,
+             "basis_ref" => "ledger:information:foreshadow_a",
+             "basis_label" => label
+           }
+
+    assert hd(restored.must_avoid) == %{
+             "text" => avoid,
+             "basis_ref" => "ledger:information:plan_info_5",
+             "basis_label" => label
+           }
+
+    for constructor <- [&ChapterMission.new/1, &ChapterMission.from_map/1] do
+      blank = constructor.(%{"statement" => " \t\r\n", "must_advance" => [%{"text" => "\n  "}]})
+      assert blank.statement == nil
+      assert blank.must_advance == []
+    end
   end
 
   test "to_prompt_lines/1 渲染使命与依据文本，不输出 ref；降级为空；to_map/from_map 往返" do
