@@ -156,24 +156,187 @@ fn render_context_window_overrides(windows: &HashMap<String, u32>) -> Option<Str
     )
 }
 
-fn read_preferences(app: &tauri::AppHandle) -> Result<Preferences, String> {
-    let path = preferences_path(app)?;
+// B85 / desktop §6.1: all Preferences commands share this in-process RMW owner.
+// This is not a cross-process lock or a transaction with provider-secrets.json.
+static PREFERENCES_LOCK: Mutex<()> = Mutex::new(());
+static PREFERENCE_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-    match std::fs::read_to_string(&path) {
-        Ok(contents) if contents.trim().is_empty() => Ok(Preferences::default()),
-        Ok(contents) => serde_json::from_str(&contents)
-            .map_err(|error| format!("failed to parse preferences: {error}")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),
-        Err(error) => Err(format!("failed to read preferences: {error}")),
+fn preference_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(Some(metadata)),
+        Ok(_) => Err("preferences must be a regular file, not a symlink".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("failed to inspect preferences: {error}")),
     }
 }
 
-fn write_preferences(app: &tauri::AppHandle, preferences: &Preferences) -> Result<(), String> {
-    let path = preferences_path(app)?;
-    let contents = serde_json::to_string_pretty(preferences)
-        .map_err(|error| format!("failed to encode preferences: {error}"))?;
+fn read_preference_value(path: &Path) -> Result<serde_json::Value, String> {
+    if preference_metadata(path)?.is_none() {
+        return Ok(serde_json::json!({}));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("failed to read preferences: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("failed to parse preferences: {e}"))?;
+    if !value.is_object() {
+        return Err("preferences must be an object".into());
+    }
+    // Validate known fields without reserializing the typed projection: unknown nested fields survive.
+    serde_json::from_value::<Preferences>(value.clone())
+        .map_err(|e| format!("invalid preferences: {e}"))?;
+    Ok(value)
+}
 
-    std::fs::write(path, contents).map_err(|error| format!("failed to write preferences: {error}"))
+fn read_preferences_at(path: &Path) -> Result<Preferences, String> {
+    let _guard = PREFERENCES_LOCK.lock().map_err(|e| e.to_string())?;
+    serde_json::from_value(read_preference_value(path)?).map_err(|e| e.to_string())
+}
+
+fn read_preferences(app: &tauri::AppHandle) -> Result<Preferences, String> {
+    read_preferences_at(&preferences_path(app)?)
+}
+
+// Atomic visibility of a complete file, not a power-loss transaction or external-editor coordination.
+fn write_preference_value(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    use std::io::Write;
+    let metadata = preference_metadata(path)?;
+    if metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.permissions().readonly())
+    {
+        return Err("preferences file is read-only".into());
+    }
+    let parent = path.parent().ok_or("preferences parent missing")?;
+    let id = PREFERENCE_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp = parent.join(format!(".preferences-{}-{id}.tmp", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temp)
+        .map_err(|e| format!("failed to stage preferences: {e}"))?;
+    let result = (|| {
+        let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("failed to write preferences: {e}"))?;
+        if let Some(metadata) = metadata {
+            file.set_permissions(metadata.permissions())
+                .map_err(|e| format!("failed to preserve preferences permissions: {e}"))?;
+        }
+        file.sync_all()
+            .map_err(|e| format!("failed to sync preferences: {e}"))?;
+        drop(file);
+        preference_metadata(path)?;
+        std::fs::rename(&temp, path).map_err(|e| format!("failed to replace preferences: {e}"))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+fn update_preferences_at(
+    path: &Path,
+    patch: impl FnOnce(&mut serde_json::Value) -> Result<(), String>,
+) -> Result<Preferences, String> {
+    let _guard = PREFERENCES_LOCK.lock().map_err(|e| e.to_string())?;
+    let mut value = read_preference_value(path)?;
+    patch(&mut value)?;
+    let preferences = serde_json::from_value(value.clone())
+        .map_err(|e| format!("invalid preferences update: {e}"))?;
+    write_preference_value(path, &value)?;
+    Ok(preferences)
+}
+
+fn preference_object<'a>(
+    value: &'a mut serde_json::Value,
+    key: &str,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, String> {
+    let object = value
+        .as_object_mut()
+        .ok_or("preferences must be an object")?;
+    object
+        .entry(key)
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| format!("invalid preferences object: {key}"))
+}
+
+#[derive(Debug, Serialize)]
+struct SavedModelContextWindow {
+    provider: String,
+    saved_window: Option<u32>,
+}
+
+fn saved_context_window_at(
+    path: &Path,
+    provider: String,
+) -> Result<SavedModelContextWindow, String> {
+    let provider = normalize_provider_id(provider)?;
+    let preferences = read_preferences_at(path)?;
+    let saved_window = preferences.context_windows.get(&provider).copied();
+    if saved_window == Some(0) {
+        return Err("saved context window must be positive; preferences were not modified".into());
+    }
+    Ok(SavedModelContextWindow {
+        saved_window,
+        provider,
+    })
+}
+
+fn set_context_window_at(
+    path: &Path,
+    provider: String,
+    window: serde_json::Value,
+) -> Result<SavedModelContextWindow, String> {
+    let provider = normalize_provider_id(provider)?;
+    let saved_window = if window.is_null() {
+        None
+    } else {
+        Some(
+            window
+                .as_u64()
+                .filter(|value| *value > 0 && *value <= u32::MAX as u64)
+                .ok_or("context window must be an integer between 1 and 4294967295, or null")?
+                as u32,
+        )
+    };
+    update_preferences_at(path, |value| {
+        let windows = preference_object(value, "context_windows")?;
+        match saved_window {
+            Some(window) => {
+                windows.insert(provider.clone(), serde_json::json!(window));
+            }
+            None => {
+                windows.remove(&provider);
+            }
+        }
+        Ok(())
+    })?;
+    Ok(SavedModelContextWindow {
+        provider,
+        saved_window,
+    })
+}
+
+#[tauri::command]
+fn get_model_context_window(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<SavedModelContextWindow, String> {
+    saved_context_window_at(&preferences_path(&app)?, provider)
+}
+
+#[tauri::command]
+fn set_model_context_window(
+    app: tauri::AppHandle,
+    provider: String,
+    window: serde_json::Value,
+) -> Result<SavedModelContextWindow, String> {
+    set_context_window_at(&preferences_path(&app)?, provider, window)
 }
 
 // ADR-0027：不可变的待投递消息按作品/会话/身份独立保存，崩溃或刷新不丢原文。
@@ -306,9 +469,11 @@ fn set_last_opened_work_id(app: tauri::AppHandle, id: String) -> Result<(), Stri
         return Err("last opened work id cannot be empty".into());
     }
 
-    let mut preferences = read_preferences(&app)?;
-    preferences.last_opened_work_id = Some(id.to_string());
-    write_preferences(&app, &preferences)
+    update_preferences_at(&preferences_path(&app)?, |value| {
+        value["last_opened_work_id"] = serde_json::json!(id);
+        Ok(())
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -331,22 +496,19 @@ fn set_assistant_display_name(
 ) -> Result<Option<String>, String> {
     let work_id = normalize_work_id(work_id)?;
     let display_name = normalize_assistant_display_name(&display_name);
-    let mut preferences = read_preferences(&app)?;
-
-    match display_name {
-        Some(name) => {
-            preferences
-                .assistant_display_names
-                .insert(work_id, name.clone());
-            write_preferences(&app, &preferences)?;
-            Ok(Some(name))
+    update_preferences_at(&preferences_path(&app)?, |value| {
+        let names = preference_object(value, "assistant_display_names")?;
+        match &display_name {
+            Some(name) => {
+                names.insert(work_id.clone(), serde_json::json!(name));
+            }
+            None => {
+                names.remove(&work_id);
+            }
         }
-        None => {
-            preferences.assistant_display_names.remove(&work_id);
-            write_preferences(&app, &preferences)?;
-            Ok(None)
-        }
-    }
+        Ok(())
+    })?;
+    Ok(display_name)
 }
 
 #[tauri::command]
@@ -370,24 +532,47 @@ fn set_model_provider_settings(
         set_provider_api_key(&app, &provider, &key)?;
     }
 
-    let mut preferences = read_preferences(&app)?;
-    preferences.model_provider.selected_provider = Some(selected_provider);
-    preferences.model_provider.providers.insert(
-        provider,
-        ModelProviderPreference {
-            model: normalize_optional_text(input.model, MAX_PROVIDER_FIELD_LENGTH),
-            endpoint: normalize_optional_text(input.endpoint, MAX_PROVIDER_FIELD_LENGTH),
-            thinking: normalize_provider_thinking(input.thinking),
-            reasoning_effort: normalize_optional_text(
-                input.reasoning_effort,
-                MAX_PROVIDER_FIELD_LENGTH,
-            ),
-            purpose_models: normalize_purpose_models(input.purpose_models),
-        },
-    );
-
-    write_preferences(&app, &preferences)?;
+    let updated = ModelProviderPreference {
+        model: normalize_optional_text(input.model, MAX_PROVIDER_FIELD_LENGTH),
+        endpoint: normalize_optional_text(input.endpoint, MAX_PROVIDER_FIELD_LENGTH),
+        thinking: normalize_provider_thinking(input.thinking),
+        reasoning_effort: normalize_optional_text(
+            input.reasoning_effort,
+            MAX_PROVIDER_FIELD_LENGTH,
+        ),
+        purpose_models: normalize_purpose_models(input.purpose_models),
+    };
+    let preferences = set_provider_preferences_at(
+        &preferences_path(&app)?,
+        &selected_provider,
+        &provider,
+        &updated,
+    )?;
     settings_with_key_state(&app, &preferences.model_provider)
+}
+
+fn set_provider_preferences_at(
+    path: &Path,
+    selected_provider: &str,
+    provider: &str,
+    updated: &ModelProviderPreference,
+) -> Result<Preferences, String> {
+    update_preferences_at(path, |value| {
+        let settings = preference_object(value, "model_provider")?;
+        settings.insert(
+            "selected_provider".into(),
+            serde_json::json!(selected_provider),
+        );
+        let providers = settings
+            .entry("providers")
+            .or_insert_with(|| serde_json::json!({}));
+        let current = preference_object(providers, provider)?;
+        let fields = serde_json::to_value(updated).map_err(|e| e.to_string())?;
+        for (key, value) in fields.as_object().ok_or("invalid provider update")? {
+            current.insert(key.clone(), value.clone());
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -935,6 +1120,313 @@ mod tests {
     }
 
     #[test]
+    fn preference_patch_preserves_unknown_nested_fields() {
+        let guard = TempDir::new("preferences-preserve");
+        let path = guard.path().join("preferences.json");
+        let original = serde_json::json!({
+            "extension": {"future": [1, 2]},
+            "model_provider": {"future": true, "providers": {
+                "splash": {"endpoint": "http://example.invalid", "future": {"mode": 9}}
+            }},
+            "context_windows": {"strata": 32000}
+        });
+        std::fs::write(&path, original.to_string()).unwrap();
+        update_preferences_at(&path, |value| {
+            value["context_windows"]["splash"] = serde_json::json!(64000);
+            Ok(())
+        })
+        .unwrap();
+        let actual: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(actual["extension"], original["extension"]);
+        assert_eq!(actual["model_provider"], original["model_provider"]);
+        set_provider_preferences_at(
+            &path,
+            "splash",
+            "splash",
+            &ModelProviderPreference {
+                endpoint: Some("http://new.invalid".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let patched: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(patched["model_provider"]["future"], true);
+        assert_eq!(
+            patched["model_provider"]["providers"]["splash"]["future"],
+            serde_json::json!({"mode":9})
+        );
+        assert_eq!(
+            patched["model_provider"]["providers"]["splash"]["endpoint"],
+            "http://new.invalid"
+        );
+        assert_eq!(patched["context_windows"], actual["context_windows"]);
+
+        assert_eq!(
+            actual["context_windows"],
+            serde_json::json!({"strata":32000,"splash":64000})
+        );
+    }
+
+    #[test]
+    fn context_window_patch_is_bounded_and_rejects_invalid_input() {
+        let guard = TempDir::new("preferences-window");
+        let path = guard.path().join("preferences.json");
+        assert_eq!(
+            saved_context_window_at(&path, "splash".into())
+                .unwrap()
+                .saved_window,
+            None
+        );
+        for window in [serde_json::json!(1), serde_json::json!(u32::MAX)] {
+            let result = set_context_window_at(&path, "splash".into(), window.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(result).unwrap(),
+                serde_json::json!({"provider":"splash","saved_window":window})
+            );
+        }
+        let original = std::fs::read(&path).unwrap();
+        for bad in [
+            serde_json::json!(0),
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!(4294967296u64),
+            serde_json::json!("64000"),
+            serde_json::json!(true),
+        ] {
+            assert!(set_context_window_at(&path, "splash".into(), bad).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        }
+        assert!(set_context_window_at(&path, "unknown".into(), serde_json::Value::Null).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        set_context_window_at(&path, "strata".into(), serde_json::json!(32000)).unwrap();
+        set_context_window_at(&path, "splash".into(), serde_json::Value::Null).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            value["context_windows"],
+            serde_json::json!({"strata":32000})
+        );
+    }
+
+    #[test]
+    fn persisted_zero_window_is_unreadable_not_missing_and_other_provider_patch_preserves_it() {
+        let guard = TempDir::new("preferences-zero");
+        let path = guard.path().join("preferences.json");
+        let original = r#"{"context_windows":{"splash":0},"extension":{"keep":true}}"#;
+        std::fs::write(&path, original).unwrap();
+        assert!(saved_context_window_at(&path, "splash".into()).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(
+            saved_context_window_at(&path, "strata".into())
+                .unwrap()
+                .saved_window,
+            None
+        );
+        set_context_window_at(&path, "strata".into(), serde_json::json!(64000)).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"context_windows":{"splash":0,"strata":64000},"extension":{"keep":true}})
+        );
+        assert!(saved_context_window_at(&path, "splash".into()).is_err());
+        assert_eq!(
+            saved_context_window_at(&path, "strata".into())
+                .unwrap()
+                .saved_window,
+            Some(64000)
+        );
+    }
+
+    #[test]
+    fn malformed_preferences_are_never_replaced() {
+        let guard = TempDir::new("preferences-invalid");
+        let path = guard.path().join("preferences.json");
+        for invalid in [
+            "",
+            "{",
+            "[]",
+            "null",
+            r#"{"context_windows":{"splash":"64000"}}"#,
+        ] {
+            std::fs::write(&path, invalid).unwrap();
+            assert!(
+                set_context_window_at(&path, "splash".into(), serde_json::json!(64000)).is_err()
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
+        }
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(set_context_window_at(&path, "splash".into(), serde_json::json!(64000)).is_err());
+        assert!(path.is_dir());
+    }
+
+    #[test]
+    fn preference_rmw_rejects_non_object_roots_before_running_patch() {
+        let guard = TempDir::new("preferences-root-shape");
+        let path = guard.path().join("preferences.json");
+        for invalid in ["[]", "[null]", "null", "true", "17", r#""text""#] {
+            let original = invalid.as_bytes().to_vec();
+            std::fs::write(&path, &original).unwrap();
+            // Fail before the locked patch in the red state, so the test cannot poison the owner.
+            assert!(
+                read_preference_value(&path).is_err(),
+                "accepted non-object preferences root: {invalid}"
+            );
+            let mut patch_ran = false;
+            let result = update_preferences_at(&path, |value| {
+                patch_ran = true;
+                value["last_opened_work_id"] = serde_json::json!("work");
+                Ok(())
+            });
+            assert!(result.is_err(), "updated non-object root: {invalid}");
+            assert!(!patch_ran, "ran patch for non-object root: {invalid}");
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        }
+
+        std::fs::write(&path, b"{}").unwrap();
+        let updated = update_preferences_at(&path, |value| {
+            value["last_opened_work_id"] = serde_json::json!("work");
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(updated.last_opened_work_id.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn preferences_concurrent_writers_merge_latest_and_profiles_are_isolated() {
+        let guard = TempDir::new("preferences-concurrent");
+        let path = guard.path().join("preferences.json");
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let mut workers = Vec::new();
+        for index in 0..3 {
+            let path = path.clone();
+            let gate = gate.clone();
+            workers.push(std::thread::spawn(move || {
+                gate.wait();
+                if index == 0 {
+                    set_context_window_at(&path, "splash".into(), serde_json::json!(64000))
+                        .unwrap();
+                } else if index == 1 {
+                    update_preferences_at(&path, |value| {
+                        value["last_opened_work_id"] = serde_json::json!("work");
+                        Ok(())
+                    })
+                    .unwrap();
+                } else {
+                    set_provider_preferences_at(
+                        &path,
+                        "splash",
+                        "splash",
+                        &ModelProviderPreference {
+                            endpoint: Some("http://local.invalid".into()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                }
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        let saved = read_preferences_at(&path).unwrap();
+        assert_eq!(saved.context_windows["splash"], 64000);
+        assert_eq!(saved.last_opened_work_id.as_deref(), Some("work"));
+        assert_eq!(
+            saved.model_provider.providers["splash"].endpoint.as_deref(),
+            Some("http://local.invalid")
+        );
+        for profile in ["dev", "stage", "slice-verify", "release"] {
+            let dir = guard.path().join(profile);
+            std::fs::create_dir(&dir).unwrap();
+            let separate = dir.join("preferences.json");
+            assert_eq!(
+                saved_context_window_at(&separate, "splash".into())
+                    .unwrap()
+                    .saved_window,
+                None
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preference_write_failure_keeps_old_bytes_permissions_and_rejects_links() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let guard = TempDir::new("preferences-atomic");
+        let path = guard.path().join("preferences.json");
+        std::fs::write(&path, r#"{"extension":{"keep":true}}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        set_context_window_at(&path, "splash".into(), serde_json::json!(64000)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let before = std::fs::read(&path).unwrap();
+        std::fs::set_permissions(guard.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let result = set_context_window_at(&path, "splash".into(), serde_json::json!(32000));
+        std::fs::set_permissions(guard.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(std::fs::read_dir(guard.path()).unwrap().count(), 1);
+        let link = guard.path().join("linked.json");
+        symlink(&path, &link).unwrap();
+        assert!(set_context_window_at(&link, "splash".into(), serde_json::json!(32000)).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readonly_preference_file_is_not_bypassed_by_rename() {
+        use std::os::unix::fs::PermissionsExt;
+        let guard = TempDir::new("preferences-readonly");
+        let path = guard.path().join("preferences.json");
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let result = set_context_window_at(&path, "splash".into(), serde_json::json!(64000));
+        let actual = std::fs::read(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(actual, b"{}");
+        assert_eq!(mode, 0o400);
+    }
+
+    #[test]
+    fn colliding_staged_file_is_not_deleted_or_overwritten() {
+        let guard = TempDir::new("preferences-stale-stage");
+        let path = guard.path().join("preferences.json");
+        std::fs::write(&path, "{}").unwrap();
+        let result;
+        let temporary;
+        {
+            let _lock = PREFERENCES_LOCK.lock().unwrap();
+            let id = PREFERENCE_TEMP_ID.load(std::sync::atomic::Ordering::Relaxed);
+            temporary = guard
+                .path()
+                .join(format!(".preferences-{}-{id}.tmp", std::process::id()));
+            std::fs::write(&temporary, "unowned staged bytes").unwrap();
+            result = write_preference_value(
+                &path,
+                &serde_json::json!({"context_windows":{"splash":64000}}),
+            );
+        }
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&temporary).unwrap(),
+            "unowned staged bytes"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
+    }
+
+    #[test]
     fn sidecar_install_requires_marker_and_bin() {
         let guard = TempDir::new("sidecar-install-test");
         let dir = guard.path();
@@ -1208,6 +1700,8 @@ pub fn run() {
             get_assistant_display_name,
             set_assistant_display_name,
             get_model_provider_settings,
+            get_model_context_window,
+            set_model_context_window,
             set_model_provider_settings,
             get_model_provider_api_key,
             get_model_provider_secret_storage_status

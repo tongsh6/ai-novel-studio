@@ -29,7 +29,20 @@ defmodule NovelApplication do
   返回值不包含 API key 等 secret。
   """
   @spec provider_options() :: %{current_provider: atom(), providers: [map()]}
-  def provider_options, do: Gateway.provider_options() |> Presenter.provider_options()
+  def provider_options do
+    options = Gateway.provider_options() |> Presenter.provider_options()
+
+    providers =
+      Enum.map(options.providers, fn provider ->
+        Map.put(
+          provider,
+          :context_window,
+          NovelApplication.ContextPressure.window_info(to_string(provider.id))
+        )
+      end)
+
+    %{options | providers: providers}
+  end
 
   @doc """
   按当前运行时 provider 解析创作执行的上下文组装策略（VS-00C CP1）。

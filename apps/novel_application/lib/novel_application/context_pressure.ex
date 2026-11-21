@@ -3,12 +3,12 @@ defmodule NovelApplication.ContextPressure do
   B71 上下文压力的只读派生边界（阶段 4 基础设施）。
 
   只从真实 `ProviderRun` usage 读取最近一次请求的输入 token 规模，按保守模型窗口计算
-  压力；不写库、不触发压缩、不向作者展示。VS-00L §18 变更提案已 Accepted（2026-11-04），
+  压力；不写库、不触发压缩，窗口运行事实可供设置读取。VS-00L §18 变更提案已 Accepted（2026-11-04），
   生产消费者是 `AgentRunServer` 的安全点自动维护（`maybe_auto_maintain/1`）。
 
   阈值只决定后续维护的触发时机，不决定丢弃范围（VS-00L §16.2）。窗口配置保守偏小，
   宁早整理不冒险；覆盖通过 `:novel_application, :context_window_overrides` 与
-  `:context_pressure` 应用配置，不进入作者界面。
+  `:context_pressure` 应用配置；设置只展示窗口事实，不展示压力或维护开关。
   """
 
   alias NovelPersistence.ProviderRunLog
@@ -82,7 +82,7 @@ defmodule NovelApplication.ContextPressure do
 
   环境变量 `NOVEL_CONTEXT_WINDOW_OVERRIDES` 的格式为 `provider:window` 逗号分隔，
   如 `"strata:4096,openai:8192"`；空项/非法项忽略（不猜测），nil 或全部非法返回
-  `%{}`。覆盖只影响安全点自动维护的压力阈值判定，不向作者展示。
+  `%{}`。覆盖只影响安全点自动维护的压力阈值判定，设置可读取其实际窗口来源。
   """
   @spec parse_window_overrides(String.t() | nil) :: %{optional(String.t()) => pos_integer()}
   def parse_window_overrides(nil), do: %{}
@@ -122,14 +122,32 @@ defmodule NovelApplication.ContextPressure do
   @doc "保守模型窗口（token）；provider 未知时返回保守默认。"
   @spec window(String.t() | nil) :: pos_integer()
   def window(provider) do
-    overrides =
-      :novel_application
-      |> Application.get_env(:context_window_overrides, %{})
-      |> config_map()
+    case window_info(provider) do
+      %{effective_tokens: tokens} -> tokens
+      nil -> raise ArgumentError, "invalid runtime context window configuration"
+    end
+  end
 
-    Map.get(overrides, provider) ||
-      Map.get(@default_windows, provider) ||
-      @conservative_window
+  @doc "同一运行窗口解析的只读事实；非法内部配置返回 nil，不伪造默认生效。"
+  @spec window_info(String.t() | nil) :: map() | nil
+  def window_info(provider) do
+    config = Application.get_env(:novel_application, :context_window_overrides, %{})
+    default = Map.get(@default_windows, provider, @conservative_window)
+
+    overrides = window_overrides(config)
+
+    if is_map(overrides) do
+      case Map.fetch(overrides, provider) do
+        :error ->
+          %{effective_tokens: default, default_tokens: default, source: :conservative_default}
+
+        {:ok, value} when is_integer(value) and value > 0 ->
+          %{effective_tokens: value, default_tokens: default, source: :runtime_override}
+
+        {:ok, _invalid} ->
+          nil
+      end
+    end
   end
 
   @doc """
@@ -199,6 +217,15 @@ defmodule NovelApplication.ContextPressure do
     {Map.get(config, :maintenance_ratio, @default_maintenance_ratio),
      Map.get(config, :hard_ratio, @default_hard_ratio)}
   end
+
+  # 窗口读取不能沿用其它配置的损坏即空 map 策略，否则会伪称默认正在生效。
+  defp window_overrides(config) when is_map(config), do: config
+
+  defp window_overrides(config) when is_list(config) do
+    if Enum.all?(config, &match?({_, _}, &1)), do: Map.new(config)
+  end
+
+  defp window_overrides(_config), do: nil
 
   defp config_map(value) do
     case value do

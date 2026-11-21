@@ -14100,7 +14100,7 @@
                       "fill": "#68625A",
                       "textGrowth": "fixed-width",
                       "width": "fill_container",
-                      "content": "为了保持这次创作始终清晰连贯，系统整理了较早的 12 项已完成操作。",
+                      "content": "为了保持这次创作始终清晰连贯，系统整理了较早的记录：已完成操作 4 项、工作范围记录 3 条、讨论回复 5 条。",
                       "lineHeight": 1.5,
                       "fontFamily": "Inter",
                       "fontSize": 13,
@@ -14809,6 +14809,1440 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "B85A1",
+      "layout": "vertical",
+      "gap": 16,
+      "width": 960,
+      "children": [
+        {
+          "type": "text",
+          "id": "B8032",
+          "content": "B85 · 当前保守默认 / 未设置覆盖",
+          "fill": "#222222",
+          "fontFamily": "Geist",
+          "fontSize": 18,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        },
+        {
+          "type": "frame",
+          "id": "B8033",
+          "layout": "vertical",
+          "gap": 10,
+          "width": "fill_container",
+          "children": [
+            {
+              "type": "frame",
+              "id": "B8031",
+              "layout": "vertical",
+              "gap": 10,
+              "width": 500,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "B8001",
+                  "content": "模型供应商",
+                  "fill": "#222222",
+                  "fontFamily": "Geist",
+                  "fontSize": 18,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "B8002",
+                  "content": "供应商",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8004",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8003",
+                      "content": "Splash  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8005",
+                  "content": "端点",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8007",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8006",
+                      "content": "http://127.0.0.1:8000/v1",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8008",
+                  "content": "模型",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8010",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8009",
+                      "content": "本地模型  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "B8023",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8011",
+                      "content": "上下文窗口",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 16,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8012",
+                      "content": "当前生效：32,000 tokens",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8013",
+                      "content": "来源：保守默认 · 不是模型能力上限",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8014",
+                      "content": "应用覆盖（留空使用启动配置）",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8016",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8015",
+                          "content": "未设置覆盖",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        12
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8017",
+                      "content": "桌面应用下次启动时读取，不会切换供应商。\n清除应用覆盖后，实际值仍取决于启动配置。",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8022",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "B8019",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8018",
+                              "content": "清除应用覆盖",
+                              "fill": "#222222",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#FCFAF7",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "B8021",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8020",
+                              "content": "保存窗口",
+                              "fill": "#FFFFFF",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#171717",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        }
+                      ],
+                      "justifyContent": "end"
+                    }
+                  ],
+                  "padding": [
+                    16,
+                    0
+                  ],
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": {
+                    "top": 1,
+                    "bottom": 1
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "B8030",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "B8025",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8024",
+                          "content": "取消",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8027",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8026",
+                          "content": "测试连接",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8029",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8028",
+                          "content": "保存并切换",
+                          "fill": "#FFFFFF",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#171717",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    }
+                  ],
+                  "justifyContent": "end"
+                }
+              ],
+              "fill": "#FFFFFF",
+              "cornerRadius": 5,
+              "padding": 24
+            }
+          ],
+          "height": "fill_container",
+          "alignItems": "center",
+          "justifyContent": "center"
+        },
+        {
+          "type": "text",
+          "id": "B8034",
+          "content": "交互说明：窗口保存独立于供应商保存；保存中禁重复提交。浏览器不可写；外接服务提示仅供桌面服务下次启动。",
+          "fill": "#666666",
+          "fontFamily": "Geist",
+          "fontSize": 12,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        }
+      ],
+      "name": "46§9.10-context-window-default",
+      "x": 0,
+      "y": 4700,
+      "height": 980,
+      "fill": "#E5E3DF",
+      "padding": 32
+    },
+    {
+      "type": "frame",
+      "id": "B85A2",
+      "layout": "vertical",
+      "gap": 16,
+      "width": 960,
+      "children": [
+        {
+          "type": "text",
+          "id": "B8068",
+          "content": "B85 · 已保存 / 当前尚未生效",
+          "fill": "#222222",
+          "fontFamily": "Geist",
+          "fontSize": 18,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        },
+        {
+          "type": "frame",
+          "id": "B8069",
+          "layout": "vertical",
+          "gap": 10,
+          "width": "fill_container",
+          "children": [
+            {
+              "type": "frame",
+              "id": "B8067",
+              "layout": "vertical",
+              "gap": 10,
+              "width": 500,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "B8036",
+                  "content": "模型供应商",
+                  "fill": "#222222",
+                  "fontFamily": "Geist",
+                  "fontSize": 18,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "B8037",
+                  "content": "供应商",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8039",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8038",
+                      "content": "Splash  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8040",
+                  "content": "端点",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8042",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8041",
+                      "content": "http://127.0.0.1:8000/v1",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8043",
+                  "content": "模型",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8045",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8044",
+                      "content": "本地模型  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "B8059",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8046",
+                      "content": "上下文窗口",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 16,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8047",
+                      "content": "当前生效：32,000 tokens",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8048",
+                      "content": "来源：保守默认 · 不是模型能力上限",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8049",
+                      "content": "应用覆盖（留空使用启动配置）",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8051",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8050",
+                          "content": "64000",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        12
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8052",
+                      "content": "已保存 64,000；当前仍为 32,000。",
+                      "fill": "#8A4B00",
+                      "fontFamily": "Geist",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8053",
+                      "content": "桌面应用下次启动时读取，不会切换供应商。\n清除应用覆盖后，实际值仍取决于启动配置。",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8058",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "B8055",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8054",
+                              "content": "清除应用覆盖",
+                              "fill": "#222222",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#FCFAF7",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "B8057",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8056",
+                              "content": "保存窗口",
+                              "fill": "#FFFFFF",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#171717",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        }
+                      ],
+                      "justifyContent": "end"
+                    }
+                  ],
+                  "padding": [
+                    16,
+                    0
+                  ],
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": {
+                    "top": 1,
+                    "bottom": 1
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "B8066",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "B8061",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8060",
+                          "content": "取消",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8063",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8062",
+                          "content": "测试连接",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8065",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8064",
+                          "content": "保存并切换",
+                          "fill": "#FFFFFF",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#171717",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    }
+                  ],
+                  "justifyContent": "end"
+                }
+              ],
+              "fill": "#FFFFFF",
+              "cornerRadius": 5,
+              "padding": 24
+            }
+          ],
+          "height": "fill_container",
+          "alignItems": "center",
+          "justifyContent": "center"
+        },
+        {
+          "type": "text",
+          "id": "B8070",
+          "content": "交互说明：窗口保存独立于供应商保存；保存中禁重复提交。浏览器不可写；外接服务提示仅供桌面服务下次启动。",
+          "fill": "#666666",
+          "fontFamily": "Geist",
+          "fontSize": 12,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        }
+      ],
+      "name": "46§9.10-context-window-saved",
+      "x": 1060,
+      "y": 4700,
+      "height": 980,
+      "fill": "#E5E3DF",
+      "padding": 32
+    },
+    {
+      "type": "frame",
+      "id": "B85A3",
+      "layout": "vertical",
+      "gap": 16,
+      "width": 960,
+      "children": [
+        {
+          "type": "text",
+          "id": "B8104",
+          "content": "B85 · 运行值未知 / 保存失败",
+          "fill": "#222222",
+          "fontFamily": "Geist",
+          "fontSize": 18,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        },
+        {
+          "type": "frame",
+          "id": "B8105",
+          "layout": "vertical",
+          "gap": 10,
+          "width": "fill_container",
+          "children": [
+            {
+              "type": "frame",
+              "id": "B8103",
+              "layout": "vertical",
+              "gap": 10,
+              "width": 500,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "B8072",
+                  "content": "模型供应商",
+                  "fill": "#222222",
+                  "fontFamily": "Geist",
+                  "fontSize": 18,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "text",
+                  "id": "B8073",
+                  "content": "供应商",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8075",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8074",
+                      "content": "Splash  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8076",
+                  "content": "端点",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8078",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8077",
+                      "content": "http://127.0.0.1:8000/v1",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "B8079",
+                  "content": "模型",
+                  "fill": "#777777",
+                  "fontFamily": "Geist",
+                  "fontSize": 12,
+                  "fontWeight": "normal",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "lineHeight": 1.5
+                },
+                {
+                  "type": "frame",
+                  "id": "B8081",
+                  "layout": "vertical",
+                  "gap": 10,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8080",
+                      "content": "本地模型  ▾",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    }
+                  ],
+                  "fill": "#FCFAF7",
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": 1,
+                  "cornerRadius": 4,
+                  "padding": [
+                    10,
+                    12
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "B8095",
+                  "layout": "vertical",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "B8082",
+                      "content": "上下文窗口",
+                      "fill": "#222222",
+                      "fontFamily": "Geist",
+                      "fontSize": 16,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8083",
+                      "content": "当前生效：暂时无法读取",
+                      "fill": "#A33A31",
+                      "fontFamily": "Geist",
+                      "fontSize": 14,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8084",
+                      "content": "运行服务未返回有效窗口，不能推定默认值。",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8085",
+                      "content": "应用覆盖（留空使用启动配置）",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8087",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8086",
+                          "content": "64000",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 14,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        12
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8088",
+                      "content": "保存未确认，编辑内容已保留。请重新读取已保存状态。",
+                      "fill": "#A33A31",
+                      "fontFamily": "Geist",
+                      "fontSize": 13,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "text",
+                      "id": "B8089",
+                      "content": "桌面应用下次启动时读取，不会切换供应商。\n清除应用覆盖后，实际值仍取决于启动配置。",
+                      "fill": "#777777",
+                      "fontFamily": "Geist",
+                      "fontSize": 12,
+                      "fontWeight": "normal",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "lineHeight": 1.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8094",
+                      "layout": "horizontal",
+                      "gap": 8,
+                      "width": "fill_container",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "B8091",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8090",
+                              "content": "清除应用覆盖",
+                              "fill": "#222222",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#FCFAF7",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "B8093",
+                          "layout": "vertical",
+                          "gap": 10,
+                          "width": 124,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "B8092",
+                              "content": "保存窗口",
+                              "fill": "#FFFFFF",
+                              "fontFamily": "Geist",
+                              "fontSize": 13,
+                              "fontWeight": "normal",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "lineHeight": 1.5
+                            }
+                          ],
+                          "fill": "#171717",
+                          "stroke": "#E5E5E5",
+                          "strokeWidth": 1,
+                          "cornerRadius": 4,
+                          "padding": [
+                            10,
+                            14
+                          ]
+                        }
+                      ],
+                      "justifyContent": "end"
+                    }
+                  ],
+                  "padding": [
+                    16,
+                    0
+                  ],
+                  "stroke": "#E5E5E5",
+                  "strokeWidth": {
+                    "top": 1,
+                    "bottom": 1
+                  }
+                },
+                {
+                  "type": "frame",
+                  "id": "B8102",
+                  "layout": "horizontal",
+                  "gap": 8,
+                  "width": "fill_container",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "B8097",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8096",
+                          "content": "取消",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8099",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8098",
+                          "content": "测试连接",
+                          "fill": "#222222",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#FCFAF7",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B8101",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "width": 124,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "B8100",
+                          "content": "保存并切换",
+                          "fill": "#FFFFFF",
+                          "fontFamily": "Geist",
+                          "fontSize": 13,
+                          "fontWeight": "normal",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "lineHeight": 1.5
+                        }
+                      ],
+                      "fill": "#171717",
+                      "stroke": "#E5E5E5",
+                      "strokeWidth": 1,
+                      "cornerRadius": 4,
+                      "padding": [
+                        10,
+                        14
+                      ]
+                    }
+                  ],
+                  "justifyContent": "end"
+                }
+              ],
+              "fill": "#FFFFFF",
+              "cornerRadius": 5,
+              "padding": 24
+            }
+          ],
+          "height": "fill_container",
+          "alignItems": "center",
+          "justifyContent": "center"
+        },
+        {
+          "type": "text",
+          "id": "B8106",
+          "content": "交互说明：窗口保存独立于供应商保存；保存中禁重复提交。浏览器不可写；外接服务提示仅供桌面服务下次启动。",
+          "fill": "#666666",
+          "fontFamily": "Geist",
+          "fontSize": 12,
+          "fontWeight": "normal",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "lineHeight": 1.5
+        }
+      ],
+      "name": "46§9.10-context-window-error",
+      "x": 2120,
+      "y": 4700,
+      "height": 980,
+      "fill": "#E5E3DF",
+      "padding": 32
     }
   ],
   "variables": {

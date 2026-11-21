@@ -41,6 +41,17 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 - User-visible copy belongs in `frontend/src/lib/copy.ts`.
 - UI components must keep design trace headers when required by project rules.
 
+## B85 模型上下文窗口设置
+
+- [ModelContextWindowSettings.tsx](src/components/ModelContextWindowSettings.tsx)：现模型供应商 Dialog 的窗口配置子区块；只管理本次呈现/请求生命周期，不另建设置 store。运行值来自 provider options，保存值来自同 profile Tauri 命令。
+- [ModelContextWindowSettings.module.css](src/components/ModelContextWindowSettings.module.css)：仅窗口子区块的纵向间距与分隔线，沿用现主题；错误样式复用 Dialog，不改全局弹窗布局。
+- [ModelContextWindowSettings.test.tsx](src/components/ModelContextWindowSettings.test.tsx)：独立异步反例覆盖 current/saved、取消/清除、未知结果重读、迟到隔离与重复提交；受控 hooks 单测不代替真实 React/原生生命周期和滚动验收。
+- [modelContextWindow.ts](src/lib/modelContextWindow.ts) 与 [modelContextWindow.test.ts](src/lib/__tests__/modelContextWindow.test.ts)：窗口事实解码及独立桌面偏好 IPC 的内聚 owner；供现供应商 options 解码与窗口子组件直接消费，不建 store、不复制默认表、不提供浏览器假保存。
+- [modelProvider.ts](src/lib/modelProvider.ts) 与 [modelProvider.test.ts](src/lib/__tests__/modelProvider.test.ts)：保留供应商选项、配置、密钥与测试连接职责，验证真实 options 的窗口字段集成；不再拥有窗口偏好命令。
+- [modelProviderIdentity.ts](src/lib/modelProviderIdentity.ts)：从原供应商 client 移出的唯一前端身份白名单，由供应商 client 与窗口 IPC 两个真实消费者共享，避免循环依赖；原 client 继续公开既有身份出口，无第二注册表。
+
+存在性审核：窗口配置与供应商切换有独立变更理由及保存动作，因此完整移动窗口解码/校验/IPC，而非拆出无用转发或调整规模豁免。身份表只承载这两个现消费者共有的身份契约；运行值仍来自后端 ContextPressure，无前端默认表。
+
 ## B26 / B27 共享入口
 
 - [AuthorQuestionReply.tsx](src/components/AuthorQuestionReply.tsx)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。

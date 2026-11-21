@@ -533,6 +533,51 @@ describe("providerDisplayName", () => {
   });
 });
 
+// B85: desktop saved facts never stand in for backend runtime facts.
+describe("context window boundaries", () => {
+  afterEach(() => {
+    vi.doUnmock("../env");
+    vi.doUnmock("@tauri-apps/api/core");
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+  it("keeps absent/malformed runtime facts unknown and accepts only real facts", async () => {
+    const body = providerOptionsBody();
+    Object.assign(body.providers[0], {
+      context_window: {
+        effective_tokens: 32000,
+        default_tokens: 32000,
+        source: "conservative_default",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }),
+    );
+    const result = await getProviderOptions();
+    expect(result.providers[0].context_window).toEqual({
+      effective_tokens: 32000,
+      default_tokens: 32000,
+      source: "conservative_default",
+    });
+    expect(result.providers[1].context_window).toBeNull();
+    Object.assign(body.providers[0], {
+      context_window: {
+        effective_tokens: 4294967296,
+        default_tokens: 32000,
+        source: "runtime_override",
+      },
+    });
+    expect((await getProviderOptions()).providers[0].context_window?.effective_tokens).toBe(
+      4294967296,
+    );
+    Object.assign(body.providers[0], {
+      context_window: { effective_tokens: 0, default_tokens: 32000, source: "runtime_override" },
+    });
+    expect((await getProviderOptions()).providers[0].context_window).toBeNull();
+  });
+});
+
 describe("PROVIDER_IDS", () => {
   it("keeps the local splash provider selectable in backend-driven options", () => {
     // 本机 Splash 供应商由后端 Gateway registry 注册；前端白名单缺项时

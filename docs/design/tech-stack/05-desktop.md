@@ -326,6 +326,8 @@ sidecar 时读取并注入 `NOVEL_CONTEXT_WINDOW_OVERRIDES`，作为安全点自
 
 当前生效窗口与来源必须由当前 backend 的 ContextPressure 唯一解析器产生，经既有 Application/provider options 读路径提供；默认表是保守运行策略，不是模型最大能力，Rust/TS 不复制默认。读取失败为未知，不以偏好或代码猜值。已保存覆盖仅代表当前 profile 的下次启动输入；二者需要分别展示，不能保存即改写当前生效状态。
 
+既有 provider/options 中每项追加 `context_window: {effective_tokens, default_tokens, source}`；source 只取 `runtime_override` 或 `conservative_default`，default_tokens 来自同一保守解析表，非模型能力上限。缺覆盖键才采用默认，已存在但为0/负数/小数/字符串/false/null的内部覆盖不是合法窗口：该provider返回 `context_window:null`，其他provider继续可读；整份运行覆盖配置结构损坏时全部窗口未知。内部维护的window/1复用同一解析并明确报错，不让非法数值进入压力计算；这显式收紧原false/null被`||`吞成默认的异常配置路径，正常环境解析的正整数链与维护阈值不变。列表仅来自现registry，内部未知provider的保守兜底不授予UI配置资格。该只读响应不含已保存偏好，不触发生效、重启或写入动作。
+
 Preferences 仍是唯一桌面偏好 owner，新增有界命令只 patch 合法 provider 的窗口或删除覆盖，不开放通用偏好写入。现应用进程内全部 Preferences 命令共享串行读取最新文件再合并的边界（不保证任意外部编辑或多个同 profile 进程的竞争），避免窗口与 endpoint 等并发保存互相覆盖；不修改密钥/其他 provider。值遵循现有正整数窗口与 u32 存储约束，未知 provider 拒绝。无 Tauri 的浏览器不模拟本地保存。 同一 owner 内以同目录临时文件完整写入后原子替换，失败保留旧文件；串行边界覆盖最近作品、助手显示名、模型供应商及窗口的全部写者，不借用投递 outbox 锁。现 serde 结构未保留未知字段，不能直接反序列化后重写丢弃用户扩展字段；有界 patch 须保留未触及 JSON 字段（包括嵌套模型配置），解析损坏则拒绝写入，不将其当默认覆盖。
 
 保存不热更新、不自动重启；release sidecar 新启动才消费偏好，debug 外接 backend 不冒充已应用桌面偏好。空覆盖意味着删除桌面覆盖，不保证继承环境也为空：当前来源只反映 backend 实际解析的 override 或默认，不把 override 推定来自桌面偏好；debug 外接服务文案须说明已保存供桌面 sidecar 下次启动、当前服务不会随此更新。profile 沿用启动环境确定，不新增运行中 profile 切换或 backend 身份协议；provider 切换/弹窗关闭后的迟到读取不得串值。重启失败不能把已保存值冒充当前值，多实例 sidecar readiness 仍属 B88，不由本批宣称解决。验收应在隔离 profile 实际退出/新启动后核 env、应用解析与页面一致，且 dev/stage/slice-verify/无 profile release 互不污染。

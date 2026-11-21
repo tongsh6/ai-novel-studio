@@ -4,6 +4,7 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 / §9.9 (候选编辑失败、AgentRun 与动作回执、整理记录细条)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl), 46§9.9-transcript-compaction-inline (fjkkm), 46§9.9-transcript-compaction-expanded (AYpEe)
+import { ModelContextWindowSettings } from "./ModelContextWindowSettings";
 import { AgentRunAnswerPrompt } from "./AgentRunAnswerPrompt";
 import { AuthorQuestionRecord } from "./AuthorQuestionRecord";
 import {
@@ -4860,6 +4861,12 @@ export function WorkspaceChat() {
                       );
                     })}
                   </>
+                )}
+                {modelProviderDialogOpen && modelProviderState && modelProviderDraft.provider && (
+                  <ModelContextWindowSettings
+                    key={modelProviderDraft.provider}
+                    provider={modelProviderDraft.provider}
+                  />
                 )}
                 {modelProviderMessage && (
                   <div className={styles.dialogStatus}>{modelProviderMessage}</div>

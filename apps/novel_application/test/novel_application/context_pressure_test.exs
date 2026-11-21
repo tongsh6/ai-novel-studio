@@ -24,7 +24,7 @@ defmodule NovelApplication.ContextPressureTest do
     :ok
   end
 
-  test "window：默认保守值、未知 provider 兜底、应用配置可覆盖且不向作者暴露" do
+  test "window：默认保守值、未知 provider 兜底、应用配置可覆盖且不改变压力策略" do
     assert ContextPressure.window("deepseek") == 64_000
     assert ContextPressure.window("anthropic") == 200_000
     assert ContextPressure.window("splash") == 32_000
@@ -33,6 +33,34 @@ defmodule NovelApplication.ContextPressureTest do
 
     Application.put_env(:novel_application, :context_window_overrides, %{"deepseek" => 40_000})
     assert ContextPressure.window("deepseek") == 40_000
+  end
+
+  test "window_info：运行来源与保守默认分离，未知 provider 不扩大可配置集合" do
+    Application.put_env(:novel_application, :context_window_overrides, %{})
+
+    assert ContextPressure.window_info("deepseek") ==
+             %{effective_tokens: 64_000, default_tokens: 64_000, source: :conservative_default}
+
+    for provider <- ["splash", "unknown-provider", nil] do
+      assert ContextPressure.window_info(provider) ==
+               %{effective_tokens: 32_000, default_tokens: 32_000, source: :conservative_default}
+    end
+
+    Application.put_env(:novel_application, :context_window_overrides, %{"deepseek" => 40_000})
+
+    assert ContextPressure.window_info("deepseek") ==
+             %{effective_tokens: 40_000, default_tokens: 64_000, source: :runtime_override}
+
+    assert ContextPressure.window("deepseek") == 40_000
+
+    for invalid <- [0, -1, 1.5, "64000", nil, false] do
+      Application.put_env(:novel_application, :context_window_overrides, %{"deepseek" => invalid})
+      assert ContextPressure.window_info("deepseek") == nil
+      assert_raise ArgumentError, fn -> ContextPressure.window("deepseek") end
+    end
+
+    Application.put_env(:novel_application, :context_window_overrides, :invalid)
+    assert ContextPressure.window_info("deepseek") == nil
   end
 
   test "parse_window_overrides：产品化 provider:window 覆盖解析，非法项忽略" do

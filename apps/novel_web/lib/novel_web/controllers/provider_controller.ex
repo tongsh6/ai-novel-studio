@@ -124,7 +124,8 @@ defmodule NovelWeb.ProviderController do
             supports_api_key: provider.supports_api_key,
             supports_endpoint: provider.supports_endpoint,
             supports_thinking: provider.supports_thinking,
-            api_key_configured: provider.api_key_configured
+            api_key_configured: provider.api_key_configured,
+            context_window: provider.context_window
           }
         end)
     }

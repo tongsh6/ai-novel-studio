@@ -8,36 +8,12 @@
 
 import { apiBaseUrl, isTauri } from "./env";
 
-export type ProviderId =
-  | "lmstudio"
-  | "splash"
-  | "strata"
-  | "anthropic"
-  | "deepseek"
-  | "openai"
-  | "openai_subscription"
-  | "minimax"
-  | "minimax_cn"
-  | "zhipu"
-  | "kimi"
-  | "gemini";
-
-export const PROVIDER_IDS: readonly ProviderId[] = [
-  "lmstudio",
-  "splash",
-  "strata",
-  "anthropic",
-  "deepseek",
-  "openai",
-  "openai_subscription",
-  "minimax",
-  "minimax_cn",
-  "zhipu",
-  "kimi",
-  "gemini",
-] as const;
+import { PROVIDER_IDS, type ProviderId } from "./modelProviderIdentity";
+import { normalizeContextWindow, type ContextWindowRuntime } from "./modelContextWindow";
+export { PROVIDER_IDS, type ProviderId } from "./modelProviderIdentity";
 
 export interface ProviderOption {
+  context_window: ContextWindowRuntime | null;
   id: ProviderId;
   label: string;
   /** 作者可读 provider 名；作者可见面用它，不用 label（内部展示名）。 */
@@ -373,6 +349,7 @@ function normalizeProviderOptions(raw: ProviderOptionsResponse): ProviderOptions
           {
             ...option,
             id,
+            context_window: normalizeContextWindow(option.context_window),
             model: normalizeOptionalText(option.model),
             endpoint: normalizeOptionalText(option.endpoint),
             api_key_configured: Boolean(option.api_key_configured),

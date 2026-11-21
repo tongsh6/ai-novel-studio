@@ -78,6 +78,59 @@ defmodule NovelWeb.ProviderControllerTest do
   end
 
   describe "GET /api/provider/options" do
+    test "exposes only current backend window facts and preserves unknown reads" do
+      old = Application.fetch_env(:novel_application, :context_window_overrides)
+
+      on_exit(fn ->
+        case old do
+          {:ok, value} ->
+            Application.put_env(:novel_application, :context_window_overrides, value)
+
+          :error ->
+            Application.delete_env(:novel_application, :context_window_overrides)
+        end
+      end)
+
+      Application.put_env(:novel_application, :context_window_overrides, %{
+        "deepseek" => 40_000,
+        "not-registered" => 77_000
+      })
+
+      body = json_response(get(build_conn(), "/api/provider/options"), 200)
+      deepseek = Enum.find(body["providers"], &(&1["id"] == "deepseek"))
+
+      assert deepseek["context_window"] ==
+               %{
+                 "effective_tokens" => 40_000,
+                 "default_tokens" => 64_000,
+                 "source" => "runtime_override"
+               }
+
+      splash = Enum.find(body["providers"], &(&1["id"] == "splash"))
+
+      assert splash["context_window"] ==
+               %{
+                 "effective_tokens" => 32_000,
+                 "default_tokens" => 32_000,
+                 "source" => "conservative_default"
+               }
+
+      refute Enum.any?(body["providers"], &(&1["id"] == "not-registered"))
+      refute Map.has_key?(deepseek["context_window"], "saved_window")
+
+      Application.put_env(:novel_application, :context_window_overrides, %{"deepseek" => 0})
+      body = json_response(get(build_conn(), "/api/provider/options"), 200)
+      assert Enum.find(body["providers"], &(&1["id"] == "deepseek"))["context_window"] == nil
+
+      assert Enum.find(body["providers"], &(&1["id"] == "splash"))["context_window"][
+               "effective_tokens"
+             ] == 32_000
+
+      assert Application.get_env(:novel_application, :context_window_overrides) == %{
+               "deepseek" => 0
+             }
+    end
+
     test "returns provider registry without secrets" do
       old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
 
