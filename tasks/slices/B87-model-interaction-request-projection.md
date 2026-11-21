@@ -2694,3 +2694,50 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 **阶段文档的最终工程身份出口。** 本节与 NEXT 稳定后，沿原 R06 scope 运行一次确定性 WR01 `wr01-checkpoint-01`，再执行完整 `task-done-checkpoint-01`。实际结果分别查 `R6/native-runs/wr01-checkpoint-01/result.json`、同目录 `binding.json` 和 `R6/task-done-checkpoint-01/result.json` 及其日志指向的 task-completion manifest。这里登记证据出口，不预填终态；结果只签本阶段工程身份，不代签 R06。按已验证精确文件分组正常 commit/push，后续批次再从实际提交 HEAD 开始。
 
 **该出口的实际失败与阶段提交边界。** `wr01-checkpoint-01` 在作者发送前因 `activation_unconfirmed` 退出 1，未形成 summary 或 binding；owner `b6f6d85af9ae9521` 已结束并清理，运行前后源码不变，日志 SHA `918700f34eccad60568655a883414bfcf4ac362a933a659fc1c40c3247ee3c0f`。原生输入原件显示 AX/输入权限有效、目标工作台已加载，激活前后前台均为 `com.apple.SecurityAgent`；现证据只证明系统安全代理占据前台，不能猜成某一种锁屏或认证弹窗。随后 `task-done-checkpoint-01` 实际退出 1：在缺少该 binding 的预检处失败，没有完成本次全量扫描；日志 SHA `9a2fc6b5bac562f58e479a47a51f9c3104ec0661fc81b5cfeb44d20ff2176380`。这是阶段文档身份补验的新增环境阻塞，不能借旧 F0 结果签当前文档全门禁。与已验证 `dd8cd1b3` 相比仍只有本总文档和 NEXT 变化；正常提交仅保存经独审与 NEXT/差异检查的真实状态和调度，不声明 R06 完成。原已通过代码/包/原生证据保持原身份；页面补验等待桌面恢复可交互，R07 仍须形成自己的 scope 和真实验证。
+
+## 18. R07 独立开工与实施前裁决（2026-11-21）
+
+**状态：doing，尚未验收。** 从已推送 clean `2ca4b7d71c5e8b5feac16478d01700b9f6d86779` 开始，分支不变；R06 的 blocked/失败责任见 §17.5。独立审查上下文仅接受本批卡与共享 README，自行核愿景、设计和真实消费者。原 scope 为 `artifacts/slice-verify/b87-r07-20261121/scope.json`，scope_id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；实际 `scope-begin-01` 退出 0、源不变。下文 R7 指该父目录。本节是实施前裁决，不预签代码或行为通过。
+
+### 18.1 七问
+
+| 问题 | 裁决 |
+|---|---|
+| Contract | R07 原卡、VS-00M §6.1/§6.3/§12.1、VS-00L 原生交换/Observation、现 ToolOutputContract/RequestIR/GateOrder/Trace/Replay、AgentRunState 与 TurnResult 关联摘要分责。 |
+| Invariant | 原参数合法接受或按原 call 拒收，不清洗成合法值；Provider 返回、schema 接受、授权、派发、候选、采纳分别记实；0 派发无执行声明；纠错不扩目标/作品/范围/权限/预算；原字节与身份保留。 |
+| Boundary | 现 Common 纯合同/IR、Agent 原生交换/创作适配、Application 判断/候选/Trace/Replay/运行事实投影、现 Web/前端消费者及其测试/外部证据 owner。无 DB 新表/列或权限模式；R08 一般语义、R09 完整效果目录、R17 system 生命周期、R18 专业质量循环保持原归属。 |
+| Consumer | Judgment 原响应→现接收/纠错；Real→Adapter→Assembler→候选/采纳；原 call 结果→三 wire；Gate/实际执行→持久 Trace/Replay→Why；同一 run 的 WS/HTTP→重开状态。 |
+| Proof | 非法操作/字段/双正文/跨作品 refs 原样拒收且有界闭合；真实 chapter_ref 不丢；当时窗口快照与调用次数一致；无派发/失败派发/候选/采纳各有独立事实；恢复不造步数、不授 live 权限。 |
+| Acceptance Driver | 沿现 quality_accept/native_b71_batch/tauri_slice_verify/authoring evidence，真实输入→纠错→候选→Why→明确采纳/恢复；先固定精确反例和窗口，当前 SecurityAgent 前台阻塞保留，不能用内部调用替代页面。 |
+| Exploration | 不增作品实体/探索入口；observed_refs 由当前真实 Base/Observation 按操作派生，目标身份/目录不冒充材料信用；资格校验读取仍使用现合法 reader。 |
+
+### 18.2 存在性审计与删旧
+
+| 设计/对象 | 已查现 owner 与首消费者 | 裁决与退役 |
+|---|---|---|
+| 判断替代操作/目标字段 | JudgmentToolContract、JudgmentDecisionToolContract、AuthoringTaskPolicy 分组、原 Protocol 接收/纠错 | refactor-and-retire：当前 profile/Scope 真实集合校验；目标字段适用性由现动作合同供给。删除 alternative refs 过滤、重复工具名名单、失效字段/近似操作/预算收束旧口号及只护旧口号的镜像断言；无新 registry。 |
+| 共用参数形状校验 | 全库 `rg --files` 与实现/依赖检索未发现 Common/Agent Schema owner 或 ExJsonSchema/JsonSchema；现 JTC.valid?/2 被 Judgment、ChapterMission、AgenticPlan 实际使用，Real 原始接收也需相同子集 | refactor-and-retire：把现有实现下沉到新路径 `NovelCommon.Contracts.ToolArgumentSchema`，全部消费者直接迁移，旧 API删除。只补现 Schema 已用 uniqueItems 与整数边界；反例覆盖原始接收。不建立第二校验器、不因模块行数拆包，不加通用框架或新依赖。 |
+| 原候选 schema/属性/引用 | ToolOutputContract、CreativeItemAttributes、Real、CreativeToolAdapter、ArtifactAssembler、FactInventory、PlotOutlineChapterRef、现采纳事务 | reuse/refactor-and-retire：原 parameters 在重建前闭合，原 content 组合拒收，现 chapter_ref 完整贯通；引用校验进既有 validate_result callback。删除 Real 的 schema 复制、再编码/修 JSON/旧 list fallback、丢引用后重挂及空索引通过；不新建候选工具/DTO。 |
+| 结果恢复快照 | RequestIR 现 typed blocks、Observation、AuthoringTranscript codec、NativeToolExchange、AuthoringSession；三 wire/当前 evidence reader | 两个 truly-new 字段位置 retryable/budget_after，exchange/exploration 仅视图窗口标签；上限/计数/探索 budget 复用现语义。缺当时记录不能由当前 Scope 替代，完整形状和每类来源见 VS-00M §6.3；无新 Response、表、事件或循环。 |
+| 当前工具选择与 canonical 解码 | `RequestIR.Tools` README 已指定目录/当前选择唯一视图；全库只有 AuthoringTranscript 的键白名单、opaque payload 保护和消息/segment 解码，Checkpoint 已承担持久化事务 | refactor-and-retire：原 active_tools/tool_name 完整迁回现 Tools.select/name，保顺序/schema/未知名错误；唯一 decoder 整体迁到纯 `AuthoringTranscript.Codec`，Transcript 恢复编排与 Checkpoint/SessionHistory/Replay/CompactionSummary 直接消费。删旧实现/API，不建第二 parser，不把纯解码塞入存储 owner。 |
+| 工具执行与采纳解释 | TraceWriter 的 TES/PWF/ProseRevision 四个真实调用点、ReplayService、TraceReplayService、现 StateTrace/receipt | refactor：全部生产者传实际 execution_counts；0 调用不标派发。使命/记忆窗口继续原职责，采纳解释按真实持久写入摘要和 receipt，不取任意首 ref；不新建状态或通用 outcome。 |
+| 运行状态的纯共享投影 | 当前只有 WorkspaceChannel 私有 payload/activity 与 ProviderActivityService 删减摘要；已查 AgentRunState/View/serializer 无实现。Finalizer 只管 TurnResult 关联摘要，Presenter 只转作者文本，ProviderActivityProjector 只转 Provider 事件，History/Service 负责 I/O/生命周期 | truly-new 纯实现模块 `NovelApplication.AgentRunState`、`project/1`：仅按现 agent_run_state schema 投影已验证 live run/persisted record。WS/HTTP 是两个当前首消费者，旧私有重复派生退役；Channel 单独补实时事实，HTTP 不声明 runtime_live。无新领域实体、表、API、字段或运行状态；Finalizer/业务摘要职责不变。 |
+| 工具状态展示 | 现 display_names SSOT、生成消费者、traceSummaryView/copy、实际 ToolResult 四态 | 在现 SSOT 增现枚举的 tool_status 显示分类，退役 ok/success 虚拟别名和 run_status 混用；未知表达未知。completed 使用生命周期文案，不发明 goal_outcome。 |
+| 判断操作接收测试 | 现 judgment_protocol_test 兼含大量职责；TestAgenticLoopFixtures 已承接纯 AgentRun/Provider fixture；全库无 judgment_operation_contract_test | truly-new 测试模块只承接原能力 gap/目标字段协议用例并扩独立反例。原纯 input/response/call fixture 移入现 TestAgenticLoopFixtures，由原测试和新测试直接消费；原私有定义退役，真实 Execution/断言留各测试，不新建测试框架。 |
+| 候选 raw 接收测试 | 现 creative_response_acceptance_test 管材料资格、real_test 管请求/模型协议；全库无 creative_raw_contract_test | truly-new 测试模块 `creative_provider/creative_raw_contract_test.exs`，直接穿原 native 接收/纠错及 Raw→Adapter/Assembler；其它 common/应用测试复用原 owner，不增 runner。 |
+| 回执/投影/解码测试归属 | 现 AuthoringSessionProviderCallCountTest 专测真实次数；NovelTest.TestRequestIR 已有纯 IR 构造器；全库无结果 envelope 专属投影测试和 CodecTest | 复用前者承接两条 exchange 窗口/未知预算用例；七字段三 wire 完整矩阵及专用 helper 迁入新 ToolResultProjectionTest；原 JSON 往返、opaque/key/ref/损坏拒收组整组迁入新 AuthoringTranscriptCodecTest，材料/Scope 组装留原整合测试。每组只保一份，不删断言或改 expected，不新建 fixture 框架。 |
+
+新增生产领域实体/工具/HTTP API/数据库 schema 为 none；新增生产实现位置为共享的纯运行投影、既有参数校验器的低层归位和唯一 canonical 解码叶；新增测试位置对应原始接收、工具结果投影与解码的实际责任。规模门禁发现的五处增长以完整职责归位解决，优先复用现 owner，不以按批次切文件、压行或提高 baseline 过关。上述归位在实施前经全库存在性和真实消费者审查；若发现其它必要新增对象，必须先在本节补审。
+
+原始字段审计纠正：`skeleton_field/value` 属于既有 FactInventory 的 `work_skeleton_suggestion` 包装，不能以测试把它授予 `world_rule_seed`；新增 raw 正例已改为真实支持字段，并增加非法 carrier 反例。该事实修正不改变历史 red 原件或生产类型目录。
+
+### 18.3 可 review 实施组与验证边界
+
+1. **G1 判断操作合同**：原样拒绝非法 alternatives、能力/目标字段组合；描述和校验同源；统一两次判断窗口并移除按错误码的额外第三次；退役已冲突/无消费者操作文本。通用 schema 解释器只处理经实际漏收反例证明必需的现关键字，不新造完整引擎。
+2. **G2 候选原参数与章引用**：闭合现 raw/root/item/companion/self_report，双正文整次拒收，原字节和已有字段保真；真实作品索引校验进入原交换，Raw→内部 item→候选→采纳均保同 ref。普通章不存在/跨作品不能转成新章；历史 B28 的个案根因与数据修复不由本组代签。
+3. **G3 真实结果回执**：既有 block 保存实际纠错/消耗快照，三个 wire 共用七字段投影，checkpoint/恢复及全部现 evidence/cost reader 同批迁移；passed 不变成执行，局部观察不变成全文。缺证 null 明示，不用新系统词表修复 R06 作者说明。
+4. **G4 真实状态与恢复**：四个 Trace 生产者、Replay 全部采纳判断、WS/HTTP 和前端状态视图完整迁移；真实 0 调用/失败调用、使命非采纳、真实采纳、晚到恢复/跨作品/控制权限分别验证。后台派生维护和质量循环保留原职责。
+
+各组先写独立预期的真实接收/集成负例，冻结测试树后集中红测，再并行实现无冲突文件；最终统一相关回归、全量后端/前端/Node、I1/I2/I3/N-NARR/I-CACHE、三 wire/真实 SSE、静态扫描与构建身份。测试期望不取被测实现生成，fixtures 不伪造生产事实；退出码、失败原件与源身份逐次保留。
+
+真实页面复用现 WR02 入口验证候选未采纳、Why 工具状态和重开进度，再沿现外部作者采纳动作验证真实 receipt；零派发与纠错终局须从真实 UI 可达的独立输入/测试 Provider 刺激证明。正式窗口执行前冻结源、输入/seed、目标、预算和独立目录；本节尚未登记或消费任何 R07 Splash 批次，不使用 R06 预算。当前桌面前台阻塞只影响原生验证，不影响已授权的设计、实现与无 UI 机制门禁；未补全强制页面与原 scope 工程出口时，R07 保持 NOT PASS。经验证的完整实现组按用户授权正常分组 commit/push，阶段提交不等于批次签收。

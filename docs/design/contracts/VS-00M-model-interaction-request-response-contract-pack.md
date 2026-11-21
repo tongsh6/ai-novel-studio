@@ -276,7 +276,7 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 
 **交换预算与实际消耗**：沿VS-00L §16.7保留两种已有语义：provider_call_budget为本次操作允许的上限，execution_counts为session记录的实际消耗。Writer的接收纠错属于同一NativeToolExchange，不在外层再开循环；TurnExecutionService的trace预算须消费该既有交换owner返回的有效上限，不能仅因存在Provider回调就写成1，也不能把实际重试次数回填预算。一次成功与两次纠错可有相同允许上限、不同真实消耗；原始调用身份各自保留。运行流程统一通过现AuthoringSession的实际计数投影消费trace_summary.execution_counts，不再从trace预算求和或按工具名猜成1；五份预算求和副本、角色设计硬编码与确认流程的局部getter收敛到该唯一投影。缺失实际消耗不以预算补造，AgentRunServer仍按实际步增量与真实Provider事件下界累计，不改运行累计owner。
 
-**引用与错误**： `alternative_operation_refs` 必须为真实 capability ID，描述去 `author_reasoning`；`used_refs ⊆ base_refs ∪ observation_refs`；不允许跨作品伪引用、未查实空列表、无 call_id 的假 Observation、tool 伪 XML、同一调用仅局部闭合。不合法必须拒绝/明确失败与必要可恢复状态，不能吞掉错误或绕过门禁。
+**引用与错误**： `alternative_operation_refs` 必须为本轮现能力、实际开放探索或当前 profile 判断工具中的真实操作 ID，描述去 `author_reasoning`；`used_refs ⊆ base_refs ∪ observation_refs`；不允许跨作品伪引用、未查实空列表、无 call_id 的假 Observation、tool 伪 XML、同一调用仅局部闭合。不合法必须拒绝/明确失败与必要可恢复状态，不能吞掉错误或绕过门禁。
 
 ### 6.1 输出通道与工具结果的硬约束
 
@@ -338,6 +338,47 @@ whole 允许合法压缩重复和改变自然段结构，取消源/候选重分�
 迁移完真实消费者后，删除 `replacement_pieces/2` 的空行映射、旧逐 ID 单自然段限制、`LocalizedRevision.validate/3` 的全文重分段等数量路径、半长度门及仅服务退役入口的私有函数/专属测试；不得保留新旧双入口、按协议版本兼容接受或无调用门面。纯分段/页坐标、真实目标与 hash 校验、正确窄选、未选字节保留和原子回滚责任保留。模块规模沿现脚本实际 ratchet（max(30, 5%)）和原登记验证，不提高门槛；优先净删旧算法，不能压行或删必要注释凑数。如仍需职责拆分，先查重和审核真实独立责任，不增 baseline 迁就实现。
 
 **前向版本。** 标准化 creative items 输出统一采用 `tentative_artifact_v2`，由现 `ToolOutputContract.creative_output_contract_ref/0` 的窄纯 getter 单源提供；该 getter 是本次经存在性审查的新增 API，不是新实体或版本平台。Registry 仅把它用于输出声明，CreativeToolAdapter、FactInventory 及 Builder 的通用输出消费者取同源值；Common 不反向依赖 Domain/Application，getter 不访问 Registry。prose 专有期望输出采用 `prose_writing_v2`，在现 AuthoringTaskBuilder 以一个私有定义供 prose/chapter-revision 复用。Registry 的 `input_contract_ref=prose_writing_v1` 仍表示原输入职责，不做同字串批量替换。本轮还独立纠正 Judgment 的 target_segment_ids 字段语义：确定性存储片段不是一句话或文学自然段；若要保留锚句而改同块重复，仍须选择该块并在 body 保留锚句。该 JTC owner 语义变更前向采用 `b26-tools-v5`，不是因 prose v2 连带升版；Policy `b27-task-v4` 与 Common v6 的自身职责未变，保留原版本；不新增 output_schema_ref 真源。所有当前输出生产者、引用和直接测试同批迁移，既有历史 snapshot/原批请求/§16.31 当时版本事实保留，不因新版本回写。
+
+### 6.3 R07 原始工具接收、结果回执与执行事实（实施前裁决）
+
+本节只前向收束现役判断/候选接收、原生结果投影及真实执行/采纳状态；不新增工具、响应主模型、权限模式或重试环。候选 JSON 包仍是其原 source_mirror，不提升为生产第二真源。所有当前消费者同批迁移；历史 Provider/Canonical/原批次证据保持原样，不回写成新合同。
+
+**判断操作与引用。** `alternative_operation_refs` 只能包含本轮真实可建议的操作 ID：现能力集合、实际开放的探索工具集合和当前 profile 的现判断工具；各集合仍由原 owner 提供，不新增总 registry。未知名、带说明的 ID、当前 profile/Scope 不开放项按原 call 拒绝，原参数完整留证；删除过滤后接受和重复工具名常量。execute 的目标字段由现 `AuthoringTaskPolicy.artifact_capabilities/1` 分组派生：pending/adopted/character_profile 分别仅使用 `pending_artifact_ref/adopted_content_ref/character_ref`，其它能力不提供这些字段；不适用字段不提交，包括 null。目标存在性、作品/版本、已读材料和范围仍由对应现 owner 核验；合法字段组合不授予执行或采纳权限。描述与组合校验共用现 `JudgmentDecisionToolContract`，前向判断合同为 `b26-tools-v6`，无旧版接受分支。
+
+`observed_refs` 是按具体操作由真实 Base/当前可用 Observation 派生的目标资格概念，不新建平行引用账本。领域目标 ID、材料来源 ref、observation_ref、provider_call_ref 各保职责；目录可发现不等于详情已读，新建对象也不伪造旧观察。旧 `judgment_output_text` 中失效字段、近似操作口号、与现 schema/能力效果相冲突的重复规则同批退役，既有工具定义与任务规则承担其原职责；跨角色 system 生命周期仍归 R17。
+
+结构形状校验复用现 `JudgmentToolContract.valid?/2` 的实际实现并下沉为 `NovelCommon.Contracts.ToolArgumentSchema.valid?/2`。全库审计未发现 Common/Agent 现役 Schema owner 或 JSON Schema 依赖；现 ChapterMission、AgenticPlan、Judgment 已消费此校验器，新增的 Real raw 接收同批复用低层实现。删除原 Application API并迁移所有真实调用，不保留转发兼容层；只支持已有 type/properties/required/additionalProperties/items/minItems/minLength/enum/anyOf/uniqueItems/minimum/maximum 子集，按新独立反例补齐已声明的唯一项及整数边界。UUID/ref/目标权限继续由领域 owner 核验，不扩建完整 Schema 引擎。
+
+**候选原参数闭合。** 复用 `submit_tentative_artifact`。根仅接收 `items/companion_artifacts/self_report`；item 公共字段为 `item_id/title/body/rationale`，现专属字段为 `target_segment_ids/line_break_changes/chapter_ref/narrative_role/role/aliases/memory_subtype/planned_reveal/resolution_target/resolved_at_seq`；companion 另带现 `artifact_type`，限当前四类；self_report 仅 `assumptions/intended_reader_effect/used_context_refs/risk_flags`。嵌套对象同样 closed，类型/枚举沿现 Foundation/ToolOutputContract/CreativeItemAttributes；字段适用性按实际 artifact type/task 核验。应用派生的 `provider_call_ref/quality_action` 不作为模型输入字段。
+`skeleton_field/skeleton_value` 的现真实消费者是 FactInventory 的 `work_skeleton_suggestion` 包装，不属于当前 creative artifact 或四种 companion；内部 normalize 保留其原职责，普通 world_rule_seed 等 raw creative 类型不能借此新增 carrier。
+
+原生响应 content 只允许 nil/空串；纯空白仍为非空，不能与候选工具正文同返。未知键、坏 self_report 形状和非法引用在 Real 重建前整次拒收，原 call 闭合后沿原 NativeToolExchange 纠错。原已解码 arguments 不再 encode→修 JSON/去 fence→parse；公共 item 校验仍服务内部产物和 FactInventory 的不同包装职责，不建立双 parse 兼容。候选标题/正文/说明保持原字节，内部来源字段只由应用真实注入。
+
+现 `item.chapter_ref` 已有 Adapter/采纳消费者，必须从原响应到内部 item、Assembler、pending 与采纳事务完整保持；取消丢掉后按旧结果重挂。非空引用须属于本次可信作品索引；索引缺失或可信空索引均不能给非空引用授信，错误引用不退回按 title 新建。校验经现 executor options 进入原 NativeToolExchange 的应用 validator，错误在候选发布前纠正；删除成功返回后的失败改写。最终采纳时继续执行现 work/对象/版本事务校验，不因预检而取消 freshness。
+
+**七字段只作原生结果投影。** canonical `observation/validation_result` 继续是唯一结果事实；既有 `RequestIR.Projection.structured_content/1` 为三 wire 派生以下七键。外层各自保留原生 call 关联，不改变 Chat/Responses/Anthropic 的消息或 SSE 协议。
+
+| 字段 | Observation | validation_result |
+|---|---|---|
+| ok | status 为 ok/partial/truncated 时 true，unavailable/stale 时 false | 仅 passed 为 true |
+| data | 原 type/status/source_refs/versions/coverage/omissions/next_offset/content | 原 type/status/reason_code/detail，含原授权与 Canon 标记 |
+| error_code | 成功 null；失败取实际结构状态 | 成功 null；失败取原 reason_code |
+| message | 正常 null；失败可取真实 content.summary，无则 null | 仅取实际 detail.message，无则 null |
+| retryable | 当前直接探索无自动重试，实际 producer 写 false | 实际纠错分支供给；成功或终局 false；无历史事实 null |
+| observation_ref | 仅真实 content.observation_ref；无则 null，不借任一聚合叶身份 | 恒为 null |
+| budget_after | 当时已有探索窗口快照；无则 null | 当次交换真实上限/消耗快照；无则 null |
+
+data 保留原 typed 结果，排除外层已有 call_id 和以下快照字段；partial/truncated 不被提升为全文信用，校验 passed 不变成执行/采纳成功。三 wire 当前 evidence reader 同批消费新 envelope，不保留旧 wire 双解析或补签历史证据。
+
+**仅新增的事实位置。** 现结果块增加 `retryable: boolean|null`、`budget_after: map|null` 两项当时快照；没有等价历史字段，当前 Scope 无法证明过去消耗，故不得从最新 Scope 补算。budget_after 以 `{exchange: {provider_call_budget, provider_call_count}}` 明示本次交换窗口，或以 `{exploration: 原 ExplorationPolicy.budget 值}` 明示实际探索窗口；两者不当成 run 总剩余额度。均由原实际 owner 在结果发生时供应，缺值/null 表示没有证据，不能伪填 0。
+
+现 RequestIR 构造器、AuthoringTranscript 和 codec 透传这个纯 receipt_context；不建 DTO/表/新 Schema 文件。Native 在拒绝处只计算一次有效重试决定（错误可重试且真实 count 未达 max_calls），回执与是否继续消费同一决定；finish 透传已有 `provider_call_budget` 语义，AuthoringSession 最终闭合原 pending call 时消费真实 limit/count，retryable=false，不另开循环。Judgment 统一沿现 `@max_attempts=2`，删除按特定错误码额外第三次的分支；成功/失败/终局快照与实际调用分支同源。没有工具 call、传输失败、零预算时不能造假工具结果或 Observation。
+
+**现职责归位。** 当前工具选择整体归回已有 `RequestIR.Tools`：原目录顺序、schema、名称读取和未知名称错误保持，由其 `select/2`、`name/1` 单源供应，删除 RequestIR 私有重复实现。现 canonical JSON 解码只有 AuthoringTranscript 一份；将完整键白名单、opaque payload 保护、递归归一及形状/ref 校验移至纯叶 `AuthoringTranscript.Codec`，由 Transcript 的恢复编排和 Checkpoint/SessionHistory/Replay/CompactionSummary 的真实恢复消费者直接调用；原 decoder 和旧归一入口删除，不留双 parser。Checkpoint 继续负责存储、事务和版本外壳，Codec 不持有新事实或 I/O。该归位使 receipt 往返沿同一实现闭合，不扩展历史协议接受范围。
+
+**真实执行与恢复。** 原 ToolResult 的 succeeded/failed/partial/cancelled 是工具结果枚举，UI 显示名按该枚举映射；未知值表达未知。运行 completed 只表达该轮生命周期结束，不代表目标完成或已保存。TraceWriter 的全部现生产调用者必须传真实 execution_counts，tool_calls=0 时不记 tool_dispatched/tool_execution_completed；Gate 已允许、预检失败、真实派发后失败分别保留事实。
+
+使命/材料窗口 ref 不能证明采纳；Replay 的缺证判断、状态链、说明和采纳回答均选择带真实持久写入/采纳字段的既有摘要，并保留实际 receipt 绑定，不依赖数组首项。运行恢复读取已持久 AgentRun 的 completed_step_refs/pending_artifact_refs/plan/status；WS 与既有 HTTP activity 同源投影到现 AgentRunState 合同，业务 TurnResult.agent_run 仍仅为关联摘要。恢复不能补造完成步数或 live 权限，旧摘要不能覆盖较新的运行事实。后台派生维护仍按原策略与来源记录，不把它当本轮候选已采纳。
 
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 
@@ -429,10 +470,10 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 | 第二 Request/Exchange/ModelInteraction 主模型 | VS-00L §4/§16.1、ADR-0035 决策 1/2；候选规范 §2 明确 Exchange 只是离线容器 | **禁止**新建平行聚合/存储/控制环；候选四层视图只能映射现役事实。R02 在现役 IR 细化，不能照搬候选 Request 顶层替换主链 | Judgment/专业创作 |
 | Scope 的事实/来源/覆盖结构化 | VS-00L §19.2 已区分 application_base/scope_update/author；候选 Source/Material 是建议表达 | **修改现役归属**，R02 逐字段对账、明确版本与全消费者迁移后实施；保持作者原文独立，不制造 Observation；不另建 ContextBlock 总线 | ContextAssembler → JudgmentProtocol → RequestIR |
 | 纯讨论或旧 Scope 的显式覆盖 | VS-00L §16.2 要求非空 `covers.call_ids`；`RequestIR.Compaction.require_call_ids/1`、`project/1` 只选择 assistant/tool 的交换 ID；ADR-0035 决策 3/4/10 | **2026-11-15 R03 工程裁决已写入 VS-00L §16.2.1 / ADR-0035（实施仍见 B87 §14）**：复用真实 run/message 坐标、唯一 covers 与已绑定模型来源的纯讨论摘要，保留作者原文/当前范围/未解义务，精确原文通过现有探索链回查；所有三 wire/恢复/事件/验收同批迁移。禁止只去 Scope 代签纯讨论、伪 call_id、turn_range 截断或第二压缩器 | SessionHistory/Compaction/Replay/三 wire |
-| `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **R05 现役归属已明确**：按 §6/§6.2 复用 `submit_tentative_artifact` 及原生有界纠错，不新增或双注册同义工具；本裁决不代签 R07 的其余输出治理 | NativeToolExchange/ArtifactAssembler |
+| `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **R05 现役归属已明确**：按 §6/§6.2 复用 `submit_tentative_artifact` 及原生有界纠错，不新增或双注册同义工具；R07 原参数闭合、content 唯一性、现 chapter_ref 保真及原交换内作品校验按 §6.3 前向实施，历史源镜像不提升为生产真源 | NativeToolExchange/ArtifactAssembler |
 | `change_reason`/`coverage_note`/`paragraph_only` 与 `rationale`/`target_segments` | 候选包 §4.3、§7 的建议字段不等于现役事实；I1/N-NARR 与现 rationale 原文约束保持 | **R05 必要字段已前向裁决，见 §6.2/B87 §16.34**：保留原 rationale；仅新增 item.target_segment_ids 与 action.payload.edited_items 两个位置，复用原 body 和 scope/effect，不新增同义说明、patch 正文或 region_changes。观察 coverage_note 原职责不变；R07/R08 其它未决项不据此签完成 | Writer/局部修订/作者编辑/采纳 |
-| 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **修改现役契约前先对账**；R07 为各结果类型给出七字段来源及不适用值、原 call_id 与重试语义，保留验证≠授权≠执行≠采纳，不新建一套响应事实。校验反馈不得伪造 observation_ref | Judgment correction/三 wire/Replay |
-| target / source / observation 引用混用 | 候选规范 §4.3 区分 scope.refs、material_refs、observation_ref、provider_call_ref；§6 约束 used_refs | **保持分界并澄清集合**；R07 冻结 `observed_refs` 的来源与覆盖含义，不能拿目标 ID 或“可读取”冒充已读，也不能把 observation 身份与领域目标 ID 作字符串集合比较；真实 Base 与真实观察分别校验 | Ref 校验/修订目标范围 |
+| 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **R07 前向裁决见 §6.3**：现 canonical 增当时 retryable/budget_after 快照，三 wire 只派生七字段；现 call 关联、原 typed data 和结果种类保留，无观察不造 observation_ref，无历史预算不补值；无平行响应实体 | Judgment correction/三 wire/Replay |
+| target / source / observation 引用混用 | 候选规范 §4.3 区分 scope.refs、material_refs、observation_ref、provider_call_ref；§6 约束 used_refs | **R07 按 §6.3 保持分界**；`observed_refs` 由现 Base/Observation 按操作派生，现 chapter_ref 在接收/候选/采纳链保真并核当前 work，不能拿目标 ID 或“可读取”冒充已读，也不能把 observation 身份与领域目标 ID 作字符串集合比较；真实 Base 与真实观察分别校验 | Ref 校验/修订目标范围 |
 | `decision` 派生结构 | 已有 Judgment/AgentPlan/ToolResult/DecisionTrace；候选 Outcome 是观察视图 | **复用现有结果和 trace**；是否需要新字段以真实 caller 为准，禁止新建决策器/持久 Decision 真源；Provider HTTP 不新增自定义顶层业务字段 | JudgmentProtocol → Orchestrator |
 | 四种权限模式/委托/full 自动采纳 | ADR-0033/0035 保留 tentative-first、无模型 adopt/canon_write；VS-00M §7 是拟冻结目标 | **待产品语义及持久生命周期裁决**；模式选择不是任意对象采纳授权。R09–R16 在现存 gate/receipt/事务上补齐，R11/R14 必须证明签发、继承、撤销、到期、并发和范围；未批准前保持现役采纳边界，不能把 map 字段当已实现委托 | 作者设置 → Gate → Adoption |
 | 自动采纳对象与批准主体 | ADR-0020 明确禁止自动采纳/递归修订；32 §5.1/§11.1 固定当前作者批准主体，§13.1 仅允许 LOW maintenance 进入自动采纳候选，HIGH/CRITICAL 仍人工，且不增第八种 adoption 状态 | **待冻结裁决**；R14/R15 必须对正文/修订/维护分别审查委托是否形成合法例外，保留 sibling、只读 evaluator、一次动作边界及真实审计主体。不能以“已有 auto_adoption_hint”推定 full 已合法，也不能直接删原保护测试 | ProseRevision/maintenance/ApprovalAudit/Adoption |
