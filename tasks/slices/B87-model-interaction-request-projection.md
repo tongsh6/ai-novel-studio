@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收，历史模型质量与缺证不倒签。R05 材料链及必要消费者修复已分组提交，当前按 §16.1/§16.39 收束应用责任、复审章修订的双重语义解释并核实际剩余缺口与工程出口；仍为 doing，未签 PASS。六场景原始结果、22 次 Provider 调用与成本对照保持，正确充分供给后的模型语义/文学观察按 R08/R18/R19 承接；不增设总请求字节下降门槛。R06–R19 尚未完整验收，提前完成的局部依赖不代签后续批次；远端 CI 与既有全仓质量缺口按原责任保留，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。下一独立入口 R06，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -1768,7 +1768,7 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 
 **交接。** 实施checkpoint为50e02d8d，原109项WIP逐字保留。下一批R05必须新独立上下文，先读AGENTS、project-operating-profile、NEXT、共享README、R05卡、VS-00M与本节，再按愿景→七问/存在性审核→独立反例推进现役Judgment/Explore/专业Task Base；不因为已有代码或R04 PASS就免审R05真实消费者。R06–R09既有开放反例保留，B85继续暂停。此会话不滚动实现R05，不push。
 
-## 16. R05 最小可信 Base 与按需作品材料（2026-11-18 启动；2026-11-19 原生权限阻塞）
+## 16. R05 最小可信 Base 与按需作品材料（2026-11-18 启动；2026-11-21 应用签收）
 
 ### 16.1 独立开工、判据与存在性审计
 
@@ -1797,7 +1797,7 @@ C prun_mwlnfwpo_jn5/pcall_mwlnfwpo_jn4：04:56:53.398Z原正文前缀交付并�
 | Writer作者来源 | TurnExecutionService与Real独立author消息 | refactor-and-retire候选：context_text仍拼作者原文及全DialogueContext，需要核现役消费者，不能删除真实必要材料。 |
 | 新Packet/Router/表/工具/事件/配置 | 现RequestIR/Scope/Observation足够 | reject；无新增模块、第二事实账本或关键词路由。 |
 
-本节是执行前判据，不是完成声明；真实反例、必要设计细化、验证及剩余责任继续在本节记录，完整R05尚未签收。
+本节保留执行前判据；后续实现、原始失败及验证按实际发生记录，当前应用签收和最终工程出口见 §16.39。
 
 ### 16.2 独立复核后的责任裁决与接续（2026-11-18，实施前）
 
@@ -2516,7 +2516,7 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 | `segment-author-input-mechanical-final-delta-review-01/review.json` | `97c779768639098911bb43f836dd29b3f3e297525c9162da545f1b2186b25236` |
 | `style-chapter-author-input-proposal-07-independent-review-01/review.json` | `f73275c0cdfc3c3a7487140bb6d523d3632d058152d580eabb17c2a2804aa698` |
 
-### 16.39 全量静态复核与同输入请求字节实测（2026-11-21，R05仍doing）
+### 16.39 全量静态复核、请求成本与 R05 应用签收（2026-11-21）
 
 **08失败与精确处置。** `full-static-08` 真实执行21个扫描入口，20项原始退出0、gitleaks原始退出1，入口零跳过；8项finding为6 false_positive、1 accepted_risk、1 pending，blocking=1，整体退出1。唯一pending是 `scripts/native_b29_evidence.test.mjs` 故意把换行改为空格的原文回放负例；原07在428行，前置region fixture增加两行后在430行。ROOT与独审核对从旧HEAD18932283到当前的55行test invocation逐字相同；正常提交 `f88921bf142bc1bb770f7b6a18986de71fd08e55` 只迁移已有ledger记录的精确fingerprint，未改其他处置、baseline、scanner或测试，未push。08的failed及原件保留，不倒签。
 
@@ -2540,11 +2540,35 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 
 **计量与独审边界。** Writer对是固定Judgment直接execute到Writer、无前置探索，不能代签原生多页探索后整条请求的材料唯一性。raw_http_bytes为空，未测Provider Token、延迟、缓存收益或模型/文学质量；固定响应只闭合真实生产请求构造，不等于before实模对照。B独审 `REC/cost-final-03-independent-review-01/review.json`（SHA `d01182b0f2bb54a39db26cccc8193a24067feb116fe7c28d42ef89919af1db55`）仅签配对、来源与构造证据；pair status=pass不签收益、模型语义或R05。
 
-**后续与当前责任裁决。** 依据 §16.1 的前向边界，R05 继续核最小底座、可发现取材、实际观察回流、完整专业基线、结构化修改范围与真实作者交付。首先纠正章修订依赖中文规则再次解释作者原话的产品路径，并核当前修复后的首消费者及必要工程/原生证据；不能以 7 paired 或局部单测关闭任务。工具说明的必要性与重复负担按现 owner 审查，实际成本增长照实保留；没有“总 JSON 字节必须下降”的新增 PASS 门槛，完整目录同源、后续协议清理及最终 A/B 各按 R09/R17/R19 原任务推进。
+**当前应用签收（2026-11-21）。** 按 §16.1 的原应用目标，结合 §16.35 六类场景的材料事实、`semantic-supply-causal-review-01` 的因果复核，以及本次受影响消费者的真实补证，R05 应用范围 PASS。可信统计直接供应、角色/正文/计划/文风详情可发现和续读、真实观察进入后续请求、专业完整基线、used refs、版本与 accepted/tentative 边界均已在各自消费者核账。旧六场景的 22 次 Provider 调用与各 FAIL/partial 保持；不把“本次应用签收”写成这些原批次全部通过，也不重跑六场直到模型回答全对。
 
-§16.35 的结果不改签：count-08 的 2/1/1 来源正确，多报真实字数属于格式服从观察；role-05 的排他暗示先核应用事实/能力规则，若正确供给仍误判则交 R08，目录事实错误仍回对应应用 owner。G2/whole 的计划预览过度断言必须先核 partial/omissions 与完整详情的可发现续读；应用虚标完整或断掉材料仍属 R05，正确边界已供应后的模型越界判断由 R08、专业质量由 R18/R19 承接。whole 的真实裁切、style 的 Writer 前 incomplete_scope 及当前范围实现风险不能以语义重新归属豁免，只能用对应修复和实际消费者证据核账。
+**章修订根因与退役。** `636d526d7bd98e0a75e3eae81ceef79b8bc48856` 以一个可运行的 20 文件协议组贯通 Judgment → Scope → PendingArtifactWorkflow → Writer，并删除 497 行 `ChapterRevisionAuthorInput`。不再由中文解析器第二次解释作者意图；现 Judgment 合同的 `modification_scope` 直接消费 `AuthoringTask.modification_scopes/0` 唯一枚举，应用只核结构、真实已读片段、目标作品/版本/hash 与采纳权限。局部范围须来自同次真实 chapter_read 观察；整章/格式范围不借局部 ID 扩权。复用现 DTO、Scope、schema 与接收 owner，没有新表、模块、工具、关键词路由或兼容分支。结构合法不等于理解正确，更不授予正式写入权限。
 
-旧 style-04、六场景 22 次 Provider 调用及各原终态保持；layout-03 仍只支持其补充范围。新执行仅补具体应用缺口与受影响消费者，先登记有限预算，不重跑六场直到回答全对。R05 仍 doing / NOT PASS，F0/F1 与原 scope task_done 尚须按当前真实范围闭合后才能进入 R06；freeze02 仍绑定原 f889 源身份，不因本次文档修订冒充新 HEAD 已验。
+**当前真实首消费者。** freeze03 绑定上述 clean HEAD、2673 项实际源条目；`style-05` 沿原 style-04 作者全文、seed/runtime 与 1 批/1 次作者发送/0 人工重试/900 秒预算执行。实际 5 次 Splash 调用为 3 Judgment＋2 Writer；模型原始参数明确 `whole_chapter`，与该作者整章修订要求相符。两次真实 Writer 都收到当前 revision 2 的完整已采纳正文一次，以及真实 archive_read 取得的完整 CONFIRMED 风格规则，最终 used_refs 绑定该章、风格与目录观察。第一次 Writer 的作者说明被现门拒绝后发生一次既有有界纠错，不能记成零纠错。最终候选为 whole_chapter/TENTATIVE/replace_scope；9 张 Canon 表签名及章正文/设计签名前后相同，mutation/采纳回执为 0。记忆引用计数和 5 条引用审计有真实更新，不宣称数据库完全零写。
+
+真实原生 owner `d48a98243b75ce81` 用时 159322ms，执行/child/binding 均 0，summary 6/6；Provider 的 356 字回复与事件、持久消息、AX 逐字一致。驱动把原屏外回复滚到真实“会话消息”region 后，完整首尾与“为什么”可见；822 字候选的开头、结尾及三个保存/不保存入口真实可见。whole/style 共用 reader 的当前缺口因此闭合；whole-03 旧裁切图、style-04 的 incomplete_scope 与 layout-03 有限结论不改签。本次 Judgment 只实读目录和风格，没有实读章正文；完整章基线由现章修订链供应 Writer，不能把这条链表述为 Judgment 已阅读全文。
+
+**工程与发布产物。** 最终实现完整 `mix check` 为 3654 项/0 失败，strict Credo、format、xref、架构、I1/I2/I3、N-NARR/I-CACHE 通过；I3 决定性 Layer B 3/3，参考 Layer A 0/3 照记。前端 583 项/0 失败，typecheck/lint/audit/design trace 通过。全量静扫 21 入口、0 跳过、blocking=0；20 项 raw0、gitleaks raw1，8 项现处置为 7 false_positive＋1 accepted_risk，未改豁免。新鲜 sidecar、macOS app/DMG 构建通过，包内 sidecar 与当前 release 字节相同、旧 AuthorInput BEAM 不存在；Apple 公证未执行，原生验证使用 dev-profile app 与当前测试后端，不冒称 release runtime 已验。正常分阶段 commit/push 已至 636d526d；Git 输出“未找到 lefthook 配置”，不冒称 hooks 已通过。提交包装器曾因已删除路径从默认清单消失而退出非零，实际 Git commit 成功；全部在场源字节一致的复核与原 failure 均保留，未重做提交或改写历史。
+
+**最终请求构造成本。** 新 `artifacts/slice-verify/b87-r05-20261118/cost-final-04` 两臂均按同一新 driver/recipe 重新构造，14 次 capture、16 个固定响应、0 实模、0 replay；7 paired/0 unpaired，分类守恒且 unclassified=0。before 是 192a335f 所在的原 2646 项冻结快照，包含当时 WIP；after 是 clean 636d526d，不能将 before 简写为 clean HEAD。
+
+| Pair | 原 R04 before | 当前 after | 对 R04 | 对旧 f889 after |
+|---|---:|---:|---:|---:|
+| count-initial | 40819 | 43847 | +3028 | −2758 |
+| quality-initial | 40892 | 43919 | +3027 | −2758 |
+| role-initial | 40744 | 43770 | +3026 | −2758 |
+| g2-initial | 40869 | 43897 | +3028 | −2758 |
+| whole-initial | 40896 | 43924 | +3028 | −2758 |
+| style-initial | 40997 | 44024 | +3027 | −2758 |
+| whole-writer | 65931 | 66924 | +993 | −1050 |
+
+以上均为 stable JSON bytes。七项相对 R04 仍增加；新范围合同净 +547 bytes 与工具说明六份共同规则 −2214 bytes 均实际计入，Writer history 原 251→当前 298 bytes 也保留。固定直接 execute 的 Writer 对不能代签多页探索，未测 raw HTTP、真实 A/B Token/缓存/延迟/文学收益；本批未增设总字节下降门槛。源级共同说明已从多份字段描述回归现唯一 owner，但跨角色 system 继承及重复注入的根因明确归既有 R17，未用文本去重、过滤或扩大 R05 处理该生命周期。
+
+**原 scope 工程出口与最终身份。** F0 实际完整 `task_done` 使用原 `e065723f-8abe-400b-a769-3b3917ef616f` scope 和 style-05 执行绑定，owner `a7e66cc1405173e3`、47621ms、退出 0；manifest 为 `artifacts/slice-verify/task-completion-20261121T085836Z-46840/manifest.json`，SHA `4e3ffb697a99d0af61e3cda93370c44a8af7493de51842953814fe7844c52f7b`，status=completed。checks/native 源身份一致；相对 freeze03 只多原 scope 保留的一项已缺失旧测试路径，2673 项实际源字节相同，不能写两种 fingerprint 相同。task_done 只签工程执行身份；R05 应用判据由上文独立签收，未代签全部 baseline WIP、全仓债务或其它任务。
+
+本次文档提交后，F1 以相同原 scope 执行一次确定性 `b87r05-f1-final-01` full-read 原生回归（0 实模）及完整 task_done；实际终态查 `artifacts/slice-verify/b87-r05-20261118/native-runs/f1-final-01-result.json`、`artifacts/slice-verify/b87-r05-20261118/native-bindings/f1-final-01-binding.json` 与 REC `segment-r05-f1-task-done-01/result.json`。此段登记最终提交身份的出口，不预填尚未运行的结果；F1 未实过不得启动下一批。
+
+**后继责任与交接。** count-08 多报真实字数、role-05 排他暗示、G2/whole 在正确 partial/omissions 与可续读详情已供应后的越界判断，保留原件并归 R08；专业产物与文学质量由 R18/R19 承接。style-05 仍有面向作者说明中出现 whole_chapter、seq 与内部校验叙述的观察，原字节保留，交既有 R06/R08 输出职责，不增加专用 prompt 或词面过滤。R09 完整目录同源、R17 共同规则/角色生命周期及 R19 最终 A/B 按原依赖推进。B87 共 R00–R19 二十批，下一独立执行入口为 R06；按共享 README 开新上下文重新审查其输入/作者输出/展示、mission 消费者及真实 C9，不由 R05 局部消费者代签。B85 暂停、其它候选/阻塞及 B87/Issue #4 整体未完成状态保持。
 
 **原件索引。** 除COST外，下列路径相对 `artifacts/slice-verify/b87-r05-reception-20261120/`（REC）；原known草案及全部原件不覆盖。
 
@@ -2558,3 +2582,9 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 | COST `analysis-check-01/result.json` | `1ecaf1d9ead710f1f76943027e3d87095a677600ff47ea6ec3bc19b5b0e3083b` |
 | COST `analysis/request-cost-pairs.json` | `dbef8dee7438db45af531aba164ff0a25f7723e1ec49d815fc25d9c020c8739a` |
 | REC `cost-final03-launch-preflight-disposition-01.json` | `c0a8541b9c711809f6402f9ba652d54a10f6d55855ffefa1b3569ed4406e09cd` |
+| REC `final-source-freeze-03/freeze.json` | `161329ae0397afbfb0804e7360c414d5d36a35004ab41bb29f9af752efe9ba61` |
+| REC `style-05-material-independent-review-01/review.json` | `82a306b092d90202e1908050061e84666f78d5da24a7d23543e1ad011a4963c6` |
+| REC `style-05-native-independent-review-01/review.json` | `de64526dd8956c65b7ce656a222918b491f04f903f0203b1345697deb1fc0799` |
+| REC `native/style-05/summary.json` | `2028f1d4d862c39e5bb0d83653325f52b04aa3c486448fc1cb77360db3a8dfec` |
+| REC `cost-final-04-independent-review-01/review.json` | `cbf7cc59d406f1925ccb78bbe4dd9a53e8c85f20195cb8649e094c433d666e4f` |
+| cost-final-04 `analysis/request-cost-pairs.json` | `b20ccf8c061580b28c16a10b31908205a2161ea01215ab14ae7ce0c4603f9911` |
