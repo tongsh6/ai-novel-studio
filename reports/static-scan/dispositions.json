@@ -142,11 +142,11 @@
     "handling": "B87 R05 full-static-01逐条复核：header是本测试内固定应用Base段头字面量，只有一个换行；replace将它变为含附加指令的非法段头，作为独立负例验证applicationBaseText返回null。这里既不转义外部输入，也不生产安全过滤后的文本；只替换首个换行是反例构造的明确语义，不是遗漏全局清洗。",
     "recommendation": "保留原Semgrep规则和负例字节，不为消除告警改用全局替换或削弱断言；若该表达式被迁入产品处理或输入改为外部值，必须重新审核。"
   },
-  "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/native_b29_evidence.test.mjs|428|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
+  "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/native_b29_evidence.test.mjs|430|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
     "status": "false_positive",
     "owner": "codex",
-    "updated_at": "2026-11-20",
-    "handling": "B87 R05 full-static-01逐条复核：originalText是本测试预置且仅含一个换行的模型原文字面量；replace把该换行改为空格，故意制造下一请求回放字节被改写，随后断言model_execute_matches_source为false。表达式不承担清洗/转义职责，没有不受信任输入流入安全输出。",
+    "updated_at": "2026-11-21",
+    "handling": "B87 R05 full-static-08对当前430行重新复核：originalText是本测试预置且仅含一个换行的模型原文字面量；相同原文进入历史记录与下一请求时先断言通过，再只把下一请求的换行改为空格，故意制造回放字节不一致并断言model_execute_matches_source为false。表达式不承担清洗/转义职责，没有不受信任输入流入安全输出。与full-static-07已审428行逐字比对，前方会话region fixture增加两行导致定位变化，表达式、输入和拒绝断言未改；更新本条精确指纹，07通过与08未处置失败原件均保留。",
     "recommendation": "保留原Semgrep规则与真实原文字节拒绝测试，不重写历史或为了告警更改反例；后续行号或输入来源变化时按实际表达式重新登记，不据此豁免产品文本处理。"
   }
 }
