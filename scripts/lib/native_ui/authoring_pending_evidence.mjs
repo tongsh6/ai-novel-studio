@@ -10,6 +10,8 @@
 // - revision 全 item 集只与同次 writer 响应同 item_id 字段逐字比较；
 // - 新请求必须消费真实 ACCEPTED/DISCARDED refs/状态，回复必须等于同次 Provider 原字节；
 // - canon 分段只允许真实作者动作带来的精确 memory/receipt 增量，其余事实逐表不变。
+import { qualityRevisionArtifactRole } from "../../../frontend/src/lib/agentRunAnchoring.ts";
+import { CARD } from "../../../frontend/src/lib/copy.ts";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 import {
@@ -86,27 +88,35 @@ export function pendingSourceMessage(nonce) {
   return `${PENDING_SOURCE_MESSAGE_PREFIX}${nonce}。`;
 }
 
-// UI 文案来自真实 copy contract；未知类型不能落到通用“保存”按钮上猜。
-export function actionLabelsFor(artifactType, { revision = false } = {}) {
+// 角色与文案复用产品现 owner；只接受同次终局中的真实候选，动作权限由调用处核验。
+export function actionLabelsFor(artifact, turnResult) {
+  const artifactType = artifact?.artifact_type;
   if (!KNOWN_TYPES.has(artifactType)) {
     throw new Error(`pending_action_label: 未知 artifact 类型 ${String(artifactType)}`);
   }
-  if (PROSE_TYPES.has(artifactType)) {
-    return revision
-      ? { accept: "保存修订稿", discard: "放弃修订稿" }
-      : { accept: "保存为章节正文", discard: "不保存" };
+  const matches = list(turnResult?.adoption_state?.pending).filter((entry) =>
+    entry?.artifact_id === artifact?.artifact_id);
+  if (!nonBlank(artifact?.artifact_id) || matches.length !== 1 || !same(matches[0], artifact)) {
+    throw new Error("pending_action_label: artifact 不属于同次 TurnResult 的唯一 pending");
   }
-  if (artifactType === "outline_draft") return { accept: "保存到大纲", discard: "不保存" };
+  const copy = CARD.tentativeArtifact;
+  if (PROSE_TYPES.has(artifactType)) {
+    const role = qualityRevisionArtifactRole(turnResult, artifact);
+    if (role === "original") return { accept: copy.saveOriginalLabel, discard: copy.discardOriginalLabel };
+    if (role === "revision") return { accept: copy.saveRevisionLabel, discard: copy.discardRevisionLabel };
+    return { accept: copy.acceptProseLabel, discard: copy.discardLabel };
+  }
+  if (artifactType === "outline_draft") return { accept: copy.acceptOutlineLabel, discard: copy.discardLabel };
   if (artifactType === "work_skeleton_suggestion") {
-    return { accept: "采纳为全书规划", discard: "不保存" };
+    return { accept: copy.acceptWorkSkeletonLabel, discard: copy.discardLabel };
   }
   if (artifactType === "foreshadowing_resolution") {
-    return { accept: "确认伏笔已回收", discard: "不保存" };
+    return { accept: copy.acceptForeshadowResolutionLabel, discard: copy.discardLabel };
   }
   if (artifactType === "prose_formatting_plan") {
-    return { accept: "应用分段方案", discard: "放弃分段方案" };
+    return { accept: copy.applyFormattingLabel, discard: copy.discardFormattingLabel };
   }
-  return { accept: "保存到作品档案", discard: "不保存" };
+  return { accept: copy.acceptArchiveLabel, discard: copy.discardLabel };
 }
 
 // AX 节点可见语义：title/desc/value 都是作者可见文本；不读隐藏 metadata。

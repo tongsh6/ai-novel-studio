@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import { authorBoundary, axTurnOutcome, conversationRegion, visiblePageSurface, withinAuthorBoundary } from "./authoring_g2_evidence.mjs";
 import { observationRefOf, proseObservationBodyReason, singleDraftVersionReason } from "./authoring_request_facts.mjs";
 import { sha256Hex } from "./request_cost_evidence.mjs";
-import { actionLabelsFor, locatePendingItem, locateScopedButton } from "./authoring_pending_evidence.mjs";
+import { actionLabelsFor, locatePendingItem, locateScopedButton, selectPendingAction } from "./authoring_pending_evidence.mjs";
 
 const GOALS = new Set(["count", "quality", "whole", "style"]);
 const list = (value) => Array.isArray(value) ? value : [];
@@ -700,7 +700,11 @@ function currentAuthorItem(nodes, itemPath, message, baselineAuthorCount) {
     beforePath: boundary.nextAuthor?.path ?? null,
   });
 }
-function candidateViews(items, views, knownItems, context) {
+function candidateViews(artifact, turnResult, views, knownItems, context) {
+  const items = list(artifact?.payload?.items);
+  if (items.length === 0) return [];
+  selectPendingAction(turnResult, { artifactId: artifact.artifact_id, actionType: "accept" });
+  const label = actionLabelsFor(artifact, turnResult).accept;
   const captures = list(views).filter((view) => {
     if (view.screenshot_present !== true || view.window_capture !== true || !Array.isArray(view.nodes)) return false;
     const works = view.nodes.filter((node) => node.role === "AXPopUpButton" && node.desc === "作品");
@@ -722,7 +726,7 @@ function candidateViews(items, views, knownItems, context) {
     });
     const action = captures.find((view) => {
       if (!/^r05-candidate-\d+-action$/u.test(view.capture)) return false;
-      const located = locateScopedButton(view.nodes, { ...target, label: actionLabelsFor("prose_fragment").accept });
+      const located = locateScopedButton(view.nodes, { ...target, label });
       return located.ok && currentAuthorItem(view.nodes, located.item_path, context.message, context.baselineAuthorCount ?? 0) &&
         withinViewport(view.nodes, located.button);
     });
@@ -732,18 +736,18 @@ function candidateViews(items, views, knownItems, context) {
 
 // 只复用旧 G2/G3 共享页面表面；R05 的完整回复与首末可见视口分别取证。
 export function r05VisibleEvidence({
-  goal, reply, items = [], candidate_views = [], reply_views = [], known_items = [], ...input
+  goal, reply, candidate = null, turn_result = null, candidate_views = [], reply_views = [], known_items = [], ...input
 } = {}) {
   const surface = visiblePageSurface(input);
   const failures = [...surface.failures];
-  const candidate = goal === "whole" || goal === "style";
+  const needsCandidate = goal === "whole" || goal === "style";
   const options = { message: input.message, baselineAuthorCount: input.baselineAuthorCount ?? 0 };
   const outcome = axTurnOutcome(input.finalNodes, options);
   const matched = r05ReplyMatch({ reply, nodes: input.finalNodes, ...options });
   const replyViews = replyViewFacts(reply, reply_views, input, matched);
-  const views = candidateViews(items, candidate_views, known_items, input);
-  const entryVisible = candidate && views.length > 0 && views.every((view) => view.entry !== null);
-  const actionVisible = candidate && views.length > 0 && views.every((view) => view.action !== null);
+  const views = candidateViews(candidate, turn_result, candidate_views, known_items, input);
+  const entryVisible = needsCandidate && views.length > 0 && views.every((view) => view.entry !== null);
+  const actionVisible = needsCandidate && views.length > 0 && views.every((view) => view.action !== null);
   const observed = { ...surface.observed, outcome: outcome.kind,
     reply_visible: matched.ok, reply_reason: matched.reason,
     reply_start_visible: replyViews.start !== null, reply_end_visible: replyViews.end !== null,
@@ -756,7 +760,7 @@ export function r05VisibleEvidence({
   if (!observed.reply_start_visible) failures.push("author_reply_start_not_visible");
   if (!observed.reply_end_visible) failures.push("author_reply_end_not_visible");
   if (outcome.kind !== "completed") failures.push("author_visible_outcome_not_completed");
-  if (candidate && !observed.candidate_visible) failures.push("candidate_visible_missing");
+  if (needsCandidate && !observed.candidate_visible) failures.push("candidate_visible_missing");
   if (!surface.scan.ok) failures.push("author_visible_internal_token_leak");
   return { ok: failures.length === 0, reason: failures[0] ?? null, failures, observed,
     leak: { ok: surface.scan.ok, hits: surface.scan.hits.map(({ token, kind }) => ({ token, kind })) } };

@@ -592,7 +592,7 @@ function whyReplayBound(evidence, checkpoints, revision, workId, sessionId) {
   );
 }
 
-function uiAndWhyChecks(dir, evidence, checkpoints, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId) {
+function uiAndWhyChecks(dir, evidence, checkpoints, source, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId) {
   const whyText = axText(dir, "why");
   const whyRefs = [
     ...revision.calls.refs.provider_call_refs,
@@ -618,7 +618,7 @@ function uiAndWhyChecks(dir, evidence, checkpoints, revision, sourceItem, revisi
       sourceItem.title,
       sourceItem.body,
       revisionItem.body,
-      actionLabelsFor(sourceArtifact.artifact_type).discard,
+      actionLabelsFor(sourceArtifact, source.completed).discard,
     ]),
     accepted_visible_after_discard: textIncludes(dir, "after-discard", [revisionItem.body]),
     accepted_visible_after_restore: textIncludes(dir, "after-restore", [revisionItem.body]),
@@ -769,7 +769,7 @@ export function verifyPendingBatch(dir) {
     ...runIdentityChecks({ source, revision, followup, sourceItem, writer, sourceArtifact, revisionArtifact, discardAction: actions.discardAction, config }),
     ...action.checks,
     ...canon.checks,
-    ...uiAndWhyChecks(dir, evidence, checkpoints, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId),
+    ...uiAndWhyChecks(dir, evidence, checkpoints, source, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId),
     ...restoreChecks(dir, evidence, checkpoints, followup, sessionId, workId, sourceArtifact, revisionArtifact, sourceItem, revisionItem),
     ...followupChecks(followup, followupEvidence, source, revision),
     ...followupEvidence.scopeChecks.checks,

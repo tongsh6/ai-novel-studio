@@ -2,6 +2,7 @@
 // 采集 AX/WS/llm-calls/DB 证据与 Strata 单槽生命周期；不轮询固定回复文本、不假设
 // 工具调用次数、不修改产品 prompt。判据与本文件分离（authoring_live_evidence）。
 import path from "node:path";
+import { CARD } from "../frontend/src/lib/copy.ts";
 import {
   authorVisibleScenario,
   readConfig,
@@ -21,7 +22,7 @@ import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMes
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
 import { sourceMissionEvents, sourceMissionNarrativeContext } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { capturePendingItemViews, isScrollUnsupported } from "./lib/native_ui/authoring_pending_driver.mjs";
-import { actionLabelsFor } from "./lib/native_ui/authoring_pending_evidence.mjs";
+import { actionLabelsFor, selectPendingAction } from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { clippedViewport, r05ReplySurface, r05ReplyEdgeVisible, renderedNarrativeNodes } from "./lib/native_ui/authoring_r05_evidence.mjs";
 import {
   classifyTurnBody,
@@ -67,13 +68,15 @@ async function capturePendingCandidates(config, { artifactType = "prose_fragment
   const pending = Array.isArray(body.adoption_state?.pending) ? body.adoption_state.pending : [];
   const itemsOf = (artifact) => Array.isArray(artifact.payload?.items) ? artifact.payload.items : [];
   const knownItems = pending.flatMap(itemsOf).map((item) => ({ itemTitle: item.title, itemBody: item.body }));
-  const items = pending.filter((artifact) => artifact.artifact_type === artifactType).flatMap(itemsOf);
+  const items = pending.filter((artifact) => artifact.artifact_type === artifactType)
+    .flatMap((artifact) => itemsOf(artifact).map((item) => ({ artifact, item })));
   if (items.length === 0) throw new Error(`visible_candidate_missing:${artifactType}`);
   const views = [];
-  for (const [index, item] of items.entries()) {
+  for (const [index, { artifact, item }] of items.entries()) {
+    selectPendingAction(body, { artifactId: artifact.artifact_id, actionType: "accept" });
     views.push(...await capturePendingItemViews(harness, {
       itemTitle: item.title, itemBody: item.body, knownItems, prefix: `${prefix}-${index + 1}`,
-      buttonLabel: actionLabelsFor(artifactType).accept,
+      buttonLabel: actionLabelsFor(artifact, body).accept,
     }));
   }
   return views;
@@ -315,7 +318,7 @@ async function waitVisibleOutcome(message, { baselineAuthorCount, observation, c
       observe(nodes, true);
       const boundary = authorBoundary(nodes, message, baselineAuthorCount);
       return boundary.author && nodes.some((node) =>
-        node.role === "AXButton" && node.title === actionLabelsFor("prose_fragment").accept &&
+        node.role === "AXButton" && node.title === CARD.tentativeArtifact.acceptProseLabel &&
         node.enabled !== false && isVisibleNode(node) && withinAuthorBoundary(node, {
           container: boundary.container, afterPath: boundary.authorGroup,
           beforePath: boundary.nextAuthor?.path ?? null,

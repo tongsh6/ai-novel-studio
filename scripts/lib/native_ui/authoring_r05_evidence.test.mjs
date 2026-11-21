@@ -515,7 +515,15 @@ function visibleInput(goal, { candidate = false } = {}) {
   const reply = candidate ? "整章修订候选已就绪。" : "共2章，有正文1章，未写正文1章。";
   const items = candidate ? [{ title: "整章修订稿", body: SOURCE.prose }] : [];
   const finalNodes = visibleReplyNodes(message, reply, candidate ? "已完成" : null);
-  return { goal, target: G2_VISIBLE_TARGET, message, reply, items, finalNodes,
+  const artifact = candidate ? { artifact_id: "as-r05-visible", artifact_type: "prose_fragment",
+    payload: { items, revision_target_status: "ACCEPTED" } } : null;
+  const turnResult = candidate ? {
+    turn_id: "turn-r05-visible", adoption_state: { pending: [artifact] },
+    available_actions: [{ action_id: "accept:as-r05-visible", action_type: "accept",
+      target_ref: artifact.artifact_id, source_turn_ref: "turn-r05-visible",
+      idempotency_key: "idem:turn-r05-visible:accept:as-r05-visible", enabled: true }],
+  } : null;
+  return { goal, target: G2_VISIBLE_TARGET, message, reply, candidate: artifact, turn_result: turnResult, finalNodes,
     reply_views: ["start", "end"].map((edge) => ({ edge, capture: "final", nodes: finalNodes,
       screenshot_present: true, window_capture: true })),
     ...(candidate ? candidateViews(items, message) : {}),
@@ -523,7 +531,7 @@ function visibleInput(goal, { candidate = false } = {}) {
     readingAfterText: visibleReadingPage(), finalText: [
       G2_VISIBLE_TARGET.work_title, "你", message, "AI 助手", reply,
       ...items.flatMap((item) => [item.title, item.body]),
-      ...(candidate ? ["保存修订稿", "放弃修订稿", "(value=已完成)"] : []),
+      ...(candidate ? ["保存为章节正文", "不保存", "(value=已完成)"] : []),
     ].join("\n") };
 }
 test("R05 无过程组的普通reply凭本轮交付结构完成，不要求完成徽标", () => {
@@ -663,6 +671,32 @@ test("R05 新同文回合已完成时，候选仍须属于新增作者边界", (
   assert.equal(fresh.observed.candidate_action_visible, true);
   assert.equal(fresh.ok, true, JSON.stringify(fresh));
 });
+test("R05 已采纳章节候选即使有质量发现，也不能借质量原稿或修订稿按钮", () => {
+  const input = visibleInput("whole", { candidate: true });
+  input.turn_result.quality_review = { findings: [{ summary: "节奏需要调整" }] };
+  input.turn_result.available_actions.push({ action_type: "revise_from_findings",
+    target_ref: input.candidate.artifact_id });
+  assert.equal(r05VisibleEvidence(input).ok, true);
+  for (const title of ["保存原稿", "保存修订稿"]) {
+    for (const view of input.candidate_views) {
+      view.nodes.find((node) => node.path === "0/0/0/0/0/100/34").title = title;
+    }
+    assert.equal(r05VisibleEvidence(input).ok, false, title);
+  }
+});
+
+test("R05 保存动作拒绝错目标、错终局、禁用和同 ID 候选角色改写", () => {
+  for (const change of [
+    (input) => { input.turn_result.available_actions[0].target_ref = "as-other"; },
+    (input) => { input.turn_result.available_actions[0].source_turn_ref = "turn-other"; },
+    (input) => { input.turn_result.available_actions[0].enabled = false; },
+    (input) => { input.candidate = { ...input.candidate, revision_base: "as-other" }; },
+  ]) {
+    const input = visibleInput("whole", { candidate: true }); change(input);
+    assert.throws(() => r05VisibleEvidence(input), /pending_action(?:_label)?:/u);
+  }
+});
+
 test("R05 候选截图不能借另一作品或缺当前作者原话的旧回合AX", () => {
   for (const change of [
     (node) => { if (node.role === "AXPopUpButton" && node.desc === "作品") node.title = "另一作品"; },
@@ -718,7 +752,7 @@ test("R05 页面仍拒绝旧作者回合、只剩状态徽标、错误当前候�
     (input) => { input.finalText = input.finalText.replace(input.message, "上一轮原话"); },
     (input) => { input.finalNodes = input.finalNodes.filter((node) =>
       node.path !== "0/0/0/0/0/10/13" && !node.path.startsWith("0/0/0/0/0/10/13/")); },
-    (input) => { input.items[0].body = "另一个候选的全文"; },
+    (input) => { input.candidate.payload.items[0].body = "另一个候选的全文"; },
     (input) => { input.readingAfterText += "\n正文已被采纳改写"; },
   ]) {
     const input = visibleInput("whole", { candidate: true }); change(input);

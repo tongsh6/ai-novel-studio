@@ -371,17 +371,71 @@ test("resolved entry 精确匹配 artifact 与状态，缺/重复/错状态失�
   );
 });
 
-test("作者动作标签按真实 artifact 类型分派，未知类型失败关闭", () => {
-  assert.deepEqual(actionLabelsFor("world_setting"), { accept: ACCEPT_LABEL, discard: DISCARD_LABEL });
-  assert.deepEqual(actionLabelsFor("prose_fragment", { revision: true }), {
-    accept: "保存修订稿",
-    discard: "放弃修订稿",
-  });
-  assert.deepEqual(actionLabelsFor("prose_fragment", { revision: false }), {
-    accept: "保存为章节正文",
-    discard: "不保存",
-  });
-  assert.throws(() => actionLabelsFor("unknown_type"), /未知/);
+function actionLabelInput(artifactType = "prose_fragment") {
+  const artifact = { artifact_id: REVISION_ID, artifact_type: artifactType,
+    payload: { items: [{ title: REVISION_TITLE, body: REVISION_BODY }] } };
+  const body = { turn_id: REVISION_TURN, adoption_state: { pending: [artifact] },
+    available_actions: [action()] };
+  return { artifact, body };
+}
+
+test("作者动作标签复用真实终局角色，区分普通正文、质量原稿、修订稿和大纲", () => {
+  const cases = [
+    ["普通正文", "prose_fragment", () => {}, { accept: "保存为章节正文", discard: "不保存" }],
+    ["质量原稿", "prose_fragment", ({ body }) => {
+      body.available_actions.push(action({ action_id: "revise-source", action_type: "revise_from_findings" }));
+    }, { accept: "保存原稿", discard: "放弃原稿" }],
+    ["质量结果原稿", "scene_draft", ({ body }) => {
+      body.quality_review = { findings: [{ summary: "节奏需要调整" }] };
+    }, { accept: "保存原稿", discard: "放弃原稿" }],
+    ["质量修订稿", "prose_fragment", ({ artifact }) => {
+      artifact.revision_base = SOURCE_ID;
+    }, { accept: "保存修订稿", discard: "放弃修订稿" }],
+    ["已采纳章节的修订", "prose_fragment", ({ artifact, body }) => {
+      artifact.payload.revision_target_status = "ACCEPTED";
+      artifact.revision_base = "chapter:accepted-target";
+      body.quality_review = { findings: [{ summary: "节奏需要调整" }] };
+    }, { accept: "保存为章节正文", discard: "不保存" }],
+    ["另一候选的修订动作", "prose_fragment", ({ body }) => {
+      body.available_actions.push(action({ action_id: "revise-other", action_type: "revise_from_findings",
+        target_ref: SOURCE_ID }));
+    }, { accept: "保存为章节正文", discard: "不保存" }],
+    ["章节大纲", "outline_draft", ({ body }) => {
+      body.quality_review = { findings: [{ summary: "待审阅" }] };
+    }, { accept: "保存到大纲", discard: "不保存" }],
+    ["档案候选", "world_setting", () => {}, { accept: ACCEPT_LABEL, discard: DISCARD_LABEL }],
+  ];
+  for (const [name, type, change, expected] of cases) {
+    const input = actionLabelInput(type); change(input);
+    assert.deepEqual(actionLabelsFor(input.artifact, input.body), expected, name);
+  }
+  const unknown = actionLabelInput("unknown_type");
+  assert.throws(() => actionLabelsFor(unknown.artifact, unknown.body), /未知/u);
+  assert.throws(() => actionLabelsFor("prose_fragment", { revision: true }), /未知/u);
+});
+
+test("作者动作标签拒绝错候选、同 ID 改写角色或正文、歧义及缺失终局", () => {
+  for (const change of [
+    (input) => { input.artifact.artifact_id = SOURCE_ID; },
+    (input) => { input.artifact.payload.items[0].body = "另一份正文"; },
+    (input) => { input.artifact.revision_base = SOURCE_ID; },
+    (input) => { input.body.adoption_state.pending = []; },
+    (input) => { input.body.adoption_state.pending.push(structuredClone(input.body.adoption_state.pending[0])); },
+    (input) => { input.body = null; },
+  ]) {
+    const input = actionLabelInput();
+    input.artifact = structuredClone(input.artifact);
+    change(input);
+    assert.throws(() => actionLabelsFor(input.artifact, input.body), /不属于同次 TurnResult 的唯一 pending/u);
+  }
+});
+
+test("只读标签不补造接受动作，保存与放弃权限仍由真实动作分别核验", () => {
+  const { artifact, body } = actionLabelInput();
+  body.available_actions = [action({ action_id: "discard-source", action_type: "discard" })];
+  assert.deepEqual(actionLabelsFor(artifact, body), { accept: "保存为章节正文", discard: "不保存" });
+  assert.throws(() => selectPendingAction(body, { artifactId: artifact.artifact_id, actionType: "accept" }), /必须唯一/u);
+  assert.equal(selectPendingAction(body, { artifactId: artifact.artifact_id, actionType: "discard" }).action_type, "discard");
 });
 
 test("writer 响应与 revision 全 item 集 id/title/body/rationale 精确相等", () => {

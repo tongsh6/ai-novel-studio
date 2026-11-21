@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { capturePendingItemViews, drivePending, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
-import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
+import { actionLabelsFor, pendingSourceMessage } from "./authoring_pending_evidence.mjs";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
 const SESSION = "33333333-3333-4333-8333-333333333333";
@@ -398,9 +398,47 @@ test("capturePendingItemViews 等待晚到候选，再分屏采入口与保存�
   assert.equal(harness.log.some((entry) => entry.op === "click"), false);
 });
 
-test("capturePendingItemViews 不借用旧质量修订动作，也不默认缺失的动作标签", async () => {
+test("capturePendingItemViews 按同次质量原稿角色采集保存原稿，保持只读", async () => {
+  const harness = fakeHarness(buildWire());
+  const artifact = { artifact_id: "as-mission-original", artifact_type: "prose_fragment",
+    payload: { items: [{ title: REVISION_TITLE, body: REVISION_BODY }] } };
+  const body = { turn_id: "turn-mission-original", adoption_state: { pending: [artifact] },
+    available_actions: [
+      { action_id: "accept:as-mission-original", action_type: "accept", target_ref: artifact.artifact_id,
+        source_turn_ref: "turn-mission-original", idempotency_key: "idem:turn-mission-original:accept", enabled: true },
+      { action_id: "revise:as-mission-original", action_type: "revise_from_findings", target_ref: artifact.artifact_id,
+        source_turn_ref: "turn-mission-original", idempotency_key: "idem:turn-mission-original:revise", enabled: true },
+    ] };
+  const shown = itemTree("0/2/0", REVISION_TITLE, REVISION_BODY).map((item) =>
+    item.title === "保存到作品档案" ? { ...item, title: "保存原稿" } : item);
+  harness.dumpNodes = () => shown;
+  harness.pollAx = async (predicate) => {
+    assert.equal(predicate("", shown), true);
+    return { text: "", nodes: shown };
+  };
+  harness.ensureInput = () => ({ scrollTo: () => {} });
+  harness.capture = (name, options) => {
+    assert.deepEqual(options, { allowFullScreenFallback: false });
+    harness.captures.push(name);
+    return shown;
+  };
+  const views = await capturePendingItemViews(harness, {
+    itemTitle: REVISION_TITLE, itemBody: REVISION_BODY,
+    knownItems: [{ itemTitle: REVISION_TITLE, itemBody: REVISION_BODY }], prefix: "mission-candidate-1",
+    buttonLabel: actionLabelsFor(artifact, body).accept,
+  });
+  assert.deepEqual(views.map((view) => view.capture), ["mission-candidate-1-entry", "mission-candidate-1-action"]);
+  assert.equal(harness.log.some((entry) => entry.op === "click"), false);
+});
+
+test("capturePendingItemViews 不借用其他候选角色动作，也不默认缺失的动作标签", async () => {
   for (const [buttonLabel, actualLabel, reason] of [
     ["保存为章节正文", "保存修订稿", /pending_view_target:action_missing:action/u],
+    ["保存为章节正文", "保存原稿", /pending_view_target:action_missing:action/u],
+    ["保存原稿", "保存为章节正文", /pending_view_target:action_missing:action/u],
+    ["保存原稿", "保存修订稿", /pending_view_target:action_missing:action/u],
+    ["保存修订稿", "保存原稿", /pending_view_target:action_missing:action/u],
+    ["保存到大纲", "保存原稿", /pending_view_target:action_missing:action/u],
     [undefined, "保存为章节正文", /pending_view_target:label_missing:action/u],
   ]) {
     const harness = fakeHarness(buildWire());

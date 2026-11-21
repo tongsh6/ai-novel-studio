@@ -117,11 +117,6 @@ function pendingArtifact(turnResult, label) {
   return pending[0];
 }
 
-function labelsFor(artifact) {
-  const revision = nonBlank(artifact?.payload?.revision_of);
-  return actionLabelsFor(artifact?.artifact_type, { revision });
-}
-
 const SCROLL_UNSUPPORTED = new Set(["axscrolltovisible_failed", "ax_action_unsupported"]);
 
 export function isScrollUnsupported(error) {
@@ -286,7 +281,7 @@ function assertResolvedNotActionable(harness, knownItems, resolved) {
   }
 }
 
-async function restorePhase(harness, config, { knownItems, sourceItem, revisionItem, sourceArtifact, revisionArtifact }) {
+async function restorePhase(harness, config, { knownItems, sourceItem, revisionItem, sourceArtifact, revisionArtifact, sourceBody, revisionBody }) {
   await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
   await harness.runStep("maintenance", "workbench_ready_restored", () =>
     harness.rawWaitWorkbenchSettled("b71:pending:restored"),
@@ -300,14 +295,14 @@ async function restorePhase(harness, config, { knownItems, sourceItem, revisionI
     {
       itemTitle: sourceItem.title,
       itemBody: sourceItem.body,
-      accept: labelsFor(sourceArtifact).accept,
-      discard: labelsFor(sourceArtifact).discard,
+      accept: actionLabelsFor(sourceArtifact, sourceBody).accept,
+      discard: actionLabelsFor(sourceArtifact, sourceBody).discard,
     },
     {
       itemTitle: revisionItem.title,
       itemBody: revisionItem.body,
-      accept: labelsFor(revisionArtifact).accept,
-      discard: labelsFor(revisionArtifact).discard,
+      accept: actionLabelsFor(revisionArtifact, revisionBody).accept,
+      discard: actionLabelsFor(revisionArtifact, revisionBody).discard,
     },
   ]);
   harness.capture("after-restore");
@@ -392,7 +387,7 @@ export async function drivePending(harness, config, { capture }) {
     artifactId: revisionArtifact.artifact_id,
     actionType: "accept",
   });
-  const acceptLabels = labelsFor(revisionArtifact);
+  const acceptLabels = actionLabelsFor(revisionArtifact, revisionBody);
   await clickScopedAction(harness, {
     itemTitle: revisionItem.title,
     itemBody: revisionItem.body,
@@ -416,7 +411,7 @@ export async function drivePending(harness, config, { capture }) {
   );
   await awaitVisible(
     harness,
-    [sourceItem.title, sourceItem.body, revisionItem.body, labelsFor(sourceArtifact).discard],
+    [sourceItem.title, sourceItem.body, revisionItem.body, actionLabelsFor(sourceArtifact, sourceBody).discard],
     "original_still_pending",
   );
   harness.capture("after-accept");
@@ -426,7 +421,7 @@ export async function drivePending(harness, config, { capture }) {
     artifactId: sourceArtifact.artifact_id,
     actionType: "discard",
   });
-  const discardLabels = labelsFor(sourceArtifact);
+  const discardLabels = actionLabelsFor(sourceArtifact, sourceBody);
   await clickScopedAction(harness, {
     itemTitle: sourceItem.title,
     itemBody: sourceItem.body,
@@ -467,6 +462,8 @@ export async function drivePending(harness, config, { capture }) {
     revisionItem,
     sourceArtifact,
     revisionArtifact,
+    sourceBody,
+    revisionBody,
   });
   capture("after-restore");
 

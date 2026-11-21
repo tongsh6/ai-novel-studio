@@ -352,7 +352,7 @@ export function readR05Inputs(dir, { config, history, records, wire }) {
   const cost = { calls: costCalls, summary: nativeSummary({
     config: { length: 1 }, turnReports: [{ status: "completed" }], allCalls: costCalls,
   }) };
-  return { source, requests, reply, candidate, writer, consumer_call_ref: consumer,
+  return { source, requests, reply, candidate, turn_result: body, writer, consumer_call_ref: consumer,
     run_id: run.id, reply_source: replySource, pending_count: history.pending.length, cost,
     known_items: allPending.flatMap((entry) => entry.payload?.items ?? [])
       .map((item) => ({ itemTitle: item.title, itemBody: item.body })) };

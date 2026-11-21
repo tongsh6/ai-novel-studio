@@ -1,6 +1,6 @@
 import type { AgentRunStateData } from "./socket";
 import type { WireTurnResult } from "./turnResultWire";
-import { isTerminalAgentRun } from "./agentRunInputRouting";
+import { isTerminalAgentRun } from "./agentRunInputRouting.ts";
 
 export interface AgentRunAnchorMessage<TurnResultShape = unknown> {
   role: "user" | "assistant";
