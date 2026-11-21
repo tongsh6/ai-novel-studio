@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-21：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 所需结构 ref 前置已独立核实，下一独立入口按 §17.5 调度为 R07，R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-22：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 已按 §18 完成五组实施及同批证据消费者补充收束，代码已分阶段推送至 daf22012，工程结果与保留失败见 §18.5–18.8；真实页面与原 scope completion 尚缺，当前 R07 blocked/NOT PASS，按 §18.7 恢复；R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -2695,9 +2695,9 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 
 **该出口的实际失败与阶段提交边界。** `wr01-checkpoint-01` 在作者发送前因 `activation_unconfirmed` 退出 1，未形成 summary 或 binding；owner `b6f6d85af9ae9521` 已结束并清理，运行前后源码不变，日志 SHA `918700f34eccad60568655a883414bfcf4ac362a933a659fc1c40c3247ee3c0f`。原生输入原件显示 AX/输入权限有效、目标工作台已加载，激活前后前台均为 `com.apple.SecurityAgent`；现证据只证明系统安全代理占据前台，不能猜成某一种锁屏或认证弹窗。随后 `task-done-checkpoint-01` 实际退出 1：在缺少该 binding 的预检处失败，没有完成本次全量扫描；日志 SHA `9a2fc6b5bac562f58e479a47a51f9c3104ec0661fc81b5cfeb44d20ff2176380`。这是阶段文档身份补验的新增环境阻塞，不能借旧 F0 结果签当前文档全门禁。与已验证 `dd8cd1b3` 相比仍只有本总文档和 NEXT 变化；正常提交仅保存经独审与 NEXT/差异检查的真实状态和调度，不声明 R06 完成。原已通过代码/包/原生证据保持原身份；页面补验等待桌面恢复可交互，R07 仍须形成自己的 scope 和真实验证。
 
-## 18. R07 独立开工与实施前裁决（2026-11-21）
+## 18. R07 独立实施、阶段验证与原生恢复（2026-11-21—22）
 
-**状态：doing，尚未验收。** 从已推送 clean `2ca4b7d71c5e8b5feac16478d01700b9f6d86779` 开始，分支不变；R06 的 blocked/失败责任见 §17.5。独立审查上下文仅接受本批卡与共享 README，自行核愿景、设计和真实消费者。原 scope 为 `artifacts/slice-verify/b87-r07-20261121/scope.json`，scope_id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；实际 `scope-begin-01` 退出 0、源不变。下文 R7 指该父目录。本节是实施前裁决，不预签代码或行为通过。
+**状态：blocked，R07 NOT PASS。** 实现与阶段推送已完成，真实页面及原 scope completion 未闭合，恢复入口见 §18.7。开工从已推送 clean `2ca4b7d71c5e8b5feac16478d01700b9f6d86779` 开始，分支不变；R06 的 blocked/失败责任见 §17.5。独立审查上下文仅接受本批卡与共享 README，自行核愿景、设计和真实消费者。原 scope 为 `artifacts/slice-verify/b87-r07-20261121/scope.json`，scope_id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；实际 `scope-begin-01` 退出 0、源不变。下文 R7 指该父目录。§18.1–18.3 保留实施前裁决，实际执行与失败见 §18.4–18.7；阶段工程结果不代签批次。
 
 ### 18.1 七问
 
@@ -2741,3 +2741,100 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 各组先写独立预期的真实接收/集成负例，冻结测试树后集中红测，再并行实现无冲突文件；最终统一相关回归、全量后端/前端/Node、I1/I2/I3/N-NARR/I-CACHE、三 wire/真实 SSE、静态扫描与构建身份。测试期望不取被测实现生成，fixtures 不伪造生产事实；退出码、失败原件与源身份逐次保留。
 
 真实页面复用现 WR02 入口验证候选未采纳、Why 工具状态和重开进度，再沿现外部作者采纳动作验证真实 receipt；零派发与纠错终局须从真实 UI 可达的独立输入/测试 Provider 刺激证明。正式窗口执行前冻结源、输入/seed、目标、预算和独立目录；本节尚未登记或消费任何 R07 Splash 批次，不使用 R06 预算。当前桌面前台阻塞只影响原生验证，不影响已授权的设计、实现与无 UI 机制门禁；未补全强制页面与原 scope 工程出口时，R07 保持 NOT PASS。经验证的完整实现组按用户授权正常分组 commit/push，阶段提交不等于批次签收。
+
+### 18.4 实施分组与第一阶段推送（2026-11-22）
+
+§18.3 的 G1–G4 是职责与验收分工；实际 review/提交按依赖采用 D0 → G3 → G1 → G2 → G4。G2 同组迁移 TraceWriter 与四个真实调用点，G4 保留 Replay、运行状态及展示消费者，未调整批次目标或 DoD。
+
+| 组 | 提交 | 文件数 | 内容 |
+|---|---|---:|---|
+| D0 | `e922ce06c3ef65facd66f94f8839e740fe4d78b4` | 2 | VS-00M 与本任务的实施前责任、存在性与边界裁决 |
+| G3 | `ac837d2590b39934df674c1444e5bcc529a94352` | 54 | 七字段真实回执、唯一 Codec、三 wire 与所有当前 JS 消费者；对应精确扫描处置 |
+| G1 | `d77da874122ad1aa496f8b8afa2cb0468595bfff` | 15 | 判断工具合同、共享参数校验、统一实际纠错窗口及原消费者 |
+| G2 | `b9d16dc275cb6fbe9e9340f9374a04ce9c8d2bd3` | 26 | 原候选接收、章引用贯通、实际派发/Trace 与对应 fixtures |
+| G4 | `b2dc1acab3599f06eacbf1cb1887a3e17a477ee7` | 16 | 真实运行/采纳事实、WS/HTTP 恢复与展示 SSOT |
+
+共 113 个实际路径，各归组一次，无未变文件夹带。原 112 路径提案保留于 `R7/commit-plan-proposal-01.json`；唯一追加是 §18.6 的 443 行精确误报处置，归同一测试消费者 G3。最终计划 `R7/commit-plan-final-01.json` SHA `7ae31e584dc4afbe50d2962d4911fad774c5bbd5921c64f1e4f5718688019c6e`。
+
+各组的 `commit-<组>-01/` 保存提交前后源快照、逐文件字节对账、实际 Git 命令与结果；完整已验树按上述顺序切分，未宣称每个中间 commit 独立跑过全量门禁。第一阶段正常 push 后，`push-stage1-01/result.json` 于 2026-11-22 00:44:35 +08:00 读回远端同一 `b2dc1aca`；没有改写历史。阶段提交保存完整实现及真实缺证，不等于 R07 签收。
+
+### 18.5 工程验证、源身份与失败保留
+
+本批最终后端/构建实施树为 HEAD `2ca4b7d7` 加当时 WIP，source fingerprint `a568e3360f496f04348222db85326969db8d99b1a78475195582d5999ec5d543`；加入唯一静态误报处置后的完整扫描树为 `d68ad4ec827f9137003a87ab4729a41c6f3f72895b0eb9e0be5260832d736177`，二者 entries 只有 `reports/static-scan/dispositions.json` 不同。五组提交逐次核验文件 bytes/mode 未变；不能把在 WIP 上执行的原 gate 改写成提交后重跑。
+
+以下目录均在 R7，完整 argv、实际退出码、owner/cleanup、原日志 SHA 与执行前后源身份分别见其 `invocation.json`、`result.json` 和 source 快照。
+
+| 证据目录 | 实际验证 | 结果与边界 |
+|---|---|---|
+| `backend-full-03` | `mix check`（强制零警告编译、两类 codegen、xref、全量测试、架构、ADR、I-CACHE） | exit 0；3741 tests / 0 failures；10 组缓存前缀对账通过 |
+| `backend-strict-invariants-01` | 格式、strict Credo、136 项实际调用链回归、I1/I2/I3/N-NARR | exit 0；136/136；Credo 无问题；I1 4/4、I2 3 个输入两两不交、I3 决定层 3/3、N-NARR 通过 |
+| `frontend-full-02` | 前端 format/typecheck/lint/test、slice-verify 测试、audit、design trace | exit 0；593 个主测试 + 260 个 slice 测试；设计追溯 30 PASS、0 WARN、0 FAIL |
+| `node-full-02` | 按现 README 分开执行常规脚本与 scope 自检 | 常规 105 文件 2082/2082 PASS；另 2 文件 90 项自检为 89 PASS / 1 FAIL；整次 exit 1，未改记全绿 |
+| `release-sidecar-build-01` | `bash scripts/build_sidecar.sh` 后 `pnpm exec tauri build` | exit 0；当前源码生成 sidecar、app 与 dmg |
+| `release-package-identity-03` | app 内归档、release inventory 与当前 compiled 模块的实际构建转换逐项核对 | exit 0；1765/1765 实际 BEAM 字节一致；415/415 项目 BEAM 经现 `Mix.Release.strip_beam/1` 后与 release 完整字节相等；三个新生产实现模块均存在 |
+| `task-done-engineering-02` | 不带 `--scope` 的 `bash scripts/task_done.sh`，实际调用完整 `ai_static_scan.sh --top 10` | exit 0；当前前端测试、I1/I2/I3/N-NARR/I-CACHE、大小门禁、NEXT 等再次覆盖；扫描处置见 §18.6。该调用只签全树扫描，`scope_completion_asserted=false` |
+
+**前端/Node 证据身份。** 两次原 full-02 的 source fingerprint 是 `7aab5336848fc97e21bfdd6d3a0f9f53405b7518f6436e5be6c62db64bcbfa2d`，不倒填为最终树。与 `a568e336…` 的 2682 个 entries 比较，仅 `agentic_plan_draft_planner.ex`、`trace_writer.ex`、`creative_artifact_test.exs`、`pending_artifact_workflow_test.exs` 变化；全部 scripts/ 与 frontend/ 的 type/mode/SHA 相同。四个后端变化已由最终全量和 136 项回归覆盖，最终完整扫描另覆盖当前前端。
+
+**已知 Node 自检失败仍由 B84 持有。** `scripts/lib/test_env.test.mjs:469` 的借用父 scope 用例，actual 65、expected 1：fixture 父 owner 已退出，实际借用门按现 owner 存活规则拒绝。B84 原任务已有同一失败及独立基线复现（其 743/767/778 行记录）；本批不修改 test_env/断言/阈值或跳过它。首次 `node-full-01` 的 33 项失败则来自未按既有自检入口移除继承的 NOVEL_TEST_RUN_DIR，错误调用原件保留，不能混作新产品缺陷。full-02 的自检包含刻意构造的嵌套 owner archive，外层记录不以“任一个子结果通过”冒充整体通过。
+
+**I3 分层不得合并。** 本次 Layer-B 决定层 3/3、脚本 exit 0；Layer-A 参考层仍是 0 pass / 3 fail（已有 artifact 但 nonce 未出现）。R06 封存 `backend-full-03/test.log` 已有同样分层结果，owner `e4ea7f1da2dddad6`、运行前后 fp `89d7c376…` 不变。本批未改 driver 或其判定，不能由决定层通过宣称完整主链 nonce 已贯通，也不能替代真实页面/模型证据。
+
+**失败与核验纠正全部保留。** 初始 red、schema keyword red、focused/full-01 中旧协议消费者和 fixture 失败、preflight 的规模/codegen 漂移、frontend-full-01 格式失败、backend-full-02 的三处 Credo 问题均保留原目录，后续修正与重新执行各用独立目录。包身份 01 把 AppleDouble 元数据误算为 BEAM，02 又把未 strip 的 compiled 直接同 release 比较，均为真实失败原件；只读核实 `mix.exs strip_beams:true` 和实际 Mix.Release API 后，03 严格区分 AppleDouble v2 元数据，并用原构建转换校验。归档与 app 内嵌归档 SHA 均为 `889e8b6d7e698702a687cb1382b6af7ba6f556e8036850cbfe88aedea432ca32`。没有修改生产打包流程或只比较部分 BEAM chunk；构建/字节验证不等于原生场景通过。
+
+### 18.6 静态扫描闭环
+
+`task-done-engineering-01` 完整扫描实际 exit 1，原件保留。唯一 blocking 为 Semgrep 命中 `scripts/native_b29_evidence.test.mjs:443`：新增一个 import 使旧 442 行移位。独立比较 R06 `dd8cd1b3` 与当前文件，固定输入、原文正例、故意改换行的反例及拒绝断言逐字相同；此表达式不承担文本清洗职责。仅在现 `reports/static-scan/dispositions.json` 新增 443 行精确 false_positive，保留 442/430 的旧记录；baseline、扫描规则和反例未改。
+
+复跑 `task-done-engineering-02` 实际 exit 0：21 项检查中 20 项 raw exit 0、gitleaks raw exit 1、0 skipped；9 findings = 8 false_positive + 1 既有 accepted_risk，pending/blocking 均 0。gitleaks 六条与 R06 最终封存原件逐项相同，未把原始非零结果写成 raw PASS。
+
+| 当前 Top 10（实际 9 项） | 处置 | 核验/后续 |
+|---|---|---|
+| Semgrep：`authoring_request_facts.test.mjs:112` | false_positive | 固定段头的非法换行反例，保留拒绝测试；输入或职责变化再审 |
+| Semgrep：`native_b29_evidence.test.mjs:443` | false_positive | 固定原文的字节不一致反例，本次只更新精确行号处置 |
+| Semgrep：`authoring_live_verifier.test.mjs:113` | false_positive | 本地 fixture 三个固定键赋值，保留预注册归属测试 |
+| gitleaks：`authoring_confirmation_evidence.test.mjs:309` | false_positive | 历史测试幂等标识，保持扫描与原历史 |
+| gitleaks：`verify_b65_origin_boundary.sh:22` | false_positive | WebSocket 示例 nonce |
+| gitleaks：`B63-known-gaps-remediation.md:118` | false_positive | 历史文档内场景标识 |
+| gitleaks：`e2e_01_full_chain_check.sh:243` | false_positive | 内部 artifact spec 标识 |
+| gitleaks：`novel-studio.pen:5739` | false_positive | 现台账已审 Pencil 元数据，保持其原处置边界 |
+| gitleaks：`tools/company-console/server/config.mjs:4` | accepted_risk | 既有 ProjectGod 线历史风险，凭据所有者轮转/历史治理仍按原台账；本批未扩展或改为误报 |
+
+本节第一阶段复跑 `task-done-engineering-02` 的 `static-scan/report.json` SHA `5bc450e0fb2f0ec7fea1025ead050d1ef5318fa3c9bc677c2fa9493bb8b10cdb`；完整 top10、disposition、manifest、raw 和此前扫描副本均在该次独立目录。处置门禁通过不代表 R07 原 scope completion 或页面验收通过。
+
+### 18.7 原生现场、未闭环范围与恢复入口
+
+**当前为 blocked / NOT PASS。** R07 尚未启动 native 验收批次或真实模型调用，没有本批真实页面 summary/binding；原 scope completion 未执行。全树工程扫描、R06 页面证据和已构建 release 均不能填补这些缺口。
+
+作者指出“此前可以 UI 验收”后，于 2026-11-22 00:40:37 +08:00 执行 `native-desktop-diagnostic-01` 只读现场核验：AX、输入、截屏权限都为 true，前台确为 SecurityAgent PID 13294；真实桌面截图显示 Docker 本地网络授权提示，后方是钥匙串访问提示。AX 可见文本进一步确认 `git-credential-osxkeychain` 请求使用 `github.com` 凭据，并要求输入“登录”钥匙串密码。现场截图 SHA `f6ad83bf8e7dc365cfce588a064be170956408c2a615adb4f5f23d935ba53da8`，可见文本另存 `security-dialog-readable.json`；未读取密码字段内容。上游请求由哪个任务触发仍未确认。
+
+时间线分别保留：R06 WR01 det-04 于 22:17 完成全 PASS，WR02-live-01 于 22:32 仍正常完成页面操作（业务结果 13/14，原失败保留）；当前 SecurityAgent 进程于 22:39:31 启动；checkpoint 在 23:01:27 首次记录其占据前台，目标工作台当时已加载且权限有效，激活请求返回 true 但 2026ms 后仍未确认目标前台。两轮受控源快照只差 NEXT/B87 文档，driver/helper/产品源码相同；历史实际 ax_cua 二进制没有封存 SHA，不能追认二进制身份。仅凭进程名称无法证明历史阻塞的全部原因；当前真实授权弹窗及处理后的激活复测才是恢复判断依据。
+
+恢复沿本批原目标与既有入口：
+
+1. 本机操作者处理当前系统权限/钥匙串提示后，重新观测桌面；由现 NativeScenarioHarness 绑定独立目录、app_path、run_ref 与 PID，确认真实目标前台和输入权限。
+2. 冻结 R07 专用源身份、输入/seed、精确目标、预算与目录后执行既有 WR02 机制入口，覆盖候选未采纳、Why/工具状态和重开恢复；按同批已审的真实作者采纳路径补 receipt，按真实入口刺激补零派发及纠错终局。已有 WR02 driver 本身没有作者采纳动作，不能把候选恢复算作采纳证据。
+3. 每一场保留真实输入、wire、原始响应、Trace/Replay、持久事实和页面截图。只签实际覆盖的断言，未覆盖项继续属于 R07；不借 R06 的预算或把 R08/R09/R17 任务带入本批。
+4. 所有本批文档/代码稳定后，沿原 scope 执行带真实 `--slice` 和本次执行时形成的 `--ui-binding` 的完整 `task_done.sh --scope`；没有真实 binding 时不手造 manifest，不以无 scope 扫描代签。
+
+NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保持，B84 借用父 scope 自检仍回原任务，system 重复的生成源/共同规则生命周期仍由 R17 处理。
+
+本批场景覆盖按实际入口拆分核对：WR02 负责使命纠错、候选/Why 与重开；`b71-authoring-revision` 负责候选原参数拒收和原 call 有界纠错（当前消费者漏迁已由 §18.8 收束）；既有 confirmation reject 负责作者拒绝后的业务零执行，Provider 窗口为 0 的内部边界不额外扩成 UI 场景。明确采纳可复用现 `b71-authoring-pending` 完整场景的真实保存、ACCEPTED receipt、投影与重开，不要求与 WR02 是同一个候选。现 pending 场景只在采纳前打开 Why，采纳后的 Replay/Why 事实仍须同批补采；补采须由现 measured.turn_results.accept、真实动作 TurnResult 与 receipt 绑定 turn_adopt 的 action_turn_ref/source_turn_ref/artifact_id/adopted_state_ref，不能由原生成 turn 的 Replay 或单独 ACCEPTED 文本替签；WR02 的运行进度字段、拒绝后的真实 execution_counts/Why 及连续拒收终局也只按实际捕获范围签收。这些是 R07 的剩余页面证明，不是后继批次任务，也不增加实模语义评分。
+
+### 18.8 同批原生证据消费者漏迁的补充收束（2026-11-22）
+
+第一阶段推送后，在准备实际页面入口时独立审查发现：`b71-authoring-revision` 的原始 `arguments={}` 已由 R07 生产接收链拒绝为 `provider_response_invalid`，现 test-support 续轮也消费该码，但原 `authoring_revision_evidence` 三处判定及共享 fixture/场景说明仍锁旧 `invalid_items`。这属于 R07 当前消费者漏迁，不能留给后继批次或兼容接受两个码。
+
+仅沿现 evidence/fixture/manifest owner 精确迁移 8 个文件，检查键及场景不变量同步更名，原 raw 参数、call_id、两次调用身份、严格请求前缀与字节判据保持；B29 和其它真实 ToolOutputContract 语义中的 invalid_items 不动。两条新增独立反例分别手写当前码/旧码，当前码应通过、旧码应拒绝。没有新增 driver、错误码 registry、生产分支或兼容键；`SliceVerify` 本次只更新原说明注释，生产接收实现未再改动。
+
+证据依次保留：
+
+- `revision-current-contract-red-01`：两项先因误传 source run 记录而未满足 child 的 exact-two 前置，作为测试输入归属失败保留，不计为错误码反例证据。
+- `revision-current-contract-red-02`：限定现 fixture 中两条 child pcall 后，exact-two 前置成立；两项均实际失败在目标判据——当前码被拒绝、旧码被接受。child exit 1，日志 SHA `bf6d02315cff316e743fddf61c6a997e347e94b4310febcbed12db4bb231a7a4`。
+- `revision-consumers-final-01`：格式、规模、232 scenarios / 3 drafts 的 manifest、NEXT 通过；随后全树 diff 检查因本任务文档 EOF 多一个空行 exit 2，Node 尚未执行。该原件保留，EOF 随当前文档修正，后续独立文档检查核账。
+- `node-regular-final-01`：105 个常规测试文件 **2084/2084 PASS**、exit 0，包括上述新旧码两条反例；log SHA `dd7dcfabf1912d7d068a042ef635b8386d5b5dda248e79323d59dab719370bcf`。未变化的 scope 自检仍引用 §18.5 的 89/90 原始结果，不把未重跑项写成全绿。
+- `task-done-engineering-03`：对补充后代码重新执行完整扫描，exit 0；21 项 raw 结果仍为 20 pass / gitleaks 1，9 findings 仍为 8 false_positive + 1 accepted_risk、blocking 0；判定边界与 §18.6 相同。report SHA `38d5cc75a098b2e60eb6031ef6a9e48c2ff6a01f78c0456480f675d4ff21fb1e`，log SHA `7a80b3be225376b0850f02805f6d3bc2213b1f8094245deb6fe1e6eb01d55b7e`，`scope_completion_asserted=false`。
+
+后二次成功运行均绑定 source fingerprint `ae19dabc5b5ea502f87e4914f37310d03dd7d0a0de2be5f60920685b91b352bb`，执行前后不变。补充提交 `daf22012b1dac7468bf8148f0b4933e3e32597b5` 只含上述 8 个文件；`commit-g3-followup-01` 核对提交字节与已验源一致。第二阶段 `push-stage2-01` 于 2026-11-22 00:55:11 +08:00 正常推送并读回同一远端 HEAD。本机 Git hook 输出未找到 lefthook 配置；工程结论来自本节明确执行的门禁，不声称配置缺失的 hook 已完成检查。
+
+当前任务/NEXT 的最终记录由独立 `closure-doc-validation-03` 对账：差异检查、NEXT 及开放清单复核、与已验源逐项比较；其实际结果与源快照见同目录原件。01、02 已通过的原件保留；02 包含后来补明的采纳动作身份恢复说明，03 仅进一步明确 §18.6 扫描属于第一阶段复跑。文档只记已发生事实与恢复条件，不触及已验生产字节。R07 原生验收次数和真实模型调用仍为 0，原 scope completion 未完成，继续按 §18.7 恢复，不因补充提交代签 PASS。

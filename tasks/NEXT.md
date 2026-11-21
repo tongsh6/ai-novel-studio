@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：下一独立执行入口为 R07，按共享 README 使用全新上下文；先核原任务 §17.5 的结构 ref 前置与 R06 保留边界，再推进本批工具字段/引用/效果/校验回执/Replay 目标。批次证据与未闭合项只在原任务维护。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：继续 R07 原 scope，按原任务 §18.7 恢复真实页面入口并收束本批工具字段/引用/效果/校验回执/Replay 目标；R06 保留边界见 §17.5，后继批次仍按共享 README 独立开工。批次证据与未闭合项只在原任务维护。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
