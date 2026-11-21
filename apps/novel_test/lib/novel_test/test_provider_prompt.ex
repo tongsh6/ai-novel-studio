@@ -136,6 +136,27 @@ defmodule NovelTest.TestProviderPrompt do
 
   def current_operation_messages(_prompt), do: []
 
+  @doc "读取当前操作中同名工具调用的失败校验；不从其它调用、旧 scope 或非 IR 文本推断。"
+  @spec failed_tool_call_in_current_operation?(prompt(), String.t()) :: boolean()
+  def failed_tool_call_in_current_operation?(prompt, tool) do
+    blocks =
+      prompt
+      |> current_operation_messages()
+      |> Enum.flat_map(& &1.blocks)
+
+    call_ids =
+      for %{type: "tool_call", name: ^tool, call_id: call_id} <- blocks,
+          do: call_id
+
+    Enum.any?(blocks, fn
+      %{type: "validation_result", status: "failed", call_id: call_id} ->
+        call_id in call_ids
+
+      _ ->
+        false
+    end)
+  end
+
   @doc "本次实际可见 canonical 工具观察叶；沿唯一 Compaction 投影，不从 refs 或文字反推。"
   @spec visible_observations(prompt()) :: [map()]
   def visible_observations(%RequestIR{} = request), do: RequestIR.visible_observations(request)

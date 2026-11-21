@@ -1551,26 +1551,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp mission_correction_reasoning(reasoning, %RequestIR{} = prompt, tool) do
     if System.get_env(@mission_correction_env) == "reject_then_valid" do
-      blocks =
-        prompt
-        |> TestProviderPrompt.current_operation_messages()
-        |> Enum.flat_map(& &1.blocks)
-
-      call_ids =
-        for block <- blocks,
-            block.type == "tool_call" and block.name == tool,
-            do: block.call_id
-
-      rejected? =
-        Enum.any?(blocks, fn
-          %{type: "validation_result", status: "failed", call_id: call_id} ->
-            call_id in call_ids
-
-          _ ->
-            false
-        end)
-
-      if rejected?,
+      if TestProviderPrompt.failed_tool_call_in_current_operation?(prompt, tool),
         do: " \n" <> reasoning <> "\nR06MISSIONACCEPTEDΩ\r\n",
         else: "先读取 chapter:22660419，再按原计划推进。R06MISSIONREJECTED"
     else

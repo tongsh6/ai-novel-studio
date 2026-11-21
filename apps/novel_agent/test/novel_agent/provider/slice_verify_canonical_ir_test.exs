@@ -76,6 +76,57 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
     assert NovelTest.TestProviderPrompt.text(injected) == "user: 普通请求"
   end
 
+  test "失败调用事实只来自当前操作的同工具同 call，不借其它校验或旧 scope" do
+    scope = NovelTest.TestRequestIR.scope(%{operation: %{name: "mission"}})
+
+    call =
+      NovelTest.TestRequestIR.assistant("", [
+        NovelTest.TestRequestIR.tool_call("chapter_mission", %{}, "mission-call")
+      ])
+
+    rejected = NovelTest.TestRequestIR.validation("mission-call", "failed", "fixture_rejected")
+    passed = NovelTest.TestRequestIR.validation("mission-call", "passed", "fixture_passed")
+    ir = NovelTest.TestRequestIR.ir([scope, call, rejected])
+
+    assert NovelTest.TestProviderPrompt.failed_tool_call_in_current_operation?(
+             ir,
+             "chapter_mission"
+           )
+
+    refute NovelTest.TestProviderPrompt.failed_tool_call_in_current_operation?(
+             ir,
+             "planning_mission"
+           )
+
+    other_call =
+      NovelTest.TestRequestIR.assistant("", [
+        NovelTest.TestRequestIR.tool_call("planning_mission", %{}, "other-call")
+      ])
+
+    other_rejected =
+      NovelTest.TestRequestIR.validation("other-call", "failed", "fixture_rejected")
+
+    for messages <- [
+          [scope, call, passed],
+          [scope, call, passed, other_call, other_rejected],
+          [scope, call, rejected, scope]
+        ] do
+      request = NovelTest.TestRequestIR.ir(messages)
+
+      refute NovelTest.TestProviderPrompt.failed_tool_call_in_current_operation?(
+               request,
+               "chapter_mission"
+             )
+    end
+
+    for non_ir <- [%{messages: ir.messages}, "chapter_mission mission-call failed"] do
+      refute NovelTest.TestProviderPrompt.failed_tool_call_in_current_operation?(
+               non_ir,
+               "chapter_mission"
+             )
+    end
+  end
+
   for {mode, targets} <- [
         {"同批计划", ["context_assemble", "character_design", "world_building"]},
         {"另行起草计划", ["context_assemble", "character_design", "world_building"]},
