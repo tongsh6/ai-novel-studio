@@ -65,7 +65,8 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
                source_turn_ref: "turn-b28-replace",
                artifact_id: "as-b28-replace",
                artifact_type: :prose_fragment,
-               content: "初稿正文。\n\n零换行续写正文。",
+               items: [%{item_id: "replacement", body: "初稿正文。\n\n零换行续写正文。"}],
+               modification_scope: "whole_chapter",
                summary: "第01章：开端",
                target_chapter_ref: "chapter:#{c.chapter.id}",
                adoption_effect: effect,
@@ -122,7 +123,8 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
                source_turn_ref: "turn-b28-stale",
                artifact_id: "as-b28-stale",
                artifact_type: :prose_fragment,
-               content: "不应写入",
+               items: [%{item_id: "replacement", body: "不应写入"}],
+               modification_scope: "whole_chapter",
                summary: "第01章：开端",
                target_chapter_ref: "chapter:#{c.chapter.id}",
                adoption_effect: effect
@@ -148,7 +150,8 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
                source_turn_ref: "turn-b28-missing",
                artifact_id: "as-b28-missing",
                artifact_type: :prose_fragment,
-               content: "不应写入",
+               items: [%{item_id: "replacement", body: "不应写入"}],
+               modification_scope: "whole_chapter",
                summary: "第01章：开端",
                adoption_effect: effect
              })
@@ -160,7 +163,8 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
                source_turn_ref: "turn-b28-incomplete",
                artifact_id: "as-b28-incomplete",
                artifact_type: :prose_fragment,
-               content: "不应写入",
+               items: [%{item_id: "replacement", body: "不应写入"}],
+               modification_scope: "whole_chapter",
                summary: "第01章：开端",
                target_chapter_ref: "chapter:#{c.chapter.id}",
                adoption_effect: effect

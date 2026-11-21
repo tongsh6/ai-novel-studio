@@ -5,7 +5,7 @@ defmodule NovelApplication.JudgmentToolContract do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
 
-  @version "b26-tools-v4"
+  @version "b26-tools-v5"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination

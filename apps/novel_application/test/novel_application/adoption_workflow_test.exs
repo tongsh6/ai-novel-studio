@@ -890,7 +890,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       writer = fn _ -> flunk("仅指令不得进入写入") end
 
       for source <- [source_turn_result(), string_key_source_turn_result()] do
-        assert {:error, "edited_content is required; use candidate revision for instructions"} =
+        assert {:error, "edited body is required; use candidate revision for instructions"} =
                  AdoptionWorkflow.handle_modify_draft(
                    source,
                    %{"draft_id" => "as-1", "instruction" => "改得更果断"},
@@ -922,7 +922,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
     end
 
     test "rejects when neither edited content nor instruction is provided" do
-      assert {:error, "edited_content is required; use candidate revision for instructions"} =
+      assert {:error, "edited body is required; use candidate revision for instructions"} =
                AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{"draft_id" => "as-1"})
     end
 

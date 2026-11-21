@@ -6,6 +6,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.CreativeRequest
+  alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelTest.TestProviderPrompt
@@ -656,7 +657,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
           AuthoringTaskFixtures.task(:revision, %{
             output_contract: %{
               kind: :json,
-              schema_ref: "tentative_artifact_v1",
+              schema_ref: ToolOutputContract.creative_output_contract_ref(),
               artifact_type: :world_setting,
               required_keys: ["items", "item_id", "title", "body"],
               allow_companions: false

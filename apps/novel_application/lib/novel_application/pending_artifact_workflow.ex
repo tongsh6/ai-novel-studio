@@ -620,7 +620,14 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
-         {:ok, revision_scope} <- b36_revision_scope(facts, modification_scope, run, judgment),
+         {:ok, revision_scope} <-
+           b36_revision_scope(
+             facts,
+             modification_scope,
+             run,
+             judgment,
+             Keyword.get(opts, :previous_candidate)
+           ),
          author_input = TurnInteractionService.author_input(input, run),
          {:ok, task} <-
            build_chapter_revision_task(facts, modification_scope, frame, judgment, author_input) do
@@ -628,7 +635,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       # 不再按全库章目录查找，也不回退到裸 chapter_ref。
       chapter_title = facts.chapter_title
       tool = "prose_writing"
-      plan = chapter_revision_plan(frame, tool)
+
+      plan =
+        revision_plan(
+          frame,
+          tool,
+          "act_revise_chapter_#{frame.turn_id}",
+          "按作者要求修订整章正文"
+        )
+
       {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
       previous_plan = Keyword.get(opts, :previous_plan)
 
@@ -660,7 +675,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
             run,
             facts,
             modification_scope,
-            previous_plan
+            previous_plan,
+            revision_scope
           )
         )
 
@@ -742,7 +758,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   # 章节格式计划的应用校验作为纯回调进入同一次原生交换：只读已归一 ToolResult，
   # 复用既有 ProseFormatting 规则，不组装 artifact、不写库、不造 ID。
-  defp chapter_execution_options(run, facts, :format_only, previous_plan) do
+  defp chapter_execution_options(run, facts, :format_only, previous_plan, _binding) do
     run
     |> AuthoringOperation.tool_execution_options()
     |> Keyword.put(:validate_result, fn %ToolResult{} = result ->
@@ -750,8 +766,29 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end)
   end
 
-  defp chapter_execution_options(run, _facts, _scope, _previous_plan),
-    do: AuthoringOperation.tool_execution_options(run)
+  defp chapter_execution_options(run, facts, scope, _previous_plan, binding) do
+    run
+    |> AuthoringOperation.tool_execution_options()
+    |> Keyword.put(:validate_result, fn %ToolResult{} = result ->
+      case validated_chapter_payload(
+             facts,
+             scope,
+             facts.target_chapter_ref,
+             facts.chapter_title,
+             binding,
+             %{items: tool_result_items(result)}
+           ) do
+        {:ok, _payload} ->
+          :ok
+
+        {:error, reason} ->
+          validation_failure(
+            reason,
+            "候选未通过当前章范围校验（#{reason}）。" <> chapter_revision_instruction(scope)
+          )
+      end
+    end)
+  end
 
   defp validate_formatting_plan_result(%ToolResult{} = result, base_text, previous_plan) do
     case formatting_plan_preview(tool_result_items(result), base_text) do
@@ -794,7 +831,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
        }) do
     with {:ok, artifact} <-
            ArtifactAssembler.assemble(result, frame.turn_id, %{
-             revision_base: chapter_ref,
+             revision_base:
+               field(Map.get(revision_scope, :previous_candidate), :artifact_id) || chapter_ref,
              revision_reason: run.goal.text,
              target_chapter: chapter_title,
              target_chapter_ref: chapter_ref
@@ -880,7 +918,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionScope 判定；
-  # 读取/通读/否定/条件不授予整章。显式 opts 仅保留给受信内部路径（排版计划再修订）。
+  # 读取/通读/否定/条件不授予整章。显式 opts 仅承接既有候选，基线和原授权另行复核。
   defp resolve_modification_scope(run, opts) do
     case Keyword.fetch(opts, :modification_scope) do
       {:ok, scope}
@@ -940,7 +978,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp chapter_revision_plan(frame, tool) do
+  defp revision_plan(frame, tool, action_id, summary) do
     %MicroPlan{
       plan_id: "plan_#{frame.turn_id}",
       turn_id: frame.turn_id,
@@ -949,9 +987,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       risk_hint: :low,
       proposed_actions: [
         %{
-          action_id: "act_revise_chapter_#{frame.turn_id}",
+          action_id: action_id,
           action_type: :capability_invocation,
-          summary: "按作者要求修订整章正文",
+          summary: summary,
           target_ref: tool,
           write_intent: :tentative,
           risk_hint: :low
@@ -1018,7 +1056,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     context_text =
       baseline <>
         revision_target_context(facts, revision_scope, scope) <>
-        previous_formatting_plan(Map.get(request_context, :previous_plan))
+        previous_formatting_plan(Map.get(request_context, :previous_plan)) <>
+        previous_candidate_context(Map.get(revision_scope, :previous_candidate))
 
     input =
       request.input
@@ -1039,9 +1078,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  # 目标段与正文段来自同一次 LocalizedRevision.segment/1 结果（revision_scope），
-  # 数组顺序即正文顺序；writer 与 adoption 共用这一顺序，避免多段错绑。
-  # 该区块必须保持纯结构化 JSON：多段顺序规则只放在 chapter_revision_instruction/1。
+  # 目标源片段按真实正文顺序供应；候选通过显式 ID 区间绑定，不按输出 item 位置配对。
+  # 该区块保持纯 JSON；应用规则集中于 chapter_revision_instruction/1。
   defp revision_target_context(_facts, %{target_segments: targets}, :target_segments) do
     targets =
       Enum.map(targets, fn segment ->
@@ -1060,6 +1098,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   defp revision_target_context(_facts, _binding, _scope), do: ""
+
+  defp previous_candidate_context(nil), do: ""
+
+  defp previous_candidate_context(previous) do
+    "\n\n## 待调整的原候选（尚未采纳；保持原授权，针对作者新要求输出完整结构化候选）\n" <>
+      Jason.encode!(field(field(previous, :payload), :items))
+  end
 
   defp previous_formatting_plan(nil), do: ""
 
@@ -1089,11 +1134,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   defp chapter_revision_instruction(:target_segments) do
-    "本轮为指定片段修订：只输出**目标段落的替换文本**（provider 原样返回该段正文，不要输出整章、" <>
-      "不要重复未改段落、不要加解释/标题/摘要）。替换文本必须能直接替换目标段；" <>
-      "有多个目标段时，按目标段在正文中的实际先后顺序逐一输出对应替换段，段与段之间以空行分隔，" <>
-      "每段仍须是单个段落。未改段落由系统逐字节保留，你不需要也不得输出它们。" <>
-      "若无法确定目标段，只输出一句具体澄清请求（系统会转 ask_author）。"
+    "本轮为指定片段修订：每个 item 以 target_segment_ids 显式绑定一个连续源区间，" <>
+      "区间内按真实源顺序列 ID；多个 item 合起来恰好覆盖全部授权片段，不得重复、重叠或跨越未选间隙。" <>
+      "body 是该区间的完整替换正文，可合段、拆段或收束重复，保留所需锚句；不要附加旧区间的尾分隔符。" <>
+      "所有 items 共同组成一份候选，不能把它们当互斥备选。未选区间由系统逐字节保留，不要输出它们。"
   end
 
   defp chapter_revision_instruction(_scope) do
@@ -1115,8 +1159,33 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     do: "#{chapter_title}（整章内容修订稿）"
 
   # B28/B36：writer 调用前绑定目标段；同一份 id/hash/segments 用于 writer 输入与候选。
-  # 全文只切一次：绑定复核、目标上下文与 adoption_effect 共用这份段事实。
-  defp b36_revision_scope(facts, modification_scope, run, judgment) do
+  # 原候选再修订沿用原授权；当前 accepted 事实仅用于复核，不能重新授予更宽范围。
+  defp b36_revision_scope(facts, _scope, _run, _judgment, previous) when is_map(previous) do
+    payload = field(previous, :payload)
+
+    with {:ok, _original} <- ChapterRevisionScope.revalidate_payload(payload, facts) do
+      scope = field(payload, :scope)
+      ids = field(scope, :target_segment_ids)
+
+      binding =
+        Map.new(
+          [:target_segment_ids, :expected_segment_hashes, :base_draft_ref, :base_version],
+          &{&1, field(scope, &1)}
+        )
+
+      {:ok,
+       Map.merge(binding, %{
+         target_segments:
+           Enum.filter(
+             NovelPersistence.LocalizedRevision.segment(facts.base_text),
+             &(&1.segment_id in ids)
+           ),
+         previous_candidate: previous
+       })}
+    end
+  end
+
+  defp b36_revision_scope(facts, modification_scope, run, judgment, nil) do
     segments = NovelPersistence.LocalizedRevision.segment(facts.base_text)
 
     with {:ok, ids, target_source} <-
@@ -1241,7 +1310,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           {:error, {:formatting_plan_invalid, reason}}
       end
     else
-      {:ok, payload}
+      ChapterRevisionScope.revalidate_payload(Map.put(payload, :items, artifact.items), facts)
     end
   end
 
@@ -1262,6 +1331,17 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   defp formatting_unchanged?(preview_text, previous_plan),
     do: field(previous_plan, :formatting_preview) == preview_text
+
+  defp b28_candidate_payload(_facts, _scope, _ref, _title, %{previous_candidate: previous}) do
+    payload = field(previous, :payload)
+
+    Map.new(
+      [:title, :target_chapter_ref, :modification_scope, :scope, :adoption_effect],
+      &{&1, field(payload, &1)}
+    )
+    |> Map.put(:revision_of, field(previous, :artifact_id))
+    |> Map.put(:registration_source_ref, AuthorContentRegistration.author_source_ref(previous))
+  end
 
   defp b28_candidate_payload(
          facts,
@@ -1487,8 +1567,14 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   defp revise(judgment, entry, input, run, context, provider, snapshot, session) do
-    if to_string(field(entry, :artifact_type)) == "prose_formatting_plan" do
-      payload = field(entry, :payload) || %{}
+    payload = field(entry, :payload) || %{}
+    formatting? = to_string(field(entry, :artifact_type)) == "prose_formatting_plan"
+
+    structured? =
+      to_string(field(entry, :artifact_type)) == "prose_fragment" and
+        ChapterRevisionScope.declares_revision_scope?(payload)
+
+    if formatting? or structured? do
       chapter_ref = field(entry, :target_chapter_ref) || field(payload, :target_chapter_ref)
 
       judgment =
@@ -1497,13 +1583,25 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           adopted_content_ref: chapter_ref
         })
 
-      revise_chapter(judgment, input, run, context, provider, snapshot, session,
-        modification_scope: :format_only,
-        previous_plan: payload
-      )
+      options = pending_revision_options(formatting?, entry, payload)
+      revise_chapter(judgment, input, run, context, provider, snapshot, session, options)
     else
       revise_content(judgment, entry, input, run, context, provider, snapshot)
     end
+  end
+
+  defp pending_revision_options(true, _entry, payload),
+    do: [modification_scope: :format_only, previous_plan: payload]
+
+  defp pending_revision_options(false, entry, payload) do
+    kind =
+      case field(payload, :modification_scope) do
+        "target_segments" -> :target_segments
+        "whole_chapter" -> :whole_chapter
+        _ -> :invalid
+      end
+
+    [modification_scope: kind, previous_candidate: entry]
   end
 
   defp revise_content(judgment, entry, input, run, context, provider, snapshot) do
@@ -1511,24 +1609,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     tool = revision_tool(entry)
     frame = frame(judgment, input, run, :execution_candidate, ref)
 
-    plan = %MicroPlan{
-      plan_id: "plan_#{frame.turn_id}",
-      turn_id: frame.turn_id,
-      frame_ref: frame.frame_id,
-      plan_goal: frame.dialogue_goal,
-      risk_hint: :low,
-      proposed_actions: [
-        %{
-          action_id: "act_revise_#{frame.turn_id}",
-          action_type: :capability_invocation,
-          summary: "按作者要求修订已有候选",
-          target_ref: tool,
-          write_intent: :tentative,
-          risk_hint: :low
-        }
-      ],
-      stop_after_next_action: true
-    }
+    plan =
+      revision_plan(
+        frame,
+        tool,
+        "act_revise_#{frame.turn_id}",
+        "按作者要求修订已有候选"
+      )
 
     {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -1724,26 +1811,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     tool = revision_tool(entry)
     frame = frame(judgment, input, run, :execution_candidate, ref)
 
-    plan = %MicroPlan{
-      plan_id: "plan_#{frame.turn_id}",
-      turn_id: frame.turn_id,
-      frame_ref: frame.frame_id,
-      plan_goal: frame.dialogue_goal,
-      risk_hint: :low,
-      proposed_actions: [
-        %{
-          # 注意：action_id 会被 MicroPlan.check_forbidden/1 的 inspect 扫描，禁用词表含
-          # "adopted"；用 accepted 命名（本动作修订的是已采纳内容）。
-          action_id: "act_revise_accepted_#{frame.turn_id}",
-          action_type: :capability_invocation,
-          summary: "按作者要求修订已采纳内容",
-          target_ref: tool,
-          write_intent: :tentative,
-          risk_hint: :low
-        }
-      ],
-      stop_after_next_action: true
-    }
+    # 注意：action_id 会被 MicroPlan.check_forbidden/1 的 inspect 扫描，禁用词表含
+    # "adopted"；用 accepted 命名（本动作修订的是已采纳内容）。
+    plan =
+      revision_plan(
+        frame,
+        tool,
+        "act_revise_accepted_#{frame.turn_id}",
+        "按作者要求修订已采纳内容"
+      )
 
     {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -2028,6 +2104,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp validation_reason("no_formatting_changes"), do: :no_formatting_changes
   defp validation_reason("format_only_violation"), do: :format_only_violation
   defp validation_reason("stale_base_version"), do: :stale_base_version
+  defp validation_reason("incomplete_scope"), do: :incomplete_scope
+  defp validation_reason("out_of_scope_changes"), do: :out_of_scope_changes
   defp validation_reason(_code), do: nil
 
   defp tool_result_items(%ToolResult{output: output}), do: tool_result_items(output)

@@ -27,76 +27,6 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     :ok
   end
 
-  # B28 CP1：scope 表达“作者授权修改的范围”，材料读取不等于修改授权；
-  # 否定/局部限制/条件不得被词面扩大；只读拒绝不得生成整章候选。
-  @matrix [
-    # 否定整章 + 局部限制：局部限制优先，不扩为整章
-    {"不要整章重写，只改第一段。", {:ok, :target_segments}},
-    # 通读/全文是材料读取，不是修改授权；局部限制仍生效
-    {"通读全文后只修第二段。", {:ok, :target_segments}},
-    # 只读检查 + 明确不改：不授权任何修改
-    {"整章检查一遍，有问题告诉我，别改。", {:error, :author_scope_not_authorized}},
-    {"只读一遍第03章，不要改。", {:error, :author_scope_not_authorized}},
-    # 条件性整章：条件未判定前保守为局部，不自动授整章
-    {"如果第03章有明显问题就整章改一遍，没有问题就告诉我。", {:ok, :target_segments}},
-    # 正向整章授权
-    {"把第03章整章重写一遍，情节不变。", {:ok, :whole_chapter}},
-    {"通读全文后整章润色，保留所有情节。", {:ok, :whole_chapter}},
-    {"请通读整章并修订第一章正文。", {:ok, :whole_chapter}},
-    # 仅排版正向限制（既有契约保留）
-    {"只调整第03章分段和排版，不要改字句。", {:ok, :format_only}},
-    {"把第一章正文整理一下，只调整分段和排版，别改字句。", {:ok, :format_only}},
-    # 局部授权 / 字面替换默认局部
-    {"把第03章第一段改得更紧张，其他段落别动。", {:ok, :target_segments}},
-    {"把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。", {:ok, :target_segments}},
-    # 否定“仅排版”不是排版授权
-    {"不是仅排版，需要修改第二段里的指定句子。", {:ok, :target_segments}}
-  ]
-
-  test "authorize/1 矩阵：否定/条件/读取/局部/正向授权" do
-    for {text, expected} <- @matrix do
-      assert ChapterRevisionScope.authorize(text) == expected, "input=#{text}"
-    end
-  end
-
-  test "空文本/纯读取保守不授权整章" do
-    assert ChapterRevisionScope.authorize("") == {:ok, :target_segments}
-    assert ChapterRevisionScope.authorize(nil) == {:ok, :target_segments}
-    assert ChapterRevisionScope.authorize("把这一章读一遍。") == {:ok, :target_segments}
-  end
-
-  test "否定整章但无局部限制 → 不授整章（保守局部，交由目标解析/澄清处理）" do
-    assert ChapterRevisionScope.authorize("不要整章重写。") == {:ok, :target_segments}
-  end
-
-  test "target_segment_ids/2：段号/字面定位只认唯一命中，未知或越界拒绝" do
-    segments =
-      for raw <- ~w(一 二 三 四 五 六 七 八 九 十 十一) do
-        %{segment_id: "seg_#{raw}", raw: raw}
-      end
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十一段") ==
-             {:ok, ["seg_十一"]}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十段") == {:ok, ["seg_十"]}
-    assert ChapterRevisionScope.target_segment_ids(segments, "开头改一下") == {:ok, ["seg_一"]}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "把「三」改成「叁」") ==
-             {:ok, ["seg_三"]}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十二段") ==
-             {:error, :target_missing}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十十段") ==
-             {:error, :target_missing}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第0段") ==
-             {:error, :target_missing}
-
-    assert ChapterRevisionScope.target_segment_ids(segments, "只改第十一段，把「三」改成「叁」") ==
-             {:error, :target_ambiguous}
-  end
-
   # B82 G2：作者只给自然原话与阅读发现时，模型只能从本轮真实成功 chapter_read
   # 页里选择既有 B36 段；这里从真实章名/章序进入，走 judgment → 两页真实观察 →
   # Pending → writer 全链路。
@@ -116,7 +46,14 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     assert Enum.any?(page1.target_segments, &(&1.segment_id == target_id))
     assert Enum.any?(page2.target_segments, &(&1.segment_id == target_id))
 
-    writer = chapter_writer("修订后的重复写法只出现一次。", self())
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+    writer =
+      chapter_writer("修订后的重复写法只出现一次。", self(), fn _prompt ->
+        Agent.get_and_update(calls, fn count ->
+          {if(count == 0, do: ["seg_unknown"], else: [target_id]), count + 1}
+        end)
+      end)
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
@@ -134,15 +71,206 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     assert scope["authoring_task"]["scope"]["modification_scope"] == "target_segments"
     assert TestProviderPrompt.author_text(request) == @g2_author
 
+    for raw_ids <- [
+          [target_id, target_id],
+          [String.to_charlist(target_id)],
+          [1],
+          [nil],
+          [" \t"],
+          target_id
+        ] do
+      assert {:error, {:target_segments, :invalid_selection}} =
+               ChapterRevisionScope.bind_observed_targets(
+                 %{j3 | target_segment_ids: raw_ids},
+                 request
+               )
+    end
+
     [pending] = result.turn_result.adoption_state.pending
 
     assert pending.payload.adoption_effect["target_segment_ids"] == [target_id]
     assert pending.payload.scope["target_segment_ids"] == [target_id]
     assert pending.payload.title == "#{ctx.chapter.title}（指定段落修订稿）"
+    assert hd(pending.payload.items).target_segment_ids == [target_id]
+    assert result.provider_call_count == 2
+    assert Agent.get(calls, & &1) == 2
+    assert_received {:chapter_writer_prompt, correction}
+    blocks = Enum.flat_map(correction.messages, & &1.blocks)
+    assert Enum.any?(blocks, &(&1.type == "validation_result" and &1.status == "failed"))
+
+    assert Enum.any?(blocks, fn block ->
+             block.type == "tool_call" and
+               get_in(RequestIR.json_value(block.arguments), [
+                 "items",
+                 Access.at(0),
+                 "target_segment_ids"
+               ]) == ["seg_unknown"]
+           end)
 
     # 作者可见活动只保留既有读证，不投影段 ID/hash/字节坐标。
     refute page1.activity_summary =~ target_id
     refute page1.activity_summary =~ "source_hash"
+    unselected = hd(LocalizedRevision.segment(ctx.base)).segment_id
+
+    for {ids, reason} <- [
+          {["seg_unknown"], :incomplete_scope},
+          {[unselected], :out_of_scope_changes}
+        ] do
+      assert {:error, {:pending_artifact_invalid, ^reason}, failed} =
+               PendingArtifactWorkflow.run(
+                 j3,
+                 %{text: @g2_author},
+                 g2_run(ctx, @g2_author),
+                 %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
+                 chapter_writer("不可应用的候选。", self(), ids)
+               )
+
+      assert failed.provider_call_count == 2
+      assert_received {:chapter_writer_prompt, _first_failure}
+      assert_received {:chapter_writer_prompt, _last_failure}
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(ctx.work.id, ctx.chapter_ref) ==
+               ctx.base
+    end
+  end
+
+  test "局部与整章候选再次修订沿用原授权和结构化正文，基线过期时零调用" do
+    for {kind, words} <- [
+          {"target_segments", @g2_author},
+          {"whole_chapter", "请通读并整章修订第02章正文，减少重复，先不要保存。"}
+        ] do
+      ctx = seed_long_chapter(default_g2_prose())
+      %{judgment: judgment} = run_revision_flow(ctx, words, :happy)
+      ids = if kind == "target_segments", do: judgment.target_segment_ids
+      context = %DialogueContext{work_id: ctx.work.id, interaction_state: %{}}
+      original_body = "  原候选的独有句子。\r\n\r\n保留锚句。 "
+
+      assert {:ok, first} =
+               PendingArtifactWorkflow.run(
+                 judgment,
+                 %{text: words},
+                 g2_run(ctx, words),
+                 context,
+                 chapter_writer(original_body, self(), ids)
+               )
+
+      assert_received {:chapter_writer_prompt, _initial}
+      source = first.turn_result
+      refute Enum.any?(source.available_actions, &(&1.action_type == "revise_from_findings"))
+      [original] = source.adoption_state.pending
+
+      {:ok, _} =
+        NovelPersistence.MemoryLog.record(%{
+          workspace_id: ctx.work.id,
+          session_id: ctx.session.id,
+          turn_id: source.turn_id,
+          role: "assistant",
+          content: %{text: source.assistant_message.text, turn_result: source},
+          source_ref: source.turn_id,
+          scope_ref: ctx.work.id
+        })
+
+      revise = %{
+        judgment
+        | capability: "revise_pending_artifact",
+          pending_artifact_ref: original.artifact_id,
+          adopted_content_ref: nil
+      }
+
+      input = %{turn_id: "revise-scoped-" <> kind, text: "把这份候选再写得简练一些。"}
+      run = %{g2_run(ctx, input.text) | parent_turn_ref: input.turn_id}
+      revised_body = "  新候选保持锚句。\n\n语句收束。\t"
+
+      assert {:ok, revised} =
+               PendingArtifactWorkflow.run(
+                 revise,
+                 input,
+                 run,
+                 context,
+                 chapter_writer(revised_body, self(), ids)
+               )
+
+      assert_received {:chapter_writer_prompt, request}
+      supplied = TestProviderPrompt.scope_content(request)
+      assert supplied["authoring_task"]["scope"]["modification_scope"] == kind
+      assert supplied["operation"]["context_text"] =~ ctx.base
+
+      [_baseline, candidate_json] =
+        String.split(
+          supplied["operation"]["context_text"],
+          "\n\n## 待调整的原候选（尚未采纳；保持原授权，针对作者新要求输出完整结构化候选）\n",
+          parts: 2
+        )
+
+      assert Jason.decode!(candidate_json) == Jason.decode!(Jason.encode!(original.payload.items))
+      [candidate] = revised.turn_result.adoption_state.pending
+
+      refute Enum.any?(
+               revised.turn_result.available_actions,
+               &(&1.action_type == "revise_from_findings")
+             )
+
+      # MemoryLog 的真实 JSON 往返会把嵌套 atom key 编码为字符串，完整内容必须相同。
+      assert Jason.decode!(Jason.encode!(candidate.payload.scope)) ==
+               Jason.decode!(Jason.encode!(original.payload.scope))
+
+      assert Jason.decode!(Jason.encode!(candidate.payload.adoption_effect)) ==
+               Jason.decode!(Jason.encode!(original.payload.adoption_effect))
+
+      assert candidate.payload.modification_scope == kind
+      assert candidate.payload.revision_of == original.artifact_id
+      assert hd(candidate.payload.items).body == revised_body
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(
+               ctx.work.id,
+               "chapter:#{ctx.chapter.id}"
+             ) == ctx.base
+
+      {:ok, session} = NovelApplication.WorkSessionService.show(ctx.work.id, ctx.session.id)
+      assert Enum.any?(session.pending_adoptions, &(&1.artifact_id == original.artifact_id))
+
+      incomplete = %{
+        original
+        | artifact_id: original.artifact_id <> "-incomplete",
+          payload: Map.drop(original.payload, [:modification_scope, :adoption_effect])
+      }
+
+      invalid_source =
+        source
+        |> Map.put(:turn_id, source.turn_id <> "-incomplete")
+        |> put_in([:adoption_state, :pending], [incomplete])
+
+      {:ok, _} =
+        NovelPersistence.MemoryLog.record(%{
+          workspace_id: ctx.work.id,
+          session_id: ctx.session.id,
+          turn_id: invalid_source.turn_id,
+          role: "assistant",
+          content: %{text: invalid_source.assistant_message.text, turn_result: invalid_source},
+          source_ref: invalid_source.turn_id,
+          scope_ref: ctx.work.id
+        })
+
+      assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, invalid_state} =
+               PendingArtifactWorkflow.run(
+                 %{revise | pending_artifact_ref: incomplete.artifact_id},
+                 input,
+                 run,
+                 context,
+                 %Execution{result_fn: fn _ -> flunk("残缺scope声明不得降级调用普通修订") end}
+               )
+
+      assert invalid_state.provider_call_count == 0
+
+      Repo.update!(Ecto.Changeset.change(ctx.draft, revision: ctx.draft.revision + 1))
+
+      assert {:error, {:pending_artifact_invalid, :stale_base_version}, state} =
+               PendingArtifactWorkflow.run(revise, input, run, context, %Execution{
+                 result_fn: fn _ -> flunk("过期原候选不得调用模型") end
+               })
+
+      assert state.provider_call_count == 0
+    end
   end
 
   test "G2 只读一页就选同一跨页段：有界纠错后拒绝，不生成候选" do
@@ -178,7 +306,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
                %{text: author},
                g2_run(ctx, author),
                %DialogueContext{work_id: ctx.work.id, interaction_state: %{}},
-               chapter_writer("起笔：陈九斤在井口停下。", self())
+               chapter_writer("起笔：陈九斤在井口停下。", self(), [first_segment.segment_id])
              )
 
     assert_received {:chapter_writer_prompt, request}
@@ -492,7 +620,7 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     }
   end
 
-  defp chapter_writer(body, test_pid) do
+  defp chapter_writer(body, test_pid, target_ids \\ nil) do
     %Execution{
       result_fn: fn prompt ->
         send(test_pid, {:chapter_writer_prompt, prompt})
@@ -505,6 +633,13 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
             rationale: "按作者要求处理。"
           }
         ]
+
+        ids = if is_function(target_ids, 1), do: target_ids.(prompt), else: target_ids
+
+        items =
+          if is_list(ids),
+            do: Enum.map(items, &Map.put(&1, :target_segment_ids, ids)),
+            else: items
 
         tool_calls =
           TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{

@@ -515,9 +515,8 @@ defmodule NovelApplication.JudgmentProtocol do
   # 不为每个 reason 复制整套规则。
   defp correction_content({:target_segments, reason}) do
     "本次响应未通过契约校验：target_segments（#{inspect(reason)}）。" <>
-      "只能从本轮当前作者输入之后成功 chapter_read 观察的 target_segments 原样复制 segment_id，" <>
-      "并保证同章、同源 hash、相容版本、连续页完整覆盖所选段全文；读取完整不扩大作者授权。" <>
-      "不要向作者索要内部段编号；保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
+      NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute").properties.target_segment_ids.description <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
   end
 
   defp correction_content(reason) do

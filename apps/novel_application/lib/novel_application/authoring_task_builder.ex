@@ -98,7 +98,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   # 应用已解析事实，不从 prompt 或关键词猜。校验仍由 new/2 内统一执行。
 
   @prose_contract_opts [
-    schema_ref: "prose_writing_v1",
+    schema_ref: "prose_writing_v2",
     artifact_type: :prose_fragment,
     required_keys: ["items", "item_id", "title", "body"],
     allow_companions: true
@@ -187,12 +187,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     })
   end
 
-  @chapter_revision_contract_opts [
-    schema_ref: "prose_writing_v1",
-    artifact_type: :prose_fragment,
-    required_keys: ["items", "item_id", "title", "body"],
-    allow_companions: false
-  ]
+  @chapter_revision_contract_opts Keyword.put(@prose_contract_opts, :allow_companions, false)
 
   @chapter_modification_scopes [:format_only, :target_segments, :whole_chapter]
 
@@ -393,7 +388,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   # 来源、范围/材料与输出契约（artifact_type + 运行时必填键）。
 
   @outline_contract_opts [
-    schema_ref: "tentative_artifact_v1",
+    schema_ref: ToolOutputContract.creative_output_contract_ref(),
     artifact_type: :outline_draft,
     required_keys: ["items", "item_id", "title", "body"],
     optional_keys: ["chapter_ref"],
@@ -401,14 +396,14 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   ]
 
   @character_design_contract_opts [
-    schema_ref: "tentative_artifact_v1",
+    schema_ref: ToolOutputContract.creative_output_contract_ref(),
     artifact_type: :character_seed,
     required_keys: ["items", "item_id", "title", "body"],
     allow_companions: false
   ]
 
   @character_evolution_contract_opts [
-    schema_ref: "tentative_artifact_v1",
+    schema_ref: ToolOutputContract.creative_output_contract_ref(),
     artifact_type: :character_evolution_seed,
     required_keys: ["items", "item_id", "title", "body"],
     allow_companions: false
@@ -516,7 +511,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   defp role_output_contract(:world_building, artifact_type) do
     output_contract(:json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: artifact_type,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false
@@ -525,7 +520,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   defp role_output_contract(_role, artifact_type) do
     output_contract(:json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: artifact_type,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false

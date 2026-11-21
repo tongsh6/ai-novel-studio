@@ -9,7 +9,9 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.ChapterDisplay
+  alias NovelApplication.ChapterRevisionScope
   alias NovelApplication.TraceSummaryRef
+  alias NovelCommon.Contracts.ToolOutputContract
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
@@ -418,7 +420,7 @@ defmodule NovelApplication.AdoptionWorkflow do
         {:error, "draft_id is required"}
 
       not has_edit_payload?(params) ->
-        {:error, "edited_content is required; use candidate revision for instructions"}
+        {:error, "edited body is required; use candidate revision for instructions"}
 
       true ->
         handle_modify_draft_with_artifact(
@@ -430,15 +432,14 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
-  # 修改后采纳只接收作者完成编辑的全文；修改指令必须走独立修订候选，不能拼进正文入档。
+  # 章级正文按原 item 身份编辑；其它候选保留其现有全文编辑动作。
   defp has_edit_payload?(params),
-    do: not is_nil(normalize_edit(Map.get(params, "edited_content")))
+    do:
+      Map.has_key?(params, "edited_items") or
+        not is_nil(normalize_edit(Map.get(params, "edited_content")))
 
   defp normalize_edit(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
+    if String.trim(value) == "", do: nil, else: value
   end
 
   defp normalize_edit(_value), do: nil
@@ -472,7 +473,7 @@ defmodule NovelApplication.AdoptionWorkflow do
          {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
          :ok <- check_current_pending(params, artifact_id),
          :ok <- check_revision_base(artifact, params),
-         edited_artifact <- edited_artifact(artifact, params),
+         {:ok, edited_artifact} <- edited_artifact(artifact, params),
          candidate_set <- candidate_set_from_artifact(source_turn_result, edited_artifact),
          decision <-
            AdoptionBoundary.evaluate(
@@ -669,11 +670,31 @@ defmodule NovelApplication.AdoptionWorkflow do
       b28_target_missing?(artifact, scope, effect_mode, modification) ->
         {:error, :target_missing}
 
+      structured_prose?(artifact) ->
+        validate_structured_prose_scope(payload, scope, modification, effect_mode)
+
       modification == "format_only" ->
         validate_format_only(payload, artifact_content(artifact))
 
       true ->
         :ok
+    end
+  end
+
+  defp validate_structured_prose_scope(payload, scope, modification, effect_mode) do
+    with true <- modification == b28_value(payload, :modification_scope),
+         true <- modification == b28_value(scope, :kind),
+         true <-
+           {modification, effect_mode} in [
+             {"target_segments", "replace_segments"},
+             {"whole_chapter", "replace_scope"}
+           ],
+         false <- Map.has_key?(payload, :content) or Map.has_key?(payload, "content"),
+         {:ok, _body} <-
+           NovelPersistence.LocalizedRevision.compose_content(b28_value(payload, :items)) do
+      :ok
+    else
+      _ -> {:error, :incomplete_scope}
     end
   end
 
@@ -1064,7 +1085,6 @@ defmodule NovelApplication.AdoptionWorkflow do
       artifact_id: artifact_field(artifact, :artifact_id),
       artifact_type: artifact_field(artifact, :artifact_type),
       base_revision: normalized_base_revision(artifact_field(artifact, :revision_base)),
-      content: artifact_content(artifact),
       summary: adoption_chapter_title(artifact),
       # B25：章节身份优先 ref（title 只作展示/旧兼容；无 ref 时仓储层按 title 唯一命中）。
       target_chapter_ref: adoption_chapter_ref(artifact),
@@ -1094,7 +1114,12 @@ defmodule NovelApplication.AdoptionWorkflow do
       decision_id: decision.adoption_decision_id
     }
 
-    case writer.(attrs) do
+    content_attrs =
+      if structured_prose?(artifact),
+        do: %{items: artifact_payload_field(artifact, :items)},
+        else: %{content: artifact_content(artifact)}
+
+    case writer.(Map.merge(attrs, content_attrs)) do
       {:ok, persisted} ->
         {:ok, Map.put(persisted, :persisted, true)}
 
@@ -2561,6 +2586,7 @@ defmodule NovelApplication.AdoptionWorkflow do
     items = payload[:items] || payload["items"]
 
     cond do
+      structured_prose?(artifact) -> items_to_content(items, artifact)
       is_binary(payload[:content]) -> payload[:content]
       is_binary(payload["content"]) -> payload["content"]
       is_list(items) -> items_to_content(items, artifact)
@@ -2588,25 +2614,71 @@ defmodule NovelApplication.AdoptionWorkflow do
   # "第N章：标题: …"重复开头（曾在阅读视图里看到）。其余类型保留 "title: body" 拼接。
   defp items_to_content(items, artifact) do
     if reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) do
-      items
-      |> Enum.map(&item_body/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
+      case NovelPersistence.LocalizedRevision.compose_content(items) do
+        {:ok, body} -> body
+        {:error, _reason} -> ""
+      end
     else
       Enum.map_join(items, "\n", &item_content/1)
     end
   end
 
-  defp item_body(item) when is_map(item) do
-    (Map.get(item, :body) || Map.get(item, "body") || Map.get(item, :content) ||
-       Map.get(item, "content") || "")
-    |> to_string()
-    |> String.trim()
+  defp structured_prose?(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    prose_artifact?(artifact) and ChapterRevisionScope.declares_revision_scope?(payload)
   end
 
-  defp item_body(other), do: other |> to_string() |> String.trim()
-
   defp edited_artifact(artifact, params) do
+    cond do
+      structured_prose?(artifact) ->
+        edit_structured_prose(artifact, params)
+
+      Map.has_key?(params, "edited_items") ->
+        {:error, "structured edit is not available for this artifact"}
+
+      true ->
+        {:ok, edit_flat_artifact(artifact, params)}
+    end
+  end
+
+  defp edit_structured_prose(artifact, params) do
+    originals = artifact_payload_field(artifact, :items)
+    edits = Map.get(params, "edited_items")
+
+    with false <- Map.has_key?(params, "edited_content"),
+         {:ok, _original_body} <- NovelPersistence.LocalizedRevision.compose_content(originals),
+         {:ok, _edited_body} <- NovelPersistence.LocalizedRevision.compose_content(edits),
+         true <- Enum.all?(edits, &valid_body_edit?/1),
+         :ok <- ToolOutputContract.validate_unique_item_ids(originals, []),
+         :ok <- ToolOutputContract.validate_unique_item_ids(edits, []),
+         true <-
+           Enum.sort(Enum.map(originals, &map_field(&1, :item_id))) ==
+             Enum.sort(Enum.map(edits, &map_field(&1, :item_id))) do
+      bodies = Map.new(edits, &{map_field(&1, :item_id), map_field(&1, :body)})
+
+      items =
+        Enum.map(
+          originals,
+          &put_artifact_field(&1, :body, Map.fetch!(bodies, map_field(&1, :item_id)))
+        )
+
+      payload = put_artifact_field(artifact_field(artifact, :payload), :items, items)
+      {:ok, put_artifact_field(artifact, :payload, payload)}
+    else
+      _ ->
+        {:error,
+         "edited_items must preserve the original item identities and contain only nonblank bodies"}
+    end
+  end
+
+  defp valid_body_edit?(item) do
+    id = map_field(item, :item_id)
+
+    map_size(item) == 2 and is_binary(id) and String.trim(id) != "" and
+      Enum.all?(Map.keys(item), &(&1 in [:item_id, :body, "item_id", "body"]))
+  end
+
+  defp edit_flat_artifact(artifact, params) do
     payload = artifact_field(artifact, :payload) || %{}
 
     original_content =

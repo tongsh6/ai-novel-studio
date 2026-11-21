@@ -29,7 +29,7 @@ vi.mock("react", async (importOriginal) => {
           ? state.messages
           : index === 25 && state.history
             ? { session_id: "history", title: "历史问题", status: "ARCHIVED" }
-            : index === 54
+            : index === 53
               ? state.events
               : initial;
       return actual.useState(value);

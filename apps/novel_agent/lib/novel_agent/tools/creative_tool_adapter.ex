@@ -283,7 +283,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
            ToolOutputContract.validate_artifact_shape(
              artifact_type,
              normalized_items,
-             normalized_companions
+             normalized_companions,
+             map_get(req.input, :authoring_task)
            ),
          :ok <-
            ToolOutputContract.validate_unique_item_ids(normalized_items, normalized_companions) do
@@ -410,7 +411,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       status: :succeeded,
       output:
         %{
-          output_contract_ref: "tentative_artifact_v1",
+          output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
           artifact_type: artifact_type,
           item_count: length(items),
           items: items,

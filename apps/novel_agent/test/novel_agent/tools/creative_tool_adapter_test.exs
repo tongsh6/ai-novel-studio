@@ -15,6 +15,10 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     alias NovelCommon.Contracts.CreativeProviderResult
 
     @impl true
+    def generate(%{provider_hints: %{"items" => items}}, _result_fn) do
+      %CreativeProviderResult{status: :ok, items: items}
+    end
+
     def generate(_request, _result_fn) do
       %CreativeProviderResult{
         status: :ok,
@@ -119,6 +123,48 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     end
   end
 
+  @tag :source_interval_mapping
+  test "adapter 恢复真实任务后保留区间映射及原正文，输出采用 v2" do
+    task = AuthoringTaskFixtures.task(:revision)
+    task = %{task | scope: Map.put(task.scope, :modification_scope, :target_segments)}
+    body = " \r\n第一段。\n\n第二段。\t\r\n"
+    ids = ["seg_1_source", "seg_2_source"]
+    item = %{item_id: "interval", title: "修订", body: body, target_segment_ids: ids}
+
+    result =
+      CreativeToolAdapter.execute(
+        request(task, [item]),
+        :prose_fragment,
+        %Execution{result_fn: fn _ -> flunk("fixture must not call transport") end},
+        SelfReportProvider
+      )
+
+    assert result.status == :succeeded
+    assert [accepted] = result.output.items
+    assert Map.get(accepted, :target_segment_ids) == ids
+    assert accepted.body == body
+    assert result.output.output_contract_ref == "tentative_artifact_v2"
+  end
+
+  @tag :source_interval_mapping
+  test "非原生 provider 也不能向非 target 任务夹带映射" do
+    item = %{item_id: "plain", title: "正文", body: "正文保留。"}
+
+    for ids <- [nil, ["seg_1_source"]] do
+      result =
+        CreativeToolAdapter.execute(
+          request(AuthoringTaskFixtures.prose_task(), [Map.put(item, :target_segment_ids, ids)]),
+          :prose_fragment,
+          %Execution{result_fn: fn _ -> flunk("fixture must not call transport") end},
+          SelfReportProvider
+        )
+
+      assert result.status == :failed
+      assert result.artifact_refs == []
+      assert result.state_delta == []
+    end
+  end
+
   test "passes creative self_report as observation and non-authoritative warning" do
     result =
       CreativeToolAdapter.execute(
@@ -206,7 +252,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     assert result.state_delta == []
   end
 
-  defp request do
+  defp request(task \\ AuthoringTaskFixtures.prose_task(), items \\ nil) do
     %ToolRequest{
       tool_request_id: "tool-1",
       turn_id: "turn-1",
@@ -217,7 +263,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
       input: %{
         "creative_brief" => "写第一章",
         "context_text" => "ReaderEffectBrief",
-        "authoring_task" => AuthoringTask.to_map(AuthoringTaskFixtures.prose_task())
+        "authoring_task" => AuthoringTask.to_map(task),
+        "provider_hints" => if(is_nil(items), do: %{}, else: %{"items" => items})
       }
     }
   end

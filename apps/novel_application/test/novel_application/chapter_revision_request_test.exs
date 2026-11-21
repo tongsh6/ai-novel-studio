@@ -111,13 +111,17 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
       input = %{c.author_input | text: words}
       run = %{c.run | goal: %{text: words, version: 1}}
 
+      target_ids =
+        if unquote(scope_name) == "target_segments",
+          do: [hd(NovelPersistence.LocalizedRevision.segment(c.base_text)).segment_id]
+
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
                  judgment(c.chapter_ref, %{dialogue_goal: goal}),
                  input,
                  run,
                  c.context,
-                 provider(c.base_text, self())
+                 provider(c.base_text, self(), target_ids)
                )
 
       assert_received {:chapter_writer_prompt, request}
@@ -693,7 +697,7 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
     )
   end
 
-  defp provider(body, test_pid) do
+  defp provider(body, test_pid, target_ids) do
     %Execution{
       result_fn: fn prompt ->
         send(test_pid, {:chapter_writer_prompt, prompt})
@@ -707,6 +711,9 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
                body: body,
                rationale: "按作者要求处理。"
              }
+             |> then(fn item ->
+               if target_ids, do: Map.put(item, :target_segment_ids, target_ids), else: item
+             end)
            ],
            provider_call_id: "pcall-b28-chapter"
          )}

@@ -2704,8 +2704,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       # B28 CP1.5：章级修订任务（chapter-scoped）确定性产出覆盖顺序完整稿。
       # format_only：返回整章基线原文（允许的空白归一后等价）；content_revision：
       # 只落实作者原话里明确写出的“X 改成/改为/→ Y”，其余逐字保留。
-      chapter_revision_prompt?(recognition) ->
-        chapter_revision_items(recognition, brief, context)
+      chapter_revision_prompt?(materials) ->
+        chapter_revision_items(materials, brief, context)
 
       String.starts_with?(brief, "修订下面已有候选") ->
         original = context |> String.split("：\n", parts: 2) |> List.last()
@@ -2803,61 +2803,138 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp chapter_revision_prompt?(prompt) do
-    Enum.any?(
-      ["## 整章仅排版修订（format_only）", "## 整章正文修订", "## 整章内容修订", "## 指定片段/段落内容修订"],
-      &String.contains?(prompt, &1)
-    )
+    task = get_in(TestProviderPrompt.scope_content(prompt) || %{}, ["authoring_task"]) || %{}
+
+    scope_operation(prompt)["artifact_type"] == "prose_fragment" and
+      get_in(task, ["scope", "modification_scope"]) in [
+        "target_segments",
+        "whole_chapter",
+        "format_only"
+      ]
   end
 
   defp chapter_revision_items(prompt, brief, context) do
-    target = chapter_revision_target_text(context)
-    base = target || chapter_revision_base_text(context)
+    task = get_in(TestProviderPrompt.scope_content(prompt), ["authoring_task"])
+    modification_scope = get_in(task, ["scope", "modification_scope"])
 
-    body =
-      if String.contains?(prompt, "整章仅排版修订（format_only）"),
-        do: base,
-        else: apply_explicit_changes(base, brief)
+    if modification_scope == "target_segments" do
+      context
+      |> chapter_revision_targets()
+      |> Enum.map(fn target ->
+        %{
+          item_id: "chapter_revision_#{:erlang.phash2(prompt)}_#{target["segment_id"]}",
+          title: "指定片段修订稿",
+          target_segment_ids: [Map.fetch!(target, "segment_id")],
+          body: apply_explicit_changes(Map.fetch!(target, "text"), brief),
+          rationale: "按作者要求修订所选片段，保留其它正文。"
+        }
+      end)
+    else
+      base = chapter_revision_base_text(prompt, context, task)
 
-    [
-      %{
-        item_id: "chapter_revision_#{:erlang.phash2(prompt)}",
-        title: chapter_revision_fixture_title(prompt, target),
-        body: body,
-        rationale:
-          if(target,
-            do: "确定性 fixture：按已绑定目标段与作者原话输出替换文本。",
-            else: "确定性 fixture：按 task 覆盖范围与作者原话输出完整稿。"
-          )
-      }
-    ]
-  end
-
-  defp chapter_revision_fixture_title(_prompt, target) when is_binary(target),
-    do: "指定段落修订稿"
-
-  defp chapter_revision_fixture_title(prompt, _target) do
-    if String.contains?(prompt, "整章仅排版修订（format_only）"),
-      do: "整章排版修订稿",
-      else: "整章内容修订稿"
-  end
-
-  defp chapter_revision_target_text(context) do
-    case String.split(context, "## 本轮局部修订目标段\n", parts: 2) do
-      [_, encoded] ->
-        case Jason.decode(String.trim(encoded)) do
-          {:ok, targets} when is_list(targets) -> Enum.map_join(targets, "\n\n", & &1["text"])
-          _ -> nil
-        end
-
-      _ ->
-        nil
+      [
+        %{
+          item_id: "chapter_revision_#{:erlang.phash2(prompt)}",
+          title: if(modification_scope == "format_only", do: "整章排版修订稿", else: "整章内容修订稿"),
+          body:
+            if(modification_scope == "format_only",
+              do: base,
+              else: apply_explicit_changes(base, brief)
+            ),
+          rationale: "按作者要求修订完整正文，保留未要求改动的内容。"
+        }
+      ]
     end
   end
 
-  defp chapter_revision_base_text(context) do
-    case String.split(context, "：\n", parts: 2) do
-      [_prefix, rest] -> String.trim_trailing(rest)
-      _ -> String.trim(context)
+  defp chapter_revision_targets(context) do
+    [_, encoded] = String.split(context, "## 本轮局部修订目标段\n", parts: 2)
+    encoded |> String.split("\n\n##", parts: 2) |> hd() |> String.trim() |> Jason.decode!()
+  end
+
+  defp chapter_revision_base_text(prompt, context, task) do
+    chapter_ref = get_in(task, ["scope", "target_chapter_ref"])
+
+    if Enum.any?(
+         task["materials"] || [],
+         &(&1["kind"] == "observation" and &1["ref"] == chapter_ref)
+       ) do
+      supplied_chapter_text(prompt, task)
+    else
+      case String.split(context, "：\n", parts: 2) do
+        [_prefix, rest] -> String.trim_trailing(rest)
+        _ -> String.trim(context)
+      end
+    end
+  end
+
+  # 仅替身消费真实已供应章页；不读取仓库，也不承担生产授权或版本判定。
+  defp supplied_chapter_text(prompt, task) do
+    scope = task["scope"]
+    expected = Map.new(scope["expected_base_versions"] || [], &{&1["ref"], &1["version"]})
+
+    pages =
+      prompt
+      |> RequestIR.usable_observations()
+      |> Enum.filter(fn
+        %{content: %{"tool" => "chapter_read"}, coverage: coverage, versions: versions} = page ->
+          page[:provenance] != "application" and
+            coverage["chapter_ref"] == scope["target_chapter_ref"] and map_size(versions) > 0 and
+            Enum.all?(versions, fn {ref, version} ->
+              Map.fetch(expected, ref) == {:ok, version}
+            end)
+
+        _ ->
+          false
+      end)
+      |> Enum.uniq_by(
+        &{&1.coverage, &1.content["summary"], &1.content["source_hash"], &1.versions}
+      )
+      |> Enum.sort_by(& &1.coverage["prose_range"]["start"])
+
+    with true <- map_size(expected) > 0,
+         [hash] when is_binary(hash) and hash != "" <-
+           Enum.uniq(Enum.map(pages, & &1.content["source_hash"])),
+         true <- scope["base_hash"] in [nil, hash],
+         [total] when is_integer(total) and total > 0 <-
+           Enum.uniq(Enum.map(pages, & &1.coverage["prose_total_chars"])),
+         ^expected <- Enum.reduce(pages, %{}, &Map.merge(&2, &1.versions)) do
+      supplied_chapter_pages_text(pages, total)
+    else
+      _ -> raise ArgumentError, "slice_verify chapter pages do not match the actual task baseline"
+    end
+  end
+
+  defp supplied_chapter_pages_text(pages, total) do
+    {parts, finish} =
+      Enum.reduce(pages, {[], 1}, fn page, {parts, cursor} ->
+        range = page.coverage["prose_range"]
+
+        if range["start"] != cursor,
+          do: raise(ArgumentError, "slice_verify chapter pages are incomplete or overlap")
+
+        {parts ++ [supplied_chapter_page_text(page)], range["end"] + 1}
+      end)
+
+    if finish != total + 1,
+      do: raise(ArgumentError, "slice_verify chapter pages are incomplete")
+
+    Enum.join(parts)
+  end
+
+  defp supplied_chapter_page_text(page) do
+    %{"start" => start, "end" => finish} = page.coverage["prose_range"]
+    total = page.coverage["prose_total_chars"]
+    marker = "【正文】第 #{start}–#{finish} 字符 / 共 #{total} 字符（有效字数 "
+
+    with [_, rest] <- String.split(page.content["summary"], marker),
+         [_header, body] <- String.split(rest, "\n", parts: 2),
+         true <- finish >= start,
+         text = String.slice(body, 0, finish - start + 1),
+         true <- String.length(text) == finish - start + 1 do
+      text
+    else
+      _ -> raise ArgumentError, "slice_verify chapter page has no complete supplied prose"
     end
   end
 

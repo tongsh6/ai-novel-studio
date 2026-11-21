@@ -129,6 +129,19 @@ defmodule NovelApplication.JudgmentToolContractTest do
     assert tool.description =~ "judgment_decision 的 explore 只允许字段 action、explore_request"
     assert tool.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
     assert tool.description =~ "execute 只填一个目标 ref 字段"
+    binding = tool.input_schema.properties.target_segment_ids.description
+    assert binding =~ "存储片段是机械边界，不等于自然段或首句"
+    assert binding =~ "必须选中该片段并在替换正文中保留锚句"
+    assert binding =~ "未选片段的全部字节都会保留"
+
+    guidance =
+      NovelApplication.JudgmentDecisionToolContract.specific_guidance(%{
+        tool: "judgment_decision",
+        action: "execute",
+        capability: "revise_adopted_content"
+      })
+
+    assert guidance =~ binding
 
     examples = [
       %{

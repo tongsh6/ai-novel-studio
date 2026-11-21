@@ -1,9 +1,10 @@
 defmodule NovelCommon.Contracts.CreativeItemAttributes do
   @moduledoc """
   Normalize the optional attributes of a creative item.
-  Required item fields belong to ToolOutputContract.
+  Required item fields and source-interval mappings belong to ToolOutputContract.
   """
 
+  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.NarrativeRole
 
   @spec normalize(map()) :: map()
@@ -190,11 +191,24 @@ defmodule NovelCommon.Contracts.CreativeItemAttributes do
     upcased = String.upcase(trimmed)
 
     cond do
-      upcased in ["CHARACTER_PROFILE", "CURRENT_STATE", "RELATIONSHIP"] -> upcased
-      relationship_label?(trimmed) -> "RELATIONSHIP"
-      current_state_label?(trimmed) -> "CURRENT_STATE"
-      character_profile_label?(trimmed) -> "CHARACTER_PROFILE"
-      true -> nil
+      upcased in [
+        MemoryType.character_profile(),
+        MemoryType.current_state(),
+        MemoryType.relationship()
+      ] ->
+        upcased
+
+      relationship_label?(trimmed) ->
+        MemoryType.relationship()
+
+      current_state_label?(trimmed) ->
+        MemoryType.current_state()
+
+      character_profile_label?(trimmed) ->
+        MemoryType.character_profile()
+
+      true ->
+        nil
     end
   end
 

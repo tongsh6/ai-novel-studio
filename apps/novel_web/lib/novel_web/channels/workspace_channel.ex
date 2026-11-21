@@ -1315,9 +1315,12 @@ defmodule NovelWeb.WorkspaceChannel do
               NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params)
 
             "edit_then_accept" ->
-              # 作者全文编辑随 author_action.payload.edited_content 传入。
+              # 保留字段是否出现：结构化正文不能被补入的 nil 平串制造第二正文来源。
               edit_params =
-                Map.put(params, "edited_content", action_payload(action_input, "edited_content"))
+                Map.merge(
+                  params,
+                  Map.take(action_input.payload || %{}, ["edited_items", "edited_content"])
+                )
 
               NovelApplication.AdoptionWorkflow.handle_modify_draft(
                 source_turn_result,

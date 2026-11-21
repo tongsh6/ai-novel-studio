@@ -32,7 +32,8 @@ defmodule NovelDomain.TentativeArtifactSet do
           required(:body) => String.t(),
           required(:rationale) => String.t() | nil,
           optional(:provider_call_ref) => String.t() | nil,
-          optional(:line_break_changes) => [map()]
+          optional(:line_break_changes) => [map()],
+          optional(:target_segment_ids) => [String.t()]
         }
 
   # 生成意图 provenance（不是采纳决策）：这批草稿是作为续写还是重写某章生成的，

@@ -4,6 +4,7 @@ defmodule NovelCommon.CapabilityRegistry do
   """
 
   alias NovelCommon.Contracts.CapabilityRegistryEntry
+  alias NovelCommon.Contracts.ToolOutputContract
 
   @doc "Return all registered production tool names."
   @spec list() :: [String.t()]
@@ -73,7 +74,7 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "world_building_v1",
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         read_scopes: ["author_text", "world_summary", "lore_references"],
         write_scopes: ["world_setting", "geography", "lore_item"],
         risk_class: :medium,
@@ -89,7 +90,7 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "character_design_v1",
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         read_scopes: ["author_text", "character_list", "relationship_map"],
         write_scopes: ["character_profile", "character_trait", "relationship"],
         risk_class: :medium,
@@ -107,7 +108,7 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "character_evolution_v1",
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         read_scopes: ["author_text", "character_list", "relationship_map"],
         write_scopes: ["character_profile", "current_state", "relationship"],
         risk_class: :medium,
@@ -123,7 +124,7 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "plot_outline_v1",
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         read_scopes: ["author_text", "plot_summary", "beat_list"],
         write_scopes: ["volume_plan", "chapter_outline", "plot_beat"],
         risk_class: :medium,
@@ -139,7 +140,7 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "prose_writing_v1",
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         # VS-00E §14：补齐 prose_writing 实际读取的范围（目标章结构/方向、章摘要、
         # 前文 excerpt、现有角色主档案），而非仅 author_text/chapter_draft/style。
         read_scopes: [

@@ -268,11 +268,48 @@ Provider raw response（原始 content / tool_calls / arguments / call_id / usag
 
 ### 6.1 输出通道与工具结果的硬约束
 
-- **作者可见通道唯一**：当响应携带 `write_candidate` 等作者可见正文工具时，`content` 必须为 null；作者可读说明只走 `change_reason`/`coverage_note`。应用必须校验，出现 `content + 候选工具` 即 `contract_violation`，不生成候选并回流有界纠错；不能只靠 system prompt。
+- **作者可见通道唯一（现役）**：复用 `submit_tentative_artifact`，作品正文来自原 `items[].body`，作者创作说明来自原 `rationale`，引用声明来自 `self_report.used_context_refs`；不新建 `write_candidate`，也不把候选包的 `change_reason/coverage_note` 再增为同义作者字段。工具调用另带非空 content 按现接收合同拒绝并回流原调用有界纠错，不选择、清洗或拼接两份正文。区间替换与作者编辑的现役字段和验收边界见 §6.2；既有观察 coverage_note 的材料说明职责不变。
 - **工具结果 envelope**：所有工具结果必须为 `{ok, data, error_code, message, retryable, observation_ref, budget_after}`；失败不得伪装成成功，`retryable` 必须真实；应用校验/执行/采纳事实不得合并为一个 `success`。
 - **流式一致性**：本项目 HTTP 请求 `stream: true` 时，wire 证据必须来自实际 SSE，不能以应用重组 JSON 冒充原始流。三类 wire 各按自身协议判定：Chat Completions 为 `chat.completion.chunk`/delta、`finish_reason` 与 `[DONE]`（支持且请求 `include_usage` 时另有 usage chunk）；Responses 为带类型的 `response.*` 事件，区分 `response.completed`、`response.incomplete` 和失败；Anthropic 为 `message_start`、内容块增量、`message_delta` 与 `message_stop`。不得要求 Responses/Anthropic 产生 Chat 专属字段或 `[DONE]`；缺用量不能伪填实测 0，流中断不能当正常完成。依据与现役归属见 §12。
 - **协议包结构化**：`application_base`/`scope_update` 的 goal/target_refs/permissions/budget/coverage/output_contract 在应用内部是结构化值，wire 只是序列化视图；工具越权、预算耗尽、target 不在 observed_refs 等校验读内部结构，不读模型复述。
 - **decision 不塞给模型**：应用解析 `tool_calls` 生成 `decision {type,target_ref,tool_call_id,modification_scope,source_refs,evidence_coverage}`，与 tool result 一起进入下一轮 loop；HTTP 响应不新增自定义顶层字段。
+
+### 6.2 R05 章正文修订的来源区间与候选正文（实施前裁决）
+
+本节依据 B87 §16.34 的真实反例，前向替代 B36 中“一个存储片段对应一个自然段”、空行猜测对应、整章等分块数与半长度门的现役约束；B36 的原实施结果和失败证据保留。复用现 `prose_fragment`、`items`、`payload.scope`、`adoption_effect`、`replace_segments/replace_scope` 和作者动作，不建立 `prose_segment_patch`、另一份 patch 正文、`region_changes`、新工具或第二修订平台。本节只规定当前候选的表达与闭合，不宣称模型已正确理解作者意图或 R05 已通过。
+
+**存在性与两个新字段。** `item_id/title/body/rationale`、章级 `target_segment_ids`、baseline refs/version/hash、action payload 和整体 prose 采纳均已存在，但没有“此 item 正文替换哪些源片段”的现役字段，也没有保留 item 归属的作者编辑输入。本次仅新增以下两个字段位置；同名已存的全局目标字段仍负责授权，不复制正文。
+
+| 字段位置 | 形状与适用范围 | 唯一职责 |
+|---|---|---|
+| `items[].target_segment_ids` | 仅 `target_segments` 正文修订的每个 item 必填非空 string 数组；其余类型/范围不接受该字段，包括 null | 把该 item 的原始 `body` 绑定到真实基线中的一个连续源区间 |
+| `author_action.payload.edited_items` | scoped 正文候选的 `edit_then_accept` 使用 `[{item_id, body}]`；每项只含这两个既有键 | 作者只编辑正文；服务端按原 pending 的唯一 item_id 保留原目标、版本、hash、effect 与来源 |
+
+`body` 是自然正文，允许一个源片段拆成多个自然段，或多个相邻源片段合成一个自然段。多个非连续区间由同一 prose 候选的多个 items 表达并原子采纳；不能跨过未选区间合成 min–max 大范围。现 Judgment 字段说明须明确 ID 对应确定性存储片段，不能视作自然段号；选择前核真实内容/byte 边界并覆盖全部待改片段，未选片段整体保留，选中片段内仍须履行作者要求保留的字句。修订纠错指南复用该字段 description，PWF/Real 的目标段落用语统一为修订片段，不新增选段路由或保证模型一定遵守。prose items 继续属于同一采纳单元，不变成多个可独立采纳的替代方案；角色等现有逐候选类型保持其自身语义。新映射不以空行、字数、item 序号或 segment ID 的数字外观推断。
+
+**原始列表、授权与材料覆盖。** 原始授权 ID 列表及每个 item 的 ID 列表必须先检查 string 形状和重复，再核真实身份；不能先调用旧 `normalize_target_ids/1` 的 `to_string/Enum.uniq`，再把被修复的输入签为合法。连续性只按同次真实基线的源顺序判断；每个区间内部和区间之间均不得重复、重叠、跨章、跨版本或包含未知 ID。每个 item 内的目标必须按真实源顺序连续；外层 items 已有显式绑定，允许列表顺序变化而得到同一源顺序合成结果，UI 仍展示原 items 顺序。所有 items 的目标并集必须等于当前已授权的选集，缺项不作为“其余不变”悄悄接受。Provider 主项和 companion 的 item_id 唯一性复用现 `ToolOutputContract.validate_unique_item_ids/2`；纯应用边界也不得先转 map 吞掉重复。作者编辑的未知、重复、遗漏 item_id 或试图修改机器字段均拒绝，不能靠 map 覆盖或列表位置猜回归属。
+
+完整材料、完整选集与整章授权是三个事实。`complete/partial` 只能表达现材料 owner 证明的实际供应，不能由候选长短或分段数生成；读过全文不自动授权整章改写，目标区间全部已读也不等于全章已读。模型选段仍经 `ChapterRevisionScope/ChapterReadEvidence` 核本次作者输入后的真实章页、完整目标 byte 区间、同源 hash 和版本；只有部分目标字节、缺页、隐藏或过期材料不能授权该完整片段。Writer 的完整 baseline 仍按 §5.2.3 的真实可见页证明复用或由现 owner 完整供应，不凭目录或 source refs 补已读信用。`whole_chapter` 必须有明确作者授权及完整 fresh accepted 覆盖，`partial` 不能绕过它；`target_segments` 仍只改当前选集，不因应用内部持有完整章基线而扩大授权。格式操作继续走现 `ProseFormatting`，不得借本节放宽非换行字节、版本或原换行方案的约束。
+
+**形状、上下文与纯应用的分工。** `ToolOutputContract` 负责新字段基本形状和原值保真；现创作接收 owner 根据实际 AuthoringTask/Scope 选择字段适用性，不依据模型自报 scope。Common 不查询 DB、不调用 Persistence/Domain 来猜权限。作者授权、原 scope/effect 与当前 accepted 来源/版本/hash 的复核归现纯 `ChapterRevisionScope`；读取复用现 `AdoptionWorkflow.chapter_revision_context/2` → `AdoptionRepository.accepted_chapter_scopes/2` 和 `ReadingProjectionRepo.chapter_prose_text/1`。在现 `ChapterRevisionScope` 新增窄 `revalidate_payload/2`，只对传入原 payload 和当前事实作复核，返回原 payload 或错误，不读 DB、不重新解析作者意图、不扩选集；已查不存在同名或等价 payload 复核 API；当前真实调用归 pending 的候选预检与再次修订，签名只承接这两处已存在的事实输入。另经同责查重后，由同一 owner 的 `declares_revision_scope?/1` 统一识别原 payload 的范围声明：modification_scope、scope.kind、replace effect 或任一 item 映射字段都使 AW/PWF 进入严格分支；它不授予授权、不补齐缺项。缺失或冲突的声明必须拒绝，不能因部分字段丢失退回普通修订、平串编辑或保存。独立可达性审计确认普通质量修订确有生产入口，但当前没有产生 scoped 质量修订动作的链路，不能把服务存在等同于第二个 scoped caller。真实片段存在性、连续区间、选集完整性、正文应用和回执派生只在现纯 `LocalizedRevision` 定义；调用方传同一已复核基线和授权，不在各入口复制平串 guard。
+
+沿现 `LocalizedRevision.replace_segments/3` 将第三参数前向改为原 `items`，AdoptionWorkflow attrs 直接传 payload.items，不另命名 replacement_items/regions。PWF 在现 NativeToolExchange 的 `validate_result` 回调中复用该纯规则，拒绝不可应用候选并按原 call_id 回流既有有界纠错；不先发布候选再等待作者采纳时发现映射错误。最后采纳事务重新核工作/章节、当前 accepted 集合、版本和 hash，再用同一纯应用逻辑执行；预检不替代事务时点的 freshness。错误保留原输出、原调用和真实计数，不能清洗、补字段、扩大选集或自动退到 whole_chapter。
+
+纯正文入口经查重后在同一 `LocalizedRevision` 中提供：新增 `compose_content/1(items)` 校验非空列表与各 body 的 binary/非空白形状，返回原 body 按既定分隔符组成的正文；新增 `replace_scope/2(base_segments, items)` 返回 `{:ok, 完整正文, 回执}`，复用同一组合及旧 slot/no-op 规则。现 `chapter_prose_text/1` 消费 accepted Draft.content 并剔空，不能用它冒充候选正文验证。原 `validate/3` 的消费者迁完后删除旧入口。局部与整章 scoped 的外部采纳 attrs 仅以 `items` 提供正文，不能同时提供 `content`（即使文字相同）；Repository 在进入现 MemoryItem/事务步骤前由 `compose_content/1` 一次派生内部 content，后续记忆与展示消费这份派生值，局部正文的真实应用仍只消费原 items 的映射。该聚合是候选正文，不冒充应用后的整章正文；不新增持久镜像、范围真源或兼容双入口，非 scoped 的现有真实 content 消费保持其职责。
+
+**正文与确定性组合。** 所有正文路径验证非空可以检查空白，但成功值必须返回原 binary；退役正文 `String.trim`、`to_string`、丢空 item 和用标题补正文等隐式修复。非正文标题/说明的独立规则不借此扩大修改。局部替换以绑定区间的 `body` 原字节替换区间正文，只保留区间外原字节与该区间最后一个原尾分隔符一次；区间内原分隔符可随作者授权的合并/拆分消失，不能又按旧逐片段规则加回。整体 whole 候选按原 items 顺序，以固定 `"\n\n"` 连接每个原 body 得到整章替换正文；这是现整体 prose 组装语义的明确分隔符，不是目标映射或完整性推断，不 trim 各 body，不另附旧章尾分隔符。该正文组装和适用性在现纯 owner 中共用，不能在编辑、预检、采纳各复制一份。
+
+whole 允许合法压缩重复和改变自然段结构，取消源/候选重分段后等数量、以及新正文不得少于旧正文一半的判据。范围完整性由真实章身份、完整 accepted 覆盖、版本、作者授权及当前整体替换表达证明；原“短的局部候选不得冒充整章”的保护改由这些真实契约承接，不能通过删除保护让任何短片段无条件覆盖整章。
+
+**pending、质量修订、编辑与来源。** 章级 scoped 候选继续生成独立 tentative 产物；普通 revise_pending 以原 scope/effect 识别该职责，携带原 accepted 基线、授权集合、版本/hash，以及当前待改候选的结构化 items。既有作者修改必须进入下一次真实请求，不能只从原章重建；新候选保留 revision_of 等原 provenance，不盲拷旧 payload，也不在重建时丢失 effect。当前 `revise_from_findings` 只由 TurnExecutionService 的普通候选质量链生成；PWF 的 scoped 章修订结果不生成此动作，真实 ActionValidator 拒绝凭空提交的动作。本节保持这一现役边界，不手造 available action 宣称 scoped quality 已覆盖，也不增加新的自动或递归修订。普通质量修订保留其真实请求与来源回归；若后续切片开放 scoped quality，必须先复用原授权、fresh 基线和纯区间应用，不能把通用未绑定候选的正文拼接/段落数 guard 当作授权或丢弃原 scope/effect。
+
+编辑仍用现 action、可信 source_turn/work/session、幂等与 stale 检查。scoped 候选不再接受平串 edited_content 作为旧兼容分支；edited_items 只能变更正文，服务端复用原唯一映射并经相同纯规则校验。非 scoped 候选确有的 edited_content 消费不是历史兼容，不据本节盲删。ProviderOutput/canonical 原参数、被拒响应、模型正文来源、作者编辑来源及 pending/recovery 字段均保真；不把作者编辑后的字节标成原模型逐字输出，不新增 content 镜像。最终仍须明确作者采纳决定，失败零写入，候选可见不等于已采纳或文学质量通过。
+
+**回执与无消费者退役。** 复用现 `segment_changes/diff_stats/old_chars/new_chars` 和真实 source revision：一个发生变化的连续区间将实际替换字节只计入首个旧 source slot，其余合并 slot 的内部新贡献为空；whole 用全部旧 slots 表达整体替换。若替换后的整个区间字节与原文一致，保留原逐 slot pairs，不能因记账归并制造假变化。内部空贡献不授权外部空 body 或新增删除操作。区间外字节必须逐字一致，回执不把贡献 slot 冒称新分段身份。
+
+迁移完真实消费者后，删除 `replacement_pieces/2` 的空行映射、旧逐 ID 单自然段限制、`LocalizedRevision.validate/3` 的全文重分段等数量路径、半长度门及仅服务退役入口的私有函数/专属测试；不得保留新旧双入口、按协议版本兼容接受或无调用门面。纯分段/页坐标、真实目标与 hash 校验、正确窄选、未选字节保留和原子回滚责任保留。模块规模沿现脚本实际 ratchet（max(30, 5%)）和原登记验证，不提高门槛；优先净删旧算法，不能压行或删必要注释凑数。如仍需职责拆分，先查重和审核真实独立责任，不增 baseline 迁就实现。
+
+**前向版本。** 标准化 creative items 输出统一采用 `tentative_artifact_v2`，由现 `ToolOutputContract.creative_output_contract_ref/0` 的窄纯 getter 单源提供；该 getter 是本次经存在性审查的新增 API，不是新实体或版本平台。Registry 仅把它用于输出声明，CreativeToolAdapter、FactInventory 及 Builder 的通用输出消费者取同源值；Common 不反向依赖 Domain/Application，getter 不访问 Registry。prose 专有期望输出采用 `prose_writing_v2`，在现 AuthoringTaskBuilder 以一个私有定义供 prose/chapter-revision 复用。Registry 的 `input_contract_ref=prose_writing_v1` 仍表示原输入职责，不做同字串批量替换。本轮还独立纠正 Judgment 的 target_segment_ids 字段语义：确定性存储片段不是一句话或文学自然段；若要保留锚句而改同块重复，仍须选择该块并在 body 保留锚句。该 JTC owner 语义变更前向采用 `b26-tools-v5`，不是因 prose v2 连带升版；Policy `b27-task-v4` 与 Common v6 的自身职责未变，保留原版本；不新增 output_schema_ref 真源。所有当前输出生产者、引用和直接测试同批迁移，既有历史 snapshot/原批请求/§16.31 当时版本事实保留，不因新版本回写。
 
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 
@@ -364,8 +401,8 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 | 第二 Request/Exchange/ModelInteraction 主模型 | VS-00L §4/§16.1、ADR-0035 决策 1/2；候选规范 §2 明确 Exchange 只是离线容器 | **禁止**新建平行聚合/存储/控制环；候选四层视图只能映射现役事实。R02 在现役 IR 细化，不能照搬候选 Request 顶层替换主链 | Judgment/专业创作 |
 | Scope 的事实/来源/覆盖结构化 | VS-00L §19.2 已区分 application_base/scope_update/author；候选 Source/Material 是建议表达 | **修改现役归属**，R02 逐字段对账、明确版本与全消费者迁移后实施；保持作者原文独立，不制造 Observation；不另建 ContextBlock 总线 | ContextAssembler → JudgmentProtocol → RequestIR |
 | 纯讨论或旧 Scope 的显式覆盖 | VS-00L §16.2 要求非空 `covers.call_ids`；`RequestIR.Compaction.require_call_ids/1`、`project/1` 只选择 assistant/tool 的交换 ID；ADR-0035 决策 3/4/10 | **待冻结裁决**：现行契约不能承载 Scope/无工具回合覆盖。禁止伪造 call_id、仅用 turn_range 或直接过滤旧 Scope。R03 必须先修订选择器/来源/义务保留/提交失败/恢复契约及版本、负例矩阵，所有三 wire 同批迁移，不新增第二压缩器 | SessionHistory/Compaction/Replay/三 wire |
-| `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **复用/重构并退旧**；`write_candidate` 在 §6.1/R07 只是待映射用语，不授权新增同义工具。R07 在现役工具上落实输出互斥，若改名必须先列全消费者并同批删旧名，不双注册 | NativeToolExchange/ArtifactAssembler |
-| `change_reason`/`coverage_note`/`paragraph_only` 与 `rationale`/`target_segments` | 候选包 §4.3、§7 与 §6.1 使用不同字段；来源字节约束仍为 Frozen I1/N-NARR | **待字段级冻结**；先证明哪些是相同语义、哪些是新增覆盖声明，不直接把说明字段当正文或用应用补写。R07/R08 同步 schema、解析、正文范围、作者出口和反例；本批不造字段 | Writer/局部修订/作者可见卡片 |
+| `write_candidate` 与现役候选工具 | 候选包规范 §7 和现役 creative 工具使用 `submit_tentative_artifact`；新用语不能证明缺少工具 | **R05 现役归属已明确**：按 §6/§6.2 复用 `submit_tentative_artifact` 及原生有界纠错，不新增或双注册同义工具；本裁决不代签 R07 的其余输出治理 | NativeToolExchange/ArtifactAssembler |
+| `change_reason`/`coverage_note`/`paragraph_only` 与 `rationale`/`target_segments` | 候选包 §4.3、§7 的建议字段不等于现役事实；I1/N-NARR 与现 rationale 原文约束保持 | **R05 必要字段已前向裁决，见 §6.2/B87 §16.34**：保留原 rationale；仅新增 item.target_segment_ids 与 action.payload.edited_items 两个位置，复用原 body 和 scope/effect，不新增同义说明、patch 正文或 region_changes。观察 coverage_note 原职责不变；R07/R08 其它未决项不据此签完成 | Writer/局部修订/作者编辑/采纳 |
 | 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **修改现役契约前先对账**；R07 为各结果类型给出七字段来源及不适用值、原 call_id 与重试语义，保留验证≠授权≠执行≠采纳，不新建一套响应事实。校验反馈不得伪造 observation_ref | Judgment correction/三 wire/Replay |
 | target / source / observation 引用混用 | 候选规范 §4.3 区分 scope.refs、material_refs、observation_ref、provider_call_ref；§6 约束 used_refs | **保持分界并澄清集合**；R07 冻结 `observed_refs` 的来源与覆盖含义，不能拿目标 ID 或“可读取”冒充已读，也不能把 observation 身份与领域目标 ID 作字符串集合比较；真实 Base 与真实观察分别校验 | Ref 校验/修订目标范围 |
 | `decision` 派生结构 | 已有 Judgment/AgentPlan/ToolResult/DecisionTrace；候选 Outcome 是观察视图 | **复用现有结果和 trace**；是否需要新字段以真实 caller 为准，禁止新建决策器/持久 Decision 真源；Provider HTTP 不新增自定义顶层业务字段 | JudgmentProtocol → Orchestrator |

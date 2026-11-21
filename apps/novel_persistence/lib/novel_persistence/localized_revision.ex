@@ -1,17 +1,17 @@
 defmodule NovelPersistence.LocalizedRevision do
   @moduledoc """
-  B36 CP1：确定性分段 + 局部修订 diff 机械校验（纯函数，无 IO）。
+  B36 / VS-00M §6.2：确定性源片段、显式区间替换与回执（纯函数，无 IO）。
 
-  契约（B36 §2）：
-  - 分段覆盖全文、无重叠，`Enum.map_join(segments, & &1.raw) == text`；
-  - segment_id = `seg_<index>_<sha256(raw)[0..11]>`（index 0 基，重复正文也唯一）；
-  - 空行分隔段落；CRLF/CR/LF 原样保留在 segment.raw（分隔空行归入前一段）；
-  - 超长段按行边界再切；单行超长按完整 grapheme 打包（常规段 <= 4000 字节，
-    单个本身过大的 grapheme 独占一段），每段均为合法 UTF-8，仍保证重建==原文；
-  - diff 校验只在目标 segment 集合内允许变化；集合外逐字节相同，否则
-    `out_of_scope_changes`；空/截断/无法证明范围 -> `incomplete_scope`；
-    版本不符 -> `stale_base_version`。
+  - 分段覆盖全文且原字节可重建；segment_id 绑定源位置和 raw hash；
+  - 空行分隔符归前一源片段；超长段按行或完整 grapheme 切成不超过 4000 字节的块，
+    单个超长 grapheme 独占一块；存储片段不是自然段或句子的修改边界；
+  - item 显式绑定一个连续源区间，外层 items 顺序不决定应用顺序；
+    授权外字节原样，区间内正文可以合并或拆成任意自然段；
+  - whole 以原 items 顺序组合正文，不以新旧段数或长度比例猜完整性；
+  - 作品、版本、hash 与覆盖资格由调用方在同一真实基线上复核。
   """
+
+  alias NovelCommon.Contracts.ToolOutputContract
 
   @max_segment_bytes 4_000
 
@@ -105,95 +105,56 @@ defmodule NovelPersistence.LocalizedRevision do
     end
   end
 
-  @doc "由 segment_id 列表取目标段；未知 id 保持原样（交给校验器拒绝）。"
-  @spec normalize_target_ids([String.t()] | nil) :: [String.t()]
-  def normalize_target_ids(nil), do: []
-  def normalize_target_ids(ids), do: ids |> List.wrap() |> Enum.map(&to_string/1) |> Enum.uniq()
+  @doc "按候选原顺序用双 LF 组合 body；只验证非空，不改写正文。"
+  @spec compose_content([map()]) :: {:ok, binary()} | {:error, :incomplete_scope}
+  def compose_content(items) when is_list(items) and items != [] do
+    if Enum.all?(items, &valid_body?/1),
+      do: {:ok, Enum.map_join(items, "\n\n", &item_field(&1, :body))},
+      else: {:error, :incomplete_scope}
+  end
+
+  def compose_content(_items), do: {:error, :incomplete_scope}
 
   @doc """
-  diff 校验：base 与候选正文逐段比较。
-
-  opts:
-  - `:scope` — "target_segments" | "whole_chapter" | "format_only"（默认 target_segments）
-  - `:target_segment_ids` — 目标段 id（target_segments 必需；空 => incomplete_scope）
-  - `:base_version` / `:current_version` — 可选版本校验（不等 => stale_base_version）
+  按 item 的显式连续源区间应用正文；区间外字节不变，末尾源分隔符保留一次。
+  版本/hash 由调用方用同一真实基线核验；原始授权和映射先校验，再构造查找表。
   """
-  @spec validate(binary(), binary(), keyword()) ::
-          {:ok, map()}
-          | {:error, :incomplete_scope | :out_of_scope_changes | :stale_base_version}
-  def validate(base_text, candidate_text, opts \\ [])
+  @spec replace_segments([segment()], [String.t()], [map()]) ::
+          {:ok, binary(), map()} | {:error, :incomplete_scope | :out_of_scope_changes}
+  def replace_segments(base_segments, target_ids, items)
+      when is_list(base_segments) and base_segments != [] and is_list(target_ids) do
+    with {:ok, _content} <- compose_content(items),
+         true <- valid_ids?(target_ids),
+         :ok <- ToolOutputContract.validate_unique_item_ids(items, []),
+         {:ok, regions} <- bind_regions(base_segments, items),
+         :ok <- validate_selection(base_segments, target_ids, regions) do
+      replacements = region_replacements(base_segments, regions)
 
-  def validate(base_text, candidate_text, opts)
-      when is_binary(base_text) and is_binary(candidate_text) do
-    scope = to_string(Keyword.get(opts, :scope) || "target_segments")
-    target_ids = normalize_target_ids(Keyword.get(opts, :target_segment_ids))
-
-    with :ok <- validate_version(opts),
-         base when base != [] <- segment(base_text),
-         candidate when candidate != [] <- segment(candidate_text),
-         :ok <- validate_segment_count(base, candidate),
-         :ok <- validate_scope(base, candidate, scope, target_ids) do
-      pairs =
-        base
-        |> Enum.zip(candidate)
-        |> Enum.map(fn {old, new} -> {old, new.raw} end)
-
-      {:ok, diff_info(base_text, candidate_text, length(base), pairs, target_ids)}
+      pairs = Enum.map(base_segments, &{&1, Map.get(replacements, &1.segment_id, &1.raw)})
+      replacement_result(base_segments, pairs, target_ids)
     else
-      [] -> {:error, :incomplete_scope}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} when is_atom(reason) -> {:error, reason}
       _ -> {:error, :incomplete_scope}
     end
   end
 
-  def validate(_base, _candidate, _opts), do: {:error, :incomplete_scope}
+  def replace_segments(_base_segments, _target_ids, _items), do: {:error, :incomplete_scope}
 
-  @doc """
-  结构化段替换：按真实 base_segments 绑定目标 id 与新片段。
-
-  调用前由既有事务绑定并校验 version / hash / id / 数量；本函数不再重复校验或归一化。
-  每个目标段替换为“新片段 + 原尾分隔符”，其余段逐字节原样；diff 信息直接由绑定的
-  旧/新片段派生，不再对候选全文重切（避免定长虚拟段窗口前移造成越界误判）。
-  空/只空白片段 -> `incomplete_scope`；单片新增空行段落 -> `out_of_scope_changes`。
-  """
-  @spec replace_segments([segment()], [String.t()], [binary()]) ::
-          {:ok, binary(), map()} | {:error, :incomplete_scope | :out_of_scope_changes}
-  def replace_segments(base_segments, target_ids, pieces) do
-    with :ok <- validate_pieces(pieces),
-         :ok <- validate_piece_paragraphs(pieces) do
-      by_id = Map.new(Enum.zip(target_ids, pieces))
-      pairs = Enum.map(base_segments, &pair_for_segment(&1, by_id))
-
-      old_text = Enum.map_join(pairs, fn {old, _new_raw} -> old.raw end)
-      new_text = Enum.map_join(pairs, fn {_old, new_raw} -> new_raw end)
-
-      {:ok, new_text, diff_info(old_text, new_text, length(base_segments), pairs, target_ids)}
+  @doc "完整章替换不依赖新旧段数或字数比例；正文与旧 source slots 回执共用同一纯应用。"
+  @spec replace_scope([segment()], [map()]) ::
+          {:ok, binary(), map()} | {:error, :incomplete_scope}
+  def replace_scope(base_segments, items) when is_list(base_segments) and base_segments != [] do
+    with {:ok, content} <- compose_content(items),
+         false <- Enum.any?(items, &mapped_item?/1),
+         :ok <- ToolOutputContract.validate_unique_item_ids(items, []) do
+      pairs = replacement_pairs(base_segments, content)
+      replacement_result(base_segments, pairs, [])
+    else
+      _ -> {:error, :incomplete_scope}
     end
   end
 
-  defp pair_for_segment(seg, by_id) do
-    case Map.fetch(by_id, seg.segment_id) do
-      {:ok, piece} ->
-        {_content, separator} = split_segment_raw(seg.raw)
-        {seg, piece <> separator}
-
-      :error ->
-        {seg, seg.raw}
-    end
-  end
-
-  defp validate_pieces(pieces) do
-    if Enum.any?(pieces, &(String.trim(&1) == "")),
-      do: {:error, :incomplete_scope},
-      else: :ok
-  end
-
-  # 段落边界只看 pieces 本身；拼回原 separator 后的形态不参与判定。
-  defp validate_piece_paragraphs(pieces) do
-    if Enum.any?(pieces, &(length(paragraph_chunks(&1)) > 1)),
-      do: {:error, :out_of_scope_changes},
-      else: :ok
-  end
+  def replace_scope(_base_segments, _items), do: {:error, :incomplete_scope}
 
   defp diff_info(old_text, new_text, segment_count, pairs, target_ids) do
     changes = Enum.reject(pairs, fn {old, new_raw} -> old.raw == new_raw end)
@@ -208,7 +169,7 @@ defmodule NovelPersistence.LocalizedRevision do
             segment_id: old.segment_id,
             old_sha: old.sha256,
             new_sha: sha256(new_raw),
-            kind: change_kind(old.raw, new_raw)
+            kind: "modified"
           }
         end),
       diff_stats: %{
@@ -220,52 +181,89 @@ defmodule NovelPersistence.LocalizedRevision do
     }
   end
 
-  defp validate_version(opts) do
-    expected = Keyword.get(opts, :base_version)
-    current = Keyword.get(opts, :current_version)
-
-    if is_nil(expected) or is_nil(current) or to_string(expected) == to_string(current),
-      do: :ok,
-      else: {:error, :stale_base_version}
+  defp valid_body?(item) when is_map(item) do
+    body = item_field(item, :body)
+    is_binary(body) and String.trim(body) != ""
   end
 
-  defp validate_segment_count(base, candidate) when length(candidate) < length(base),
-    do: {:error, :incomplete_scope}
+  defp valid_body?(_item), do: false
 
-  defp validate_segment_count(base, candidate) when length(candidate) > length(base),
-    do: {:error, :out_of_scope_changes}
+  defp item_field(item, key), do: Map.get(item, key, Map.get(item, to_string(key)))
 
-  defp validate_segment_count(_base, _candidate), do: :ok
+  defp mapped_item?(item),
+    do: Map.has_key?(item, :target_segment_ids) or Map.has_key?(item, "target_segment_ids")
 
-  defp validate_scope(_base, _candidate, scope, _target_ids)
-       when scope in ["whole_chapter", "format_only"],
-       do: :ok
+  defp valid_ids?(ids) when is_list(ids) and ids != [] do
+    Enum.all?(ids, &(is_binary(&1) and &1 != "")) and
+      length(ids) == MapSet.size(MapSet.new(ids))
+  end
 
-  defp validate_scope(base, candidate, _scope, target_ids) do
-    known = MapSet.new(Enum.map(base, & &1.segment_id))
-    target = MapSet.new(target_ids)
+  defp valid_ids?(_ids), do: false
 
-    with :ok <- validate_known_targets(target_ids, known) do
-      check_out_of_scope(Enum.zip(base, candidate), target)
+  defp bind_regions(base_segments, items) do
+    positions =
+      Map.new(Enum.with_index(base_segments), fn {segment, index} ->
+        {segment.segment_id, index}
+      end)
+
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, regions} ->
+      ids = item_field(item, :target_segment_ids)
+      item_id = item_field(item, :item_id)
+
+      with true <- is_binary(item_id) and String.trim(item_id) != "",
+           true <- valid_ids?(ids),
+           indexes = Enum.map(ids, &Map.get(positions, &1)),
+           true <- Enum.all?(indexes, &is_integer/1),
+           true <- indexes == Enum.to_list(hd(indexes)..(hd(indexes) + length(ids) - 1)) do
+        {:cont, {:ok, [{hd(indexes), length(ids), item_field(item, :body)} | regions]}}
+      else
+        _ -> {:halt, {:error, :incomplete_scope}}
+      end
+    end)
+  end
+
+  defp validate_selection(base_segments, target_ids, regions) do
+    selected =
+      Enum.flat_map(regions, fn {start, count, _body} ->
+        base_segments |> Enum.slice(start, count) |> Enum.map(& &1.segment_id)
+      end)
+
+    selected_set = MapSet.new(selected)
+    target_set = MapSet.new(target_ids)
+
+    cond do
+      length(selected) != MapSet.size(selected_set) -> {:error, :incomplete_scope}
+      not MapSet.subset?(selected_set, target_set) -> {:error, :out_of_scope_changes}
+      selected_set != target_set -> {:error, :incomplete_scope}
+      true -> :ok
     end
   end
 
-  defp validate_known_targets(target_ids, known) do
-    if Enum.any?(target_ids, &(not MapSet.member?(known, &1))),
-      do: {:error, :incomplete_scope},
-      else: :ok
+  defp region_replacements(base_segments, regions) do
+    Enum.reduce(regions, %{}, fn {start, count, body}, acc ->
+      source = Enum.slice(base_segments, start, count)
+      {_last_body, separator} = split_segment_raw(List.last(source).raw)
+
+      source
+      |> replacement_pairs(body <> separator)
+      |> Enum.reduce(acc, fn {segment, raw}, map -> Map.put(map, segment.segment_id, raw) end)
+    end)
   end
 
-  defp check_out_of_scope(pairs, target) do
-    case Enum.find(pairs, fn {old, new} ->
-           old.raw != new.raw and not MapSet.member?(target, old.segment_id)
-         end) do
-      nil -> :ok
-      _ -> {:error, :out_of_scope_changes}
+  defp replacement_pairs(source, replacement) do
+    if Enum.map_join(source, & &1.raw) == replacement do
+      Enum.map(source, &{&1, &1.raw})
+    else
+      [first | rest] = source
+      [{first, replacement} | Enum.map(rest, &{&1, ""})]
     end
   end
 
-  defp change_kind(_old, _new), do: "modified"
+  defp replacement_result(base_segments, pairs, target_ids) do
+    old_text = Enum.map_join(base_segments, & &1.raw)
+    new_text = Enum.map_join(pairs, fn {_old, raw} -> raw end)
+    {:ok, new_text, diff_info(old_text, new_text, length(base_segments), pairs, target_ids)}
+  end
 
   # ── 分段实现 ─────────────────────────────────────────────────────────
 

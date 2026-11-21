@@ -246,6 +246,200 @@ defmodule NovelApplication.B28AdoptionContractTest do
     assert action_result.persistence.mutation_id == "mutation-1"
   end
 
+  test "R05 structured prose adoption forwards the original item bindings and body bytes" do
+    source = scoped_source()
+    [original] = source.adoption_state.pending
+    expected_items = original.payload.items
+
+    writer = fn attrs ->
+      assert attrs.items == expected_items
+      refute Map.has_key?(attrs, :content)
+      assert attrs.target_segment_ids == original.payload.scope["target_segment_ids"]
+      assert attrs.expected_segment_hashes == original.payload.scope["expected_segment_hashes"]
+      assert attrs.adoption_effect == original.payload.adoption_effect
+      {:ok, %{mutation_id: "region-mutation", persisted: true}}
+    end
+
+    assert {:ok, %{status: "accepted"}, _result} =
+             AdoptionWorkflow.handle_adopt(
+               source,
+               %{"artifact_id" => original.artifact_id, "work_id" => source.work_id},
+               writer
+             )
+
+    assert source.adoption_state.pending == [original]
+  end
+
+  test "R05 edited_items binds by original identity and preserves unchanged metadata and body bytes" do
+    original_source = scoped_source()
+    first_body = "  作者保留的开篇。\r\n\r\n另一自然段。 \n"
+    last_body = "\t作者调整的结尾。🌧️\r\n"
+
+    edits = [
+      %{"item_id" => "region-last", "body" => last_body},
+      %{"item_id" => "region-first", "body" => first_body}
+    ]
+
+    for source <- [original_source, Jason.decode!(Jason.encode!(original_source))] do
+      expected = original_source.adoption_state.pending |> hd() |> Map.fetch!(:payload)
+
+      writer = fn attrs ->
+        assert Jason.decode!(Jason.encode!(attrs.items)) == [
+                 %{
+                   "item_id" => "region-first",
+                   "title" => "开篇改写",
+                   "body" => first_body,
+                   "rationale" => "保留线索。",
+                   "target_segment_ids" =>
+                     expected.items |> hd() |> Map.fetch!(:target_segment_ids)
+                 },
+                 %{
+                   "item_id" => "region-last",
+                   "title" => "结尾改写",
+                   "body" => last_body,
+                   "rationale" => nil,
+                   "target_segment_ids" =>
+                     expected.items |> List.last() |> Map.fetch!(:target_segment_ids)
+                 }
+               ]
+
+        assert attrs.adoption_effect == expected.adoption_effect
+        assert attrs.base_version == 7
+        assert attrs.expected_segment_hashes == expected.scope["expected_segment_hashes"]
+        {:ok, %{mutation_id: "edited-region-mutation", persisted: true}}
+      end
+
+      assert {:ok, %{status: "accepted"}, result} =
+               AdoptionWorkflow.handle_modify_draft(
+                 source,
+                 %{
+                   "artifact_id" => "scoped-proposal",
+                   "work_id" => "00000000-0000-0000-0000-000000000002",
+                   "edited_items" => edits
+                 },
+                 writer
+               )
+
+      assert [%{adoption_status: "EDITED_ACCEPTED"}] = result.adoption_state.resolved
+      assert Jason.decode!(Jason.encode!(source)) == Jason.decode!(Jason.encode!(original_source))
+    end
+  end
+
+  test "R05 scoped edits reject missing, duplicated, foreign or forged item identities before writing" do
+    source = scoped_source()
+    first = %{"item_id" => "region-first", "body" => "新的开篇。"}
+    last = %{"item_id" => "region-last", "body" => "新的结尾。"}
+    writer = fn _ -> flunk("invalid scoped edit must not reach persistence") end
+
+    invalid_edits = [
+      [],
+      [first],
+      [first, first],
+      [first, %{last | "item_id" => "another-candidate-item"}],
+      [first, %{last | "body" => ""}],
+      [first, %{last | "body" => " \r\n\t"}],
+      [Map.put(first, "target_segment_ids", ["forged-target"]), last],
+      [Map.put(first, "base_version", 99), last]
+    ]
+
+    for edits <- invalid_edits do
+      assert {:error, _reason} =
+               AdoptionWorkflow.handle_modify_draft(
+                 source,
+                 %{"artifact_id" => "scoped-proposal", "edited_items" => edits},
+                 writer
+               )
+    end
+
+    for fields <- [
+          %{"edited_content" => "不能从平串重建原范围。"},
+          %{"edited_items" => [first, last], "edited_content" => "第二个正文来源"}
+        ] do
+      assert {:error, _reason} =
+               AdoptionWorkflow.handle_modify_draft(
+                 source,
+                 Map.put(fields, "artifact_id", "scoped-proposal"),
+                 writer
+               )
+    end
+  end
+
+  test "R05 残缺或冲突的章级范围不能降级到普通保存或平串编辑" do
+    source = scoped_source()
+    [original] = source.adoption_state.pending
+    payload = original.payload
+    writer = fn _ -> flunk("残缺范围不得到达持久化 writer") end
+
+    for invalid <- [
+          Map.drop(payload, [:modification_scope, :adoption_effect]),
+          Map.drop(payload, [:modification_scope, :adoption_effect])
+          |> Map.put(:adoption_effect, %{"mode" => "append"}),
+          put_in(payload, [:scope, "kind"], "whole_chapter"),
+          Map.delete(payload, :modification_scope),
+          Map.put(payload, :modification_scope, "format_only"),
+          Map.drop(payload, [:modification_scope, :adoption_effect, :scope])
+        ] do
+      candidate = %{original | payload: invalid}
+      changed = put_in(source, [:adoption_state, :pending], [candidate])
+      assert {:error, _} = AdoptionWorkflow.validate_b28_contract(candidate)
+
+      assert {:ok, %{status: "failed", persistence: %{persisted: false}}, failure} =
+               AdoptionWorkflow.handle_adopt(
+                 changed,
+                 %{"artifact_id" => original.artifact_id},
+                 writer
+               )
+
+      assert failure.status == "failed_recoverable"
+      refute failure.truthfulness.production_write_performed
+      refute failure.truthfulness.artifact_adopted
+
+      for fields <- [
+            %{"edited_content" => "不得脱离原范围。"},
+            %{"edited_items" => Enum.map(payload.items, &Map.take(&1, [:item_id, :body]))}
+          ] do
+        assert {:error, _} =
+                 AdoptionWorkflow.handle_modify_draft(
+                   changed,
+                   Map.put(fields, "artifact_id", original.artifact_id),
+                   writer
+                 )
+      end
+    end
+  end
+
+  test "R05 whole prose forwards original items without a second flat content authority" do
+    source = scoped_source()
+    [candidate] = source.adoption_state.pending
+
+    items = [
+      %{item_id: "whole-1", title: "第一部分", body: "  开篇。\r\n"},
+      %{item_id: "whole-2", title: "第二部分", body: "\t结尾。 \n"}
+    ]
+
+    payload = %{candidate.payload | items: items, modification_scope: "whole_chapter"}
+    payload = put_in(payload, [:scope, "kind"], "whole_chapter")
+
+    effect =
+      payload.adoption_effect |> Map.drop(["target_segment_ids", "expected_segment_hashes"])
+
+    payload = %{payload | adoption_effect: Map.put(effect, "mode", "replace_scope")}
+    source = put_in(source, [:adoption_state, :pending], [%{candidate | payload: payload}])
+
+    writer = fn attrs ->
+      assert attrs.items == items
+      refute Map.has_key?(attrs, :content)
+      {:ok, %{mutation_id: "whole-byte-mutation", persisted: true}}
+    end
+
+    assert {:ok, %{status: "accepted"}, _} =
+             AdoptionWorkflow.handle_adopt(
+               source,
+               %{"artifact_id" => "scoped-proposal", "work_id" => source.work_id},
+               writer
+             )
+  end
+
   test "不存在的 chapter ref / 非法 work 返回 :target_missing（不 crash）" do
     work_id = Ecto.UUID.generate()
     volume = Repo.insert!(%Volume{work_id: work_id, title: "第一卷", seq: 1})
@@ -357,5 +551,67 @@ defmodule NovelApplication.B28AdoptionContractTest do
     refute Map.has_key?(pending.payload, "adoption_effect")
     refute Map.has_key?(pending.payload, "base_text")
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
+  end
+
+  defp scoped_source do
+    segments = NovelPersistence.LocalizedRevision.segment("开篇。\r\n\r\n中间原文🌧️。\n\n结尾。\r\n")
+    targets = [hd(segments), List.last(segments)]
+    ids = Enum.map(targets, & &1.segment_id)
+    hashes = Enum.map(targets, &%{"segment_id" => &1.segment_id, "sha256" => &1.sha256})
+    chapter_ref = "chapter:00000000-0000-0000-0000-000000000001"
+
+    payload = %{
+      modification_scope: "target_segments",
+      target_chapter_ref: chapter_ref,
+      scope: %{
+        "kind" => "target_segments",
+        "target_segment_ids" => ids,
+        "base_draft_ref" => "draft:region-base",
+        "base_version" => 7,
+        "expected_segment_hashes" => hashes
+      },
+      adoption_effect: %{
+        "mode" => "replace_segments",
+        "target_chapter_ref" => chapter_ref,
+        "target_segment_ids" => ids,
+        "covered" => ["draft:region-base"],
+        "expected_base_versions" => [%{"ref" => "draft:region-base", "version" => 7}],
+        "coverage" => "complete"
+      },
+      items: [
+        %{
+          item_id: "region-first",
+          title: "开篇改写",
+          body: "原开篇候选。\r\n",
+          rationale: "保留线索。",
+          target_segment_ids: [hd(ids)]
+        },
+        %{
+          item_id: "region-last",
+          title: "结尾改写",
+          body: "原结尾候选。",
+          rationale: nil,
+          target_segment_ids: [List.last(ids)]
+        }
+      ]
+    }
+
+    %{
+      turn_id: "turn-region-source",
+      work_id: "00000000-0000-0000-0000-000000000002",
+      adoption_state: %{
+        pending: [
+          artifact(%{
+            artifact_id: "scoped-proposal",
+            adoption_status: "TENTATIVE",
+            requires_adoption: true,
+            target_chapter_ref: chapter_ref,
+            payload: payload
+          })
+        ],
+        resolved: []
+      },
+      trace_summary: %{trace_ref: "trace-regions"}
+    }
   end
 end

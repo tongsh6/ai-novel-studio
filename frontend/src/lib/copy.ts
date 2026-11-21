@@ -199,6 +199,10 @@ export const CARD = {
     editRevisionLabel: "编辑修订稿后保存",
     editDialogTitle: "修改后保存",
     editDialogDescription: "编辑这段正文后再保存；保存的是你修改后的版本。",
+    editItemsDescription:
+      "以下修改内容属于同一份正文候选，保存时会一起采纳；未列出的正文保持原样。",
+    editWholeItemsDescription: "以下修改内容组成完整的章节候选，保存时会一起替换本章正文。",
+    editItemLabel: (number: number) => `修改内容 ${number}`,
     editPlaceholder: "在此修改正文…",
     editConfirmLabel: "保存修改后的版本",
     editCancelLabel: "取消",

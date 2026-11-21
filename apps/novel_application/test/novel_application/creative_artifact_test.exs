@@ -17,6 +17,7 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
+  alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.TentativeArtifactSet
@@ -72,7 +73,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
         assert result.status == :succeeded
         assert result.output.artifact_type == artifact_type
-        assert result.output.output_contract_ref == "tentative_artifact_v1"
+        assert result.output.output_contract_ref == "tentative_artifact_v2"
         assert [%{item_id: ^tool, title: title, body: body}] = result.output.items
         assert title == "title-#{tool}"
         assert body == "body-#{tool}"
@@ -351,7 +352,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     contract = %{
       kind: :json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: artifact_type || default_artifact_type(tool_name),
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: tool_name == "prose_writing"

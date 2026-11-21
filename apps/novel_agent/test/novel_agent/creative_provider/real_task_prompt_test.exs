@@ -43,7 +43,7 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       operation_effect: :create_candidate,
       output_contract: %{
         kind: :json,
-        schema_ref: "prose_writing_v1",
+        schema_ref: "prose_writing_v2",
         artifact_type: :prose_fragment,
         required_keys: ["items", "item_id", "title", "body"],
         allow_companions: true
@@ -160,11 +160,11 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       })
 
     cases = [
-      {base_task(:first_draft, %{}), "本轮为首稿创作"},
+      {base_task(:first_draft, %{}), "本轮为首稿创作", false},
       {%{revision | scope: Map.put(revision.scope, :modification_scope, :whole_chapter)},
-       "## 整章内容修订"},
+       "## 整章内容修订", false},
       {%{revision | scope: Map.put(revision.scope, :modification_scope, :target_segments)},
-       "## 指定片段/段落内容修订（target_segments）"}
+       "target_segments", true}
     ]
 
     expected_description =
@@ -181,7 +181,7 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       """
       |> String.trim()
 
-    for {task, operation_marker} <- cases do
+    for {task, operation_marker, target_mapping?} <- cases do
       assert {:ok, ^task} = AuthoringSemantics.validate(task)
       ir = captured_prompt(task)
       prompt = AuthoringTaskFixtures.prompt_text(ir)
@@ -204,7 +204,23 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       assert items["type"] == "array"
       assert items["minItems"] == 1
       item_schema = items["items"]
-      assert item_schema["required"] == ["item_id", "title", "body"]
+
+      expected_required =
+        if target_mapping?,
+          do: ["item_id", "title", "body", "target_segment_ids"],
+          else: ["item_id", "title", "body"]
+
+      assert Enum.sort(item_schema["required"]) == Enum.sort(expected_required)
+
+      if target_mapping? do
+        mapping = item_schema["properties"]["target_segment_ids"]
+        assert mapping["type"] == "array"
+        assert mapping["minItems"] == 1
+        assert mapping["uniqueItems"] == true
+        assert mapping["items"] == %{"type" => "string", "minLength" => 1}
+      else
+        refute Map.has_key?(item_schema["properties"], "target_segment_ids")
+      end
 
       rationale = item_schema["properties"]["rationale"]
 

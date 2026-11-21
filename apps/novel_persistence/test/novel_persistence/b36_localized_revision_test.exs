@@ -67,57 +67,300 @@ defmodule NovelPersistence.B36LocalizedRevisionTest do
     assert Enum.all?(segs, &String.valid?(&1.raw))
   end
 
-  test "diff：target 段内变化接受；集合外变化 out_of_scope；空/截断 incomplete；版本 stale" do
-    segs = LocalizedRevision.segment(@base)
-    first = List.first(segs).segment_id
+  test "五个真实存储片段可合成一段，片段内锚句由替换正文明确保留" do
+    base = "开篇锚句。" <> String.duplicate("旧写法。", 1_500) <> "尾灯。"
+    segments = LocalizedRevision.segment(base)
+    assert length(segments) == 5
+    ids = Enum.map(segments, & &1.segment_id)
+    body = "开篇锚句。重复写法收束，尾灯仍亮。"
+    items = [%{item_id: "merged", target_segment_ids: ids, body: body}]
 
-    changed_first = String.replace(@base, "第一段：灯影。", "第一段：灯影更沉。")
+    assert {:ok, ^body, info} = LocalizedRevision.replace_segments(segments, ids, items)
+    assert info.old_chars == String.length(base)
+    assert info.new_chars == String.length(body)
+    assert info.diff_stats.segment_count == 5
+    assert info.diff_stats.changed_segment_count == 5
+    assert Enum.map(info.segment_changes, & &1.segment_id) == ids
 
-    assert {:ok, info} =
-             LocalizedRevision.validate(@base, changed_first,
-               scope: "target_segments",
-               target_segment_ids: [first]
+    [first_change | removed_contributions] = info.segment_changes
+    expected_sha = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
+    assert first_change.new_sha == expected_sha
+
+    assert Enum.all?(
+             removed_contributions,
+             &(&1.new_sha == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+           )
+  end
+
+  test "一个修订片段可拆为多个自然段，区间外原字节不变" do
+    [first | _] = segments = LocalizedRevision.segment(@base)
+    body = "第一段：灯影更沉。\n\n新自然段：旧钱仍在。"
+    items = [%{item_id: "split", target_segment_ids: [first.segment_id], body: body}]
+
+    assert {:ok, text, info} =
+             LocalizedRevision.replace_segments(segments, [first.segment_id], items)
+
+    assert text ==
+             "第一段：灯影更沉。\n\n新自然段：旧钱仍在。\n\n第二段：旧钱。\n\n第三段：名册。\n\n第四段：脚步。\n\n第五段：安静。\n\n第六段：闸门。"
+
+    assert [change] = info.segment_changes
+    assert change.segment_id == first.segment_id
+    assert change.old_sha == first.sha256
+    assert info.diff_stats.changed_segment_count == 1
+  end
+
+  test "非连续区间按显式身份应用：外层调序等效，CRLF/Unicode/中间和首尾空白逐字保留" do
+    base = "甲😀\r\n\r\n  夹缝 e\u0301 \r\n\r\n乙𠀀\r\n\r\n尾巴\t "
+    [first, gap, third, tail] = segments = LocalizedRevision.segment(base)
+    ids = [first.segment_id, third.segment_id]
+
+    items = [
+      %{item_id: "first", target_segment_ids: [first.segment_id], body: "  新甲😀\t"},
+      %{
+        "item_id" => "third",
+        "target_segment_ids" => [third.segment_id],
+        "body" => "新乙𠀀\n\n拆段e\u0301 "
+      }
+    ]
+
+    expected = "  新甲😀\t\r\n\r\n  夹缝 e\u0301 \r\n\r\n新乙𠀀\n\n拆段e\u0301 \r\n\r\n尾巴\t "
+
+    assert {:ok, ^expected, info} = LocalizedRevision.replace_segments(segments, ids, items)
+
+    assert {:ok, ^expected, ^info} =
+             LocalizedRevision.replace_segments(segments, ids, Enum.reverse(items))
+
+    assert gap.raw == "  夹缝 e\u0301 \r\n\r\n"
+    assert tail.raw == "尾巴\t "
+    assert Enum.map(info.segment_changes, & &1.segment_id) == ids
+    assert info.diff_stats.changed_segment_count == 2
+  end
+
+  test "降序 ID 不得因切片起点碰巧命中另一授权区间而改错来源" do
+    [first, second, third | _] = segments = LocalizedRevision.segment(@base)
+
+    items = [
+      %{
+        item_id: "backward",
+        target_segment_ids: [second.segment_id, first.segment_id],
+        body: "不能把第二和第一片段偷换为第二和第三片段。"
+      }
+    ]
+
+    assert {:error, :incomplete_scope} =
+             LocalizedRevision.replace_segments(
+               segments,
+               [second.segment_id, third.segment_id],
+               items
              )
+  end
 
+  test "多片段同字节替换不因贡献归并制造虚假变化" do
+    [first, second | _] = segments = LocalizedRevision.segment(@base)
+    ids = [first.segment_id, second.segment_id]
+
+    items = [
+      %{
+        item_id: "unchanged",
+        target_segment_ids: ids,
+        body: "第一段：灯影。\n\n第二段：旧钱。"
+      }
+    ]
+
+    assert {:ok, @base, info} = LocalizedRevision.replace_segments(segments, ids, items)
+    assert info.segment_changes == []
+    assert info.old_chars == info.new_chars
+    assert info.diff_stats.changed_segment_count == 0
+    assert info.diff_stats.changed_old_chars == 0
+    assert info.diff_stats.changed_new_chars == 0
+  end
+
+  for invalid_case <- [
+        "missing_binding",
+        "null_binding",
+        "empty_binding",
+        "duplicate_authorization",
+        "non_string_authorization",
+        "unknown_authorization",
+        "unknown_item_target",
+        "missing_authorized_target",
+        "outside_authorization",
+        "duplicate_item_target",
+        "non_string_item_target",
+        "overlapping_items",
+        "reversed_region",
+        "non_contiguous_region",
+        "duplicate_item_id",
+        "missing_item_id",
+        "null_item_id",
+        "non_string_item_id",
+        "empty_item_id",
+        "whitespace_item_id",
+        "empty_items",
+        "flat_pieces",
+        "empty_body",
+        "whitespace_body",
+        "non_string_body"
+      ] do
+    test "区间输入非法即拒绝，不强转或去重：#{invalid_case}" do
+      [first, second, third | _] = segments = LocalizedRevision.segment(@base)
+      one = %{item_id: "one", target_segment_ids: [first.segment_id], body: "第一处新正文。"}
+      two = %{item_id: "two", target_segment_ids: [second.segment_id], body: "第二处新正文。"}
+
+      {ids, items} =
+        case unquote(invalid_case) do
+          "missing_binding" ->
+            {[first.segment_id], [Map.delete(one, :target_segment_ids)]}
+
+          "null_binding" ->
+            {[first.segment_id], [%{one | target_segment_ids: nil}]}
+
+          "empty_binding" ->
+            {[first.segment_id], [%{one | target_segment_ids: []}]}
+
+          "duplicate_authorization" ->
+            {[first.segment_id, first.segment_id], [one]}
+
+          "non_string_authorization" ->
+            {[String.to_charlist(first.segment_id)], [one]}
+
+          "unknown_authorization" ->
+            {["seg_unknown"], [%{one | target_segment_ids: ["seg_unknown"]}]}
+
+          "unknown_item_target" ->
+            {[first.segment_id], [%{one | target_segment_ids: ["seg_unknown"]}]}
+
+          "missing_authorized_target" ->
+            {[first.segment_id, second.segment_id], [one]}
+
+          "outside_authorization" ->
+            {[first.segment_id], [two]}
+
+          "duplicate_item_target" ->
+            {[first.segment_id],
+             [%{one | target_segment_ids: [first.segment_id, first.segment_id]}]}
+
+          "non_string_item_target" ->
+            {[first.segment_id],
+             [%{one | target_segment_ids: [String.to_charlist(first.segment_id)]}]}
+
+          "overlapping_items" ->
+            {[first.segment_id, second.segment_id],
+             [%{one | target_segment_ids: [first.segment_id, second.segment_id]}, two]}
+
+          "reversed_region" ->
+            {[first.segment_id, second.segment_id],
+             [%{one | target_segment_ids: [second.segment_id, first.segment_id]}]}
+
+          "non_contiguous_region" ->
+            {[first.segment_id, third.segment_id],
+             [%{one | target_segment_ids: [first.segment_id, third.segment_id]}]}
+
+          "duplicate_item_id" ->
+            {[first.segment_id, second.segment_id], [one, %{two | item_id: one.item_id}]}
+
+          "missing_item_id" ->
+            {[first.segment_id], [Map.delete(one, :item_id)]}
+
+          "null_item_id" ->
+            {[first.segment_id], [%{one | item_id: nil}]}
+
+          "non_string_item_id" ->
+            {[first.segment_id], [%{one | item_id: 123}]}
+
+          "empty_item_id" ->
+            {[first.segment_id], [%{one | item_id: ""}]}
+
+          "whitespace_item_id" ->
+            {[first.segment_id], [%{one | item_id: " \t\r\n"}]}
+
+          "empty_items" ->
+            {[first.segment_id], []}
+
+          "flat_pieces" ->
+            {[first.segment_id], ["不能兼容旧平串片段"]}
+
+          "empty_body" ->
+            {[first.segment_id], [%{one | body: ""}]}
+
+          "whitespace_body" ->
+            {[first.segment_id], [%{one | body: " \r\n\t "}]}
+
+          "non_string_body" ->
+            {[first.segment_id], [%{one | body: 123}]}
+        end
+
+      assert {:error, _reason} = LocalizedRevision.replace_segments(segments, ids, items)
+    end
+  end
+
+  test "compose_content 只按原 items 顺序用两个 LF 组合原 body 字节" do
+    items = [
+      %{item_id: "one", body: "  甲😀\t"},
+      %{"item_id" => "two", "body" => "\r\n乙e\u0301  "}
+    ]
+
+    assert {:ok, "  甲😀\t\n\n\r\n乙e\u0301  "} = LocalizedRevision.compose_content(items)
+
+    assert {:ok, "\r\n乙e\u0301  \n\n  甲😀\t"} =
+             LocalizedRevision.compose_content(Enum.reverse(items))
+  end
+
+  test "compose_content 拒绝缺失/非字串/空白正文，不丢项、不用标题或 content 补正文" do
+    for items <- [
+          nil,
+          [],
+          ["平串不是 item"],
+          [%{body: ""}],
+          [%{body: " \t\r\n "}],
+          [%{body: 123}],
+          [%{content: "另一份正文"}],
+          [%{title: "不能补正文"}],
+          [%{body: "有效正文"}, %{body: nil}]
+        ] do
+      assert {:error, :incomplete_scope} = LocalizedRevision.compose_content(items)
+    end
+  end
+
+  test "whole 允许六片段压缩成一段，按旧 source slots 计算回执" do
+    segments = LocalizedRevision.segment(@base)
+    body = "灯影下，旧钱与名册留下线索，闸门合拢。"
+    items = [%{item_id: "whole", body: body}]
+    assert String.length(body) < div(String.length(@base), 2)
+
+    assert {:ok, ^body, info} = LocalizedRevision.replace_scope(segments, items)
     assert info.old_chars == String.length(@base)
-    assert info.new_chars == String.length(changed_first)
-    assert length(info.segment_changes) == 1
-    assert hd(info.segment_changes).segment_id == first
-    assert info.segment_changes |> hd() |> Map.has_key?(:old_sha)
+    assert info.new_chars == String.length(body)
+    assert info.diff_stats.segment_count == 6
+    assert info.diff_stats.changed_segment_count == 6
+    assert Enum.map(info.segment_changes, & &1.segment_id) == Enum.map(segments, & &1.segment_id)
+  end
 
-    assert {:error, :out_of_scope_changes} =
-             LocalizedRevision.validate(@base, String.replace(@base, "第三段：名册。", "第三段：名册被改。"),
-               scope: "target_segments",
-               target_segment_ids: [first]
-             )
+  test "whole 组合多 items 允许自然段数增加且不附旧尾分隔符" do
+    segments = LocalizedRevision.segment("旧章。\r\n\r\n")
 
-    truncated = segs |> Enum.take(3) |> Enum.map_join(& &1.raw)
+    items = [
+      %{item_id: "opening", body: "  新开头。\n\n第二自然段。"},
+      %{item_id: "ending", body: "新结尾。\t "}
+    ]
 
-    assert {:error, :incomplete_scope} =
-             LocalizedRevision.validate(@base, truncated,
-               scope: "target_segments",
-               target_segment_ids: [first]
-             )
+    assert {:ok, "  新开头。\n\n第二自然段。\n\n新结尾。\t ", info} =
+             LocalizedRevision.replace_scope(segments, items)
 
-    # 空候选不 crash
-    assert {:error, :incomplete_scope} =
-             LocalizedRevision.validate(@base, "",
-               scope: "target_segments",
-               target_segment_ids: [first]
-             )
+    assert info.diff_stats.segment_count == 1
+    assert info.diff_stats.changed_segment_count == 1
+  end
 
-    # 版本不符
-    assert {:error, :stale_base_version} =
-             LocalizedRevision.validate(@base, changed_first,
-               scope: "target_segments",
-               target_segment_ids: [first],
-               base_version: 1,
-               current_version: 2
-             )
+  test "whole 同字节正文无虚假变化；无真实基线或空正文不能应用" do
+    segments = LocalizedRevision.segment(@base)
+    assert {:ok, @base, info} = LocalizedRevision.replace_scope(segments, [%{body: @base}])
+    assert info.segment_changes == []
+    assert info.diff_stats.changed_segment_count == 0
+    assert info.diff_stats.changed_old_chars == 0
+    assert info.diff_stats.changed_new_chars == 0
 
-    # whole_chapter：整章允许变化
-    assert {:ok, _} =
-             LocalizedRevision.validate(@base, String.upcase(@base), scope: "whole_chapter")
+    assert {:error, :incomplete_scope} = LocalizedRevision.replace_scope([], [%{body: "新正文"}])
+    assert {:error, :incomplete_scope} = LocalizedRevision.replace_scope(segments, [%{body: ""}])
   end
 
   test "B82 G2 页坐标：只列实际相交且有正文的段；正文去尾分隔符；页内 1-based 字素闭区间" do

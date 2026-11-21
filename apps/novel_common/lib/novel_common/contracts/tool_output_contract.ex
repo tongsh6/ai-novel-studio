@@ -28,6 +28,9 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     :constraint_seed
   ]
 
+  @spec creative_output_contract_ref() :: String.t()
+  def creative_output_contract_ref, do: "tentative_artifact_v2"
+
   @spec creative_artifact_types() :: [atom()]
   def creative_artifact_types, do: @creative_artifact_types
 
@@ -86,16 +89,64 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
      %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
   end
 
-  @doc "ADR-0029：分段方案只有一项，必须携带换行计划，不产生伴生事实。"
-  def validate_artifact_shape(type, items, companions)
-      when type in [:prose_formatting_plan, "prose_formatting_plan"] do
+  @doc "Validate the item fields allowed by the actual task and artifact type."
+  def validate_artifact_shape(type, items, companions, task) do
+    mapping_required? = target_segment_mapping_required?(type, task)
+
+    cond do
+      Enum.any?(companions, &Map.has_key?(&1, :target_segment_ids)) ->
+        unexpected_target_segment_ids()
+
+      mapping_required? and not Enum.all?(items, &Map.has_key?(&1, :target_segment_ids)) ->
+        {:error,
+         %{
+           code: "missing_target_segment_ids",
+           message: "each target_segments prose item must declare its source segment IDs"
+         }}
+
+      not mapping_required? and Enum.any?(items, &Map.has_key?(&1, :target_segment_ids)) ->
+        unexpected_target_segment_ids()
+
+      true ->
+        validate_formatting_shape(type, items, companions)
+    end
+  end
+
+  @doc "Whether the actual task requires explicit source intervals on its prose items."
+  @spec target_segment_mapping_required?(atom() | String.t(), map() | nil) :: boolean()
+  def target_segment_mapping_required?(type, task)
+      when type in [:prose_fragment, "prose_fragment"] and is_map(task) do
+    case {map_get(task, :kind), map_get(task, :operation_effect), map_get(task, :scope)} do
+      {kind, effect, scope}
+      when kind in [:revision, "revision"] and effect in [:revise_candidate, "revise_candidate"] and
+             is_map(scope) ->
+        map_get(scope, :modification_scope) in [:target_segments, "target_segments"]
+
+      _ ->
+        false
+    end
+  end
+
+  def target_segment_mapping_required?(_type, _task), do: false
+
+  defp unexpected_target_segment_ids do
+    {:error,
+     %{
+       code: "unexpected_target_segment_ids",
+       message: "target_segment_ids is only allowed on target_segments prose items"
+     }}
+  end
+
+  # ADR-0029：分段方案只有一项，必须携带换行计划，不产生伴生事实。
+  defp validate_formatting_shape(type, items, companions)
+       when type in [:prose_formatting_plan, "prose_formatting_plan"] do
     case {items, companions} do
       {[%{line_break_changes: [_ | _]}], []} -> :ok
       _ -> invalid_formatting_plan()
     end
   end
 
-  def validate_artifact_shape(_type, _items, _companions), do: :ok
+  defp validate_formatting_shape(_type, _items, _companions), do: :ok
 
   @doc """
   Validate the optional seed items emitted alongside one prose fragment.
@@ -232,11 +283,16 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
          {:ok, body} <- fetch_string(raw, :body),
          {:ok, rationale} <-
            validate_rationale(Map.get(raw, :rationale, Map.get(raw, "rationale"))),
-         {:ok, changes} <- normalize_line_break_changes(map_get(raw, :line_break_changes)) do
+         {:ok, changes} <- normalize_line_break_changes(map_get(raw, :line_break_changes)),
+         {:ok, segment_mapping} <- normalize_target_segment_ids(raw) do
       item = %{item_id: item_id, title: title, body: body, rationale: rationale}
 
       item = if is_nil(changes), do: item, else: Map.put(item, :line_break_changes, changes)
-      {:ok, Map.merge(item, CreativeItemAttributes.normalize(raw))}
+
+      {:ok,
+       item
+       |> Map.merge(CreativeItemAttributes.normalize(raw))
+       |> Map.merge(segment_mapping)}
     end
   end
 
@@ -281,6 +337,38 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
 
   defp invalid_formatting_plan do
     {:error, %{code: "invalid_formatting_plan", message: "分段方案须含一个条目及有效换行计划，不允许伴生产物"}}
+  end
+
+  defp normalize_target_segment_ids(raw) do
+    value =
+      case Map.fetch(raw, :target_segment_ids) do
+        :error -> Map.fetch(raw, "target_segment_ids")
+        found -> found
+      end
+
+    case value do
+      :error -> {:ok, %{}}
+      {:ok, ids} -> normalize_target_segment_id_list(ids)
+    end
+  end
+
+  defp normalize_target_segment_id_list(ids) when is_list(ids) and ids != [] do
+    if Enum.all?(ids, &(is_binary(&1) and String.trim(&1) != "")) and
+         length(ids) == length(Enum.uniq(ids)) do
+      {:ok, %{target_segment_ids: ids}}
+    else
+      invalid_target_segment_ids()
+    end
+  end
+
+  defp normalize_target_segment_id_list(_ids), do: invalid_target_segment_ids()
+
+  defp invalid_target_segment_ids do
+    {:error,
+     %{
+       code: "invalid_target_segment_ids",
+       message: "target_segment_ids must be a non-empty list of unique non-empty strings"
+     }}
   end
 
   defp fetch_string(map, key) do

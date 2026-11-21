@@ -63,7 +63,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
       guidance =
         "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
           "范围（第一段/整章/仅排版）写在 dialogue_goal；不要填 target_chapter_ref/modification_scope。" <>
-          "target_segment_ids 仅从本轮成功 chapter_read 观察的 target_segments 原样复制；作者显式段号/字面目标时省略，由系统按作者原话定位。"
+          schema_for_action("execute").properties.target_segment_ids.description
 
       {guidance,
        Map.merge(example, %{
@@ -117,7 +117,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
             type: "array",
             items: @text,
             description:
-              "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选。只从本轮成功 chapter_read 观察的 target_segments 原样复制 segment_id；作者显式段号/字面目标时省略。"
+              "仅 execute + revise_adopted_content + 章级 chapter_ref 时可选；作者显式段号/字面目标时省略。只从本轮当前作者输入之后成功 chapter_read 观察的 target_segments 原样复制唯一 segment_id，所选片段须同章、同源 hash、相容版本，并由连续页完整覆盖。存储片段是机械边界，不等于自然段或首句；若保留片段内锚句但仍需修改其余文字，必须选中该片段并在替换正文中保留锚句。未选片段的全部字节都会保留，不能声称只保留其中一句。读取完整不扩大作者授权，也不要向作者索要内部编号。"
           },
           character_ref:
             Map.put(

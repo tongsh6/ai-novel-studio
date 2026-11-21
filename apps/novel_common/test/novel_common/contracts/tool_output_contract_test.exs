@@ -4,6 +4,71 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
   alias NovelCommon.Contracts.CreativeItemAttributes
   alias NovelCommon.Contracts.ToolOutputContract
 
+  @tag :source_interval_mapping
+  test "区间映射保留原始 ID 顺序与正文，不猜测或修复绑定" do
+    body = " \r\n锚句保持。\n\n第二个自然段。\t\r\n"
+    ids = [" seg_10_hash ", "seg_2_hash"]
+    raw = %{"item_id" => "interval", "title" => "修订", "body" => body}
+
+    assert {:ok, [plain]} = ToolOutputContract.validate_creative_items([raw])
+    refute Map.has_key?(plain, :target_segment_ids)
+
+    assert {:ok, [mapped]} =
+             ToolOutputContract.validate_creative_items([
+               Map.put(raw, "target_segment_ids", ids)
+             ])
+
+    assert Map.get(mapped, :target_segment_ids) == ids
+    assert mapped.body == body
+  end
+
+  @tag :source_interval_mapping
+  test "区间映射的非法形状或重复 ID 整体拒绝，不丢字段后接受" do
+    item = %{item_id: "interval", title: "修订", body: "保留正文。"}
+
+    invalid = [
+      nil,
+      [],
+      "seg_1_hash",
+      [""],
+      [" \t"],
+      [1],
+      [:segment],
+      [%{}],
+      ["seg_1_hash", "seg_1_hash"]
+    ]
+
+    for ids <- invalid do
+      assert {:error, %{code: code}} =
+               ToolOutputContract.validate_creative_items([
+                 Map.put(item, :target_segment_ids, ids)
+               ])
+
+      assert is_binary(code)
+    end
+  end
+
+  @tag :source_interval_mapping
+  test "同一主项列表的重复 item_id 继续由既有唯一性契约拒绝" do
+    assert {:error, %{code: "duplicate_item_id"}} =
+             ToolOutputContract.validate_unique_item_ids(
+               [%{item_id: "same"}, %{item_id: "same"}],
+               []
+             )
+  end
+
+  @tag :source_interval_mapping
+  test "现役创作目录声明 v2 输出，prose 输入职责仍为 v1" do
+    for tool <- ~w(world_building character_design character_evolution plot_outline prose_writing) do
+      entry = NovelCommon.CapabilityRegistry.get(tool)
+      assert entry.output_contract_ref == "tentative_artifact_v2"
+      assert entry.tool_version == "1.0.0"
+    end
+
+    assert NovelCommon.CapabilityRegistry.get("prose_writing").input_contract_ref ==
+             "prose_writing_v1"
+  end
+
   test "validates prose companion artifacts and preserves existing seed semantics" do
     assert {:ok,
             [
@@ -167,25 +232,30 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     end
 
     test "把中文角色类型同义词归一化到枚举" do
-      assert CreativeItemAttributes.normalize(%{narrative_role: "主角"})[:narrative_role] ==
-               "PROTAGONIST"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "主角"}) == %{
+               narrative_role: "PROTAGONIST"
+             }
 
-      assert CreativeItemAttributes.normalize(%{narrative_role: "反派"})[:narrative_role] ==
-               "ANTAGONIST"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "反派"}) == %{
+               narrative_role: "ANTAGONIST"
+             }
 
-      assert CreativeItemAttributes.normalize(%{narrative_role: "配角"})[:narrative_role] ==
-               "SUPPORTING"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "配角"}) == %{
+               narrative_role: "SUPPORTING"
+             }
 
-      assert CreativeItemAttributes.normalize(%{narrative_role: "群像视角"})[:narrative_role] ==
-               "ENSEMBLE_POV"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "群像视角"}) == %{
+               narrative_role: "ENSEMBLE_POV"
+             }
 
-      assert CreativeItemAttributes.normalize(%{narrative_role: "protagonist"})[:narrative_role] ==
-               "PROTAGONIST"
+      assert CreativeItemAttributes.normalize(%{narrative_role: "protagonist"}) == %{
+               narrative_role: "PROTAGONIST"
+             }
     end
 
     test "无法识别的叙事角色与缺省时为 nil，不写入 item" do
-      assert CreativeItemAttributes.normalize(%{narrative_role: "不知道"})[:narrative_role] == nil
-      assert CreativeItemAttributes.normalize(%{narrative_role: nil})[:narrative_role] == nil
+      assert CreativeItemAttributes.normalize(%{narrative_role: "不知道"}) == %{}
+      assert CreativeItemAttributes.normalize(%{narrative_role: nil}) == %{}
 
       assert {:ok, [item]} =
                ToolOutputContract.validate_creative_items([
@@ -287,20 +357,24 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     end
 
     test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
-      assert CreativeItemAttributes.normalize(%{memory_subtype: "relationship"})[:memory_subtype] ==
-               "RELATIONSHIP"
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "relationship"}) == %{
+               memory_subtype: "RELATIONSHIP"
+             }
 
-      assert CreativeItemAttributes.normalize(%{memory_subtype: "结盟反目"})[:memory_subtype] ==
-               "RELATIONSHIP"
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "结盟反目"}) == %{
+               memory_subtype: "RELATIONSHIP"
+             }
 
-      assert CreativeItemAttributes.normalize(%{memory_subtype: "当前状态"})[:memory_subtype] ==
-               "CURRENT_STATE"
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "当前状态"}) == %{
+               memory_subtype: "CURRENT_STATE"
+             }
 
-      assert CreativeItemAttributes.normalize(%{memory_subtype: "黑化"})[:memory_subtype] ==
-               "CHARACTER_PROFILE"
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "黑化"}) == %{
+               memory_subtype: "CHARACTER_PROFILE"
+             }
 
-      assert CreativeItemAttributes.normalize(%{memory_subtype: "不知道"})[:memory_subtype] == nil
-      assert CreativeItemAttributes.normalize(%{memory_subtype: nil})[:memory_subtype] == nil
+      assert CreativeItemAttributes.normalize(%{memory_subtype: "不知道"}) == %{}
+      assert CreativeItemAttributes.normalize(%{memory_subtype: nil}) == %{}
 
       assert {:ok, [item]} =
                ToolOutputContract.validate_creative_items([
@@ -346,13 +420,26 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
     assert {:ok, [item]} = ToolOutputContract.validate_creative_items([raw])
     for key <- [:title, :body, :rationale], do: assert(item[key] == raw[to_string(key)])
     assert item.line_break_changes == [%{boundary_id: "break_1_hash", lines: 2}]
-    assert :ok = ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item], [])
+    task = %{scope: %{modification_scope: :format_only}}
+
+    assert :ok =
+             ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item], [], task)
 
     assert {:error, _} =
-             ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item, item], [])
+             ToolOutputContract.validate_artifact_shape(
+               :prose_formatting_plan,
+               [item, item],
+               [],
+               task
+             )
 
     assert {:error, _} =
-             ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item], [%{}])
+             ToolOutputContract.validate_artifact_shape(
+               :prose_formatting_plan,
+               [item],
+               [%{}],
+               task
+             )
 
     for change <- [
           %{boundary_id: "b", lines: 2, text: "改字"},

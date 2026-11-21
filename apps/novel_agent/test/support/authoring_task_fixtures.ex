@@ -8,6 +8,7 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   alias NovelAgent.Provider.Execution
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
+  alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
 
@@ -88,7 +89,7 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
 
   @prose_contract %{
     kind: :json,
-    schema_ref: "prose_writing_v1",
+    schema_ref: "prose_writing_v2",
     artifact_type: :prose_fragment,
     required_keys: ["items", "item_id", "title", "body"],
     allow_companions: true
@@ -97,28 +98,28 @@ defmodule NovelAgent.TestSupport.AuthoringTaskFixtures do
   @role_contracts %{
     outline: %{
       kind: :json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: :outline_draft,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false
     },
     character_design: %{
       kind: :json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: :character_seed,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false
     },
     character_evolution: %{
       kind: :json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: :character_evolution_seed,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false
     },
     world_building: %{
       kind: :json,
-      schema_ref: "tentative_artifact_v1",
+      schema_ref: ToolOutputContract.creative_output_contract_ref(),
       artifact_type: :world_setting,
       required_keys: ["items", "item_id", "title", "body"],
       allow_companions: false

@@ -128,7 +128,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     )
   end
 
-  defp provider(body, test_pid, changes \\ nil) do
+  defp provider(body, test_pid, attrs \\ []) do
     %Execution{
       result_fn: fn prompt ->
         send(
@@ -144,9 +144,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
               body: body,
               rationale: "按作者要求处理。"
             }
-            |> then(fn item ->
-              if changes, do: Map.put(item, :line_break_changes, changes), else: item
-            end)
+            |> Map.merge(Map.new(attrs))
           ]
 
         tool_calls =
@@ -185,7 +183,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                c.author_input,
                c.run,
                c.context,
-               provider(explanation, self(), changes)
+               provider(explanation, self(), line_break_changes: changes)
              )
 
     assert_received {:chapter_writer_prompt, request}
@@ -275,7 +273,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                  c.author_input,
                  c.run,
                  c.context,
-                 provider("模型方案", self(), changes)
+                 provider("模型方案", self(), line_break_changes: changes)
                )
 
       assert failure_state.tool_call_count == 1
@@ -297,7 +295,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         c.author_input,
         c.run,
         c.context,
-        provider("方案说明", self(), changes)
+        provider("方案说明", self(), line_break_changes: changes)
       )
 
     [pending] = result.turn_result.adoption_state.pending
@@ -325,7 +323,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
         c.author_input,
         c.run,
         c.context,
-        provider("原方案说明", self(), changes)
+        provider("原方案说明", self(), line_break_changes: changes)
       )
 
     source = first.turn_result
@@ -363,7 +361,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                run,
                c.context,
-               provider("只改说明", self(), changes)
+               provider("只改说明", self(), line_break_changes: changes)
              )
 
     assert no_change_state.tool_call_count == 1
@@ -376,7 +374,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                run,
                c.context,
-               provider("取消该处换行", self(), [%{boundary_id: boundary, lines: 0}])
+               provider("取消该处换行", self(),
+                 line_break_changes: [%{boundary_id: boundary, lines: 0}]
+               )
              )
 
     prompts =
@@ -511,7 +511,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                source_turn_ref: "turn-b28-literal-revision",
                artifact_id: pending.artifact_id,
                artifact_type: :prose_fragment,
-               content: item.body,
+               items: [item],
                summary: c.chapter_title,
                target_chapter_ref: c.chapter_ref,
                adoption_effect: effect,
@@ -580,7 +580,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                %{c.run | goal: %{text: input.text, version: 1}},
                c.context,
-               provider("灯楼第十层，灯焰骤亮。", self())
+               provider("灯楼第十层，灯焰骤亮。", self(),
+                 target_segment_ids: [Enum.at(segments, 10).segment_id]
+               )
              )
 
     assert [pending] = result.turn_result.adoption_state.pending
@@ -594,6 +596,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
       author = "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。"
       run = %{c.run | goal: %{text: author, version: 1}}
       target_body = "初稿：陈九斤三十岁守灯楼，第七盏灯不点自亮。"
+      target_id = hd(LocalizedRevision.segment(c.base_text)).segment_id
 
       assert {:ok, result} =
                PendingArtifactWorkflow.run(
@@ -601,12 +604,12 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                  %{c.author_input | text: author},
                  run,
                  c.context,
-                 provider(target_body, self())
+                 provider(target_body, self(), target_segment_ids: [target_id])
                )
 
       assert_received {:chapter_writer_prompt, request}
       prompt = TestProviderPrompt.text(request)
-      assert prompt =~ "只输出**目标段落的替换文本**"
+      assert prompt =~ "每个 item 以 target_segment_ids 显式绑定一个连续源区间"
       refute prompt =~ "本轮为整章正文修订"
       [pending] = result.turn_result.adoption_state.pending
       assert pending.payload.modification_scope == "target_segments"
@@ -639,6 +642,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     input = %{c.author_input | text: "只把第一章开头一段改得更紧张，其他段落逐字保留。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
 
+    first = hd(LocalizedRevision.segment(c.base_text))
+    {body, _separator} = LocalizedRevision.split_segment_raw(first.raw)
+
     judgment =
       judgment(c.chapter_ref, %{
         dialogue_goal: "只把第一章开头一段改得更紧张，其他段落逐字保留。"
@@ -650,13 +656,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                run,
                c.context,
-               provider(c.base_text, self())
+               provider(body, self(), target_segment_ids: [first.segment_id])
              )
 
     assert_received {:chapter_writer_prompt, request}
     prompt = TestProviderPrompt.text(request)
-    assert prompt =~ "只输出**目标段落的替换文本**"
-    assert prompt =~ "未改段落由系统逐字节保留"
+    assert prompt =~ "每个 item 以 target_segment_ids 显式绑定一个连续源区间"
+    assert prompt =~ "未选区间由系统逐字节保留"
 
     [pending] = result.turn_result.adoption_state.pending
     payload = pending.payload
@@ -693,12 +699,12 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                run,
                c.context,
-               provider(target_body, self())
+               provider(target_body, self(), target_segment_ids: [last.segment_id])
              )
 
     assert_received {:chapter_writer_prompt, request}
     prompt = TestProviderPrompt.text(request)
-    assert prompt =~ "只输出**目标段落的替换文本**"
+    assert prompt =~ "每个 item 以 target_segment_ids 显式绑定一个连续源区间"
     refute prompt =~ "本轮为整章正文修订"
 
     [pending] = result.turn_result.adoption_state.pending
@@ -719,7 +725,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                source_turn_ref: "turn-b28-cp1-negated-whole",
                artifact_id: pending.artifact_id,
                artifact_type: :prose_fragment,
-               content: item.body,
+               items: [item],
                summary: c.chapter_title,
                target_chapter_ref: c.chapter_ref,
                adoption_effect: effect,
@@ -744,6 +750,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     input = %{c.author_input | text: "通读全文后只修第二段。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
     target_body = "续写：灯楼九层，每层九盏，他数到第九层时，天已经亮了。"
+    second = Enum.at(LocalizedRevision.segment(c.base_text), 1)
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
@@ -751,7 +758,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                input,
                run,
                c.context,
-               provider(target_body, self())
+               provider(target_body, self(), target_segment_ids: [second.segment_id])
              )
 
     [pending] = result.turn_result.adoption_state.pending
@@ -759,8 +766,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert payload.modification_scope == "target_segments"
     [second_id] = payload.adoption_effect["target_segment_ids"]
 
-    assert second_id ==
-             c.base_text |> LocalizedRevision.segment() |> Enum.at(1) |> Map.fetch!(:segment_id)
+    assert second_id == second.segment_id
   end
 
   test "CP1 只读检查+明确不改 → 拒绝且不调用 writer、零候选零写入", c do

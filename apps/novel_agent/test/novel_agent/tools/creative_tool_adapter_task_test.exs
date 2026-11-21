@@ -28,7 +28,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
       operation_effect: :create_candidate,
       output_contract: %{
         kind: :json,
-        schema_ref: "prose_writing_v1",
+        schema_ref: "prose_writing_v2",
         artifact_type: :prose_fragment,
         required_keys: ["items", "item_id", "title", "body"],
         allow_companions: true

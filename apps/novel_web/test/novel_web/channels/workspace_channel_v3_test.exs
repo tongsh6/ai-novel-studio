@@ -1073,6 +1073,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         ])
 
       socket = assign_server_turn(socket, source_turn)
+      edited_body = "  作者改写后的正文。\r\n\r\n保留尾部。\t "
 
       assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
                WorkspaceChannel.handle_in(
@@ -1083,7 +1084,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                      "action_type" => "edit_then_accept",
                      "target_ref" => "as-adopt-1",
                      "source_turn_ref" => "turn-adopt-source",
-                     "payload" => %{"edited_content" => "作者改写后的正文"}
+                     "payload" => %{"edited_content" => edited_body}
                    }
                  },
                  socket
@@ -1092,10 +1093,84 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert_broadcast("turn_result", %{
         parent_turn_id: "turn-adopt-source",
         adoption_state: %{
-          resolved: [%{artifact_id: "as-adopt-1", adoption_status: "EDITED_ACCEPTED"}]
+          resolved: [
+            %{
+              artifact_id: "as-adopt-1",
+              adoption_status: "EDITED_ACCEPTED",
+              payload: %{content: ^edited_body}
+            }
+          ]
         },
         truthfulness: %{artifact_adopted: true}
       })
+    end
+
+    test "edit_then_accept preserves structured bodies and original bindings through the real action payload" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      NovelApplication.TestAgentRunCleanup.register_task_caller(socket.channel_pid)
+      ids = ["seg_0_source", "seg_2_source"]
+
+      items = [
+        %{item_id: "first", title: "开篇", body: "原开篇。", target_segment_ids: [hd(ids)]},
+        %{item_id: "last", title: "结尾", body: "原结尾。", target_segment_ids: [List.last(ids)]}
+      ]
+
+      payload = %{
+        items: items,
+        modification_scope: "target_segments",
+        target_chapter_ref: "chapter:00000000-0000-0000-0000-000000000001",
+        scope: %{"kind" => "target_segments", "target_segment_ids" => ids},
+        adoption_effect: %{"mode" => "replace_segments", "target_segment_ids" => ids}
+      }
+
+      action = %{
+        action_id: "edit:as-adopt-1",
+        action_type: "edit_then_accept",
+        target_ref: "as-adopt-1",
+        enabled: true
+      }
+
+      source =
+        @pending_adoption_turn_result
+        |> Map.put(:available_actions, [action])
+        |> update_in([:adoption_state, :pending], fn [entry] ->
+          [entry |> Map.put(:artifact_type, :prose_fragment) |> Map.put(:payload, payload)]
+        end)
+
+      socket = assign_server_turn(socket, source)
+      first = "  作者开篇。\r\n\r\n另起一段。\t "
+      last = "\r\n作者结尾。🌧️ "
+      edits = [%{"item_id" => "last", "body" => last}, %{"item_id" => "first", "body" => first}]
+
+      assert {:reply, {:ok, %{action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => action.action_id,
+                     "action_type" => action.action_type,
+                     "target_ref" => action.target_ref,
+                     "source_turn_ref" => "turn-adopt-source",
+                     "payload" => %{"edited_items" => edits}
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", result)
+
+      assert [%{adoption_status: "EDITED_ACCEPTED", payload: edited}] =
+               result.adoption_state.resolved
+
+      assert edited.items == [%{hd(items) | body: first}, %{List.last(items) | body: last}]
+      assert edited.scope == payload.scope
+      assert edited.adoption_effect == payload.adoption_effect
+      refute Map.has_key?(edited, :content)
+      refute result.truthfulness.production_write_performed
     end
 
     test "confirm_before_execute on a pending artifact re-gates adoption and adopts" do

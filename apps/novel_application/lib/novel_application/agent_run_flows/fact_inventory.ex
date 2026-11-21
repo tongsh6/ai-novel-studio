@@ -17,6 +17,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep, DialogueFrame}
 
@@ -316,7 +317,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       tool_name: @inventory_step_target,
       status: :succeeded,
       output: %{
-        output_contract_ref: "tentative_artifact_v1",
+        output_contract_ref: ToolOutputContract.creative_output_contract_ref(),
         artifact_types: Enum.map(artifact_sets, & &1.artifact_type),
         item_count: length(items),
         material_count: length(materials),

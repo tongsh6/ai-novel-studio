@@ -37,19 +37,19 @@ defmodule NovelAgent.CreativeProvider.Real do
     request |> generate_with_session(provider_execution) |> elem(0)
   end
 
-  defp enforce_companion_scope(
-         %CreativeProviderResult{status: :ok} = result,
-         %CreativeRequest{artifact_type: :prose_formatting_plan}
-       ) do
+  defp enforce_artifact_shape(%CreativeProviderResult{status: :ok} = result, request) do
     case ToolOutputContract.validate_artifact_shape(
-           :prose_formatting_plan,
+           request.artifact_type,
            result.items,
-           result.companion_artifacts
+           result.companion_artifacts,
+           request.task
          ) do
       :ok -> result
       {:error, error} -> provider_error(error.code, error.message)
     end
   end
+
+  defp enforce_artifact_shape(result, _request), do: result
 
   defp enforce_companion_scope(
          %CreativeProviderResult{status: :ok, companion_artifacts: companions} = result,
@@ -119,7 +119,7 @@ defmodule NovelAgent.CreativeProvider.Real do
       role: "creative_execution",
       instructions: instructions,
       scope: scope,
-      tool: tentative_artifact_tool(),
+      tool: tentative_artifact_tool(request),
       source_refs: source_refs(request, material_refs),
       base_refs: base_refs,
       versions: %{},
@@ -190,7 +190,21 @@ defmodule NovelAgent.CreativeProvider.Real do
     Enum.uniq_by(material_refs ++ Enum.map(refs, &%{ref: &1}), & &1.ref)
   end
 
-  defp tentative_artifact_tool do
+  defp tentative_artifact_tool(request) do
+    segment_mapping =
+      if ToolOutputContract.target_segment_mapping_required?(request.artifact_type, request.task) do
+        %{
+          target_segment_ids: %{
+            type: "array",
+            minItems: 1,
+            uniqueItems: true,
+            items: %{type: "string", minLength: 1}
+          }
+        }
+      else
+        %{}
+      end
+
     %{
       name: "submit_tentative_artifact",
       description: "提出待作者审阅的创作候选；不执行采纳、不修改权威作品事实。",
@@ -203,19 +217,25 @@ defmodule NovelAgent.CreativeProvider.Real do
             minItems: 1,
             items: %{
               type: "object",
-              required: ["item_id", "title", "body"],
-              properties: %{
-                item_id: %{type: "string", minLength: 1},
-                title: %{type: "string", minLength: 1},
-                body: %{type: "string"},
-                rationale: %{
-                  anyOf: [%{type: "string"}, %{type: "null"}],
-                  description:
-                    "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
-                      "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
-                      "无需说明时可省略或为 null。"
-                }
-              },
+              required:
+                ["item_id", "title", "body"] ++
+                  Enum.map(Map.keys(segment_mapping), &Atom.to_string/1),
+              properties:
+                Map.merge(
+                  %{
+                    item_id: %{type: "string", minLength: 1},
+                    title: %{type: "string", minLength: 1},
+                    body: %{type: "string"},
+                    rationale: %{
+                      anyOf: [%{type: "string"}, %{type: "null"}],
+                      description:
+                        "将直接展示给作者的创作说明：简要解释此候选的创作取舍、作品依据及预期作用，" <>
+                          "并遵守本次共同“作者说明”规则。材料的引用身份由 self_report.used_context_refs 承载；" <>
+                          "无需说明时可省略或为 null。"
+                    }
+                  },
+                  segment_mapping
+                ),
               additionalProperties: true
             }
           },
@@ -246,10 +266,13 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp exchange_error(code, reason),
     do: provider_error(code, inspect(reason), provider_error_type(reason))
 
+  # 阶段输出/companion 范围校验属于同一次工具交换：在 parse 成功路径内拒绝，
+  # 由 NativeToolExchange 用原 call_id 回流并共享同一重试预算。
   defp parse_native_result(result, request, actual_request) do
     result
     |> decode_native_result()
-    |> enforce_parsed_companion_scope(request)
+    |> enforce_companion_scope(request)
+    |> enforce_artifact_shape(request)
     |> validate_used_context_refs(actual_request)
   end
 
@@ -281,13 +304,6 @@ defmodule NovelAgent.CreativeProvider.Real do
         provider_error("provider_response_invalid", "native tool arguments must be an object")
     end
   end
-
-  # 阶段输出/companion 范围校验属于同一次工具交换：在 parse 成功路径内拒绝，
-  # 由 NativeToolExchange 用原 call_id 回流并共享同一重试预算。
-  defp enforce_parsed_companion_scope(%CreativeProviderResult{status: :ok} = parsed, request),
-    do: enforce_companion_scope(parsed, request)
-
-  defp enforce_parsed_companion_scope(parsed, _request), do: parsed
 
   @creative_tool_names ~w(plot_outline character_design character_evolution world_building)
 
@@ -382,15 +398,15 @@ defmodule NovelAgent.CreativeProvider.Real do
     |> String.trim()
   end
 
-  # B36 CP2/task-97：target_segments 与产品 writer 指令一致——只产目标段替换文本；
-  # 整章/format_only 仍走 chapter_content_guidance/format_only_guidance 原语义。
+  # target_segments 按实际来源块映射替换；文学段落边界只属于 body 内容。
   defp target_segments_guidance do
     """
-    ## 指定片段/段落内容修订（target_segments）
-    - 只输出目标段落的完整替换文本（可含换行）；不要输出整章、不要复述其他段落、不要加解释/标题/摘要/fence。
-    - 前后段落只作为连贯上下文阅读，不得改写；未指定段落由系统逐字保留，你不需要也不得在输出里重复它们。
-    - 只对作者明确指定的目标段做真实修改；不得写成续写或“继续往后写”，不得新增未要求的内容。
-    - body 只放目标段的替换文本；修改依据放 rationale。
+    ## 指定修订片段内容修订（target_segments）
+    - 修订片段是应用按基线切分的来源块，不等同文学段落；只使用本次任务供应的片段 ID。
+    - 每个 item 必须含 target_segment_ids，原样列出它替换的连续来源块，按来源顺序排列且不得重复。
+    - body 是这些来源块的完整替换文本，可含多个自然段；选中整块时，仍须在 body 内保留作者要求不变的锚句。
+    - 所有 items 的映射必须恰好覆盖本次目标片段；不要凭 items 的排列顺序表达映射，不输出未选片段。
+    - 未指定片段由系统逐字保留；只做要求的修改，不续写，不加解释/标题/摘要/fence；创作取舍放 rationale。
     """
     |> String.trim()
   end

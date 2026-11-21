@@ -205,6 +205,36 @@ describe("toAuthorActionPayload author payload (edit_then_accept)", () => {
     expect(payload.payload).toEqual({ edited_content: "改写后的正文" });
   });
 
+  it("preserves structured item bodies and the one existing set action without adding authority", () => {
+    const action: AvailableActionLike = {
+      action_id: "edit-prose",
+      action_type: "edit_then_accept",
+      target_ref: "prose-set",
+      idempotency_key: "edit-once",
+    };
+    const input = {
+      edited_items: [
+        { item_id: "opening", body: "  首段。\r\n\r\n第二段。\n " },
+        { item_id: "ending", body: "\n末段。  " },
+      ],
+    };
+    const before = JSON.stringify(input);
+    expect(toAuthorActionPayload("source-turn", action, input)).toEqual({
+      source_turn_ref: "source-turn",
+      action_id: "edit-prose",
+      action_type: "edit_then_accept",
+      target_ref: "prose-set",
+      idempotency_key: "edit-once",
+      payload: {
+        edited_items: [
+          { item_id: "opening", body: "  首段。\r\n\r\n第二段。\n " },
+          { item_id: "ending", body: "\n末段。  " },
+        ],
+      },
+    });
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
   it("omits payload when none provided", () => {
     const action: AvailableActionLike = {
       action_id: "ac-1",

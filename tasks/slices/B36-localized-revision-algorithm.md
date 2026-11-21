@@ -5,6 +5,8 @@
 - 来源：B35 CP3（局部 126 chars 被当整章 complete 覆盖，1002→116 字）、B33 CP4、用户 2026-10-25 裁决
 - 关联：B28 整章修订、B35 修订采纳范围完整性、B33 判断可达性、P1 canonical-2
 
+> **现役前向覆盖**：B87 R05 的真实多片段/整章反例已触发设计重审；新的来源区间与正文契约以 [VS-00M §6.2](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md#62-r05-章正文修订的来源区间与候选正文实施前裁决) 及本文件 §9 为准。以下旧候选、实施数字与历史 PASS 保留其当时边界，不作为新表达能力已实现的证据。
+
 ## 1. 业界做法调研（摘要）
 
 | 方案 | 代表 | 优点 | 风险/成本 |
@@ -90,3 +92,15 @@ target_segments 修订 writer 只产目标段 replacement（不要求整章）�
 以 1,700 个连续汉字复现了固定字节切分产生两个非法 UTF-8 片段。原文仍可拼回，writer 的目标段 JSON 却无法编码。现优先按行切分，超长行按完整 grapheme 打包。通常上限为 4,000 字节，单个更长的 grapheme 独占一段。分段仍按原字节派生 ID、区间与 hash，CRLF 可逐字节重组。
 
 结构化采纳依据 Ecto 事务已经验证的草稿版本、目标段 ID 和 hash，将替换片段与原分隔符组合。回执直接按这一组新旧片段计算，整稿候选继续使用既有全文分段校验。真实事务用例先复现第一段缩短 6 字节后 `out_of_scope_changes`，再验证替换成功、原后缀逐字节保留且回执只记录一个目标。空替换、数量不符、单目标新增自然段及 hash 错误仍走拒绝或回滚。后续真实观察选段与 writer 使用证据见 [B82](B82-b71-golden-slice-evidence.md)。
+
+## 9. B87 R05 前向修订：源区间独立于自然段（实施前）
+
+B87 §16.34 的真实 G2 候选绑定五个目标 ID，却只有一个替换正文块，现接收通过而普通采纳静态推断将报 incomplete_scope；whole 的六个源 chunk 对应一个候选 chunk，静态推断现数量门会拒绝这种合同应能表达的精简，半长度门若到达亦会拒绝。两场没有实际采纳，不能把静态推断回写成已发生的事务失败，也不能将本文件 CP3/CP4 的历史单片段通过扩展成多片段合并/拆分已支持。
+
+现役规范唯一置于 [VS-00M §6.2](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md#62-r05-章正文修订的来源区间与候选正文实施前裁决)。本次复用 prose_fragment/items、原 scope/effect 和 LocalizedRevision，新增 item.target_segment_ids 精确绑定连续源区间；同一 body 可有任意自然段，非连续区间由同一候选多 items 原子处理。作者编辑沿现 action 的 edited_items 保留映射。§2 的 prose_segment_patch/ops JSON 只是当时未落地候选，不建立该对象或另一份正文；§2/§5/§7/§8 中全文重分段等数量、N→N 单自然段、空行映射及长度异常推断不再作为新实现的规范。
+
+原真正不变量保持：本轮作者与来源保真、实际目标/版本/hash、未选字节精确保留、完整 accepted 覆盖、失败零写入、可核回执与明确作者采纳。complete/partial 不替代授权，whole 不能借本次表达能力成为局部修订的隐式回退；format_only 保持现 ProseFormatting 独立字节约束。完整的 pending 再修订、现已开放的 quality action、作者编辑和事务消费者须一起迁移，不能只改最末采纳 parser。
+
+先在已有 B36/whole/application/editor 测试 owner 上建立独立反例，再实现和分组提交。应覆盖相邻多片段合一段、单片段拆多段、非连续范围和中间原字节、外层 items 重排等效而内部倒序拒绝、重复/重叠/缺失映射、同字节 no-op 回执、stale/hash 零写入，以及短于原文一半且自然段数改变的合法 whole。旧保护“局部片段不能冒充整章覆盖”以真实来源/授权/覆盖表达承接；正确窄选反例不能删。旧 N→N 形状专属断言按新合同替换，旧实现/失败证据不改写。当前仅完成设计裁决，不签新测试、实际采纳或 R05 PASS。
+
+**实施接续的当前边界。** 本节前文的质量动作范围以 VS-00M §6.2 后续真实可达性核查为准：当前 scoped 调用是 pending 候选预检与再次修订；普通质量修订保留既有真实入口，但没有生成 scoped quality action 的链路，不以手造动作或 Service 存在宣称已开放。格式方案继续归现 ProseFormatting，不并入正文 items 应用规则。当前实现、独立测试 owner 迁移、真实红绿及分组提交事实统一记录在 B87 §16.34 的实施 checkpoint；本文件 CP3/CP4 与前文实施前记录原样保留，定向回归和纯 SRP 提取树不代签新冻结的实际模型、作者采纳或 R05 PASS。

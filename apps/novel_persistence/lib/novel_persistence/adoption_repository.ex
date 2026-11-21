@@ -49,13 +49,54 @@ defmodule NovelPersistence.AdoptionRepository do
     &persist/1
   end
 
+  @spec persist(map()) :: {:ok, map()} | {:error, term()}
+  def persist(attrs) when is_map(attrs) do
+    with {:ok, prepared} <- prepare_revision_content(attrs) do
+      persist_transaction(prepared)
+    end
+  end
+
+  defp prepare_revision_content(attrs) do
+    if formatting_plan_artifact?(Map.get(attrs, :artifact_type)) do
+      {:ok, attrs}
+    else
+      raw_effect = Map.get(attrs, :adoption_effect) || Map.get(attrs, "adoption_effect")
+      effect = replace_segments_effect(attrs) || replace_scope_effect(attrs)
+      scope = scope_label(attrs, if(is_map(raw_effect), do: raw_effect, else: %{}))
+      prepare_scoped_revision_content(attrs, effect, scope)
+    end
+  end
+
+  defp prepare_scoped_revision_content(attrs, nil, scope) do
+    if scope in ["target_segments", "whole_chapter"],
+      do: {:error, :incomplete_scope},
+      else: {:ok, attrs}
+  end
+
+  defp prepare_scoped_revision_content(attrs, effect, scope) do
+    cond do
+      Map.has_key?(attrs, :content) or Map.has_key?(attrs, "content") ->
+        {:error, :incomplete_scope}
+
+      {effect_mode(effect), scope} not in [
+        {"replace_segments", "target_segments"},
+        {"replace_scope", "whole_chapter"}
+      ] ->
+        {:error, :incomplete_scope}
+
+      true ->
+        with {:ok, content} <- LocalizedRevision.compose_content(Map.get(attrs, :items)) do
+          {:ok, Map.put(attrs, :content, content)}
+        end
+    end
+  end
+
   # dialyzer 误报（call_without_opaque）：Ecto.Multi.new/0 返回的 %Ecto.Multi{} 里
   # MapSet.internal/0 是 opaque，同一函数内立即交给 Multi.insert/4 时 dialyzer 判
   # 「call without expected opaque term」；Ecto.Multi 本身不是 opaque，运行时无问题。
   # 只对本函数关闭 opacity 检查，不放宽全模块/全仓。
-  @dialyzer {:no_opaque, [persist: 1]}
-  @spec persist(map()) :: {:ok, map()} | {:error, term()}
-  def persist(attrs) when is_map(attrs) do
+  @dialyzer {:no_opaque, [persist_transaction: 1]}
+  defp persist_transaction(attrs) do
     mutation_attrs = mutation_attrs(attrs)
 
     Multi.new()
@@ -671,27 +712,28 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  # B36 CP2：结构化段落替换（provider 只输出目标段替换文本）。
-  # 同一 Ecto.Multi 内：base draft 版本/指纹 + 逐段 expected hash 校验 → 按段替换
-  # （其余字节原样）→ LocalizedRevision 二次校验 → 新 draft accepted + 旧 draft superseded。
-  # 任一校验失败在写操作前返回（Multi 回滚零写入）。
+  # 原子区间替换：当前作品/章/accepted 版本与 hash 复核后，
+  # 由 LocalizedRevision 应用原 items；候选聚合 content 不决定替换映射。
+  # 任一错误由同一 Multi 回滚，未授权区间原字节保留。
   defp persist_replace_segments(repo, attrs, mutation_id, effect) do
     work_id = Map.fetch!(attrs, :work_id)
-    content = projection_content(attrs)
     chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
 
     with {:ok, chapter} <- require_scope_chapter(repo, work_id, chapter_ref),
          {:ok, covered} <- replace_segments_covered_drafts(repo, work_id, chapter, attrs, effect),
          :ok <- validate_replace_segments_versions(covered, attrs, effect),
-         :ok <- ensure_covered_all_accepted(repo, work_id, chapter, covered),
+         :ok <- ensure_covered_all_accepted(repo, work_id, chapter.id, covered),
          base_text = ReadingProjectionRepo.chapter_prose_text(covered),
          base_segments = LocalizedRevision.segment(base_text),
          {:ok, target_ids} <-
            target_segment_ids_for_segments(attrs, effect, base_segments),
          :ok <- validate_expected_segment_hashes(attrs, effect, base_segments, target_ids),
-         {:ok, pieces} <- replacement_pieces(content, target_ids),
          {:ok, new_text, info} <-
-           LocalizedRevision.replace_segments(base_segments, target_ids, pieces),
+           LocalizedRevision.replace_segments(
+             base_segments,
+             target_ids,
+             Map.fetch!(attrs, :items)
+           ),
          :ok <- mark_chapter_drafted(repo, chapter),
          :ok <- supersede_covered_scenes(repo, work_id, covered),
          {:ok, draft} <- insert_segment_revision(repo, covered, new_text) do
@@ -792,10 +834,10 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp ensure_covered_all_accepted(repo, work_id, chapter, covered) do
+  defp ensure_covered_all_accepted(repo, work_id, chapter_id, covered) do
     all =
       Scene
-      |> where([s], s.chapter_id == ^chapter.id and s.work_id == ^work_id)
+      |> where([s], s.chapter_id == ^chapter_id and s.work_id == ^work_id)
       |> repo.all()
       |> Enum.flat_map(fn scene ->
         Draft
@@ -828,68 +870,65 @@ defmodule NovelPersistence.AdoptionRepository do
     ids = target_segment_ids(attrs, effect)
     known = MapSet.new(Enum.map(base_segments, & &1.segment_id))
 
-    if ids != [] and Enum.all?(ids, &MapSet.member?(known, &1)),
-      do: {:ok, ids},
-      else: {:error, :segment_mismatch}
+    if is_list(ids) and ids != [] and
+         Enum.all?(ids, &(is_binary(&1) and MapSet.member?(known, &1))) and
+         length(ids) == MapSet.size(MapSet.new(ids)),
+       do: {:ok, ids},
+       else: {:error, :segment_mismatch}
   end
 
   defp validate_expected_segment_hashes(attrs, effect, base_segments, target_ids) do
-    expected = expected_segment_hashes(attrs, effect)
+    with {:ok, expected} <- expected_segment_hashes(attrs, effect) do
+      mismatch =
+        Enum.find(target_ids, fn id ->
+          not expected_hash_matches?(
+            Enum.find(base_segments, &(&1.segment_id == id)),
+            Map.get(expected, id)
+          )
+        end)
 
-    case Enum.find(target_ids, fn id ->
-           not expected_hash_matches?(
-             Enum.find(base_segments, &(&1.segment_id == id)),
-             Map.get(expected, id)
-           )
-         end) do
-      nil -> :ok
-      _ -> {:error, :segment_mismatch}
+      case mismatch do
+        nil -> :ok
+        _ -> {:error, :segment_mismatch}
+      end
     end
   end
 
   defp expected_hash_matches?(nil, _expected), do: false
   defp expected_hash_matches?(_seg, nil), do: false
-  defp expected_hash_matches?(seg, expected), do: to_string(expected) == seg.sha256
+  defp expected_hash_matches?(seg, expected), do: is_binary(expected) and expected == seg.sha256
 
   defp expected_segment_hashes(attrs, effect) do
     raw =
-      Map.get(attrs, :expected_segment_hashes) || Map.get(attrs, "expected_segment_hashes") ||
-        Map.get(effect, "expected_segment_hashes") || Map.get(effect, :expected_segment_hashes) ||
-        []
+      Map.get(
+        attrs,
+        :expected_segment_hashes,
+        Map.get(
+          attrs,
+          "expected_segment_hashes",
+          Map.get(
+            effect,
+            :expected_segment_hashes,
+            Map.get(effect, "expected_segment_hashes", [])
+          )
+        )
+      )
 
-    raw
-    |> List.wrap()
-    |> Enum.reduce(%{}, &put_expected_hash/2)
+    if is_list(raw),
+      do: Enum.reduce_while(raw, {:ok, %{}}, &put_expected_hash/2),
+      else: {:error, :segment_mismatch}
   end
 
-  defp put_expected_hash(%{} = item, acc) do
-    id = Map.get(item, "segment_id") || Map.get(item, :segment_id)
-    sha = Map.get(item, "sha256") || Map.get(item, :sha256) || Map.get(item, "sha")
+  defp put_expected_hash(%{} = item, {:ok, acc}) do
+    id = Map.get(item, "segment_id", Map.get(item, :segment_id))
+    sha = Map.get(item, "sha256", Map.get(item, :sha256, Map.get(item, "sha")))
 
-    if id, do: Map.put(acc, to_string(id), to_string(sha || "")), else: acc
+    if is_binary(id) and is_binary(sha) and not Map.has_key?(acc, id),
+      do: {:cont, {:ok, Map.put(acc, id, sha)}},
+      else: {:halt, {:error, :segment_mismatch}}
   end
 
-  defp put_expected_hash(_item, acc), do: acc
-
-  defp replacement_pieces(content, target_ids) do
-    # content 来自 projection_content/1（恒为 binary）；`|| ""` 不可达（B60）。
-    text = to_string(content) |> String.trim_trailing()
-
-    cond do
-      text == "" ->
-        {:error, :incomplete_scope}
-
-      length(target_ids) == 1 ->
-        {:ok, [text]}
-
-      true ->
-        pieces = String.split(text, ~r/(?:\r\n|\n|\r){2,}/u)
-
-        if length(pieces) == length(target_ids),
-          do: {:ok, pieces},
-          else: {:error, :incomplete_scope}
-    end
-  end
+  defp put_expected_hash(_item, _acc), do: {:halt, {:error, :segment_mismatch}}
 
   defp replace_segments_effect(attrs) do
     case Map.get(attrs, :adoption_effect) || Map.get(attrs, "adoption_effect") do
@@ -908,14 +947,17 @@ defmodule NovelPersistence.AdoptionRepository do
   # 新整章稿 accepted；chapter_id/章数/seq 不变；失败由原子 Multi 整体回滚。
   defp persist_replace_scope(repo, attrs, mutation_id, effect) do
     work_id = Map.fetch!(attrs, :work_id)
-    content = projection_content(attrs)
     chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
 
     with {:ok, chapter} <- require_scope_chapter(repo, work_id, chapter_ref),
          {:ok, covered} <- covered_scope_drafts(repo, work_id, chapter.id, effect),
          :ok <- validate_expected_versions(repo, chapter.id, effect),
+         :ok <- validate_single_base_version(covered, attrs),
          :ok <- ensure_complete_cover(repo, work_id, chapter.id, covered, effect),
-         {:ok, coverage_info} <- ensure_content_covers_scope(attrs, covered, effect, content),
+         base_segments =
+           covered |> ReadingProjectionRepo.chapter_prose_text() |> LocalizedRevision.segment(),
+         {:ok, content, coverage_info} <-
+           LocalizedRevision.replace_scope(base_segments, Map.fetch!(attrs, :items)),
          :ok <- mark_chapter_drafted(repo, chapter),
          :ok <- supersede_covered_scenes(repo, work_id, covered),
          {:ok, draft} <-
@@ -930,7 +972,7 @@ defmodule NovelPersistence.AdoptionRepository do
          mutation_id: mutation_id,
          adoption_effect: "replace_scope",
          superseded_draft_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
-         scope: coverage_info.scope,
+         scope: "whole_chapter",
          covered_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
          target_segment_ids: coverage_info.target_segment_ids,
          segment_changes: coverage_info.segment_changes,
@@ -944,12 +986,12 @@ defmodule NovelPersistence.AdoptionRepository do
   defp persist_single_projection(repo, attrs, mutation_id) do
     work_id = Map.fetch!(attrs, :work_id)
     chapter_title = projection_title(attrs)
-    content = projection_content(attrs)
     mode = projection_mode(attrs)
 
     chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
 
-    with {:ok, volume} <- find_or_create_volume(repo, work_id),
+    with {:ok, content} <- projection_content(attrs),
+         {:ok, volume} <- find_or_create_volume(repo, work_id),
          {:ok, chapter} <- resolve_chapter(repo, work_id, volume.id, chapter_title, chapter_ref),
          :ok <- mark_chapter_drafted(repo, chapter),
          {:ok, scene} <- resolve_scene(repo, work_id, chapter, chapter_title, mode),
@@ -2524,62 +2566,16 @@ defmodule NovelPersistence.AdoptionRepository do
     end)
   end
 
-  # B36 CP1：replace_scope 覆盖完整性——确定性分段 + 段落级 diff。
-  # target_segments 必须携带 target_segment_ids（由候选构造按作者范围算出）；
-  # 集合外段落必须逐字节一致；空/截断 -> incomplete_scope；越界 -> out_of_scope_changes；
-  # 校验发生在 supersede/insert 之前，失败由调用方 Ecto.Multi 回滚（零写入）。
-  # 保留 B35 的长度兜底（防候选整体塌缩），format_only 由 B28 归一字节校验负责。
-  defp ensure_content_covers_scope(attrs, covered, effect, content) do
-    coverage = Map.get(effect, "coverage") || Map.get(effect, :coverage)
-    scope = scope_label(attrs, effect)
-
-    if to_string(coverage) != "complete" do
-      {:ok, empty_coverage(scope, content)}
-    else
-      base_text = ReadingProjectionRepo.chapter_prose_text(covered)
-      target_ids = target_segment_ids(attrs, effect)
-
-      opts = [
-        scope: scope,
-        target_segment_ids: target_ids,
-        base_version: Map.get(attrs, :base_version) || Map.get(attrs, "base_version"),
-        current_version: covered |> List.first() |> then(&(&1 && &1.revision))
-      ]
-
-      with {:ok, info} <- LocalizedRevision.validate(base_text, content, opts),
-           :ok <- enforce_length_floor(scope, info.old_chars, info.new_chars) do
-        {:ok, Map.merge(info, %{scope: scope, target_segment_ids: target_ids})}
-      end
-    end
-  end
-
-  defp enforce_length_floor("format_only", _old_chars, _new_chars), do: :ok
-  defp enforce_length_floor(_scope, old_chars, _new_chars) when old_chars == 0, do: :ok
-
-  defp enforce_length_floor(_scope, old_chars, new_chars) when new_chars < div(old_chars, 2),
-    do: {:error, :incomplete_scope}
-
-  defp enforce_length_floor(_scope, _old_chars, _new_chars), do: :ok
-
   defp target_segment_ids(attrs, effect) do
-    raw =
-      Map.get(attrs, :target_segment_ids) || Map.get(attrs, "target_segment_ids") ||
-        Map.get(effect, "target_segment_ids") || Map.get(effect, :target_segment_ids) || []
-
-    LocalizedRevision.normalize_target_ids(raw)
-  end
-
-  # content 由 ensure_content_covers_scope/4 从 projection_content/1 传入（恒 binary）；
-  # `|| ""` 被 dialyzer 证明不可达（B60）。
-  defp empty_coverage(scope, content) do
-    %{
-      scope: scope,
-      target_segment_ids: [],
-      segment_changes: [],
-      old_chars: 0,
-      new_chars: String.length(content),
-      diff_stats: %{segment_count: 0, changed_segment_count: 0}
-    }
+    Map.get(
+      attrs,
+      :target_segment_ids,
+      Map.get(
+        attrs,
+        "target_segment_ids",
+        Map.get(effect, :target_segment_ids, Map.get(effect, "target_segment_ids", []))
+      )
+    )
   end
 
   defp scope_label(attrs, effect) do
@@ -2587,34 +2583,15 @@ defmodule NovelPersistence.AdoptionRepository do
       Map.get(attrs, :modification_scope) || Map.get(attrs, "modification_scope") ||
         Map.get(effect, "modification_scope") || Map.get(effect, :modification_scope)
 
-    to_string(raw || "whole_chapter")
+    to_string(raw || "")
   end
 
   defp ensure_complete_cover(repo, work_id, chapter_id, covered, effect) do
-    if Map.get(effect, "coverage") in ["complete", :complete] ||
-         Map.get(effect, "require_complete", true) do
-      all =
-        Scene
-        |> where([s], s.chapter_id == ^chapter_id and s.work_id == ^work_id)
-        |> repo.all()
-        |> Enum.flat_map(fn scene ->
-          Draft
-          |> where(
-            [d],
-            d.work_id == ^work_id and d.scene_id == ^scene.id and
-              d.status in ^[AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
-          )
-          |> repo.all()
-        end)
-        |> Enum.map(& &1.id)
-        |> MapSet.new()
+    coverage = Map.get(effect, "coverage", Map.get(effect, :coverage))
 
-      covered_ids = covered |> Enum.map(& &1.id) |> MapSet.new()
-
-      if MapSet.subset?(all, covered_ids), do: :ok, else: {:error, :incomplete_scope}
-    else
-      :ok
-    end
+    if coverage in ["complete", :complete],
+      do: ensure_covered_all_accepted(repo, work_id, chapter_id, covered),
+      else: {:error, :incomplete_scope}
   end
 
   defp supersede_covered_scenes(repo, work_id, covered) do
@@ -2907,13 +2884,12 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   defp projection_content(attrs) do
-    attrs
-    |> Map.get(:content, projection_title(attrs))
-    |> to_string()
-    |> String.trim()
-    |> case do
-      "" -> projection_title(attrs)
-      content -> content
+    case Map.get(attrs, :content) do
+      content when is_binary(content) ->
+        if String.trim(content) == "", do: {:error, :incomplete_scope}, else: {:ok, content}
+
+      _ ->
+        {:error, :incomplete_scope}
     end
   end
 end

@@ -61,6 +61,184 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     refute Map.has_key?(TestProviderPrompt.scope_content(ir)["authoring_task"], "author_words")
   end
 
+  @tag :source_interval_mapping
+  test "目标修订缺映射时闭合原调用并纠错，成功 item 保留映射及正文原字节" do
+    task = AuthoringTaskFixtures.task(:revision)
+    task = %{task | scope: Map.put(task.scope, :modification_scope, :target_segments)}
+    assert {:ok, ^task} = AuthoringSemantics.validate(task)
+
+    body = " \r\n锚句不变。\n\n合并后的叙述。\t\r\n"
+    ids = ["seg_1_source", "seg_2_source"]
+    item = %{item_id: "merged", title: "修订", body: body, rationale: "保留锚句并压缩重复。"}
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    execution = %Execution{
+      result_fn: fn ir ->
+        previous = Agent.get_and_update(calls, &{&1, &1 ++ [ir]})
+        arguments = if previous == [], do: item, else: Map.put(item, :target_segment_ids, ids)
+
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "interval-call-#{length(previous) + 1}",
+               name: "submit_tentative_artifact",
+               arguments: %{items: [arguments]}
+             }
+           ]
+         }}
+      end
+    }
+
+    assert {%{status: :ok, items: [accepted]}, session} =
+             Real.generate_with_session(
+               request("prose_writing", :prose_fragment, task),
+               execution
+             )
+
+    assert session.provider_call_count == 2
+    assert accepted.body == body
+    assert Map.get(accepted, :target_segment_ids) == ids
+
+    [first, correction] = Agent.get(calls, & &1)
+    assert Enum.take(correction.messages, length(first.messages)) == first.messages
+    blocks = Enum.flat_map(correction.messages, & &1.blocks)
+    original = Enum.find(blocks, &(&1.type == "tool_call" and &1.call_id == "interval-call-1"))
+    [raw_item] = RequestIR.json_value(original.arguments)["items"]
+    assert raw_item["body"] == body
+    refute Map.has_key?(raw_item, "target_segment_ids")
+
+    assert Enum.any?(blocks, fn block ->
+             block.type == "validation_result" and block.call_id == "interval-call-1" and
+               block.status == "failed"
+           end)
+  end
+
+  @tag :source_interval_mapping
+  test "其它范围或产物不声明也不接受目标映射，包括 null" do
+    revision = AuthoringTaskFixtures.task(:revision)
+
+    whole = %{
+      revision
+      | scope:
+          Map.merge(revision.scope, %{modification_scope: :whole_chapter, coverage: :complete})
+    }
+
+    formatting = %{revision | scope: Map.put(revision.scope, :modification_scope, :format_only)}
+
+    world = %{
+      revision
+      | scope: Map.put(revision.scope, :modification_scope, :target_segments),
+        output_contract: AuthoringTaskFixtures.contract_for(:world_building)
+    }
+
+    first_draft = AuthoringTaskFixtures.prose_task()
+
+    first_draft_with_target_marker = %{
+      first_draft
+      | scope: Map.put(first_draft.scope, :modification_scope, :target_segments)
+    }
+
+    cases = [
+      {"prose_writing", :prose_fragment, first_draft, %{}},
+      {"prose_writing", :prose_fragment, first_draft_with_target_marker, %{}},
+      {"prose_writing", :prose_fragment, whole, %{}},
+      {"prose_writing", :prose_formatting_plan, formatting,
+       %{line_break_changes: [%{boundary_id: "break_1_hash", lines: 1}]}},
+      {"world_building", :world_setting, world, %{}}
+    ]
+
+    for {tool, type, task, extra} <- cases do
+      assert {:ok, ^task} = AuthoringSemantics.validate(task)
+      request = request(tool, type, task)
+      ir = captured_prompt(request)
+      [native] = RequestIR.Tools.tool_specs(ir)
+      item_schema = native.input_schema["properties"]["items"]["items"]
+      refute Map.has_key?(item_schema["properties"], "target_segment_ids")
+      refute "target_segment_ids" in item_schema["required"]
+      item = Map.merge(%{item_id: "plain", title: "候选", body: "正文保留。"}, extra)
+
+      generate = fn output_item ->
+        execution = %Execution{
+          result_fn: fn _ ->
+            {:ok,
+             %{
+               content: "",
+               tool_calls: [
+                 %{
+                   id: "scope-call",
+                   name: "submit_tentative_artifact",
+                   arguments: %{items: [output_item]}
+                 }
+               ]
+             }}
+          end
+        }
+
+        Real.generate_with_session(request, execution, max_provider_calls: 1)
+      end
+
+      assert {%{status: :ok}, _session} = generate.(item)
+
+      for ids <- [nil, ["seg_1_source"]] do
+        assert {%{status: :error}, session} =
+                 generate.(Map.put(item, :target_segment_ids, ids))
+
+        assert session.provider_call_count == 1
+      end
+    end
+  end
+
+  @tag :source_interval_mapping
+  test "目标正文的伴生设定不能继承正文映射资格" do
+    task = AuthoringTaskFixtures.task(:revision)
+    task = %{task | scope: Map.put(task.scope, :modification_scope, :target_segments)}
+
+    execution = %Execution{
+      result_fn: fn _ ->
+        {:ok,
+         %{
+           content: "",
+           tool_calls: [
+             %{
+               id: "companion-mapping",
+               name: "submit_tentative_artifact",
+               arguments: %{
+                 items: [
+                   %{
+                     item_id: "prose",
+                     title: "正文",
+                     body: "正文。",
+                     target_segment_ids: ["seg_1_source"]
+                   }
+                 ],
+                 companion_artifacts: [
+                   %{
+                     artifact_type: "world_rule_seed",
+                     item_id: "rule",
+                     title: "规则",
+                     body: "日落后熄灯。",
+                     target_segment_ids: ["seg_1_source"]
+                   }
+                 ]
+               }
+             }
+           ]
+         }}
+      end
+    }
+
+    assert {%{status: :error}, session} =
+             Real.generate_with_session(
+               request("prose_writing", :prose_fragment, task),
+               execution,
+               max_provider_calls: 1
+             )
+
+    assert session.provider_call_count == 1
+  end
+
   test "R05: 只有 observation 元数据与来源引用时不能升为 Base 材料" do
     task =
       AuthoringTaskFixtures.task(:outline, %{
@@ -304,12 +482,12 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     ir = captured_prompt(request("prose_writing", :prose_fragment, task))
     prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert prompt =~ "## 指定片段/段落内容修订（target_segments）"
-    assert prompt =~ "只输出目标段落的完整替换文本"
-    assert prompt =~ "不要输出整章"
-    assert prompt =~ "不要复述其他段落"
-    assert prompt =~ "未指定段落由系统逐字保留"
-    assert prompt =~ "body 只放目标段的替换文本"
+    assert prompt =~ "## 指定修订片段内容修订（target_segments）"
+    assert prompt =~ "body 是这些来源块的完整替换文本"
+    assert prompt =~ "不输出未选片段"
+    assert prompt =~ "只做要求的修改，不续写"
+    assert prompt =~ "未指定片段由系统逐字保留"
+    assert prompt =~ "每个 item 必须含 target_segment_ids"
     refute prompt =~ "不得只返回修改片段"
     refute prompt =~ "按任务给出的覆盖顺序输出指定片段/段落的完整替换稿"
     # 整章/format_only 的旧语义不应出现在 target_segments guidance 中。
@@ -337,9 +515,9 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     prompt = AuthoringTaskFixtures.prompt_text(ir)
 
     assert TestProviderPrompt.scope_content(ir)["operation"]["creative_brief"] == cp3_wording
-    assert prompt =~ "只输出目标段落的完整替换文本"
-    assert prompt =~ "不要输出整章"
-    assert prompt =~ "不要复述其他段落"
+    assert prompt =~ "body 是这些来源块的完整替换文本"
+    assert prompt =~ "不输出未选片段"
+    assert prompt =~ "只做要求的修改，不续写"
     refute prompt =~ "不得只返回修改片段"
     refute prompt =~ "输出整章完整替换稿"
   end

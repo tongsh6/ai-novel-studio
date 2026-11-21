@@ -1454,17 +1454,31 @@ export function WorkspaceChat() {
     turnId: string;
     summary: TraceSummaryView;
   } | null>(null);
-  const [editDialog, setEditDialog] = useState<{
-    turnResult: TurnResult;
-    action: AvailableAction;
-    text: string;
-    failed?: boolean;
-  } | null>(null);
+  const [editDialog, setEditDialog] = useState<
+    | ({
+        turnResult: TurnResult;
+        action: AvailableAction;
+        submitting: boolean;
+        failed: boolean;
+      } & (
+        | { mode: "text"; text: string }
+        | {
+            mode: "items";
+            scope: "target_segments" | "whole_chapter";
+            items: Array<{ item_id: string; title: string; body: string }>;
+          }
+      ))
+    | null
+  >(null);
   const [discardDialog, setDiscardDialog] = useState<{
     turnResult: TurnResult;
     action: AvailableAction;
   } | null>(null);
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  const editSubmitting = editDialog?.submitting ?? false;
+  const editHasContent =
+    editDialog?.mode === "items"
+      ? editDialog.items.length > 0 && editDialog.items.every((item) => item.body.trim() !== "")
+      : editDialog?.mode === "text" && editDialog.text.trim() !== "";
   const [terminationTargetId, setTerminationTargetId] = useState<string | null>(null);
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
   const [revisionSubmittingTurnId, setRevisionSubmittingTurnId] = useState<string | null>(null);
@@ -1781,7 +1795,6 @@ export function WorkspaceChat() {
     setResumeResolvedAdoptions([]);
     setTranscriptRestored(false);
     setRevisionSubmittingTurnId(null);
-    setEditSubmitting(false);
     setEditDialog(null);
     setDiscardDialog(null);
     resumeRestoredTranscriptRef.current = false;
@@ -2934,49 +2947,133 @@ export function WorkspaceChat() {
     );
   };
 
-  // 从待采纳 artifact 取出可编辑的正文（payload.content 优先，否则拼接 items 正文）。
-  const draftProseForAction = (turnResult: TurnResult, action: AvailableAction): string => {
-    const artifact = (turnResult.adoption_state?.pending ?? []).find(
-      (entry) => entry.artifact_id === action.target_ref,
-    );
-    const payload = artifact?.payload;
-    const content = payload?.content;
-    if (typeof content === "string") return content;
-    const items = payload?.items;
-    if (Array.isArray(items)) {
-      return items
-        .map((item: unknown) => {
-          if (typeof item !== "object" || item === null || !("body" in item)) return "";
-          const body: unknown = item.body;
-          return typeof body === "string" ? body : "";
-        })
-        .filter(Boolean)
-        .join("\n\n");
+  // 两个入口都从同一待采纳目标初始化编辑；局部修订的绑定缺失时不得拼成全文。
+  const openEditDialog = (turnResult: TurnResult, action: AvailableAction) => {
+    const artifact = artifactForAction(turnResult, action);
+    if (!artifact || action.enabled === false || artifact.artifact_type === "prose_formatting_plan")
+      return;
+    const payload = artifact.payload;
+    const scope = payload?.scope;
+    const effect = payload?.adoption_effect;
+    const rawItems = payload?.items;
+    const scopeKind =
+      scope && typeof scope === "object" && "kind" in scope ? scope.kind : undefined;
+    const effectMode =
+      effect && typeof effect === "object" && "mode" in effect ? effect.mode : undefined;
+    const local =
+      payload?.modification_scope === "target_segments" &&
+      scopeKind === "target_segments" &&
+      effectMode === "replace_segments";
+    const whole =
+      payload?.modification_scope === "whole_chapter" &&
+      scopeKind === "whole_chapter" &&
+      effectMode === "replace_scope";
+    const scoped =
+      artifact.artifact_type === "prose_fragment" &&
+      (payload?.modification_scope === "target_segments" ||
+        payload?.modification_scope === "whole_chapter" ||
+        scopeKind === "target_segments" ||
+        scopeKind === "whole_chapter" ||
+        effectMode === "replace_segments" ||
+        effectMode === "replace_scope" ||
+        (Array.isArray(rawItems) &&
+          rawItems.some(
+            (item: unknown) =>
+              item !== null && typeof item === "object" && "target_segment_ids" in item,
+          )));
+    let draft: NonNullable<typeof editDialog>;
+    const target = { turnResult, action, submitting: false, failed: false };
+    if (scoped) {
+      const items = Array.isArray(rawItems)
+        ? rawItems.flatMap((item: unknown) => {
+            if (
+              !item ||
+              typeof item !== "object" ||
+              !("item_id" in item) ||
+              typeof item.item_id !== "string" ||
+              item.item_id.trim() === "" ||
+              !("body" in item) ||
+              typeof item.body !== "string" ||
+              (local
+                ? !("target_segment_ids" in item) ||
+                  !Array.isArray(item.target_segment_ids) ||
+                  item.target_segment_ids.length === 0 ||
+                  !item.target_segment_ids.every(
+                    (id: unknown) => typeof id === "string" && id.trim() !== "",
+                  )
+                : "target_segment_ids" in item)
+            )
+              return [];
+            return [
+              {
+                item_id: item.item_id,
+                title: "title" in item && typeof item.title === "string" ? item.title : "",
+                body: item.body,
+              },
+            ];
+          })
+        : [];
+      if (
+        (!local && !whole) ||
+        !Array.isArray(rawItems) ||
+        items.length === 0 ||
+        items.length !== rawItems.length ||
+        new Set(items.map((item) => item.item_id)).size !== items.length
+      ) {
+        setMessages((current) => [
+          ...current,
+          { role: "assistant", text: WORKBENCH.actionUnavailable },
+        ]);
+        return;
+      }
+      draft = {
+        ...target,
+        mode: "items",
+        scope: local ? "target_segments" : "whole_chapter",
+        items,
+      };
+    } else {
+      const text =
+        typeof payload?.content === "string"
+          ? payload.content
+          : Array.isArray(rawItems)
+            ? rawItems
+                .map((item: unknown) =>
+                  item &&
+                  typeof item === "object" &&
+                  "body" in item &&
+                  typeof item.body === "string"
+                    ? item.body
+                    : "",
+                )
+                .filter(Boolean)
+                .join("\n\n")
+            : "";
+      draft = { ...target, mode: "text", text };
     }
-    return "";
+    setEditDialog((current) => (current?.submitting ? current : draft));
   };
 
   const submitEditThenAccept = async () => {
-    if (!editDialog) return;
-    const trimmed = editDialog.text.trim();
-    if (trimmed === "") return;
-    const submittedTurnId = editDialog.turnResult.turn_id;
-    setEditSubmitting(true);
+    if (!editDialog || editSubmitting || !editHasContent || loading || !channelRef.current) return;
+    const submittedSnapshot = { ...editDialog, submitting: true, failed: false };
+    setEditDialog((current) => (current === editDialog ? submittedSnapshot : current));
     const result = await handleAvailableAction(
-      editDialog.turnResult,
-      editDialog.action,
-      { edited_content: trimmed },
-      { onSettled: () => setEditSubmitting(false) },
+      submittedSnapshot.turnResult,
+      submittedSnapshot.action,
+      submittedSnapshot.mode === "items"
+        ? { edited_items: submittedSnapshot.items.map(({ item_id, body }) => ({ item_id, body })) }
+        : { edited_content: submittedSnapshot.text },
     );
-    // stale 提交不触碰新视图；只有当前 scope 的交付才更新弹窗。
+    // settle 不是交付终态；只有本次快照可消费终态，旧结果不触碰后来打开的候选。
     if (!result) return;
-    if (isAuthorActionDelivered(result)) {
-      setEditDialog(null);
-    } else {
-      setEditDialog((current) =>
-        current?.turnResult.turn_id === submittedTurnId ? { ...current, failed: true } : current,
-      );
-    }
+    setEditDialog((current) =>
+      current !== submittedSnapshot
+        ? current
+        : isAuthorActionDelivered(result)
+          ? null
+          : { ...current, submitting: false, failed: true },
+    );
   };
 
   const submitDiscard = async () => {
@@ -3122,7 +3219,7 @@ export function WorkspaceChat() {
     }
     // edit_then_accept 需要作者先编辑正文，打开编辑弹窗而不是直接提交。
     if (action.action_type === "edit_then_accept") {
-      setEditDialog({ turnResult, action, text: draftProseForAction(turnResult, action) });
+      openEditDialog(turnResult, action);
       return;
     }
     // 放弃候选是不可撤销的作者决策。原稿/修订稿彼此独立，但当前候选会从待采纳
@@ -3326,11 +3423,7 @@ export function WorkspaceChat() {
     }
 
     if (actionType === "edit_then_accept") {
-      setEditDialog({
-        turnResult: match.turnResult,
-        action: match.action,
-        text: draftProseForAction(match.turnResult, match.action),
-      });
+      openEditDialog(match.turnResult, match.action);
       return;
     }
 
@@ -3389,6 +3482,7 @@ export function WorkspaceChat() {
       // 历史加载不等于作者发送新消息，不能由钉底逻辑把目标移出视野。
       chatPinnedToBottomRef.current = false;
       chatMessageCountRef.current = restoredMessages.length;
+      setEditDialog(null);
       visibleTranscriptSessionIdRef.current = hit.session_id;
       setReadOnlySession(snapshot.session);
       setReadOnlySourceTurnRef(hit.turn_id);
@@ -5503,32 +5597,83 @@ export function WorkspaceChat() {
           <Dialog.Root
             open={editDialog !== null}
             onOpenChange={(open) => {
-              if (!open) setEditDialog(null);
+              if (!open) setEditDialog((current) => (current?.submitting ? current : null));
             }}
           >
             <Dialog.Portal>
               <Dialog.Overlay className={styles.dialogOverlay} />
               <Dialog.Content
                 className={`${styles.dialogContent} ${styles.editDialogContent}`}
-                aria-describedby={undefined}
+                onEscapeKeyDown={(event) => {
+                  if (editSubmitting) event.preventDefault();
+                }}
+                onInteractOutside={(event) => {
+                  if (editSubmitting) event.preventDefault();
+                }}
               >
                 <Dialog.Title className={styles.dialogTitle}>
                   {CARD.tentativeArtifact.editDialogTitle}
                 </Dialog.Title>
-                <Dialog.Description className={styles.dialogDescription}>
-                  {CARD.tentativeArtifact.editDialogDescription}
-                </Dialog.Description>
-                <textarea
-                  className={styles.editTextarea}
-                  value={editDialog?.text ?? ""}
-                  placeholder={CARD.tentativeArtifact.editPlaceholder}
-                  disabled={editSubmitting}
-                  onChange={(event) =>
-                    setEditDialog((prev) =>
-                      prev ? { ...prev, text: event.target.value, failed: false } : prev,
-                    )
+                <Dialog.Description
+                  className={
+                    editDialog?.mode === "items" ? styles.dialogHint : styles.dialogDescription
                   }
-                />
+                >
+                  {editDialog?.mode === "items"
+                    ? editDialog.scope === "whole_chapter"
+                      ? CARD.tentativeArtifact.editWholeItemsDescription
+                      : CARD.tentativeArtifact.editItemsDescription
+                    : CARD.tentativeArtifact.editDialogDescription}
+                </Dialog.Description>
+                <div className={styles.editFields}>
+                  {editDialog?.mode === "items" ? (
+                    editDialog.items.map((item, index) => (
+                      <label key={item.item_id} className={styles.editField}>
+                        <span className={styles.dialogLabel}>
+                          {CARD.tentativeArtifact.editItemLabel(index + 1)}
+                        </span>
+                        {item.title !== "" && <span>{item.title}</span>}
+                        <textarea
+                          className={styles.editTextarea}
+                          value={item.body}
+                          placeholder={CARD.tentativeArtifact.editPlaceholder}
+                          disabled={editSubmitting}
+                          onChange={(event) => {
+                            const body = event.target.value;
+                            setEditDialog((current) =>
+                              current === editDialog &&
+                              current?.mode === "items" &&
+                              !current.submitting
+                                ? {
+                                    ...current,
+                                    failed: false,
+                                    items: current.items.map((entry) =>
+                                      entry.item_id === item.item_id ? { ...entry, body } : entry,
+                                    ),
+                                  }
+                                : current,
+                            );
+                          }}
+                        />
+                      </label>
+                    ))
+                  ) : (
+                    <textarea
+                      className={styles.editTextarea}
+                      value={editDialog?.mode === "text" ? editDialog.text : ""}
+                      placeholder={CARD.tentativeArtifact.editPlaceholder}
+                      disabled={editSubmitting}
+                      onChange={(event) => {
+                        const text = event.target.value;
+                        setEditDialog((current) =>
+                          current === editDialog && current?.mode === "text" && !current.submitting
+                            ? { ...current, text, failed: false }
+                            : current,
+                        );
+                      }}
+                    />
+                  )}
+                </div>
                 {editDialog?.failed && (
                   <div className={styles.dialogError} role="alert">
                     {CARD.tentativeArtifact.editFailureHint}
@@ -5539,14 +5684,16 @@ export function WorkspaceChat() {
                     className={styles.btnSecondary}
                     type="button"
                     disabled={editSubmitting}
-                    onClick={() => setEditDialog(null)}
+                    onClick={() =>
+                      setEditDialog((current) => (current?.submitting ? current : null))
+                    }
                   >
                     {CARD.tentativeArtifact.editCancelLabel}
                   </button>
                   <button
                     className={styles.sendBtn}
                     type="button"
-                    disabled={editSubmitting || (editDialog?.text ?? "").trim() === ""}
+                    disabled={editSubmitting || !editHasContent}
                     onClick={() => {
                       void submitEditThenAccept();
                     }}

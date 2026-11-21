@@ -964,8 +964,34 @@
 }
 
 .editDialogContent {
+  top: 32px;
   width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
   gap: 14px;
+}
+
+.editDialogContent > :not(.editFields) {
+  flex-shrink: 0;
+}
+
+.editFields {
+  display: flex;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editField {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editField .editTextarea {
+  min-height: 180px;
 }
 
 .editTextarea {

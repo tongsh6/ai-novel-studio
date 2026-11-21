@@ -71,7 +71,7 @@ UI 场景中谈论的“确认卡”“候选卡”“恢复卡”等，必须�
 - `open_trace_summary`：查看解释摘要。
 
 草稿产物另消费 `07` §4 S2 已落地的 `accept` / `discard` / `edit_then_accept`，
-分别表达采纳、放弃、作者编辑全文后采纳。它们必须来自实际产物的 available_actions，
+分别表达采纳、放弃、作者编辑该产物的正文内容后采纳。它们必须来自实际产物的 available_actions，
 不得映射为创作方向的 choose_candidate。对话中的修订/放弃按 ADR-0027 D5 绑定已有对象；
 修订产生独立待采纳版本，不能把“修改”解释为“修改后采纳”。
 
@@ -81,7 +81,7 @@ UI 场景中谈论的“确认卡”“候选卡”“恢复卡”等，必须�
 
 | 非 canonical 说法 | 必须改用 |
 | --- | --- |
-| `adopt`（口语“采纳草稿”） | 使用该产物实际提供的 `accept`；编辑全文后保存使用 `edit_then_accept`，均经过 adoption boundary |
+| `adopt`（口语“采纳草稿”） | 使用该产物实际提供的 `accept`；编辑正文内容后保存使用 `edit_then_accept`，均经过 adoption boundary |
 | `correct` | `revise_candidate` 或 `identify_revision_target` |
 | `abort` / `reject` | 取消等待行为使用 `cancel_behavior`；放弃待采纳产物使用其实际 `discard` 动作，不混淆对象 |
 | `provide_info` / `answer` | `answer_clarification` |
@@ -143,6 +143,21 @@ UI 不得把 `next_action`、`action_type` 和按钮中文文案混成同一个�
   “只处理一项”的假象。
 - 该交互对应 Pencil 原型
   `novel-studio.pen → 42§4-adoption-card-exclusive-choice (IIPsi)`。
+
+### 4.4 具有明确修改范围的正文候选编辑
+
+本节适用于具有明确修改范围的正文候选：局部候选的 `modification_scope`、`scope.kind`、effect 必须一致表达 `target_segments` / `replace_segments`，每个 item 带原目标绑定；整章候选必须一致表达 `whole_chapter` / `replace_scope`，item 不得带局部目标绑定字段（包括 null 或空数组）。两者均复用已有 `edit_then_accept`、Workbench 编辑 Dialog、逐 item 正文和同一候选的 `available_actions`。范围、身份或绑定不完整时不得降级为平串编辑；无章级修改范围的其他候选仍沿原编辑合同，`prose_formatting_plan` 继续遵循文末只读预览边界。
+
+1. **一份候选，一次保存**。一个正文 candidate set 的多个 item 组成同一份候选：局部候选分别绑定修改区域，整章候选按既定顺序组成新正文；两者均按 set 原子采纳。不能套用 §4.3 的单选方案，不能给每个 item 另造采纳按钮。卡片与作品档案入口必须打开同一目标、同一动作的编辑 Dialog。
+2. **分项编辑正文**。弹窗沿当前候选的已验证 item 顺序纵向呈现每项只读标题与正文输入框。结构标签使用“修改内容 1”“修改内容 2”等，不把存储片段数称为文学段落数；标题与正文仍取原候选。所有项共享一个“保存修改后的版本”主操作和一个“取消”操作，不提供新增、删除、重排区域或修改目标范围的控件。
+3. **说明操作范围**。局部候选说明各项一起采纳，未列出的正文保持原样；整章候选说明各项按原顺序组成完整正文并替换整章，不得误用“未列出的正文保持原样”。标题沿用“修改后保存”。文案仍集中于现有 copy owner，不在组件里复制另一套业务说明。
+4. **机器绑定不成为作者文本**。目标 segment IDs、版本、哈希和 item IDs 仅承担内部绑定；不进入可见标签、title、ARIA 描述或输入框。输入框关联可访问的“修改内容 n”及原 item 标题。作者正文中合法出现相同术语时保持原文，不按关键词清洗。
+5. **只回传作者改动的正文**。既有 `AuthorActionInput.payload` 承载 `edited_items: [{item_id, body}]`，并保留实际 action/source/target 身份。服务端从原 pending 候选绑定每个唯一 item ID，保留原目标集合、scope、effect、基准版本、哈希和来源。未知、重复、遗漏的 item ID 或客户端注入的目标改动都不能成为采纳授权；本分支不同时发送 `edited_content`，也不由平串正文反推区域。
+6. **正文值保持完整**。未编辑项保持原始 body；已编辑项使用正文输入框变更事件提供的完整值。不得 trim、拼接空行、按段落重切或把多个 item 合成一个值。空白检查只决定是否允许提交，不重写正文；任一项为空或只含空白时禁用整组提交，不把它解释为删除区域。
+7. **复用现有编辑状态**。扩展当前 `editDialog` 的内容形状，以明确模式区分原平串编辑与局部/整章正文共同使用的 item 列表；不新增平行编辑 store、持久草稿缓存或每 item 的 useState。目标、原候选快照、所有编辑值和 submitting/failed 归同一 Dialog 状态，退役独立的重复提交状态。生命周期与迟到结果约束见 `46` §6.1。
+8. **完整可达**。沿用现有 Dialog、textarea、按钮与主题样式；弹窗高度受视口约束，正文列表可滚动，标题、失败提示和统一操作区可达。焦点顺序按正文项顺序，不能因项数增加把保存按钮移到不可达的视口外。
+
+原型入口沿用 `novel-studio.pen` 的 `42§4-adoption-card-states (PZAVY)` 与 `46§9.8-quality-revision-ready (AH4WW)` / `46§9.8-quality-revision-comparison (ksNvT)`；`IIPsi` 表达独立 action 目标的单选，不是这里的多区域正文编辑。当前 Pencil 只有这些编辑入口，尚无独立编辑 Dialog 或多项编辑/失败画面；不得将入口原型声明为本交互已经完成像素或运行验收。
 
 ---
 
