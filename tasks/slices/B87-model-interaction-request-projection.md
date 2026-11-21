@@ -2513,3 +2513,42 @@ ROOT逐图确认第四项末锚、首项完整未提交marker、取消/保存foo
 | `segment-author-input-green-01/result.json` | `9f726d1e4844788d61a4929c50d0a6c5c73ce66d102223663662153901713a29` |
 | `segment-author-input-mechanical-final-delta-review-01/review.json` | `97c779768639098911bb43f836dd29b3f3e297525c9162da545f1b2186b25236` |
 | `style-chapter-author-input-proposal-07-independent-review-01/review.json` | `f73275c0cdfc3c3a7487140bb6d523d3632d058152d580eabb17c2a2804aa698` |
+
+### 16.39 全量静态复核与同输入请求字节实测（2026-11-21，R05仍doing）
+
+**08失败与精确处置。** `full-static-08` 真实执行21个扫描入口，20项原始退出0、gitleaks原始退出1，入口零跳过；8项finding为6 false_positive、1 accepted_risk、1 pending，blocking=1，整体退出1。唯一pending是 `scripts/native_b29_evidence.test.mjs` 故意把换行改为空格的原文回放负例；原07在428行，前置region fixture增加两行后在430行。ROOT与独审核对从旧HEAD18932283到当前的55行test invocation逐字相同；正常提交 `f88921bf142bc1bb770f7b6a18986de71fd08e55` 只迁移已有ledger记录的精确fingerprint，未改其他处置、baseline、scanner或测试，未push。08的failed及原件保留，不倒签。
+
+**09与实际冻结。** `full-static-09` 在HEAD `f88921bf142bc1bb770f7b6a18986de71fd08e55` 实际通过：21入口、20 raw0＋gitleaks raw1、入口skipped=0；8项为6 critical/2 medium、7 false_positive/1 accepted_risk、blocking=0，new=null、touched=0。owner `0a2916c89a61eb95` 实际45867ms、child0、tree_finalized、无timeout、scope_removed，源/HEAD/WIP前后相同且index空。`final-source-freeze-02` 记录2674项clean，指纹 `46b372b047eecc109a89f94f0da361428295f2b6fd95d5355bfe2b27292458c4`；source.json SHA `a10523f1caba60909f31130c7aabd13e609366b7d809d394feed5cd4e3433f05`。09的frontend_audit虽为27 PASS/0 WARN/0 FAIL，内部仍明示quick跳过Tauri build；严格打包另据§16.38，不把入口零跳过扩大为全部子检查无跳过。
+
+**成本执行闭合。** `artifacts/slice-verify/b87-r05-20261118/cost-final-03`（下称COST）沿同一recipe/driver运行两臂；after绑定上述freeze02，before保留原冻结与编译证明。after新鲜build owner `434191afe49a375e` 实际12585ms、child0。实际14次构造全部完成、16个固定transport响应、0真实模型、0捕获重放，保留2357条runtime loading记录；各次执行源身份保持。首次外层phase2派发预检错把build result SHA关联为preparation SHA，在phase2子进程启动前失败，未消费构造，也不计为构造重试；更正后真实执行另有原件，旧预检记录保留。phase3 owner `5fb00d72856c1627` 退出0，源身份恒定。
+
+**7对有效，但没有整体成本下降证据。** 原analyzer记7 paired、0 unpaired；两臂每对conservation=true、unclassified=0。以下只计原请求的stable JSON bytes，未归一化正文、工具字段或历史字节。
+
+| Pair | Before | After | 增加字节 | 增幅 |
+|---|---:|---:|---:|---:|
+| count-initial | 40819 | 46605 | 5786 | 14.17% |
+| quality-initial | 40892 | 46677 | 5785 | 14.15% |
+| role-initial | 40744 | 46528 | 5784 | 14.20% |
+| g2-initial | 40869 | 46655 | 5786 | 14.16% |
+| whole-initial | 40896 | 46682 | 5786 | 14.15% |
+| style-initial | 40997 | 46782 | 5785 | 14.11% |
+| whole-writer | 65931 | 67974 | 2043 | 3.10% |
+
+六个initial共同增量为tools+4567、system+649、application_base+359、Scope+166至168、envelope+43字节。Writer为system+649、tools+332、application_base+359、Scope−37、history+10、application_other+679、envelope+51；writer_input_bytes从63904到65896。其scope_contains_author_bytes由true变false，局部作者重复移除与Scope净减少可以确认，但完整JSON仍增加2043字节；不能把局部去重写成整体成本收益。history的reason→author_reasoning键变化10字节属于真实历史输入，必须保留，不可归一化移除。
+
+**计量与独审边界。** Writer对是固定Judgment直接execute到Writer、无前置探索，不能代签原生多页探索后整条请求的材料唯一性。raw_http_bytes为空，未测Provider Token、延迟、缓存收益或模型/文学质量；固定响应只闭合真实生产请求构造，不等于before实模对照。B独审 `REC/cost-final-03-independent-review-01/review.json`（SHA `d01182b0f2bb54a39db26cccc8193a24067feb116fe7c28d42ef89919af1db55`）仅签配对、来源与构造证据；pair status=pass不签收益、模型语义或R05。
+
+**后续与身份边界。** 必须继续审核工具schema供给的必要性与重复负担，并处理§16.35保留的count、role、G2/whole语义缺口；不能以7 paired关闭任务。旧style-04及旧六场景22次Provider调用不重签，layout-03仍限补充范围。R05继续doing / NOT PASS，不进入R06，F0/F1和原scope task_done未闭合。本段后续doc-only提交只记录证据；freeze02仍指上述f889身份，不能声称它已重新绑定新文档HEAD或完成F0/F1。
+
+**原件索引。** 除COST外，下列路径相对 `artifacts/slice-verify/b87-r05-reception-20261120/`（REC）；原known草案及全部原件不覆盖。
+
+| 原件 | SHA-256 |
+|---|---|
+| REC `full-static-08/result.json` | `ab973ffc73f4ba5318430216e62f40818c9476ec547de7054d9bc674d161b764` |
+| REC `full-static-08-semgrep-430-independent-review-01/review.json` | `af11e14d55b0035faa7ad6444893a429e76b73cb15d07e0af994daf47830c30f` |
+| REC `full-static-09/result.json` | `d334cecc1288452dba022a6d9851e6a07c5235b54965b21c0d86c2cf5ee8604e` |
+| REC `final-source-freeze-02/freeze.json` | `51143fea872670bfe910937c9590cdf5368d72e6135b8c0c9f6d515017a7ead5` |
+| COST `execution-summary.json` | `5b29e6d7d7dfcf5c43a3b299541323f8b362808f1789c6a7812a5a73efc2ab91` |
+| COST `analysis-check-01/result.json` | `1ecaf1d9ead710f1f76943027e3d87095a677600ff47ea6ec3bc19b5b0e3083b` |
+| COST `analysis/request-cost-pairs.json` | `dbef8dee7438db45af531aba164ff0a25f7723e1ec49d815fc25d9c020c8739a` |
+| REC `cost-final03-launch-preflight-disposition-01.json` | `c0a8541b9c711809f6402f9ba652d54a10f6d55855ffefa1b3569ed4406e09cd` |
