@@ -2758,7 +2758,8 @@ restart_owned_backend() {
 }
 
 RUNTIME_FACTS_PATH=""
-if [[ "$SLICE_ID" == "b87-r01-request-cost" || ( "$SLICE_ID" == "b71-first-consumer" && "$SLICE_VERIFY_PROVIDER" == "splash" ) || "${B29_NATIVE_MODE:-}" == "r03-candidate" ]]; then
+if [[ "$SLICE_ID" == "b87-r01-request-cost" || "${B29_NATIVE_MODE:-}" == "r03-candidate" ]] ||
+   { [[ "$SLICE_VERIFY_PROVIDER" == "splash" ]] && is_b71_family_slice "$SLICE_ID"; }; then
   RUNTIME_FACTS_PATH="$ARTIFACT_DIR/runtime-facts.json"
 fi
 start_owned_provider_stream_proxy

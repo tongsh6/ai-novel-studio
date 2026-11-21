@@ -49,11 +49,20 @@ function scenarioEntry(id, { status = "active", blockedReason, tier = "release",
 }
 
 function buildFixture(scenarios) {
-  const root = fs.mkdtempSync(path.join(runScope.workDir, "release-layer-accept-"));
+  // macOS /var 是符号链接；复制的 Node CLI 路径须与模块 URL 使用同一物理路径。
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(runScope.workDir, "release-layer-accept-")));
   fs.cpSync(path.join(REPO_ROOT, "scripts/quality_accept.sh"), path.join(root, "scripts/quality_accept.sh"));
   fs.cpSync(path.join(REPO_ROOT, "scripts/lib/quality"), path.join(root, "scripts/lib/quality"), {
     recursive: true,
   });
+  for (const file of ["test_env.sh", "test_env.mjs", "process_tree.sh"]) {
+    fs.cpSync(path.join(REPO_ROOT, "scripts/lib", file), path.join(root, "scripts/lib", file));
+  }
+  write(
+    root,
+    "scripts/lib/native_ui/authoring_capture_evidence.mjs",
+    "export const authorVisibleScenarioSpec = () => null;\n",
+  );
   write(root, "frontend/slice-verify/fixture-driver.mjs", "// fixture driver\n");
   // 假 runner：pass 造 summary；fail 退出 1；missing 退出 0 但不留证据。
   write(
@@ -87,7 +96,7 @@ function runBatch(root, args) {
   return spawnSync("bash", [path.join(root, "scripts/quality_accept.sh"), ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, QUALITY_ACCEPT_MANIFEST_VERIFIED: "1" },
+    env: runScope.env({ ...process.env, QUALITY_ACCEPT_MANIFEST_VERIFIED: "1" }),
   });
 }
 

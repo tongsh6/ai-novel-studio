@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { authorVisibleScenario } from "./authoring_capture_evidence.mjs";
 import { validateAuthorInputs } from "./request_cost_manifest.mjs";
-import { R05_CASES } from "./fixtures/authoring_capture_facts.mjs";
+import { R05_CASES, R06_CASES } from "./fixtures/authoring_capture_facts.mjs";
 
 test("作者可见场景判定：G2/G3 共用冻结目标契约，普通 live 不派生", () => {
   assert.equal(authorVisibleScenario("b82-g2"), "candidate");
@@ -20,6 +20,16 @@ test("R05 四类作者目标显式登记，质量/统计只读与整章/风格�
     assert.equal(authorVisibleScenario(scenario.id), scenario.mode, scenario.id);
   }
   for (const unknown of ["b87-r05-other", "b87-r05-quality-copy", "b29-r03-candidate"]) {
+    assert.equal(authorVisibleScenario(unknown), null);
+  }
+});
+
+
+test("R06 只复用C9与WR01/WR02既有身份，两种使命不借R05或通用planning代签", () => {
+  for (const scenario of R06_CASES) {
+    assert.equal(authorVisibleScenario(scenario.id), scenario.mode, scenario.id);
+  }
+  for (const unknown of ["b87-r06-mission", "wr01-chapter-mission-before-prose-copy", "b71-authoring-planning"]) {
     assert.equal(authorVisibleScenario(unknown), null);
   }
 });

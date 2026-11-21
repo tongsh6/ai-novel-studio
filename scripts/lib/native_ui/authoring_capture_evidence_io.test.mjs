@@ -27,6 +27,8 @@ import {
   LIVE_MODEL,
   R05_BUDGET,
   R05_CASES,
+  R06_BUDGET,
+  R06_CASES,
   SESSION,
   WORK,
 } from "./fixtures/authoring_capture_facts.mjs";
@@ -367,12 +369,12 @@ test("预注册作者输入为空、模型/目录不符时 prepare 失败且不�
   }
 });
 
-test("预注册文件只属于普通 live 批次", () => {
+test("预注册文件只属于 live 或已登记使命批次", () => {
   withWorkingCopy(template(), (copy) => {
     ready(copy.dir);
     seed(copy.dir);
     preregistration(copy.dir);
-    assert.throws(() => prepare(copy.dir), /只属于普通 live 批次/);
+    assert.throws(() => prepare(copy.dir), /只属于 live\/mission 批次/);
     assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
   });
 });
@@ -498,7 +500,9 @@ function splashRuntimeFacts() {
 }
 
 function splashPreregistration(dir, options = {}) {
+  const g2 = R06_CASES[0];
   preregistration(dir, {
+    authorVisibleTarget: g2.target,
     provider: "splash", model: "local/Q4-PLE4",
     modelFields: { thinking: "enabled", reasoning_effort: "high", max_tokens: 32000,
       timeout_ms: 300000, context_window: 262144 },
@@ -507,6 +511,13 @@ function splashPreregistration(dir, options = {}) {
       auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false },
     ...options,
   });
+  if ((options.scenarioId ?? g2.id) === g2.id) {
+    const value = JSON.parse(fs.readFileSync(path.join(dir, "preregistration.json"), "utf8"));
+    value.budget = { ...R06_BUDGET };
+    value.scenarios[0].slice_id = g2.slice_id;
+    value.scenarios[0].seed = { script: g2.seed_script, sha256: shaFile(path.resolve(g2.seed_script)) };
+    writeJson(dir, "preregistration.json", value);
+  }
 }
 
 function splashReady(dir) {
@@ -514,7 +525,7 @@ function splashReady(dir) {
   writeJson(dir, "runtime-facts.json", splashRuntimeFacts());
 }
 
-test("G2 Splash 只凭冻结输入和同进程实际 runtime 建批，不取 seed/DB 或 Strata 槽位", () => {
+test("G2 Splash 凭冻结输入、seed字节和同进程 runtime 建批，不取 DB 身份或 Strata 槽位", () => {
   const dir = tempDir();
   try {
     splashReady(dir);
@@ -525,7 +536,7 @@ test("G2 Splash 只凭冻结输入和同进程实际 runtime 建批，不取 see
     assert.equal(config.provider, "splash");
     assert.equal(config.scenario_id, "b82-g2");
     assert.equal(config.message, G2_MESSAGE);
-    assert.deepEqual(config.author_visible_target, G2_VISIBLE_TARGET);
+    assert.deepEqual(config.author_visible_target, R06_CASES[0].target);
     assert.equal(config.runtime.profile, "b87-r03-splash-product-maintenance-budget");
     assert.deepEqual(config.runtime.observed, splashRuntimeFacts());
     assert.equal(config.runtime.facts_sha256, shaFile(path.join(dir, "runtime-facts.json")));
@@ -628,6 +639,78 @@ function r05Preregistration(dir, scenario = R05_CASES[0]) {
   return value;
 }
 
+
+function r06Preregistration(dir, scenario) {
+  splashPreregistration(dir, { scenarioId: scenario.id, message: scenario.message,
+    authorVisibleTarget: scenario.target });
+  const value = JSON.parse(fs.readFileSync(path.join(dir, "preregistration.json"), "utf8"));
+  value.budget = { ...R06_BUDGET };
+  value.scenarios[0].slice_id = scenario.slice_id;
+  value.scenarios[0].seed = {
+    script: scenario.seed_script, sha256: shaFile(path.resolve(scenario.seed_script)),
+  };
+  writeJson(dir, "preregistration.json", value);
+  return value;
+}
+
+for (const scenario of R06_CASES) {
+  test(`R06 ${scenario.id} 同一owner封存原话、真实slice、seed与900秒预算`, () => {
+    const dir = tempDir("r06-capture-");
+    try {
+      splashReady(dir);
+      writeJson(dir, "native-driver-ready.json", { slice_id: scenario.slice_id, provider: "splash" });
+      const manifest = r06Preregistration(dir, scenario);
+      const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+        dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true,
+      });
+      assert.deepEqual(record.seed, manifest.scenarios[0].seed);
+      assert.deepEqual(record.budget, R06_BUDGET);
+      assert.deepEqual(record.author_visible_target, scenario.target);
+      prepare(dir);
+      const config = readConfig(dir);
+      assert.equal(config.slice_id, scenario.slice_id);
+      assert.equal(config.scenario_id, scenario.id);
+      assert.equal(config.message, scenario.message);
+      assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+      assert.deepEqual(config.budget, R06_BUDGET);
+      assert.deepEqual(config.author_visible_target, scenario.target);
+      assert.equal(config.target, undefined);
+      assert.equal(fs.existsSync(path.join(dir, "strata-slot.json")), false);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
+test("R06 三场景启动前拒绝改原话、换slice/作品/seed、追加发送或人工重试", () => {
+  const changes = [
+    ["原话", (value) => { value.scenarios[0].message += "再多写一章"; }],
+    ["slice", (value) => { value.scenarios[0].slice_id = "b71-authoring-planning"; }],
+    ["作品", (value) => { value.scenarios[0].author_visible_target.work_title = "另一作品"; }],
+    ["seed", (value) => { value.scenarios[0].seed.script = "scripts/seed_p1_chapter_draft_generation.exs"; }],
+    ["seed字节", (value) => { value.scenarios[0].seed.sha256 = "0".repeat(64); }],
+    ["缺seed", (value) => { delete value.scenarios[0].seed; }],
+    ["缺预算", (value) => { delete value.budget; }],
+    ["第二次发送", (value) => { value.budget.author_sends = 2; }],
+    ["人工重试", (value) => { value.budget.manual_retries = 1; }],
+    ["超900秒", (value) => { value.budget.scenario_seconds = 901; }],
+  ];
+  for (const scenario of R06_CASES) {
+    const dir = tempDir("r06-prereg-negative-");
+    try {
+      const original = r06Preregistration(dir, scenario);
+      const file = path.join(dir, "preregistration.json");
+      const options = { dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true };
+      assert.doesNotThrow(() => validatePreregistrationFile(file, options), scenario.id);
+      for (const [label, change] of changes) {
+        const bad = structuredClone(original);
+        change(bad);
+        writeJson(dir, "preregistration.json", bad);
+        assert.throws(() => validatePreregistrationFile(file, options), undefined, `${scenario.id}: ${label}`);
+        assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
 // 标题取原 seed（AU11 第15行、CA04 第11/17行）及真实阅读页，不取生产登记表。
 for (const [id, title, wrongTitle] of [
   ["b87-r05-quality", "第01章：灵源账单", "第1章：灵源账单"],
@@ -646,7 +729,7 @@ for (const [id, title, wrongTitle] of [
       value.scenarios[0].author_visible_target.chapter_title = wrongTitle;
       writeJson(dir, "preregistration.json", value);
       assert.throws(() => validatePreregistrationFile(file, options),
-        /R05 作者可见目标与冻结场景不符/u);
+        /作者可见目标与冻结场景不符/u);
       assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });

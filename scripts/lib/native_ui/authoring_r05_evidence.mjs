@@ -494,7 +494,8 @@ function replyActualUnits(nodes, surface) {
       unit.boundaries.push({ offset: unit.text.length, before: unit.lastLeaf, after: leaf });
       unit.text += leaf.value;
       unit.lastLeaf = leaf;
-    } else units.push({ path, text: leaf.value, lastLeaf: leaf, boundaries: [] });
+      unit.leaves.push(leaf);
+    } else units.push({ path, text: leaf.value, lastLeaf: leaf, leaves: [leaf], boundaries: [] });
   }
   return units;
 }
@@ -551,6 +552,75 @@ function replyUnitMatches(parts, unit) {
   }
   return positions.some(({ at }) => at === end);
 }
+// 映射当前作者回合的完整过程叙述。复用上方 Markdown 单元解析/匹配，
+// 每个实际段落必须由一个完整的已发布叙述解释；已在主回复交付的其它叙述可缺席。
+// 目标叙述必须连续、完整且位置唯一，不允许局部子串、漏段或无来源的额外段落。
+export function renderedNarrativeNodes(nodes, {
+  narratives = [], targetIndex = -1, message = "", baselineAuthorCount = 0,
+} = {}) {
+  const failure = reason => ({ ok: false, reason, matches: [] });
+  const entries = list(nodes);
+  if (!Array.isArray(narratives) || !Number.isInteger(targetIndex) ||
+      targetIndex < 0 || targetIndex >= narratives.length || !narratives.every(nonBlank) ||
+      entries.some(node => typeof node?.path !== "string" || !/^\d+(?:\/\d+)*$/u.test(node.path)) ||
+      new Set(entries.map(node => node.path)).size !== entries.length) return failure("narrative_input_invalid");
+  const boundary = authorBoundary(entries, message, baselineAuthorCount);
+  if (!boundary.author || boundary.nextAuthor !== null ||
+      boundary.authors.length !== baselineAuthorCount + 1) return failure("narrative_author_missing");
+  const groups = entries.filter(node => node.role === "AXGroup" &&
+    [node.title, node.desc].includes("本轮创作过程") && withinAuthorBoundary(node, {
+      container: boundary.container, afterPath: boundary.authorGroup, beforePath: null,
+    }));
+  if (groups.length !== 1) return failure("narrative_process_ambiguous");
+  const container = groups[0].path;
+  const children = entries.filter(node => replyParent(node.path) === container).sort(replyPathOrder);
+  const isBlock = node => ["AXGroup", "AXHeading", "AXList", "AXTable"].includes(node.role) &&
+    !(node.role === "AXGroup" && (nonBlank(node.title) || nonBlank(node.desc)));
+  const blocks = [];
+  for (const node of children) {
+    if (!isBlock(node)) break;
+    blocks.push(node);
+  }
+  // 真实 AX 展平事件 wrapper；叙述块在前，状态叶/命名的公开区域在后。
+  // 不能遇到状态叶后再跳过一段未解释的普通 Markdown 块。
+  if (blocks.length === 0 || children.slice(blocks.length).some(isBlock)) return failure("narrative_blocks_invalid");
+  const texts = entries.filter(node => node.role === "AXStaticText" &&
+    blocks.some(block => replyDescendant(node.path, block.path)));
+  if (texts.some(node => typeof node.value !== "string")) return failure("narrative_text_missing");
+  const leaves = texts.filter(node => node.value !== "" &&
+    !texts.some(child => replyDescendant(child.path, node.path))).sort(replyPathOrder);
+  const surface = { container, leaves }, actual = replyActualUnits(entries, surface);
+  let expected;
+  try { expected = narratives.map(replyExpectedUnits); }
+  catch (error) { return { ...failure("narrative_markdown_unsupported"), detail: error.message }; }
+  if (expected[targetIndex].length === 0) return failure("narrative_text_missing");
+  let states = [{ at: 0, start: null, end: null }];
+  for (const [index, units] of expected.entries()) {
+    const next = new Map();
+    const retain = state => next.set([state.at, state.start, state.end].join(":"), state);
+    for (const state of states) {
+      if (index !== targetIndex) retain(state);
+      if (units.length > 0 && state.at + units.length <= actual.length &&
+          units.every((parts, offset) => replyUnitMatches(parts, actual[state.at + offset]))) {
+        retain({ at: state.at + units.length,
+          start: index === targetIndex ? state.at : state.start,
+          end: index === targetIndex ? state.at + units.length : state.end });
+      }
+    }
+    states = [...next.values()];
+  }
+  const complete = states.filter(state => state.at === actual.length && state.start !== null);
+  const locations = new Map(complete.map(state => [state.start + ":" + state.end, state]));
+  if (locations.size !== 1) return failure("narrative_text_mismatch");
+  const { start, end } = [...locations.values()][0];
+  const matches = actual.slice(start, end).map(unit => ({
+    ok: true, container, leaves: unit.leaves, first: unit.leaves[0], last: unit.leaves.at(-1),
+  }));
+  return { ok: true, reason: null, matches, expected_units: expected[targetIndex].length,
+    actual_units: actual.length, process_path: container, author_path: boundary.author.path,
+    author_count: boundary.authors.length };
+}
+
 export function r05ReplyMatch({ reply, nodes, message, baselineAuthorCount = 0 } = {}) {
   const surface = r05ReplySurface(nodes, { message, baselineAuthorCount });
   if (!surface.ok) return { ok: false, reason: surface.reason, surface };

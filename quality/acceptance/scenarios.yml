@@ -252,7 +252,7 @@ scenarios:
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/wr01-chapter-mission-before-prose.yml
-    driver: frontend/slice-verify/external-ui-driver.mjs
+    driver: scripts/native_b71_live_drive.mjs
     entrypoint: scripts/quality_accept.sh wr01-chapter-mission-before-prose --surface tauri
   - id: wr01-chapter-mission-author-decision
     title: "本章使命落章计划，作者在档案改写后下次写作直接采用"
@@ -266,7 +266,7 @@ scenarios:
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/wr02-planning-mission-before-outline.yml
-    driver: frontend/slice-verify/external-ui-driver.mjs
+    driver: scripts/native_b71_live_drive.mjs
     entrypoint: scripts/quality_accept.sh wr02-planning-mission-before-outline --surface tauri
   - id: ca03-carry-registry-observability
     title: "创作调用携带三分日志与携带登记表一致"

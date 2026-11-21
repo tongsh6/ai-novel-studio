@@ -47,11 +47,13 @@
 - **Proof**：domain 输入扩展单测；service planning 分支单测；plot flow 测试（三步机械计划、
   使命进 prompt、0 步不发 plan_drafted 维持）；I1/I2/I3；真实 Tauri
   `wr02-planning-mission-before-outline`。
-- **Acceptance Driver**：`scripts/tauri_slice_verify.sh wr02-planning-mission-before-outline`：
-  复用 WR01 seed（三章计划两章已写 + 超期伏笔 + 主角）→ 真实工作台发「按已有三章往后规划
-  接下来三章的章节大纲」→ 推理区出现规划使命模型原话 → app-log
-  `planning_mission.derived.done` 依据 ⊆ 材料、越界丢弃 ≥1 → 大纲草稿 tentative、零写入 →
-  trace 带 `planning_mission_ref`。产品代码零验收感知逻辑。
+- **Acceptance Driver（R06 现役入口）**：
+  `bash scripts/quality_accept.sh wr02-planning-mission-before-outline --surface tauri --provider slice_verify`。
+  复用现 WR01 seed 与场景登记中的原始规划请求，经同一 `native_b71_batch` 外部驱动真实工作台；
+  核对实际作品/使命请求、原响应和事件、规划使命设计态、Writer 实际材料、待采纳大纲及历史/为什么恢复。
+  确定性拒收→纠错与真实 Provider 预注册分别留证，产品代码零验收感知逻辑。
+  当前迁移与验收状态只见 [B87 §17](B87-model-interaction-request-projection.md#17-r06-开始范围与实施裁决2026-11-21)；
+  下文早期交付记录保留，不作为 R06 通过证明。
 - **Exploration**：本期不持久化，非要素物化——不适用（与 WR01 一期同口径）。
 
 ## 3. 先例沿用（不重复请示）

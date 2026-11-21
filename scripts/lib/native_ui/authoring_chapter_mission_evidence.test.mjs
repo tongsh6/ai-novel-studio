@@ -2,9 +2,13 @@
 // basis_label/mission_derived 事件必须共同绑定；任一处不成立都失败。
 // 运行：node --test scripts/lib/native_ui/authoring_chapter_mission_evidence.test.mjs
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
-import { chapterMissionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
+import { missionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
+import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { missionWriterMaterial } from "./authoring_live_evidence.mjs";
+import { sourceMissionNarrativeContext } from "./authoring_revision_evidence.mjs";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
 const WORK = "22222222-2222-4222-8222-222222222222";
@@ -26,6 +30,17 @@ const SCOPE_VERSIONS = { change_reason: "chapter_mission", scope_revision: 3, go
 const LABEL_ADVANCE = "章功能定位：动作章";
 const LABEL_AVOID = "第4章前保密：黑账编号揭示矿区抽成流向";
 const LABEL_OTHER = "场次1：交锋｜目标：夺回被抢走的黑账残页";
+
+function narrativeSource(text) {
+  const hash = createHash("sha256").update(text, "utf8").digest("hex");
+  return {
+    source_type: "provider_output_tool_narrative",
+    provider_call_ref: PCALL, provider_run_ref: PRUN, provider_output_ref: PRUN,
+    tool_call_name: "chapter_mission", tool_call_narrative_field: "author_reasoning",
+    source_hash: hash, narrative_hash: hash,
+    source_byte_range: { start: 0, length: Buffer.byteLength(text, "utf8") },
+  };
+}
 
 function responseArguments(overrides = {}) {
   return {
@@ -230,6 +245,7 @@ function records({ arguments: args, record = {}, scope } = {}) {
       projection: { tool_choice: null },
       refs: {},
     },
+    response_format: "fixture_provider_result/v1",
     response: {
       status: "ok",
       body: {
@@ -260,10 +276,8 @@ function missionEvent(overrides = {}) {
       input_ref_count: 3,
       must_advance_count: 1,
       must_avoid_count: 1,
-      author_narrative_source: {
-        provider_call_ref: PCALL,
-        provider_run_ref: PRUN,
-      },
+      author_narrative: "核对了本章计划与作品脉络，只推进既定线索。",
+      author_narrative_source: narrativeSource("核对了本章计划与作品脉络，只推进既定线索。"),
       ...overrides.payload,
     },
     ...overrides.event,
@@ -332,8 +346,199 @@ function wireRecordWithScope(emptyMarker = false) {
 }
 
 function checksOf(overrides) {
-  return chapterMissionSourceChecks(input(overrides)).checks;
+  return missionSourceChecks(input(overrides)).checks;
 }
+
+
+function narrativeFixture(text) {
+  const value = input();
+  value.records[0].response.body.tool_calls[0].arguments.author_reasoning = text;
+  value.transcript.messages[1].blocks[0].arguments.author_reasoning = text;
+  value.missionEvents[0].payload.author_narrative = text;
+  value.missionEvents[0].payload.author_narrative_source = narrativeSource(text);
+  return value;
+}
+
+test("R06 两使命共用来源 owner；规划使命必须绑定目标作品、正确工具与实际接收事件", () => {
+  const value = input();
+  value.missionKind = "planning";
+  value.requireDerivation = true;
+  value.startWork = { title: "规划目标作品", updated_at: START, mission: null };
+  value.beforeWork = { title: "规划目标作品", updated_at: BEFORE, mission: value.beforeChapter.mission };
+  value.targetWorkId = WORK;
+  value.artifactTargetWork = "规划目标作品";
+  const scope = value.transcript.messages[0];
+  scope.versions.change_reason = "planning_mission";
+  scope.blocks[0].content.operation.mission_inputs.mode = "planning";
+  scope.blocks[0].content.operation.mission_inputs.chapter = null;
+  value.records[0].request_body.messages[2] = structuredClone(scope);
+  value.transcript.messages[1].blocks[0].name = "planning_mission";
+  value.records[0].response.body.tool_calls[0].name = "planning_mission";
+  value.missionEvents[0].payload.author_narrative_source.tool_call_name = "planning_mission";
+  const good = missionSourceChecks(value);
+  assert.ok(Object.values(good.checks).every(Boolean), JSON.stringify(good.checks));
+  const wrongTarget = structuredClone(value);
+  wrongTarget.targetWorkId = OTHER_WORK;
+  assert.equal(missionSourceChecks(wrongTarget).checks.mission_target_work_matches_source, false);
+  const wrongSource = structuredClone(value);
+  wrongSource.missionEvents[0].payload.author_narrative_source.tool_call_name = "chapter_mission";
+  assert.equal(missionSourceChecks(wrongSource).checks.mission_id_and_event_are_bound, false);
+});
+
+test("R06 实际请求与 canonical 同步指向另一作品/章节/模式仍须被目标门拒绝", () => {
+  for (const change of [
+    content => { content.work_id = OTHER_WORK; },
+    content => { content.operation.mission_inputs.chapter.chapter_ref = "chapter:other"; },
+    content => { content.operation.mission_inputs.mode = "planning"; },
+  ]) {
+    const scope = scopeMessage();
+    change(scope.blocks[0].content);
+    const value = input({ transcript: transcriptWithScope(scope), records: records({ scope }) });
+    assert.ok(scopeForProviderCall(value.records[0], { messages: value.sessionMessages }));
+    assert.equal(missionSourceChecks(value).checks.mission_call_is_fully_joined, false);
+  }
+});
+
+
+function writerMissionInput(kind = "chapter") {
+  const value = input(), planning = kind === "planning";
+  if (planning) {
+    value.transcript.messages[1].blocks[0].name = "planning_mission";
+    const scope = value.transcript.messages[0];
+    scope.versions.change_reason = "planning_mission";
+    scope.blocks[0].content.operation.mission_inputs.mode = "planning";
+    scope.blocks[0].content.operation.mission_inputs.chapter = null;
+  }
+  const writerScope = structuredClone(scopeMessage());
+  writerScope.versions = { ...writerScope.versions, change_reason: "creative_operation", scope_revision: 4 };
+  writerScope.blocks[0].content = {
+    work_id: WORK,
+    operation: { role: "creative_execution", capability: planning ? "plot_outline" : "prose_writing",
+      [planning ? "planning_mission" : "execution_brief"]: [
+        value.beforeChapter.mission.statement, ...value.beforeChapter.mission.must_advance.map(item => item.text),
+        ...value.beforeChapter.mission.must_avoid.map(item => item.text),
+      ].join("\n") },
+    authoring_task: { scope: planning ? {} : { target_chapter_ref: TARGET_REF } },
+  };
+  const writerCall = { role: "assistant", provenance: "model", provider_call_ref: "pcall-writer",
+    provider_run_ref: "prun-writer", blocks: [{ type: "tool_call", name: "submit_tentative_artifact",
+      call_id: "call-writer", arguments: { artifact_type: planning ? "outline_draft" : "prose_fragment" } }] };
+  value.transcript.messages.push(writerScope, writerCall);
+  const history = { record: value.sourceRunRecord, transcript: value.transcript,
+    sessionMessages: [...value.sessionMessages.slice(0, 2), ...value.transcript.messages] };
+  const record = structuredClone(value.records[0]);
+  record.provider_call_ref = "pcall-writer"; record.provider_run_ref = "prun-writer";
+  record.response.body = { content: "", tool_calls: [{ id: "call-writer", name: "submit_tentative_artifact",
+    arguments: structuredClone(writerCall.blocks[0].arguments) }] };
+  record.request_body.messages = structuredClone(history.sessionMessages.slice(0, -1));
+  return { history, calls: { records: [record] }, mission: value.beforeChapter.mission, kind,
+    writer: { provider_call_ref: "pcall-writer" }, writerScope };
+}
+function checkWriter(value) {
+  return missionWriterMaterial(value.history, value.calls, value.mission, value.kind, value.writer,
+    value.kind === "planning" ? null : TARGET_REF);
+}
+function syncWriterRequest(value) {
+  const base = value.history.sessionMessages.slice(0, 2);
+  value.history.sessionMessages = [...base, ...value.history.transcript.messages];
+  const index = value.history.sessionMessages.findIndex(message => message.provider_call_ref === "pcall-writer");
+  value.calls.records[0].request_body.messages = structuredClone(value.history.sessionMessages.slice(0, index));
+}
+test("R06 使命真实请求和 Writer 的目标/接受因果分别完整绑定", () => {
+  for (const kind of ["chapter", "planning"]) {
+    const value = writerMissionInput(kind);
+    assert.ok(scopeForProviderCall(value.calls.records[0], { messages: value.history.sessionMessages }));
+    assert.equal(checkWriter(value).ok, true, JSON.stringify(checkWriter(value)));
+    value.writerScope.blocks[0].content.work_id = OTHER_WORK;
+    syncWriterRequest(value);
+    assert.ok(scopeForProviderCall(value.calls.records[0], { messages: value.history.sessionMessages }));
+    assert.equal(checkWriter(value).target_matches, false);
+    assert.equal(checkWriter(value).ok, false);
+  }
+  const otherChapter = writerMissionInput();
+  otherChapter.writerScope.blocks[0].content.authoring_task.scope.target_chapter_ref = "chapter:other";
+  syncWriterRequest(otherChapter);
+  assert.ok(scopeForProviderCall(otherChapter.calls.records[0], { messages: otherChapter.history.sessionMessages }));
+  assert.equal(checkWriter(otherChapter).target_matches, false);
+  assert.equal(checkWriter(otherChapter).ok, false);
+});
+test("R06 passed validation 移至 Writer 后，真实请求与 canonical 同步仍必须拒绝", () => {
+  const value = writerMissionInput();
+  const [validation] = value.history.transcript.messages.splice(2, 1);
+  value.history.transcript.messages.push(validation);
+  syncWriterRequest(value);
+  assert.ok(scopeForProviderCall(value.calls.records[0], { messages: value.history.sessionMessages }));
+  const report = checkWriter(value);
+  assert.equal(report.target_matches, true);
+  assert.equal(report.accepted_before_writer, false);
+  assert.equal(report.ok, false);
+});
+test("R06 页面叙述上下文只取同次作者可见发布，不能借另一 run 或开发者叙述补段", () => {
+  const topic = "chat:session-1", since = START;
+  const frame = (id, sequence, narrative, changes = {}) => ({ direction: "received", at: BEFORE,
+    frame: [null, null, topic, "agent_event", { event_id: id, sequence, event_type: "mission_derived",
+      visibility: "author", run_ref: RUN_ID, payload: { author_narrative: narrative }, ...changes }] });
+  const wire = [frame("before", 1, "先核对材料。", { event_type: "judgment_decided" }),
+    frame("mission", 2, " \n本章使命Ω。\r\n"), frame("developer", 3, "不该显示", { visibility: "developer" }),
+    frame("other-run", 4, "另一使命", { run_ref: "other-run" })];
+  assert.deepEqual(sourceMissionNarrativeContext(wire, { topic, since, runId: RUN_ID, missionEventId: "mission" }),
+    { narratives: ["先核对材料。", " \n本章使命Ω。\r\n"], targetIndex: 1 });
+});
+
+test("R06 使命场景不能以零调用/零事件空集签收；普通无派生仍保留真实不适用结论", () => {
+  const value = input();
+  value.beforeChapter.mission = null;
+  value.beforeChapter.updated_at = START;
+  value.transcript.messages = [];
+  value.sessionMessages = [];
+  value.records = [];
+  value.missionEvents = [];
+  value.joinedRefs = { provider_call_refs: [], provider_run_refs: [] };
+  assert.ok(Object.values(missionSourceChecks(value).checks).every(Boolean));
+  assert.equal(missionSourceChecks({ ...value, requireDerivation: true }).checks.mission_was_derived, false);
+});
+
+test("R06 使命正文保留首尾空白、换行与Unicode，逐字绑定author_reasoning", () => {
+  const text = "  我先核对已有计划。\r\n本章只推进这条线索🙂。\n ";
+  const value = narrativeFixture(text);
+  assert.equal(missionSourceChecks(value).checks.mission_id_and_event_are_bound, true);
+  value.missionEvents[0].payload.author_narrative = text.trim();
+  assert.equal(missionSourceChecks(value).checks.mission_id_and_event_are_bound, false);
+});
+
+test("R06 同pcall/prun不能替代原字段、完整来源与实际叙述字节", () => {
+  const changes = [
+    ["改写正文", (event) => { event.author_narrative = "应用改写后的说明。"; }],
+    ["缺正文", (event) => { delete event.author_narrative; }],
+    ["换字段", (event) => { event.author_narrative_source.tool_call_narrative_field = "statement"; }],
+    ["换工具", (event) => { event.author_narrative_source.tool_call_name = "planning_mission"; }],
+    ["换输出", (event) => { event.author_narrative_source.provider_output_ref = "prun-other"; }],
+    ["换来源类型", (event) => { event.author_narrative_source.source_type = "provider_output"; }],
+    ["坏来源hash", (event) => { event.author_narrative_source.source_hash = "0".repeat(64); }],
+    ["坏叙述hash", (event) => { event.author_narrative_source.narrative_hash = "0".repeat(64); }],
+    ["非完整范围", (event) => { event.author_narrative_source.source_byte_range.start = 1; }],
+  ];
+  for (const [label, change] of changes) {
+    const value = narrativeFixture("我只推进已核对的线索。");
+    assert.equal(missionSourceChecks(value).checks.mission_id_and_event_are_bound, true, label);
+    change(value.missionEvents[0].payload);
+    assert.equal(value.missionEvents[0].payload.author_narrative_source.provider_call_ref, PCALL);
+    assert.equal(value.missionEvents[0].payload.author_narrative_source.provider_run_ref, PRUN);
+    assert.equal(missionSourceChecks(value).checks.mission_id_and_event_are_bound, false, label);
+  }
+});
+
+test("R06 同双键同参数但原生call_id不同或另带content不能签使命接收", () => {
+  for (const change of [
+    (body) => { body.tool_calls[0].id = "different-native-call"; },
+    (body) => { body.content = "我只推进已核对的线索。"; },
+  ]) {
+    const value = narrativeFixture("我只推进已核对的线索。");
+    assert.equal(missionSourceChecks(value).checks.mission_call_is_fully_joined, true);
+    change(value.records[0].response.body);
+    assert.equal(missionSourceChecks(value).checks.mission_call_is_fully_joined, false);
+  }
+});
 
 test("跨 run 会话 Scope 用于使命请求核验，旧 run 调用不计入当前使命", () => {
   const value = input();
@@ -354,22 +559,22 @@ test("跨 run 会话 Scope 用于使命请求核验，旧 run 调用不计入当
     ...value.sessionMessages.slice(1)];
   value.records[0].request_body.messages.splice(1, 0,
     structuredClone(historicalScope), structuredClone(oldCall), structuredClone(oldResult));
-  const result = chapterMissionSourceChecks(value);
+  const result = missionSourceChecks(value);
   assert.equal(result.checks.mission_call_is_fully_joined, true);
   assert.equal(result.measured.provider_call_ref, PCALL);
-  assert.equal(chapterMissionSourceChecks({ ...value, sessionMessages: null })
+  assert.equal(missionSourceChecks({ ...value, sessionMessages: null })
     .checks.mission_call_is_fully_joined, false);
-  assert.equal(chapterMissionSourceChecks({
+  assert.equal(missionSourceChecks({
     ...value, sessionMessages: value.transcript.messages,
   }).checks.mission_call_is_fully_joined, false);
   const changed = structuredClone(value.sessionMessages);
   changed[1].versions.scope_revision += 1;
-  assert.equal(chapterMissionSourceChecks({ ...value, sessionMessages: changed })
+  assert.equal(missionSourceChecks({ ...value, sessionMessages: changed })
     .checks.mission_call_is_fully_joined, false);
 });
 
 test("合法暂定使命：pcall/prun、同次响应、请求 refs、被丢弃未知 basis 与事件全部绑定", () => {
-  const value = chapterMissionSourceChecks(input());
+  const value = missionSourceChecks(input());
   assert.ok(Object.values(value.checks).every(Boolean), JSON.stringify(value.checks));
   assert.equal(value.measured.mission_changed, true);
   assert.equal(value.measured.provider_call_ref, PCALL);
@@ -384,7 +589,7 @@ test("合法暂定使命：pcall/prun、同次响应、请求 refs、被丢弃�
 test("真实 producer 形状：records 无 agent_run_id，由 pcall+prun 与真实请求投影共同绑定", () => {
   const value = input();
   assert.equal(value.records.some((record) => Object.hasOwn(record, "agent_run_id")), false);
-  const result = chapterMissionSourceChecks(value);
+  const result = missionSourceChecks(value);
   assert.deepEqual(
     Object.entries(result.checks).filter(([, passed]) => passed !== true),
     [],
@@ -466,7 +671,7 @@ test("使命材料必须来自结构 Scope，历史文本或超出 source_refs �
 });
 
 test("已成功派生的 mission 从设计态消失，不能因 before==after 被跳过", () => {
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     startMission: null,
     beforeMission: null,
     beforeUpdated: START,
@@ -483,7 +688,7 @@ test("已成功派生的 mission 从设计态消失，不能因 before==after �
 });
 
 test("mission 未变化但确有成功派生调用/事件时，仍要绑定内容与落点", () => {
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     startMission: missionMap(),
     beforeMission: missionMap(),
     beforeUpdated: BEFORE,
@@ -493,7 +698,7 @@ test("mission 未变化但确有成功派生调用/事件时，仍要绑定内�
 });
 
 test("mission 未变化、无事件但仍有成功调用时，不能把消失当成未派生", () => {
-  const gone = chapterMissionSourceChecks(input({
+  const gone = missionSourceChecks(input({
     startMission: null,
     beforeMission: null,
     beforeUpdated: START,
@@ -503,7 +708,7 @@ test("mission 未变化、无事件但仍有成功调用时，不能把消失当
   assert.equal(gone.checks.mission_call_is_fully_joined, false);
   assert.equal(gone.checks.mission_response_content_matches, false);
 
-  const present = chapterMissionSourceChecks(input({
+  const present = missionSourceChecks(input({
     startMission: missionMap(),
     beforeMission: missionMap(),
     beforeUpdated: BEFORE,
@@ -551,7 +756,7 @@ test("单一真实材料也必须完整绑定 ref 与原标签", () => {
       blocks: [{ type: "validation_result", call_id: "call-mission-1", status: "passed" }],
     },
   ]);
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     transcript: t,
     records: records({ scope, arguments: args }),
     beforeMission: missionMap({ must_avoid: [] }),
@@ -562,6 +767,8 @@ test("单一真实材料也必须完整绑定 ref 与原标签", () => {
         input_ref_count: 1,
         must_advance_count: 1,
         must_avoid_count: 0,
+        author_narrative: args.author_reasoning,
+        author_narrative_source: narrativeSource(args.author_reasoning),
       },
     })],
   }));
@@ -745,7 +952,7 @@ test("旧暂定→nil、只有时间变化、derived_at 越界均失败", () => 
 });
 
 test("mission 未变化且无事件时合法通过；旧 v1 事实缺席不参与本模块", () => {
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     startMission: missionMap(),
     beforeMission: missionMap(),
     beforeUpdated: START,
@@ -754,7 +961,7 @@ test("mission 未变化且无事件时合法通过；旧 v1 事实缺席不参�
   }));
   assert.ok(Object.values(value.checks).every(Boolean), JSON.stringify(value.checks));
   assert.equal(value.measured.mission_changed, false);
-  const author = chapterMissionSourceChecks(input({
+  const author = missionSourceChecks(input({
     startMission: missionMap({ status: "AUTHOR_EDITED", source: "author", must_advance: [{ text: "作者定版。" }], decided_at: BEFORE }),
     beforeMission: missionMap({ status: "AUTHOR_EDITED", source: "author", must_advance: [{ text: "作者定版。" }], decided_at: BEFORE }),
     missionEvents: [],
@@ -778,7 +985,11 @@ test("字符串 arguments 仍按同次响应解析，坏 JSON/缺 scope 前帧�
       }],
     },
   ]);
-  assert.equal(chapterMissionSourceChecks(input({ transcript: stringArgs })).checks.mission_call_is_fully_joined, true);
+  // 两侧必须保留同一次 raw 字节；parsed-only 不能补造丢失的原文。
+  const rawRecords = records();
+  rawRecords[0].response.body.tool_calls[0].arguments = JSON.stringify(responseArguments());
+  assert.equal(missionSourceChecks(input({ transcript: stringArgs, records: rawRecords })).checks.mission_call_is_fully_joined, true);
+  assert.equal(missionSourceChecks(input({ transcript: stringArgs })).checks.mission_call_is_fully_joined, false);
 
   for (const bad of [
     transcript([{ role: "assistant", provider_call_ref: PCALL, provider_run_ref: PRUN, blocks: [{ type: "tool_call", call_id: "c1", name: "chapter_mission", arguments: "{" }] }]),
@@ -786,7 +997,7 @@ test("字符串 arguments 仍按同次响应解析，坏 JSON/缺 scope 前帧�
     transcript([{ role: "application_base", blocks: [] }, { role: "assistant", provider_call_ref: PCALL, provider_run_ref: PRUN, blocks: [{ type: "tool_call", call_id: "c1", name: "chapter_mission", arguments: responseArguments() }] }]),
     transcript([{ role: "scope_update", versions: { change_reason: "other" }, source_refs: [], blocks: [] }, { role: "assistant", provider_call_ref: PCALL, provider_run_ref: PRUN, blocks: [{ type: "tool_call", call_id: "c1", name: "chapter_mission", arguments: responseArguments() }] }]),
   ]) {
-    assert.equal(chapterMissionSourceChecks(input({ transcript: bad })).checks.mission_call_is_fully_joined, false);
+    assert.equal(missionSourceChecks(input({ transcript: bad })).checks.mission_call_is_fully_joined, false);
   }
 });
 
@@ -800,7 +1011,7 @@ test("作者版允许只有 decided_at，不带 derived_at/confidence；但不�
     source: "author",
     decided_at: BEFORE,
   };
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     startMission: author,
     beforeMission: author,
     beforeUpdated: START,
@@ -814,12 +1025,12 @@ test("作者版允许只有 decided_at，不带 derived_at/confidence；但不�
 });
 
 test("空输入 fail-closed 不抛错；mission 变化缺调用时四项证据全 false", () => {
-  const empty = chapterMissionSourceChecks({});
+  const empty = missionSourceChecks({});
   assert.equal(empty.checks.mission_target_chapter_matches_source, false);
   assert.equal(empty.checks.mission_time_within_source_window, false);
-  const activeNoChapter = chapterMissionSourceChecks({ missionEvents: [missionEvent()] });
+  const activeNoChapter = missionSourceChecks({ missionEvents: [missionEvent()] });
   assert.equal(activeNoChapter.checks.mission_transition_is_legal, false);
-  const noBefore = chapterMissionSourceChecks({
+  const noBefore = missionSourceChecks({
     startChapter: input().startChapter,
     beforeChapter: null,
     missionEvents: [missionEvent()],
@@ -869,7 +1080,7 @@ test("scope/响应形状的缺失、重复、空值与额外字段一律关闭",
       blocks: [{ type: "tool_call", call_id: "c1", name: "chapter_mission", arguments: responseArguments() }],
     }]);
     assert.equal(
-      chapterMissionSourceChecks(input({ transcript: t })).checks.mission_call_is_fully_joined,
+      missionSourceChecks(input({ transcript: t })).checks.mission_call_is_fully_joined,
       false,
       JSON.stringify(scope.source_refs),
     );
@@ -884,7 +1095,7 @@ test("scope/响应形状的缺失、重复、空值与额外字段一律关闭",
     { ...responseArguments(), must_advance: "bad" },
   ]) {
     assert.equal(
-      chapterMissionSourceChecks(input({ records: records({ arguments: args }) }))
+      missionSourceChecks(input({ records: records({ arguments: args }) }))
         .checks.mission_response_content_matches,
       false,
       JSON.stringify(args),
@@ -915,7 +1126,7 @@ test("重复/错名响应调用、多个 mission 调用、非字符串 target re
     const value = input();
     value.targetChapterRef = targetChapterRef;
     assert.equal(
-      chapterMissionSourceChecks(value).checks.mission_target_chapter_matches_source,
+      missionSourceChecks(value).checks.mission_target_chapter_matches_source,
       false,
       String(targetChapterRef),
     );
@@ -929,7 +1140,7 @@ test("作者版即使 mission 未变，只要出现使命调用或 mission 事�
     { missionEvents: [missionEvent()] },
     { transcript: transcript() },
   ]) {
-    const value = chapterMissionSourceChecks(input({
+    const value = missionSourceChecks(input({
       startMission: author,
       beforeMission: author,
       beforeUpdated: START,
@@ -995,7 +1206,7 @@ test("target ref 的冒号边界与 request/call 组合不互相代签", () => {
   value.targetChapterRef = "chapter:";
   value.targetChapterId = "chapter:";
   assert.equal(
-    chapterMissionSourceChecks(value).checks.mission_target_chapter_matches_source,
+    missionSourceChecks(value).checks.mission_target_chapter_matches_source,
     false,
   );
   const noScope = transcript([
@@ -1007,7 +1218,7 @@ test("target ref 的冒号边界与 request/call 组合不互相代签", () => {
 });
 
 test("model mission 在有调用/事件时仍是模型版，不会被误判为作者版重新推导", () => {
-  const value = chapterMissionSourceChecks(input({
+  const value = missionSourceChecks(input({
     startMission: missionMap(),
     beforeMission: missionMap(),
   }));
@@ -1062,7 +1273,7 @@ test("实际请求材料比 canon 多出未声明的 ref 时必须关闭", () =>
 test("缺 joinedRefs/request_body/response/tool_call/record 项时关闭而不崩溃", () => {
   const noJoined = input();
   noJoined.joinedRefs = null;
-  assert.equal(chapterMissionSourceChecks(noJoined).checks.mission_call_is_fully_joined, false);
+  assert.equal(missionSourceChecks(noJoined).checks.mission_call_is_fully_joined, false);
 
   assert.equal(
     checksOf({ records: records({ record: { request_body: null } }) }).mission_call_is_fully_joined,
@@ -1132,7 +1343,7 @@ test("空 statement、Infinity/NaN confidence 与坏条目让 call 证据整体�
 test("joinedRefs 只有 pcall 没有 prun 时关闭而不是崩溃", () => {
   const value = input();
   value.joinedRefs = { provider_call_refs: [PCALL] };
-  assert.equal(chapterMissionSourceChecks(value).checks.mission_call_is_fully_joined, false);
+  assert.equal(missionSourceChecks(value).checks.mission_call_is_fully_joined, false);
 });
 
 
@@ -1144,7 +1355,7 @@ test("真实 wire 与 canonical 共享结构 Scope 判据，重复历史保留�
   repeated.transcript.messages.unshift(scopeMessage());
   repeated.sessionMessages.splice(2, 0, scopeMessage());
   repeated.records[0].request.body.messages.push({ role: "user", content: scopeProjection() });
-  assert.ok(Object.values(chapterMissionSourceChecks(repeated).checks).every(Boolean));
+  assert.ok(Object.values(missionSourceChecks(repeated).checks).every(Boolean));
 
   const collision = input({ records: [wireRecordWithScope()] });
   const quotedScope = {
@@ -1152,13 +1363,13 @@ test("真实 wire 与 canonical 共享结构 Scope 判据，重复历史保留�
   };
   collision.transcript.messages.unshift(quotedScope);
   collision.sessionMessages.splice(2, 0, structuredClone(quotedScope));
-  assert.equal(chapterMissionSourceChecks(collision).checks.mission_call_is_fully_joined, false);
+  assert.equal(missionSourceChecks(collision).checks.mission_call_is_fully_joined, false);
 });
 
 test("完整请求绑定拒绝缺作者、错序或应用材料正文篡改，canonical 预期保持独立", () => {
   for (const kind of ["ir", "wire"]) {
     const original = input({ records: kind === "wire" ? [wireRecordWithScope()] : records() });
-    assert.equal(chapterMissionSourceChecks(original).checks.mission_call_is_fully_joined, true);
+    assert.equal(missionSourceChecks(original).checks.mission_call_is_fully_joined, true);
     for (const mutation of ["missing_author", "reordered", "changed_material"]) {
       const value = structuredClone(original);
       const messages = kind === "wire" ? value.records[0].request.body.messages : value.records[0].request_body.messages;
@@ -1171,7 +1382,7 @@ test("完整请求绑定拒绝缺作者、错序或应用材料正文篡改，ca
         else messages[baseIndex].blocks[0].text += "篡改后的材料。";
       }
       assert.deepEqual(value.sessionMessages, original.sessionMessages);
-      assert.equal(chapterMissionSourceChecks(value).checks.mission_call_is_fully_joined, false, `${kind}: ${mutation}`);
+      assert.equal(missionSourceChecks(value).checks.mission_call_is_fully_joined, false, `${kind}: ${mutation}`);
     }
   }
 });

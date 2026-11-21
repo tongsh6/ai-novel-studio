@@ -12,7 +12,8 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { verifyLiveBatch } from "./authoring_live_evidence.mjs";
 import { FIXTURE_RESPONSE_FORMAT } from "./authoring_call_evidence.mjs";
-import { sha256 } from "./scenario_evidence.mjs";
+import { ROOT, sha256, shaFile } from "./scenario_evidence.mjs";
+import { authorVisibleScenarioSpec } from "./authoring_capture_evidence.mjs";
 import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
 import {
   AUTHOR,
@@ -82,15 +83,20 @@ function rewriteRecords(dir, records) {
 // 预注册副本冻结在本批目录内：evidence.dir 指向工作副本，配置标记用同一哈希。
 // 普通 live 不写 author_visible_target；b82-g2/b82-g3 写入冻结目标。
 function bindPreregistration(dir, { scenarioId = null, authorVisibleTarget = null, message = AUTHOR,
-  model = { provider: "strata", model: "iq3_s" }, runtime = null } = {}) {
+  model = { provider: "strata", model: "iq3_s" }, runtime = null, frozenScenario = null } = {}) {
   const file = path.join(dir, "preregistration.json");
+  const seed = frozenScenario ? {
+    script: frozenScenario.seed_script, sha256: shaFile(path.join(ROOT, frozenScenario.seed_script)),
+  } : null;
   const text = JSON.stringify(
     {
       id: "b82-live-sse-prereg",
       model,
       ...(runtime ? { runtime } : {}),
+      ...(frozenScenario ? { budget: frozenScenario.budget } : {}),
       scenarios: [{
         ...(scenarioId ? { id: scenarioId } : {}),
+        ...(frozenScenario ? { slice_id: frozenScenario.slice_id, seed } : {}),
         ...(authorVisibleTarget ? { author_visible_target: authorVisibleTarget } : {}),
         message,
         evidence: { dir },
@@ -104,6 +110,7 @@ function bindPreregistration(dir, { scenarioId = null, authorVisibleTarget = nul
   const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
   config.message = message;
   config.provider = model.provider;
+  if (frozenScenario) Object.assign(config, { slice_id: frozenScenario.slice_id, seed, budget: frozenScenario.budget });
   if (authorVisibleTarget) config.author_visible_target = authorVisibleTarget;
   else delete config.author_visible_target;
   config.preregistration = { id: "b82-live-sse-prereg", sha256: sha256(text), model: model.model };
@@ -290,6 +297,60 @@ test("B82 冻结 live：b82-g2 只按作者可见消息/末页阅读/同章修�
   });
 });
 
+test("B82 全捕获扫描拒绝非最终页的原 AX 接缝泄漏", () => {
+  withWorkingCopy(visibleTemplate("candidate"), (copy) => {
+    assertVisiblePreregistration(copy, "candidate");
+    const file = path.join(copy.dir, "02-reading-before.ax.txt");
+    const ref = "chapter:11111111-1111-4111-8111-111111111111";
+    fs.appendFileSync(file, `\t0/99 AXGroup, Description: ${ref}, enabled=true\n`);
+    assert.throws(() => verifyVisiblePage(copy.dir), /captured_surface_internal_token_leak/u);
+    const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
+    const scan = summary.author_visible.captured_surface_scan;
+    assert.equal(summary.verdict.author_visible, "fail");
+    assert.equal(scan.ok, false);
+    assert.equal(scan.captures.length, 6);
+    const capture = scan.captures.find((entry) => entry.capture === "02-reading-before");
+    assert.equal(capture.ok, false);
+    assert(capture.hits.some((hit) => hit.token === ref && hit.source === "ax:description"));
+    assert.equal(scan.captures.find((entry) => entry.capture === "final").ok, true);
+    assert(fs.readFileSync(file, "utf8").includes(ref), "验收不可改写原 AX");
+    assert.equal(fs.readFileSync(path.join(copy.dir, "02-reading-before.text.txt"), "utf8").includes(ref), false);
+  });
+});
+
+test("B82 全捕获扫描对缺失或读错的原 AX 失败留证并继续检查后续页面", () => {
+  for (const failure of ["missing", "read_error"]) withWorkingCopy(visibleTemplate("candidate"), (copy) => {
+    assertVisiblePreregistration(copy, "candidate");
+    const name = "01-workbench.ax.txt";
+    const file = path.join(copy.dir, name);
+    fs.rmSync(file);
+    if (failure === "read_error") fs.mkdirSync(file);
+    const laterFile = path.join(copy.dir, "03-reading-after.ax.txt");
+    const ref = "chapter:22222222-2222-4222-8222-222222222222";
+    fs.appendFileSync(laterFile, `\t0/99 AXGroup, Description: ${ref}, enabled=true\n`);
+    assert.throws(() => verifyVisiblePage(copy.dir), new RegExp(`captured_surface_${failure}`, "u"));
+    const summary = JSON.parse(fs.readFileSync(path.join(copy.dir, "summary.json"), "utf8"));
+    const scan = summary.author_visible.captured_surface_scan;
+    assert.equal(summary.verdict.author_visible, "fail");
+    assert.equal(scan.ok, false);
+    assert.equal(scan.captures.length, 6);
+    const capture = scan.captures.find((entry) => entry.capture === "01-workbench");
+    assert.equal(capture.ok, false);
+    if (failure === "missing") {
+      assert.deepEqual(capture.missing, [name]);
+      assert.deepEqual(capture.read_errors, []);
+    } else {
+      assert.deepEqual(capture.missing, []);
+      assert.deepEqual(capture.read_errors, [{ file: name, code: "EISDIR" }]);
+    }
+    const later = scan.captures.find((entry) => entry.capture === "03-reading-after");
+    assert.equal(later.ok, false);
+    assert(later.hits.some((hit) => hit.token === ref && hit.source === "ax:description"));
+    assert(summary.author_visible.failures.includes("captured_surface_internal_token_leak"));
+    assert.equal(scan.captures.find((entry) => entry.capture === "final").ok, true);
+  });
+});
+
 test("B82 冻结 live：b82-g2 页面判据不生成也不读取 DB/wire", () => {
   withWorkingCopy(visibleTemplate("candidate"), (copy) => {
     assertVisiblePreregistration(copy, "candidate");
@@ -410,13 +471,31 @@ test("B82 冻结 live：b82-g3 旧回合候选不能代签本次只读完成", (
 
 
 function bindSplashVisible(copy) {
+  const scenarioId = "b82-g2";
+  const spec = authorVisibleScenarioSpec(scenarioId);
   const model = { provider: "splash", model: "local/Q4-PLE4", thinking: "enabled",
     reasoning_effort: "high", max_tokens: 32000, timeout_ms: 300000, context_window: 262144 };
   const runtime = { profile: "b87-r03-splash-product-maintenance-budget",
     context_pressure: { window: 32000, maintenance_ratio: 0.70 },
     auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false };
-  bindPreregistration(copy.dir, { scenarioId: "b82-g2", authorVisibleTarget: G2_VISIBLE_TARGET,
-    message: G2_MESSAGE, model, runtime });
+  bindPreregistration(copy.dir, { scenarioId, authorVisibleTarget: spec.target,
+    message: spec.message, model, runtime, frozenScenario: spec });
+  // 这三个 Splash 工作副本使用现役 C9 的完整章标签；共享 Strata fixture 保持其独立规格。
+  const complete = JSON.parse(fs.readFileSync(path.join(copy.dir, "native-ui-complete.json"), "utf8"));
+  for (const screenshot of complete.screenshots) {
+    const name = screenshot.replace(/\.jpg$/u, "");
+    for (const suffix of [".ax.txt", ".text.txt"]) {
+      const file = path.join(copy.dir, name + suffix);
+      fs.writeFileSync(file, fs.readFileSync(file, "utf8").replaceAll(G2_VISIBLE_TARGET.chapter_title, spec.target.chapter_title));
+    }
+  }
+  rewriteVisibleObservation(copy.dir, (observation) => {
+    for (const node of [...observation.baseline_nodes, ...observation.last.nodes]) {
+      for (const field of ["title", "desc", "value"]) {
+        if (typeof node[field] === "string") node[field] = node[field].replaceAll(G2_VISIBLE_TARGET.chapter_title, spec.target.chapter_title);
+      }
+    }
+  });
   const observed = { schema: "b87-r01-runtime-facts/v1", mix_env: "test",
     provider: { selected: "splash", model: "local/Q4-PLE4", endpoint: "http://127.0.0.1:8000" },
     context_pressure: { provider: "splash", window: 32000, maintenance_ratio: 0.70 },

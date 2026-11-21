@@ -3,11 +3,12 @@
 // 该调用前 operation 的 source_refs 与实际供给的 basis_label、以及真实
 // mission_derived 事件。本模块不做 I/O，也不按时间/最新值猜调用。
 import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
 import { parseUtcTimestamp } from "./authoring_canon_evidence.mjs";
 import { assistantCalls } from "./authoring_revision_evidence.mjs";
-import { scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { providerResponseForCanonicalCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 
-const TOOL_NAME = "chapter_mission";
+const toolName = (input) => input.missionKind === "planning" ? "planning_mission" : "chapter_mission";
 const TENTATIVE = "TENTATIVE";
 const MISSION_ITEM_KEYS = Object.freeze(["text", "basis_ref"]);
 const AGENT_STEP_TURN = /:agent:[1-9][0-9]*$/u;
@@ -16,21 +17,7 @@ const isRecord = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const list = (value) => (Array.isArray(value) ? value : []);
 const nonBlank = (value) => typeof value === "string" && value.trim() !== "";
-const clean = (value) => (typeof value === "string" ? value.trim() : "");
 
-function parsedObject(text) {
-  try {
-    const parsed = JSON.parse(text);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function parseArguments(value) {
-  if (isRecord(value)) return value;
-  return typeof value === "string" ? parsedObject(value) : null;
-}
 
 function missionRef(mission) {
   // 只被已确认有 mission 的事件绑定路径调用。
@@ -88,16 +75,20 @@ function sourceRunMatches(input) {
 }
 
 function targetCheck(input) {
-  return [targetIdentityMatches(input), targetChapterMatches(input), sourceRunMatches(input)]
-    .every(Boolean);
+  if (input.missionKind === "planning") {
+    return Boolean(input.targetWorkId === input.sourceWorkId &&
+      isRecord(input.startWork) && isRecord(input.beforeWork) &&
+      input.artifactTargetWork === input.beforeWork.title && sourceRunMatches(input));
+  }
+  return [targetIdentityMatches(input), targetChapterMatches(input), sourceRunMatches(input)].every(Boolean);
 }
 
-function scopeMessageFor(transcript, call) {
-  // call 本身来自该 transcript 的 canonical assistant，因此 transcript 必为对象。
-  const previous = list(transcript.messages)[call.messageIndex - 1];
-  if (!isRecord(previous) || previous.role !== "scope_update") return null;
-  if (previous.provenance !== "application") return null;
-  return previous.versions?.change_reason === TOOL_NAME ? previous : null;
+function scopeMessageFor(transcript, call, input) {
+  // 同一 NativeToolExchange 的纠正沿用原 Scope，失败 validation 不重造 Scope。
+  const previous = list(transcript.messages).slice(0, call.messageIndex)
+    .findLast(message => message?.role === "scope_update");
+  if (previous?.provenance !== "application") return null;
+  return previous.versions?.change_reason === toolName(input) ? previous : null;
 }
 
 function sourceRefsOf(scope) {
@@ -127,22 +118,26 @@ function sameRefSet(left, right) {
   return left.length === right.length && left.every((ref) => rightSet.has(ref));
 }
 
-function operationRequest(scope, record, sessionMessages) {
+function operationRequest(scope, record, sessionMessages, input) {
   const projected = scopeForProviderCall(record, { messages: sessionMessages });
   if (!scope || !projected) return null;
+  const content = projected.scopeContent, inputs = content?.operation?.mission_inputs;
+  const planning = input.missionKind === "planning";
+  if (content?.work_id !== input.sourceWorkId || inputs?.mode !== (planning ? "planning" : "prose") ||
+      (planning ? inputs.chapter !== null : inputs.chapter?.chapter_ref !== input.targetChapterRef)) return null;
   const metadata = sourceRefsOf(scope);
-  const materials = missionMaterials(projected.scopeContent);
+  const materials = missionMaterials(content);
   if (!metadata || !materials || !sameRefSet(metadata, materials.refs)) return null;
   return materials;
 }
 
-function missionCalls(transcript) {
-  return assistantCalls(transcript).filter((call) => call.name === TOOL_NAME);
+function missionCalls(transcript, input) {
+  return assistantCalls(transcript).filter((call) => call.name === toolName(input));
 }
 
-function missionCall(transcript, mission) {
+function missionCall(transcript, mission, input) {
   if (!mission?.provider_call_ref) return null;
-  const matches = missionCalls(transcript)
+  const matches = missionCalls(transcript, input)
     .filter((call) => call.pcall === mission.provider_call_ref);
   return matches.length === 1 ? matches[0] : null;
 }
@@ -193,31 +188,22 @@ function recordForCall(input, call) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function singleMissionResponseCall(record) {
-  if (!isRecord(record) || !isRecord(record.response) || record.response.status !== "ok") {
-    return null;
-  }
-  const body = record.response.body;
-  const calls = list(isRecord(body) ? body.tool_calls : null);
-  return calls.length === 1 && isRecord(calls[0]) && calls[0].name === TOOL_NAME
-    ? calls[0]
-    : null;
+function responseCall(record, call, input) {
+  if (!call) return null;
+  const message = list(input.transcript?.messages)[call.messageIndex];
+  const response = providerResponseForCanonicalCall(record, message, call.blockIndex);
+  if (!response || response.toolCallCount !== 1 || response.call.name !== toolName(input)) return null;
+  if (response.contentObserved && response.content !== "") return null;
+  // canonical 是 ProviderOutput 的同次转录；SSE 原始日志未观测的正文不在此补造。
+  if (list(message.blocks).some(block => block?.type === "text" && block.text !== "")) return null;
+  return response.arguments;
 }
-
-function responseCall(record, call) {
-  const response = singleMissionResponseCall(record);
-  if (!response) return null;
-  const canonical = parseArguments(call.arguments);
-  const responded = parseArguments(response.arguments);
-  return isDeepStrictEqual(canonical, responded) ? responded : null;
-}
-
 function responseItem(item) {
   if (!isRecord(item)) return null;
   if (Object.keys(item).some((key) => !MISSION_ITEM_KEYS.includes(key))) return null;
-  const text = clean(item.text);
-  const basisRef = clean(item.basis_ref);
-  if ([text, basisRef].includes("")) return null;
+  const text = item.text;
+  const basisRef = typeof item.basis_ref === "string" ? item.basis_ref.trim() : null;
+  if (![text, basisRef].every(nonBlank)) return null;
   return { text, basis_ref: basisRef };
 }
 
@@ -228,9 +214,9 @@ function responseItems(value) {
 
 function responseMission(args) {
   if (!isRecord(args)) return null;
-  const statement = clean(args.statement);
+  const statement = args.statement;
   const confidence = args.confidence;
-  if (statement === "") return null;
+  if (!nonBlank(statement) || !nonBlank(args.author_reasoning)) return null;
   if (!Number.isFinite(confidence)) return null;
   const advance = responseItems(args.must_advance);
   if (!advance) return null;
@@ -297,11 +283,18 @@ function eventBasisMatches(payload, expected, input) {
   );
 }
 
-function eventNarrativeMatches(payload, call) {
-  const narrative = payload.author_narrative_source;
-  if (!isRecord(narrative)) return false;
-  return narrative.provider_call_ref === call.pcall &&
-    narrative.provider_run_ref === call.prun;
+function eventNarrativeMatches(payload, call, input) {
+  const args = responseCall(recordForCall(input, call), call, input);
+  const text = args?.author_reasoning;
+  if (!nonBlank(text) || payload.author_narrative !== text) return false;
+  const hash = createHash("sha256").update(text, "utf8").digest("hex");
+  return isDeepStrictEqual(payload.author_narrative_source, {
+    source_type: "provider_output_tool_narrative",
+    provider_call_ref: call.pcall, provider_run_ref: call.prun, provider_output_ref: call.prun,
+    tool_call_name: toolName(input), tool_call_narrative_field: "author_reasoning",
+    source_hash: hash, narrative_hash: hash,
+    source_byte_range: { start: 0, length: Buffer.byteLength(text, "utf8") },
+  });
 }
 
 function eventTimeMatches(event, input) {
@@ -315,7 +308,7 @@ function eventMatches(event, mission, expected, input, call) {
     eventEnvelopeMatches(event, payload, input),
     eventMissionRefMatches(event, payload, mission),
     eventBasisMatches(payload, expected, input),
-    eventNarrativeMatches(payload, call),
+    eventNarrativeMatches(payload, call, input),
     eventTimeMatches(event, input),
   ].every(Boolean);
 }
@@ -369,7 +362,7 @@ function authorVersionCheck(startChapter, calls, events) {
 
 function callResponseCheck(input, call) {
   const record = recordForCall(input, call);
-  return Boolean(joinedCallCheck(call, input) && record && responseCall(record, call));
+  return Boolean(joinedCallCheck(call, input) && record && responseCall(record, call, input));
 }
 
 function retainedItemsMatch(mission, expected) {
@@ -454,7 +447,8 @@ function timeInputCheck(input, active) {
 
 function checksFor(input, active, changedFacts, calls) {
   return {
-    mission_target_chapter_matches_source: targetCheck(input),
+    [input.missionKind === "planning" ? "mission_target_work_matches_source" : "mission_target_chapter_matches_source"]: targetCheck(input),
+    ...(input.requireDerivation ? { mission_was_derived: active && changedFacts.event && calls.length > 0 } : {}),
     mission_transition_is_legal: transitionCheck(input.startChapter, input.beforeChapter, active),
     mission_call_is_fully_joined: proofFact(active, changedFacts, "call"),
     mission_response_content_matches: proofFact(active, changedFacts, "content"),
@@ -467,20 +461,23 @@ function checksFor(input, active, changedFacts, calls) {
 }
 
 function callFacts(input, call) {
-  const scope = call ? scopeMessageFor(input.transcript, call) : null;
+  const scope = call ? scopeMessageFor(input.transcript, call, input) : null;
   const record = recordForCall(input, call);
-  const request = operationRequest(scope, record, input.sessionMessages);
-  const response = responseMission(responseCall(record, call));
+  const request = operationRequest(scope, record, input.sessionMessages, input);
+  const response = responseMission(responseCall(record, call, input));
   return { request, response };
 }
 
 // 输入中的 chapter 事实来自同一 v2 快照；source artifact/run/transcript/records/
 // mission_derived 事件均由 revision_run_evidence 从真实批次读取后原样传入。
-export function chapterMissionSourceChecks(input = {}) {
+export function missionSourceChecks(input = {}) {
+  if (input.missionKind === "planning") {
+    input = { ...input, startChapter: input.startWork, beforeChapter: input.beforeWork };
+  }
   const changed = missionChanged(input.startChapter, input.beforeChapter);
-  const calls = missionCalls(input.transcript);
+  const calls = missionCalls(input.transcript, input);
   const mission = field(input.beforeChapter, "mission");
-  const call = missionCall(input.transcript, mission);
+  const call = missionCall(input.transcript, mission, input);
   const { request, response } = callFacts(input, call);
   const expected = expectedMission(response, request);
   // 不能只看 before==after：源 run 已有 mission 调用/事件时，仍必须证明这次成功派生

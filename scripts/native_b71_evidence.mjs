@@ -18,7 +18,7 @@ import {
   capturePending,
   verifyPendingBatch,
 } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
-import { auditG2Batch, auditR05Batch, verifyLiveBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
+import { auditG2Batch, auditR05Batch, verifyLiveBatch, verifyMissionBatch } from "./lib/native_ui/authoring_live_evidence.mjs";
 import { verifyBehaviorBatch } from "./lib/native_ui/authoring_behavior_evidence.mjs";
 import { verifyConfirmationBatch } from "./lib/native_ui/authoring_confirmation_evidence.mjs";
 import { verifyAutoMaintenanceBatch } from "./lib/native_ui/authoring_auto_maintenance_evidence.mjs";
@@ -342,6 +342,7 @@ const JOURNEY_VERIFIERS = Object.freeze({
   revision: verifyRevisionBatch,
   pending: verifyPendingBatch,
   live: verifyLiveBatch,
+  mission: verifyMissionBatch,
   behavior: verifyBehaviorBatch,
   confirmation: verifyConfirmationBatch,
   "auto-maintenance": verifyAutoMaintenanceBatch,

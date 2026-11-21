@@ -887,7 +887,7 @@ function eventTypesAfter(wire, topic, since, eventTypes) {
     if (record?.direction !== "received" || frameEvent(record) !== "agent_event") return false;
     const frame = frameOf(record);
     if (!frame || frame[2] !== topic || record.at < since) return false;
-    return eventTypes.has(text(frameBody(record)?.event_type));
+    return eventTypes === null || eventTypes.has(text(frameBody(record)?.event_type));
   });
 }
 
@@ -900,19 +900,36 @@ export function revisionDecisionEvents(wire, topic, since) {
   );
 }
 
-// source 阶段真实 mission_derived 事件：只取 owning topic、接收方向、不早于 source
-// 发送且 run_ref 精确等于 source run 的帧；不在本模块猜 mission 内容。
+// 同次 source run 的公开事件只沿既有 frame reader 定位，不重建 wire 协议。
+function sourceRunEvents(wire, options = {}) {
+  const { topic, since, runId } = options ?? {};
+  if (!nonBlank(topic) || typeof since !== "string" || since === "" || !nonBlank(runId)) return [];
+  return eventTypesAfter(wire, topic, since, null).filter(record => frameBody(record)?.run_ref === runId);
+}
 export function sourceMissionEvents(wire, options = {}) {
-  const settings = options === null || options === undefined ? {} : options;
-  const { topic, since, runId } = settings;
-  if (!nonBlank(topic) || typeof since !== "string" || since === "" || !nonBlank(runId)) {
-    return [];
-  }
-  // eventTypesAfter 已要求 frameBody 提供 event_type，因此这里 body 必为对象。
-  return eventTypesAfter(wire, topic, since, new Set(["mission_derived"]))
-    .filter((record) => frameBody(record).run_ref === runId);
+  return sourceRunEvents(wire, options).filter(record => frameBody(record).event_type === "mission_derived");
 }
 
+// 展示核对的上下文见证：只提供本 run 已发布的完整原叙述；不复制 UI 的显示/去重决策。
+// renderedNarrativeNodes 可省略已在主回复交付的其它来源，但使命本身必须完整出现。
+export function sourceMissionNarrativeContext(wire, options = {}) {
+  const byId = new Map();
+  for (const record of sourceRunEvents(wire, options)) {
+    const event = frameBody(record);
+    if (event.visibility !== "author" || !nonBlank(event.event_id) || !Number.isInteger(event.sequence)) continue;
+    const narrative = nonBlank(event.payload?.author_narrative) ? event.payload.author_narrative :
+      event.event_type === "exploration_observed" && nonBlank(event.summary) ? event.summary : null;
+    if (narrative === null) continue;
+    const previous = byId.get(event.event_id);
+    if (previous && (previous.narrative !== narrative || previous.sequence !== event.sequence)) {
+      return { narratives: [], targetIndex: -1 };
+    }
+    byId.set(event.event_id, { event_id: event.event_id, sequence: event.sequence, narrative });
+  }
+  const events = [...byId.values()].sort((a, b) => a.sequence - b.sequence);
+  return { narratives: events.map(event => event.narrative),
+    targetIndex: events.findIndex(event => event.event_id === options.missionEventId) };
+}
 function qualityCardVisible(quality) {
   return [
     "质量复核：发现",

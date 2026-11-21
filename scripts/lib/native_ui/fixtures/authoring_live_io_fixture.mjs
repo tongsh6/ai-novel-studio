@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { writeAX } from "../driver.mjs";
 import {
   AUTHOR,
   FINISHED_AT,
@@ -58,7 +59,7 @@ const SCHEMA_SQL = `
 `;
 
 const SHOT_NAMES = ["01-workbench.png", "after-input.png", "final.png"];
-const VISIBLE_SHOT_NAMES = ["01-workbench.png", "02-reading-before.png", "before-input.jpg", "after-input.png", "final.jpg", "03-reading-after.png"];
+const VISIBLE_SHOT_NAMES = ["01-workbench.jpg", "02-reading-before.jpg", "before-input.jpg", "after-input.jpg", "final.jpg", "03-reading-after.jpg"];
 const LIVE_WAIT_KINDS = ["input", "ack", "turn", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance", "maintenance"];
 const VISIBLE_WAIT_KINDS = ["maintenance", "maintenance", "maintenance", "input", "turn", "turn", "maintenance", "maintenance"];
 const WAIT_BASE_MS = Date.parse(READY_AT);
@@ -340,6 +341,7 @@ export function sealAuthorVisibleCaptures(dir) {
     const capture = log.captures.find((entry) => entry.name === name);
     capture.nodes = nodes.length;
     capture.ax_sha256 = contentHash(JSON.stringify(nodes));
+    writeAX(nodes.map((node) => ({ ...node, depth: node.path.split("/").length - 1 })), `${dir}/${name}.ax.txt`);
     const textFile = `${dir}/${name}.text.txt`;
     if (fs.existsSync(textFile)) capture.text_sha256 = contentHash(fs.readFileSync(textFile));
     capture.screenshot.sha256 = contentHash(fs.readFileSync(`${dir}/${name}.jpg`));
@@ -357,15 +359,22 @@ function writeVisibleFiles(staging, { mode }) {
   const message = readOnly ? G3_MESSAGE : G2_MESSAGE;
   writeReady(staging);
   for (const name of VISIBLE_SHOT_NAMES) fs.writeFileSync(`${staging}/${name}`, png());
-  fs.writeFileSync(`${staging}/01-workbench.text.txt`, `${G2_VISIBLE_TARGET.work_title}\n等待创作请求\n`);
-  fs.writeFileSync(`${staging}/02-reading-before.text.txt`, visibleReadingPage());
-  fs.writeFileSync(`${staging}/before-input.text.txt`, `${G2_VISIBLE_TARGET.work_title}\n无任务\n`);
-  fs.writeFileSync(`${staging}/after-input.text.txt`, visibleAfterInput(message));
-  fs.writeFileSync(
-    `${staging}/final.text.txt`,
-    readOnly ? visibleReadOnlyFinal(message) : visibleFinal(message),
-  );
-  fs.writeFileSync(`${staging}/03-reading-after.text.txt`, visibleReadingPage());
+  const pages = {
+    "01-workbench": `${G2_VISIBLE_TARGET.work_title}\n等待创作请求\n`,
+    "02-reading-before": visibleReadingPage(),
+    "before-input": `${G2_VISIBLE_TARGET.work_title}\n无任务\n`,
+    "after-input": visibleAfterInput(message),
+    final: readOnly ? visibleReadOnlyFinal(message) : visibleFinal(message),
+    "03-reading-after": visibleReadingPage(),
+  };
+  for (const [name, text] of Object.entries(pages)) {
+    fs.writeFileSync(`${staging}/${name}.text.txt`, text);
+    if (name !== "before-input" && name !== "final") {
+      writeAX(text.split("\n").map((value, index) => ({
+        path: `0/${index}`, role: "AXStaticText", value, depth: 1,
+      })), `${staging}/${name}.ax.txt`);
+    }
+  }
   writeJson(`${staging}/native-ui-complete.json`, {
     harness_run_ref: "run-ref-live",
     driver: "ax-native-system-ui",
@@ -409,6 +418,7 @@ function writeVisibleFiles(staging, { mode }) {
   return [
     "native-driver-ready.json",
     ...VISIBLE_SHOT_NAMES,
+    ...VISIBLE_SHOT_NAMES.map((name) => name.replace(/\.jpg$/u, ".ax.txt")),
     "native-b71-turn-observation.json",
     "before-input.text.txt",
     "01-workbench.text.txt",
@@ -465,6 +475,7 @@ export function authorVisibleFixtureSpec({ mode = "candidate" } = {}) {
       message: mode === "read_only" ? G3_MESSAGE : G2_MESSAGE,
       builder_source: fs.readFileSync(new URL(import.meta.url), "utf8"),
       facts_source: fs.readFileSync(new URL("./authoring_live_facts.mjs", import.meta.url), "utf8"),
+      ax_writer_source: fs.readFileSync(new URL("../driver.mjs", import.meta.url), "utf8"),
       runtime: `node=${process.version}`,
     },
     build(staging) {

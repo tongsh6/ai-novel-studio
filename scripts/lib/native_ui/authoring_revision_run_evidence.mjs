@@ -16,7 +16,7 @@ import {
   compareRevisionDesignSnapshots,
   compareSourceDesignSnapshots,
 } from "./authoring_canon_evidence.mjs";
-import { chapterMissionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
+import { missionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
 import { readConfig } from "./authoring_capture_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import {
@@ -420,7 +420,7 @@ function collectCanon(dir, source) {
 
 function collectMission(wire, source, canon) {
   const targetId = targetChapterId(source);
-  return chapterMissionSourceChecks({
+  return missionSourceChecks({
     startChapter: canon.start.authoring_canon.chapters[targetId],
     beforeChapter: canon.before.authoring_canon.chapters[targetId],
     targetChapterId: targetId,

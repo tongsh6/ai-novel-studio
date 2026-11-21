@@ -62,3 +62,30 @@ export const R05_CASES = Object.freeze([
       reading_excerpt: "巡检的脚步声从巷口传来，他把账牌收进袖中。" },
   },
 ]);
+
+// R06 独立预期取自原 B82/WR01/WR02 作者原话与现 seed；不从准入表生成。
+export const R06_BUDGET = Object.freeze({
+  batches: 1, author_sends: 1, manual_retries: 0, scenario_seconds: 900,
+  input_timeout_ms: 120000, turn_timeout_ms: 360000,
+});
+export const R06_CASES = Object.freeze([
+  {
+    id: "b82-g2", slice_id: "b71-first-consumer", mode: "candidate",
+    message: "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。",
+    seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
+    target: { work_title: "灰烬手印验证作品", chapter_title: "第2章：灰烬中的手印",
+      reading_excerpt: "末页锚点：井底浮现第七枚手印" },
+  },
+  {
+    id: "wr01-chapter-mission-before-prose", slice_id: "wr01-chapter-mission-before-prose", mode: "mission",
+    message: "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约600字，保持为待采纳草稿。",
+    seed_script: "scripts/seed_wr01_chapter_mission.exs",
+    target: { work_title: "WR01 写前推理验收作品", chapter_title: "第03章：巡检收网" },
+  },
+  {
+    id: "wr02-planning-mission-before-outline", slice_id: "wr02-planning-mission-before-outline", mode: "mission",
+    message: "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。",
+    seed_script: "scripts/seed_wr01_chapter_mission.exs",
+    target: { work_title: "WR01 写前推理验收作品" },
+  },
+]);

@@ -141,6 +141,7 @@ run_scenario() {
   local scenario_default_provider
   local scenario_provider="$PROVIDER"
   local entrypoint
+  local mission_timeout_ms
   local RUN_STARTED_AT
   RUN_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -185,7 +186,39 @@ run_scenario() {
     exit 66
   fi
 
+  # 使命场景由原生采集 owner 唯一登记；这里只读路由与冻结预算，不执行 YAML entrypoint。
+  if ! mission_timeout_ms="$(node --input-type=module - "$PROJECT_ROOT" "$scenario_id" <<'NODE'
+import { pathToFileURL } from "node:url";
+const { authorVisibleScenarioSpec } = await import(
+  pathToFileURL(`${process.argv[2]}/scripts/lib/native_ui/authoring_capture_evidence.mjs`).href
+);
+const spec = authorVisibleScenarioSpec(process.argv[3]);
+if (spec?.mode === "mission") {
+  const seconds = spec.budget?.scenario_seconds;
+  if (!Number.isSafeInteger(seconds) || seconds <= 0 || !Number.isSafeInteger(seconds * 1000)) {
+    throw new Error("mission scenario requires a bounded scenario_seconds budget");
+  }
+  console.log(seconds * 1000);
+}
+NODE
+)"; then
+    echo "[quality-accept] 无法读取原生使命场景登记或预算: $scenario_id" >&2
+    exit 64
+  fi
+
+  if [[ -n "$mission_timeout_ms" ]]; then
+    if [[ "$scenario_surface" != "tauri" || "$scenario_runner" != "tauri_slice_verify" ]]; then
+      echo "[quality-accept] mission scenario requires surface=tauri and runner=tauri_slice_verify" >&2
+      exit 64
+    fi
+    scenario_runner="native_b71_batch"
+  fi
+
   case "$scenario_runner" in
+    native_b71_batch)
+      # 实际目录由原生批次回执提供（含实模预登记指定的目录），不能推算旧固定路径。
+      artifact_dir=""
+      ;;
     slice_verify)
       artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/$scenario_id"
       ;;
@@ -215,10 +248,37 @@ run_scenario() {
 [quality-accept] provider: $scenario_provider
 [quality-accept] entrypoint: $entrypoint
 [quality-accept] manifest: $manifest
-[quality-accept] artifacts: $artifact_dir
 EOF
+  if [[ -n "$artifact_dir" ]]; then
+    echo "[quality-accept] artifacts: $artifact_dir"
+  fi
 
   case "$scenario_runner" in
+    native_b71_batch)
+      local native_tag native_output native_rc=0
+      native_tag="${TAURI_NATIVE_ARTIFACT_TAG-quality-$(date -u +%Y%m%d%H%M%S)-$$}"
+      native_output="$(
+        B71_SLICE="$scenario_id" B71_PROVIDER="$scenario_provider" \
+          novel_node_test_scope --timeout-ms "$mission_timeout_ms" -- \
+          bash "$PROJECT_ROOT/scripts/native_b71_batch.sh" "$native_tag" 2>&1
+      )" || native_rc=$?
+      printf '%s\n' "$native_output"
+      artifact_dir="$(printf '%s\n' "$native_output" |
+        sed -n -E 's/^\[b71-native\] (PASS|FAIL.*) dir=(.*)$/\2/p' | tail -n 1)"
+      if [[ -n "$artifact_dir" ]]; then
+        echo "[quality-accept] artifacts: $artifact_dir"
+      fi
+      if [[ "$native_rc" -ne 0 ]]; then
+        if [[ -n "$artifact_dir" ]]; then
+          record_verdict fail "runner_failed" quality_accept_runner_failed || true
+        fi
+        exit "$native_rc"
+      fi
+      if [[ -z "$artifact_dir" ]]; then
+        echo "[quality-accept] evidence_missing: ${scenario_id}（原生批次未返回证据目录）" >&2
+        exit 67
+      fi
+      ;;
     slice_verify)
       if [[ "$scenario_surface" != "browser" ]]; then
         echo "[quality-accept] runner slice_verify requires surface=browser, got $scenario_surface" >&2

@@ -138,7 +138,7 @@ const AUTHOR_VISIBLE_TARGET_FIELDS = Object.freeze(["work_title", "chapter_title
 // B82 已冻结的作者可见场景：G2/G3 共享同一 author_visible_target 契约（同样 3 个
 // 字段、同一份预注册哈希与目标绑定）。这里是选择作者可见入口的唯一判定；普通 live
 // 与其它场景返回 null，保持原行为。
-const R05_BUDGET = Object.freeze({
+const OWNED_SCENARIO_BUDGET = Object.freeze({
   batches: 1, author_sends: 1, manual_retries: 0, scenario_seconds: 900,
   input_timeout_ms: 120000, turn_timeout_ms: 360000,
 });
@@ -146,45 +146,62 @@ const R05_FULL_READ_TARGET = Object.freeze({
   work_title: "灰烬手印验证作品", chapter_title: "第2章：灰烬中的手印",
   reading_excerpt: "末页锚点：井底浮现第七枚手印",
 });
-// 四个新场景的唯一登记点；batch、prepare、readConfig 共用此表，未知 Splash ID 不放行。
-const R05_SCENARIOS = Object.freeze({
+// 作者可见场景唯一登记点；batch、prepare、driver、readConfig 共用，不另建 R06 白名单。
+const AUTHOR_VISIBLE_SCENARIOS = Object.freeze({
+  "b82-g2": {
+    mode: "candidate", slice_id: "b71-first-consumer",
+    seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
+    message: "请先读第02章《灰烬中的手印》已经保存的正文，前后都核对一下，再把发现的重复写法改成一段候选给我看，先不要保存。",
+    target: R05_FULL_READ_TARGET,
+  },
+  "b82-g3": { mode: "read_only" },
+  "wr01-chapter-mission-before-prose": {
+    mode: "mission", mission_kind: "chapter", slice_id: "wr01-chapter-mission-before-prose",
+    seed_script: "scripts/seed_wr01_chapter_mission.exs",
+    message: "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约600字，保持为待采纳草稿。",
+    target: { work_title: "WR01 写前推理验收作品", chapter_title: "第03章：巡检收网" },
+  },
+  "wr02-planning-mission-before-outline": {
+    mode: "mission", mission_kind: "planning", slice_id: "wr02-planning-mission-before-outline",
+    seed_script: "scripts/seed_wr01_chapter_mission.exs",
+    message: "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。",
+    target: { work_title: "WR01 写前推理验收作品" },
+  },
+
   "b87-r05-chapter-count": {
-    mode: "read_only", goal: "count",
+    mode: "read_only", goal: "count", slice_id: "b71-first-consumer",
     seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
     message: "这部作品目前一共有多少章？有正文和还没写正文的各几章？只告诉我这三个数量。",
     target: R05_FULL_READ_TARGET,
   },
   "b87-r05-quality": {
-    mode: "read_only", goal: "quality",
+    mode: "read_only", goal: "quality", slice_id: "b71-first-consumer",
     seed_script: "scripts/seed_au11_quality_diagnosis_message_envelope.exs",
     message: "请先阅读第01章《灵源账单》已经保存的正文，再判断主角的胜利来得是否太容易，指出依据和可改方向。只分析，不生成修订候选，也不要保存。",
     target: { work_title: "灵源纪元", chapter_title: "第01章：灵源账单",
       reading_excerpt: "而妹妹的名字，正写在矿井最深处那面显示屏的最上面一行。" },
   },
   "b87-r05-whole-chapter": {
-    mode: "candidate", goal: "whole",
+    mode: "candidate", goal: "whole", slice_id: "b71-first-consumer",
     seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
     message: "请先把第02章《灰烬中的手印》已保存的正文从头到尾读完，再给我一份整章修订候选，减少重复描写，保留开头和结尾的线索；先不要保存。",
     target: R05_FULL_READ_TARGET,
   },
   "b87-r05-style-material": {
-    mode: "candidate", goal: "style",
+    mode: "candidate", goal: "style", slice_id: "b71-first-consumer",
     seed_script: "scripts/seed_ca04_carry_gaps.exs",
     message: "请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。",
     target: { work_title: "CA04 携带缺口验收作品", chapter_title: "第01章：黑市对账夜",
       reading_excerpt: "巡检的脚步声从巷口传来，他把账牌收进袖中。" },
   },
 });
-const AUTHOR_VISIBLE_SCENARIO_MODES = Object.freeze({
-  "b82-g2": "candidate", "b82-g3": "read_only",
-  ...Object.fromEntries(Object.entries(R05_SCENARIOS).map(([id, spec]) => [id, spec.mode])),
-});
+export function authorVisibleScenarioSpec(scenarioId) {
+  if (typeof scenarioId !== "string" || !Object.hasOwn(AUTHOR_VISIBLE_SCENARIOS, scenarioId)) return null;
+  const spec = AUTHOR_VISIBLE_SCENARIOS[scenarioId];
+  return spec.seed_script ? { ...spec, budget: OWNED_SCENARIO_BUDGET } : spec;
+}
 
-export const authorVisibleScenario = (scenarioId) =>
-  typeof scenarioId === "string"
-    ? (AUTHOR_VISIBLE_SCENARIO_MODES[scenarioId] ?? null)
-    : null;
-
+export const authorVisibleScenario = (scenarioId) => authorVisibleScenarioSpec(scenarioId)?.mode ?? null;
 // B82 作者可见新运行的冻结目标：只校验真实可见作品名/章名/阅读原文为非空字符串。
 // 旧预注册缺该字段仍可做通用哈希诊断；只有 prepare 会以 requireAuthorVisibleTarget
 // 拒绝新驱动，历史批次保持只读可查。
@@ -201,17 +218,15 @@ function readAuthorVisibleTarget(scenario, { require = false } = {}) {
     value !== null && typeof value === "object" && !Array.isArray(value),
     "预注册 scenarios[0].author_visible_target 必须是对象",
   );
-  for (const field of AUTHOR_VISIBLE_TARGET_FIELDS) {
+  const spec = authorVisibleScenarioSpec(scenario.id);
+  const fields = spec?.mission_kind ? Object.keys(spec.target) : AUTHOR_VISIBLE_TARGET_FIELDS;
+  for (const field of fields) {
     assert(
       typeof value[field] === "string" && value[field].trim() !== "",
       `预注册 scenarios[0].author_visible_target.${field} 不能为空`,
     );
   }
-  return {
-    work_title: value.work_title,
-    chapter_title: value.chapter_title,
-    reading_excerpt: value.reading_excerpt,
-  };
+  return Object.fromEntries(fields.map(field => [field, value[field]]));
 }
 
 export function validatePreregistrationFile(
@@ -289,24 +304,23 @@ export function validatePreregistrationFile(
   const actualScenarioId =
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
   if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
+  const spec = authorVisibleScenarioSpec(actualScenarioId);
   if (provider === "splash" && b71Live) {
-    assert(actualScenarioId === "b82-g2" || Object.hasOwn(R05_SCENARIOS, actualScenarioId),
-      "Splash B71 live 只接受 b82-g2 或已登记的 R05 场景");
+    assert(spec?.seed_script, "Splash B71 live 只接受 b82-g2 或已登记的 R05/WR01/WR02 场景");
   }
-  const r05 = Object.hasOwn(R05_SCENARIOS, actualScenarioId) ? R05_SCENARIOS[actualScenarioId] : null;
-  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
+  const owned = spec?.goal || spec?.mission_kind || (provider === "splash" && actualScenarioId === "b82-g2");  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
   const authorVisibleTarget = authorVisibleScenario(actualScenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
-  if (r05) {
-    assert.equal(provider, "splash", "R05 provider 必须是 splash");
-    assert.equal(scenario.slice_id, "b71-first-consumer", "R05 slice 绑定不符");
-    assert.equal(scenario.message, r05.message, "R05 作者原文与冻结场景不符");
-    assert.deepEqual(authorVisibleTarget, r05.target, "R05 作者可见目标与冻结场景不符");
-    assert.equal(scenario.seed?.script, r05.seed_script, "R05 seed 路径与冻结场景不符");
-    assert.equal(scenario.seed?.sha256, shaFile(path.join(ROOT, r05.seed_script)),
-      "R05 seed 字节与冻结 SHA 不符");
-    assert.deepEqual(value.budget, R05_BUDGET, "R05 budget 必须绑定 1 send/0 retry/900秒 owned 执行");
+  if (owned) {
+    assert.equal(provider, "splash", "冻结场景 provider 必须是 splash");
+    assert.equal(scenario.slice_id, spec.slice_id, "冻结场景 slice 绑定不符");
+    assert.equal(scenario.message, spec.message, "作者原文与冻结场景不符");
+    assert.deepEqual(authorVisibleTarget, spec.target, "作者可见目标与冻结场景不符");
+    assert.deepEqual(scenario.author_visible_target, spec.target, "冻结目标不得补造字段");
+    assert.equal(scenario.seed?.script, spec.seed_script, "seed 路径与冻结场景不符");
+    assert.equal(scenario.seed?.sha256, shaFile(path.join(ROOT, spec.seed_script)), "seed 字节与冻结 SHA 不符");
+    assert.deepEqual(value.budget, OWNED_SCENARIO_BUDGET, "budget 必须绑定 1 send/0 retry/900秒 owned 执行");
   }
   return {
     id: value.id,
@@ -315,7 +329,9 @@ export function validatePreregistrationFile(
     model: value.model.model,
     scenario_id: actualScenarioId,
     author_visible_target: authorVisibleTarget,
-    ...(r05 ? { seed: scenario.seed, budget: value.budget, r05_goal: r05.goal } : {}),
+    ...(owned ? { slice_id: spec.slice_id, seed: scenario.seed, budget: value.budget } : {}),
+    ...(spec?.goal ? { r05_goal: spec.goal } : {}),
+    ...(spec?.mission_kind ? { mission_kind: spec.mission_kind } : {}),
   };
 }
 
@@ -340,10 +356,10 @@ function checkPreregistration(dir, config) {
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
-  if (record.r05_goal) {
+  if (record.seed) {
     assert.deepEqual(config.seed, record.seed, "配置 seed 与预注册不一致");
     assert.deepEqual(config.budget, record.budget, "配置 budget 预算与预注册不一致");
-    assert.equal(config.slice_id, "b71-first-consumer", "配置 R05 slice 绑定不符");
+    assert.equal(config.slice_id, record.slice_id, "配置 slice 绑定不符");
   }
   // B82 作者可见目标与作者输入一起封存在同一份预注册哈希里；旧批次缺字段时
   // 保持历史可读，但 G2/G3 新批次必须有冻结来源，且配置副本不得被改写或补造。
@@ -370,9 +386,9 @@ export function readConfig(dir) {
   // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
   if (sealed.provider === "splash") {
-    assert(["live", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
+    assert(["live", "mission", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
     assert.deepEqual(sealed.runtime, splashRuntime(dir), "实际 runtime facts 与配置不符");
-    if (sealed.journey === "live") assert(record, "Splash live 缺少冻结预注册 b82-g2 或 R05");
+    if (["live", "mission"].includes(sealed.journey)) assert(record, "Splash live/mission 缺少冻结预注册");
   }
   if (sealed.journey === "auto-maintenance") {
     assert.equal(sealed.provider, "splash", "R03 auto-maintenance provider 不符");
@@ -386,12 +402,32 @@ export function readConfig(dir) {
     delete sealed.author_visible_target;
     if (record.author_visible_target) sealed.author_visible_target = record.author_visible_target;
   }
+  delete sealed.mission_kind;
+  if (record?.mission_kind) {
+    assert.equal(sealed.journey, "mission", "冻结使命场景不能借其它 journey 签收");
+    sealed.mission_kind = record.mission_kind;
+  }
+  if (sealed.journey === "mission" && sealed.provider === "slice_verify") {
+    const ready = read(dir, "native-driver-ready.json");
+    const spec = authorVisibleScenarioSpec(ready.slice_id);
+    assert(spec?.mission_kind && ready.provider === sealed.provider, "使命 fixture 来源与注册场景不符");
+    assert.equal(sealed.slice_id, ready.slice_id, "使命 fixture slice 被改写");
+    assert.equal(sealed.message, spec.message, "使命 fixture 作者原文被改写");
+    assert.deepEqual(sealed.author_visible_target, spec.target, "使命 fixture 可见目标被改写");
+    assert.equal(sealed.mission_correction, "reject_then_valid", "使命 fixture 必须显式使用已登记纠正模式");
+    assert.deepEqual(sealed.budget, spec.budget, "使命 fixture 预算被改写");
+    assert.deepEqual(sealed.seed, { script: spec.seed_script, sha256: shaFile(path.join(ROOT, spec.seed_script)) },
+      "使命 fixture seed 来源被改写");
+    sealed.scenario_id = ready.slice_id;
+    sealed.mission_kind = spec.mission_kind;
+  }
   return record?.scenario_id ? { ...sealed, scenario_id: record.scenario_id } : sealed;
 }
 
 function readyFor(dir) {
   const ready = read(dir, "native-driver-ready.json");
-  assert(SLICE_JOURNEYS[ready.slice_id], `未知原生 slice: ${ready.slice_id}`);
+  const registeredMission = authorVisibleScenarioSpec(ready.slice_id)?.mode === "mission";
+  assert(SLICE_JOURNEYS[ready.slice_id] || registeredMission, `未知原生 slice: ${ready.slice_id}`);
   assert(
     ["slice_verify", "streaming_slice_verify", "strata", "splash"].includes(ready.provider),
     `原生批次 provider 必须是 slice_verify/streaming_slice_verify/strata/splash，实测: ${ready.provider}`,
@@ -404,7 +440,12 @@ function readyFor(dir) {
   const memoryDetail = process.env.B71_MEMORY_DETAIL === "1";
   const answerMode = process.env.B71_ANSWER_MODE === "1";
   let journey;
-  if (answerMode) {
+  if (registeredMission) {
+    assert(["slice_verify", "splash"].includes(ready.provider), "使命原生场景只接受 slice_verify 或 Splash");
+    assert(!answerMode && !memoryDetail && !autoMaintenance && !confirmationMode && !behaviorCaseId,
+      "使命场景不能混用其它 journey 开关");
+    journey = "mission";
+  } else if (answerMode) {
     assert.equal(ready.provider, "slice_verify", "answer-mode journey 只接受确定性 slice_verify");
     if (confirmationMode || behaviorCaseId || autoMaintenance || memoryDetail) {
       throw new Error("B71_ANSWER_MODE 与 confirmation/behavior/auto-maintenance/memory-detail 不能同时设置");
@@ -470,22 +511,29 @@ export function prepare(dir) {
   const autoMaintenance = ready.journey === "auto-maintenance";
   const memoryDetail = ready.journey === "memory-detail";
   const answerMode = ready.journey === "answer-mode";
+  const mission = ready.journey === "mission";
+  const missionSpec = mission ? authorVisibleScenarioSpec(ready.slice_id) : null;
   // B82 冻结输入：只能由普通 live 批次消费批次目录内的同一副本。
   const preregistrationFile = path.join(dir, PREREGISTRATION_FILE);
   const hasPreregistration = fs.existsSync(preregistrationFile);
   const runtime = ready.provider === "splash" ? splashRuntime(dir) : null;
-  if (ready.provider === "splash" && ready.journey === "live") {
+  if (ready.provider === "splash" && ["live", "mission"].includes(ready.journey)) {
     assert(hasPreregistration, "Splash live 缺少冻结预注册");
   }
   if (hasPreregistration) {
-    assert(ready.journey === "live", "预注册文件只属于普通 live 批次");
+    assert(["live", "mission"].includes(ready.journey), "预注册文件只属于 live/mission 批次");
   }
   const preregistration = hasPreregistration
     ? validatePreregistrationFile(preregistrationFile, { dir, provider: ready.provider,
       model: runtime ? runtime.observed.provider.model : DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget: true,
       b71Live: true })
     : null;
-  const visibleTarget = preregistration?.author_visible_target ?? null;
+  if (preregistration?.slice_id) assert.equal(ready.slice_id, preregistration.slice_id, "启动 slice 与冻结场景不符");
+  if (mission && ready.provider === "slice_verify") {
+    assert.equal(process.env.SLICE_VERIFY_MISSION_CORRECTION, "reject_then_valid",
+      "确定性使命原生验收须显式设置 SLICE_VERIFY_MISSION_CORRECTION=reject_then_valid");
+  }
+  const visibleTarget = preregistration?.author_visible_target ?? missionSpec?.target ?? null;
   // B82 的场景目标只取封存的作者可见目标，不依赖种子日志或数据库。
   const target = visibleTarget
     ? null
@@ -510,7 +558,10 @@ export function prepare(dir) {
     provider: ready.provider,
     ...(target ? { target } : {}),
     ...(visibleTarget ? { author_visible_target: visibleTarget } : {}),
-    ...(preregistration?.r05_goal ? { seed: preregistration.seed, budget: preregistration.budget } : {}),
+    ...(preregistration?.seed ? { seed: preregistration.seed, budget: preregistration.budget } : {}),
+    ...(mission && ready.provider === "slice_verify" ? { mission_correction: "reject_then_valid",
+      seed: { script: missionSpec.seed_script, sha256: shaFile(path.join(ROOT, missionSpec.seed_script)) },
+      budget: OWNED_SCENARIO_BUDGET } : {}),
     ...(preregistration
       ? {
           preregistration: {
@@ -542,6 +593,8 @@ export function prepare(dir) {
       : {}),
     message: preregistration
       ? preregistration.message
+      : mission
+      ? missionSpec.message
       : pending
       ? pendingSourceMessage(nonce)
       : ready.journey === "revision"
@@ -570,13 +623,14 @@ export function prepare(dir) {
   });
 }
 
-export function planningCanonSnapshot(dir, { includeChapterFacts = true } = {}) {
+export function planningCanonSnapshot(dir, { includeChapterFacts = true, includeWorkFacts = false } = {}) {
   return withDb(dir, (db) => buildAuthoringCanonSnapshot({
     tables: Object.fromEntries(CANON_TABLES.map((table) =>
       [table, all(db, `SELECT * FROM ${table} ORDER BY id`)])),
     referenceLogs: referenceLogRows(db),
     at: new Date().toISOString(),
     includeChapterFacts,
+    includeWorkFacts,
   }));
 }
 
@@ -590,11 +644,11 @@ function writeWhyCheckpoint(dir, checkpoint) {
   });
 }
 
-function writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts = true } = {}) {
+function writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts = true, includeWorkFacts = false } = {}) {
   write(dir, `b71-${checkpoint}.json`, {
     checkpoint,
     db_production_counts: productionTableCounts(dir),
-    ...(canon ? { authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts }) } : {}),
+    ...(canon ? { authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts, includeWorkFacts }) } : {}),
   });
 }
 
@@ -609,7 +663,9 @@ function assertRevisionCheckpointOrder(dir, checkpoint) {
 }
 
 export function capture(dir, checkpoint) {
-  const journey = readConfig(dir).journey;
+  const config = readConfig(dir);
+  const journey = config.journey;
+  const mission = journey === "mission";
   const planning = journey === "planning";
   const revision = journey === "revision";
   // live/behavior/confirmation 实模需要未采纳零写入的 canon 内容快照。
@@ -618,7 +674,7 @@ export function capture(dir, checkpoint) {
   const memoryDetail = journey === "memory-detail";
   const answerMode = journey === "answer-mode";
   const live = journey === "live" || journey === "behavior";
-  const canon = planning || revision || live || confirmation || autoMaintenance;
+  const canon = planning || revision || live || confirmation || autoMaintenance || mission;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
   const allowedCheckpoints = confirmation
     ? CONFIRMATION_CHECKPOINTS
@@ -637,6 +693,7 @@ export function capture(dir, checkpoint) {
   // live/behavior/confirmation 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
   return writeRunCheckpoint(dir, checkpoint, canon, {
     includeChapterFacts: !(live || confirmation || autoMaintenance),
+    includeWorkFacts: mission,
   });
 }
 

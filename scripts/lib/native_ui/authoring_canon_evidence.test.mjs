@@ -1289,6 +1289,71 @@ test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品
   }
 });
 
+
+function planningSnapshot({ planningMission = null, at = START, changes = {}, otherWorks = [] } = {}) {
+  const tables = baseTables();
+  tables.works = [{
+    id: WORK, title: "原作品名", genre: "原类型", inserted_at: START,
+    updated_at: at,
+    planning_direction: JSON.stringify({
+      theme: "作者原规划方向",
+      ...(planningMission ? { planning_mission: planningMission } : {}),
+    }),
+    future_work_column: "未知字段也必须保护",
+    ...changes,
+  }, ...otherWorks];
+  return buildAuthoringCanonSnapshot({
+    tables, referenceLogs: [], at, includeWorkFacts: true,
+  });
+}
+
+test("R06 规划使命沿现设计态快照保存works见证，只允许目标作品暂定使命变化", () => {
+  const start = planningSnapshot();
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK });
+  assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify(result.checks));
+  assert.equal(start.works[WORK].mission, null);
+  assert.deepEqual(final.works[WORK].mission, planned);
+  assert.equal(start.works[WORK].protected_sha256, final.works[WORK].protected_sha256);
+  assert.equal(compareAuthoringCanonSnapshots(start, final).checks.no_canon_write, false);
+});
+
+test("R06 规划使命不能豁免作品标题、其它规划字段、未知列或错误作品", () => {
+  const start = planningSnapshot();
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  for (const changes of [
+    { title: "偷偷改名" },
+    { genre: "偷偷改类型" },
+    { future_work_column: "偷偷改未知列" },
+    { planning_direction: JSON.stringify({ theme: "偷偷改原方向", planning_mission: planned }) },
+  ]) {
+    const final = planningSnapshot({ planningMission: planned, at: FINAL, changes });
+    assert.equal(Object.values(compareSourceDesignSnapshots(start, final, { targetWorkId: WORK }).checks)
+      .every(Boolean), false, JSON.stringify(changes));
+  }
+  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  assert.equal(Object.values(compareSourceDesignSnapshots(start, final, { targetWorkId: OTHER_WORK }).checks)
+    .every(Boolean), false);
+});
+
+test("R06 已定版规划使命不被重新推导，非model/TENTATIVE不能作为合法设计态变化", () => {
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  const authorMission = mission({ source: "author", status: "AUTHOR_EDITED", decided_at: START });
+  const protectedStart = planningSnapshot({ planningMission: authorMission });
+  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  assert.equal(Object.values(compareSourceDesignSnapshots(protectedStart, final, { targetWorkId: WORK }).checks)
+    .every(Boolean), false);
+  const changed = planningSnapshot({
+    planningMission: mission({ source: "author", status: "CONFIRMED", decided_at: FINAL }), at: FINAL,
+  });
+  assert.equal(Object.values(compareSourceDesignSnapshots(planningSnapshot(), changed, { targetWorkId: WORK }).checks)
+    .every(Boolean), false);
+  assert.throws(() => planningSnapshot({
+    planningMission: mission({ status: "DISCARDED", decided_at: FINAL }), at: FINAL,
+  }), /invalid_authoring_canon_snapshot/u);
+});
+
 test("v2 evidence 明确种类，不从旧字段形状猜测或补默认设计事实", () => {
   const start = snapshot();
   const final = snapshot({ at: FINAL });

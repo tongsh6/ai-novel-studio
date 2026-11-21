@@ -209,7 +209,7 @@ check!.(
   "reading projection prose differs from seeded prose"
 )
 
-# 章 A（干扰项）没有已采纳正文：其索引行必须带「（计划中）」；目标章 B 不带。
+# 章 A（干扰项）没有已采纳正文；目标章 B 的正文状态必须由实际阅读投影证明。
 {:ok, distractor_projection} =
   ReadingProjectionService.chapter_content(distractor_chapter.id, work.id)
 
@@ -219,32 +219,33 @@ check!.(distractor_prose == "", "distractor chapter must have no adopted prose")
 check!.(distractor_chapter.seq == 1, "distractor chapter seq must be 1")
 check!.(target_chapter.seq == 2, "target chapter seq must be 2")
 
-# 索引行与判断/探索面同源（ChapterListBudget.entry_line），替身与 verifier 都以它为准。
-distractor_line =
-  NovelApplication.ChapterListBudget.entry_line(%{
-    title: chapter_title,
+# 读取真实歧义观察：同名章的身份与正文状态来自结构事实，摘要不承载技术索引。
+{:ok, candidates} =
+  NovelApplication.ExplorationService.run(work.id, "chapter_read", chapter_title)
+
+expected_chapters = [
+  %{
+    ref: "chapter:#{distractor_chapter.id}",
     seq: distractor_chapter.seq,
-    id: distractor_chapter.id,
-    has_prose: false
-  })
-
-target_line =
-  NovelApplication.ChapterListBudget.entry_line(%{
     title: chapter_title,
+    has_prose: false
+  },
+  %{
+    ref: "chapter:#{target_chapter.id}",
     seq: target_chapter.seq,
-    id: target_chapter.id,
+    title: chapter_title,
     has_prose: true
-  })
+  }
+]
+
+check!.(candidates.outcome == :ambiguous_target, "same-title chapters must remain ambiguous")
+check!.(candidates.facts.chapters == expected_chapters, "unexpected chapter candidate facts")
+check!.(candidates.refs == Enum.map(expected_chapters, & &1.ref), "candidate source refs differ")
 
 check!.(
-  distractor_line ==
-    "- 第 1 章「#{chapter_title}」[chapter_ref=chapter:#{distractor_chapter.id}]（计划中）",
-  "unexpected distractor index line: #{distractor_line}"
-)
-
-check!.(
-  target_line == "- 第 2 章「#{chapter_title}」[chapter_ref=chapter:#{target_chapter.id}]",
-  "unexpected target index line: #{target_line}"
+  not String.contains?(candidates.summary, "chapter:") and
+    not String.contains?(candidates.summary, "chapter_ref"),
+  "candidate summary contains a technical chapter index"
 )
 
 same_title_count =

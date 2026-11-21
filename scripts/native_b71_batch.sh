@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
 # B71 原生批次：runner 启动/监督真实窗口，外部 AX/CGEvent 驱动用户真实输入。
-# B71 family eligibility 与 route（journey/seed/quality-revision retry env）只在本文件
-# 集中定义；tauri_slice_verify.sh 通过 --family-check / --route 调用，避免多处复制名单。
+# B71 route（journey/seed/quality-revision retry env）由本文件统一提供；使命身份与
+# seed 消费现作者可见场景登记。tauri_slice_verify.sh 只调用 --family-check / --route。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 b71_family_check() {
-  case "${1:-}" in
-    b71-first-consumer | b71-authoring-transcript | b71-authoring-profiles | b71-authoring-planning | b71-authoring-revision | b71-authoring-pending)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  b71_route "${1:-}" >/dev/null
 }
-
 b71_route() {
   case "${1:-}" in
     b71-first-consumer)
@@ -38,7 +30,14 @@ b71_route() {
       echo "journey=pending slice=b71-authoring-pending seed=scripts/seed_b71_authoring_pending.exs quality_revision_retry=0"
       ;;
     *)
-      return 1
+      node --input-type=module - "$ROOT" "${1:-}" <<'NODE'
+import { pathToFileURL } from "node:url";
+const { authorVisibleScenarioSpec } = await import(pathToFileURL(
+  `${process.argv[2]}/scripts/lib/native_ui/authoring_capture_evidence.mjs`).href);
+const spec = authorVisibleScenarioSpec(process.argv[3]);
+if (spec?.mode !== "mission" || spec.slice_id !== process.argv[3] || !spec.seed_script) process.exit(1);
+console.log(`journey=mission slice=${spec.slice_id} seed=${spec.seed_script} quality_revision_retry=0 input_timeout_ms=${spec.budget.input_timeout_ms} turn_timeout_ms=${spec.budget.turn_timeout_ms}`);
+NODE
       ;;
   esac
 }
@@ -57,6 +56,9 @@ if ! b71_family_check "$SLICE"; then
   echo "unsupported B71_SLICE: $SLICE" >&2
   exit 64
 fi
+MISSION=0
+ROUTE="$(b71_route "$SLICE")"
+if [[ "$ROUTE" == journey=mission\ * ]]; then MISSION=1; fi
 TAG="${1:-}"
 if [[ -z "$TAG" || ! "$TAG" =~ ^[a-z0-9-]+$ || ${#TAG} -gt 32 ]]; then
   echo "usage: bash scripts/native_b71_batch.sh <lowercase-tag-at-most-32-chars>" >&2
@@ -71,6 +73,33 @@ fi
 if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "streaming_slice_verify" && "$B71_PROVIDER" != "strata" && "$B71_PROVIDER" != "splash" ]]; then
   echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|streaming_slice_verify|strata|splash)" >&2
   exit 64
+fi
+if [[ "$MISSION" == "1" && "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "splash" ]]; then
+  echo "使命原生场景只接受 slice_verify 或 Splash" >&2
+  exit 64
+fi
+if [[ "$MISSION" == "1" && "$B71_PROVIDER" == "slice_verify" ]]; then
+  # 唯一 test-support 注入：两实际消费者使用同一个先拒收再纠正模式。
+  export SLICE_VERIFY_MISSION_CORRECTION=reject_then_valid
+else
+  unset SLICE_VERIFY_MISSION_CORRECTION
+fi
+if [[ "$MISSION" == "1" ]]; then
+  MISSION_SEED="${ROUTE#* seed=}"; MISSION_SEED="${MISSION_SEED%% *}"
+  MISSION_INPUT_TIMEOUT="${ROUTE#* input_timeout_ms=}"; MISSION_INPUT_TIMEOUT="${MISSION_INPUT_TIMEOUT%% *}"
+  MISSION_TURN_TIMEOUT="${ROUTE#* turn_timeout_ms=}"; MISSION_TURN_TIMEOUT="${MISSION_TURN_TIMEOUT%% *}"
+  if [[ -n "${TAURI_NATIVE_SEED_SCRIPT:-}" && "$TAURI_NATIVE_SEED_SCRIPT" != "$MISSION_SEED" && "$TAURI_NATIVE_SEED_SCRIPT" != "$ROOT/$MISSION_SEED" ]]; then
+    echo "使命 seed 路径与登记场景不一致" >&2
+    exit 64
+  fi
+  if [[ -n "${B71_LIVE_INPUT_TIMEOUT_MS:-}" && "$B71_LIVE_INPUT_TIMEOUT_MS" != "$MISSION_INPUT_TIMEOUT" ]] ||
+     [[ -n "${B71_LIVE_TURN_TIMEOUT_MS:-}" && "$B71_LIVE_TURN_TIMEOUT_MS" != "$MISSION_TURN_TIMEOUT" ]]; then
+    echo "使命等待预算与登记场景不一致" >&2
+    exit 64
+  fi
+  export TAURI_NATIVE_SEED_SCRIPT="$MISSION_SEED"
+  export B71_LIVE_INPUT_TIMEOUT_MS="$MISSION_INPUT_TIMEOUT"
+  export B71_LIVE_TURN_TIMEOUT_MS="$MISSION_TURN_TIMEOUT"
 fi
 # B71 §16.14 工具确认/拒绝原生场景（确定性 slice_verify provider，真实高风险来源）。
 CONFIRMATION_ACTION="${B71_CONFIRMATION_ACTION:-}"
@@ -123,8 +152,8 @@ fi
 LIVE=0
 if [[ "$B71_PROVIDER" == "strata" || ( "$B71_PROVIDER" == "splash" && "${B71_AUTO_MAINTENANCE:-0}" != "1" ) ]]; then
   LIVE=1
-  if [[ "$SLICE" != "b71-first-consumer" ]]; then
-    echo "live model batch 只接受 B71_SLICE=b71-first-consumer，实测: $SLICE" >&2
+  if [[ "$SLICE" != "b71-first-consumer" && "$MISSION" != "1" ]]; then
+    echo "live model batch 只接受现 B71 作者可见场景，实测: $SLICE" >&2
     exit 64
   fi
 fi
@@ -150,7 +179,7 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
   fi
 fi
 if [[ "$B71_PROVIDER" == "splash" && "$LIVE" == "1" && -z "${B71_LIVE_PREREGISTRATION:-}" ]]; then
-  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2 或已登记 R05/runtime profile）" >&2
+  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2 或已登记 R05/WR01/WR02/runtime profile）" >&2
   exit 64
 fi
 if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
@@ -298,10 +327,10 @@ strata_precheck_ok() {
 }
 
 LIVE_PREREGISTRATION="${B71_LIVE_PREREGISTRATION:-}"
-R05_GOAL=""
+OWNED_SEED=""
 if [[ -n "$LIVE_PREREGISTRATION" ]]; then
-  if [[ "$LIVE" != "1" || "$SLICE" != "b71-first-consumer" ]]; then
-    echo "B71_LIVE_PREREGISTRATION 只用于 B71_SLICE=b71-first-consumer 的真实 live 批次" >&2
+  if [[ "$LIVE" != "1" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 只用于已登记真实 live 批次" >&2
     exit 64
   fi
   if [[ "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" || "$CONFIRMATION" == "1" || "$ANSWER_MODE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
@@ -316,34 +345,37 @@ if [[ -n "$LIVE_PREREGISTRATION" ]]; then
   PREREG_SNAPSHOT="$(mktemp "$STATE_DIR/prereg-$TAG.XXXXXX")" || exit 1
   cat "$LIVE_PREREGISTRATION" >"$PREREG_SNAPSHOT" || exit 1
   PREREG_RECORD="$(preregistration_check "$PREREG_SNAPSHOT")" || exit 1
-  R05_GOAL="$(node -e 'console.log(JSON.parse(process.argv[1]).r05_goal ?? "")' "$PREREG_RECORD")"
-  if [[ -n "$R05_GOAL" ]]; then
-    # 登记表由同一 validator 解析；原路径执行，在最终源码冻结和前后 SHA 校验内运行。
-    R05_SEED="$(node -e 'console.log(JSON.parse(process.argv[1]).seed.script)' "$PREREG_RECORD")"
-    if [[ -n "${TAURI_NATIVE_SEED_SCRIPT:-}" && "$TAURI_NATIVE_SEED_SCRIPT" != "$R05_SEED" && "$TAURI_NATIVE_SEED_SCRIPT" != "$ROOT/$R05_SEED" ]]; then
-      echo "R05 实际 seed 路径与冻结场景不一致" >&2
+  OWNED_SEED="$(node -e 'console.log(JSON.parse(process.argv[1]).seed?.script ?? "")' "$PREREG_RECORD")"
+  if [[ -n "$OWNED_SEED" ]]; then
+    OWNED_SLICE="$(node -e 'console.log(JSON.parse(process.argv[1]).slice_id)' "$PREREG_RECORD")"
+    if [[ "$SLICE" != "$OWNED_SLICE" ]]; then
+      echo "实际 slice 与冻结场景不一致" >&2
       exit 64
     fi
-    export TAURI_NATIVE_SEED_SCRIPT="$R05_SEED"
-    R05_INPUT_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.input_timeout_ms)' "$PREREG_RECORD")"
-    R05_TURN_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.turn_timeout_ms)' "$PREREG_RECORD")"
-    if [[ -n "${B71_LIVE_INPUT_TIMEOUT_MS:-}" && "$B71_LIVE_INPUT_TIMEOUT_MS" != "$R05_INPUT_TIMEOUT" ]] ||
-       [[ -n "${B71_LIVE_TURN_TIMEOUT_MS:-}" && "$B71_LIVE_TURN_TIMEOUT_MS" != "$R05_TURN_TIMEOUT" ]]; then
-      echo "R05 输入/模型等待预算与冻结场景不一致" >&2
+    if [[ -n "${TAURI_NATIVE_SEED_SCRIPT:-}" && "$TAURI_NATIVE_SEED_SCRIPT" != "$OWNED_SEED" && "$TAURI_NATIVE_SEED_SCRIPT" != "$ROOT/$OWNED_SEED" ]]; then
+      echo "实际 seed 路径与冻结场景不一致" >&2
       exit 64
     fi
-    export B71_LIVE_INPUT_TIMEOUT_MS="$R05_INPUT_TIMEOUT"
-    export B71_LIVE_TURN_TIMEOUT_MS="$R05_TURN_TIMEOUT"
+    export TAURI_NATIVE_SEED_SCRIPT="$OWNED_SEED"
+    OWNED_INPUT_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.input_timeout_ms)' "$PREREG_RECORD")"
+    OWNED_TURN_TIMEOUT="$(node -e 'console.log(JSON.parse(process.argv[1]).budget.turn_timeout_ms)' "$PREREG_RECORD")"
+    if [[ -n "${B71_LIVE_INPUT_TIMEOUT_MS:-}" && "$B71_LIVE_INPUT_TIMEOUT_MS" != "$OWNED_INPUT_TIMEOUT" ]] ||
+       [[ -n "${B71_LIVE_TURN_TIMEOUT_MS:-}" && "$B71_LIVE_TURN_TIMEOUT_MS" != "$OWNED_TURN_TIMEOUT" ]]; then
+      echo "输入/模型等待预算与冻结场景不一致" >&2
+      exit 64
+    fi
+    export B71_LIVE_INPUT_TIMEOUT_MS="$OWNED_INPUT_TIMEOUT"
+    export B71_LIVE_TURN_TIMEOUT_MS="$OWNED_TURN_TIMEOUT"
     # 启动、AX 与 verify 同处根命令 test_env run --timeout-ms 900000 owned 边界。
-
   fi
 fi
 
 export TAURI_NATIVE_SYSTEM_DRIVER=1
 export TAURI_NATIVE_TRANSPORT_PROXY=1
 export TAURI_NATIVE_ARTIFACT_TAG="$TAG"
-if [[ "$LIVE" == "1" ]]; then
-  # 真实 provider 与冻结输入一致。Splash 仅消费外部服务，预检归现役 tauri runner。
+if [[ "$LIVE" == "1" || "$MISSION" == "1" ]]; then
+  # 同一执行边界绑定 provider 与目录，使命确定性运行也不能继承另一批父环境。
+  # Splash 仅消费外部服务，预检归现役 tauri runner。
   export SLICE_VERIFY_PROVIDER="$B71_PROVIDER"
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
 fi
@@ -439,7 +471,7 @@ elif [[ "$ANSWER_MODE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
-elif [[ "$LIVE" == "1" ]]; then
+elif [[ "$LIVE" == "1" || "$MISSION" == "1" ]]; then
   node "$ROOT/scripts/native_b71_live_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 else
   node "$ROOT/scripts/native_b71_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1

@@ -184,9 +184,7 @@ export const nativeSliceIds = [
   "p1-prose-quality-adoption-boundary",
   "agent-prose-drafting-with-quality",
   "p1-prose-companion-artifacts",
-  "wr01-chapter-mission-before-prose",
   "wr01-chapter-mission-author-decision",
-  "wr02-planning-mission-before-outline",
   "ca03-carry-registry-observability",
   "ca04-carry-gap-closure",
   "wr01c-planning-mission-decision",
@@ -563,16 +561,6 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
-  // WR01 写前推理：推理步业务日志落在推理步自己的 agent turn，证据 turn_ids 含三段。
-  "wr01-chapter-mission-before-prose": [
-    "channel.user_message.start",
-    "chapter_mission.derived.done",
-    "orchestrator.decide.done",
-    "prose_execution_brief.built.done",
-    "toolbox.execute.done",
-    "channel.user_message.done",
-    "slice_verify.ui_state.done",
-  ],
   "wr01-chapter-mission-author-decision": [
     "channel.user_message.start",
     "chapter_mission.derived.done",
@@ -580,14 +568,6 @@ const sliceKeyEvents = {
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.author_action.done",
-    "slice_verify.ui_state.done",
-  ],
-  "wr02-planning-mission-before-outline": [
-    "channel.user_message.start",
-    "planning_mission.derived.done",
-    "orchestrator.decide.done",
-    "toolbox.execute.done",
-    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "ca03-carry-registry-observability": [
@@ -3150,16 +3130,8 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseCompanionArtifactsEvidence(records);
   }
 
-  if (sliceId === "wr01-chapter-mission-before-prose") {
-    return findWr01ChapterMissionEvidence(records);
-  }
-
   if (sliceId === "wr01-chapter-mission-author-decision") {
     return findWr01ChapterMissionAuthorDecisionEvidence(records);
-  }
-
-  if (sliceId === "wr02-planning-mission-before-outline") {
-    return findWr02PlanningMissionEvidence(records);
   }
 
   if (sliceId === "ca03-carry-registry-observability") {
@@ -4419,16 +4391,8 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return p1ProseCompanionArtifactsBehavior(turnIds, records, evidence);
   }
 
-  if (sliceId === "wr01-chapter-mission-before-prose") {
-    return wr01ChapterMissionBehavior(turnIds, records, evidence, options);
-  }
-
   if (sliceId === "wr01-chapter-mission-author-decision") {
     return wr01ChapterMissionAuthorDecisionBehavior(turnIds, records, evidence);
-  }
-
-  if (sliceId === "wr02-planning-mission-before-outline") {
-    return wr02PlanningMissionBehavior(turnIds, records, evidence, options);
   }
 
   if (sliceId === "ca03-carry-registry-observability") {
@@ -6304,132 +6268,6 @@ function p1ProseCompanionArtifactsBehavior(turnIds, records, evidence) {
   };
 }
 
-function findWr01ChapterMissionEvidence(records) {
-  const sliceId = "wr01-chapter-mission-before-prose";
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.profile_ref === "prose_drafting_with_quality_v1" &&
-      record.tool_name === "prose_writing" &&
-      typeof record.mission_ref === "string" &&
-      record.mission_ref.startsWith("mission:") &&
-      record.plan_mission_before_prose === true &&
-      record.mission_narrative_visible === true &&
-      record.mission_event_source_bound === true &&
-      record.basis_refs_within_materials === true &&
-      record.unbound_basis_excluded === true &&
-      record.brief_source_has_mission === true &&
-      record.brief_mission_ref_matches === true &&
-      record.trace_mission_ref_matches === true &&
-      record.draft_pending === true &&
-      record.no_write === true &&
-      record.no_adoption === true,
-  );
-  if (!uiState) return null;
-
-  const missionRecord = records.find(
-    (record) =>
-      record.event === "chapter_mission.derived.done" &&
-      record.run_id === uiState.run_id &&
-      record.mission_ref === uiState.mission_ref &&
-      Array.isArray(record.basis_refs) &&
-      record.basis_refs.length >= 1 &&
-      record.basis_refs.every((ref) =>
-        /^(plan|ledger|skeleton|roster|chapter_summary):/.test(String(ref)),
-      ) &&
-      !record.basis_refs.some((ref) => String(ref).endsWith("foreshadow_unlisted")) &&
-      Number(record.input_ref_count ?? 0) >= record.basis_refs.length,
-  );
-  if (!missionRecord) return null;
-
-  const briefRecord = records.find(
-    (record) =>
-      record.event === "prose_execution_brief.built.done" &&
-      record.turn_id === uiState.final_turn_id &&
-      (record.brief_source ?? []).includes("chapter_mission") &&
-      record.chapter_mission_ref === uiState.mission_ref,
-  );
-  if (!briefRecord) return null;
-
-  const generatedByTool = records.some(
-    (record) =>
-      record.event === "toolbox.execute.done" &&
-      record.tool_name === "prose_writing" &&
-      record.tool_outcome === "succeeded",
-  );
-  if (!generatedByTool) return null;
-
-  return {
-    slice_id: sliceId,
-    turn_id: uiState.final_turn_id,
-    turn_ids: [uiState.parent_turn_id, uiState.mission_turn_id, uiState.final_turn_id].filter(
-      Boolean,
-    ),
-    parent_turn_id: uiState.parent_turn_id,
-    mission_turn_id: uiState.mission_turn_id,
-    final_turn_id: uiState.final_turn_id,
-    run_id: uiState.run_id,
-    profile_ref: uiState.profile_ref,
-    mission_ref: uiState.mission_ref,
-    basis_refs: missionRecord.basis_refs.map(String),
-    dropped_unbound_count: Number(missionRecord.dropped_unbound_count ?? 0),
-    input_ref_count: Number(missionRecord.input_ref_count ?? 0),
-    brief_source: briefRecord.brief_source ?? [],
-    key_events: keyEventsForSlice(sliceId),
-  };
-}
-
-function wr01ChapterMissionBehavior(turnIds, records, evidence, options = {}) {
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "wr01-chapter-mission-before-prose" &&
-      record.run_id === evidence.run_id,
-  );
-  if (!uiState) return null;
-  if (uiState.plan_mission_before_prose !== true) return null;
-  if (uiState.mission_narrative_visible !== true || uiState.mission_event_source_bound !== true) {
-    return null;
-  }
-  if (uiState.basis_refs_within_materials !== true || uiState.unbound_basis_excluded !== true) {
-    return null;
-  }
-  if (uiState.brief_source_has_mission !== true || uiState.brief_mission_ref_matches !== true) {
-    return null;
-  }
-  if (uiState.trace_mission_ref_matches !== true) return null;
-  if (uiState.draft_pending !== true || uiState.no_write !== true || uiState.no_adoption !== true) {
-    return null;
-  }
-  // 确定性替身刻意多给一条越界依据：app 侧绑定过滤必须真的丢掉它（I-M1 的可观测证据）。
-  if (options.provider !== "lmstudio" && Number(evidence.dropped_unbound_count ?? 0) < 1) {
-    return null;
-  }
-
-  return {
-    slice_id: "wr01-chapter-mission-before-prose",
-    behavior: "model_derived_chapter_mission_before_prose_writing_with_bound_basis_and_no_write",
-    turn_ids: turnIds,
-    run_id: evidence.run_id,
-    profile_ref: evidence.profile_ref,
-    mission_ref: evidence.mission_ref,
-    basis_refs: evidence.basis_refs,
-    dropped_unbound_count: evidence.dropped_unbound_count,
-    assertions: [
-      "real_workbench_prose_request_reached_the_bounded_prose_profile",
-      "model_plan_scheduled_chapter_mission_before_prose_writing",
-      "mission_step_selected_materials_and_listed_refs_mechanically",
-      "mission_basis_refs_stayed_inside_selected_materials",
-      "out_of_material_basis_was_dropped_by_binding_filter",
-      "mission_narrative_was_source_bound_and_visible_in_reasoning_area",
-      "execution_brief_sourced_from_chapter_mission_with_matching_ref",
-      "turn_result_trace_carried_chapter_mission_ref",
-      "prose_draft_remained_tentative_without_production_write",
-    ],
-  };
-}
-
 function findWr01ChapterMissionAuthorDecisionEvidence(records) {
   const sliceId = "wr01-chapter-mission-author-decision";
   const uiState = records.find(
@@ -6935,117 +6773,6 @@ function d6PurposeModelRoutingBehavior(turnIds, records, evidence) {
       "unrouted_purpose_calls_kept_the_global_model",
       "per_purpose_settings_section_visible_with_follow_global_default",
       "no_production_write_before_author_action",
-    ],
-  };
-}
-
-function findWr02PlanningMissionEvidence(records) {
-  const sliceId = "wr02-planning-mission-before-outline";
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.profile_ref === "plot_outline_with_context_v1" &&
-      record.tool_name === "plot_outline" &&
-      typeof record.mission_ref === "string" &&
-      record.mission_ref.startsWith("mission:") &&
-      record.mission_narrative_visible === true &&
-      record.mission_event_source_bound === true &&
-      record.basis_refs_within_materials === true &&
-      record.unbound_basis_excluded === true &&
-      record.trace_mission_ref_matches === true &&
-      record.outline_pending === true &&
-      record.no_write === true &&
-      record.no_adoption === true,
-  );
-  if (!uiState) return null;
-
-  const missionRecord = records.find(
-    (record) =>
-      record.event === "planning_mission.derived.done" &&
-      record.run_id === uiState.run_id &&
-      record.mission_ref === uiState.mission_ref &&
-      Array.isArray(record.basis_refs) &&
-      record.basis_refs.length >= 1 &&
-      record.basis_refs.every((ref) =>
-        /^(plan|ledger|skeleton|roster|chapter_summary):/.test(String(ref)),
-      ) &&
-      !record.basis_refs.some((ref) => String(ref).endsWith("foreshadow_unlisted")) &&
-      Number(record.input_ref_count ?? 0) >= record.basis_refs.length,
-  );
-  if (!missionRecord) return null;
-
-  const generatedByTool = records.some(
-    (record) =>
-      record.event === "toolbox.execute.done" &&
-      record.tool_name === "plot_outline" &&
-      record.tool_outcome === "succeeded",
-  );
-  if (!generatedByTool) return null;
-
-  return {
-    slice_id: sliceId,
-    turn_id: uiState.final_turn_id,
-    turn_ids: [uiState.parent_turn_id, uiState.mission_turn_id, uiState.final_turn_id].filter(
-      Boolean,
-    ),
-    parent_turn_id: uiState.parent_turn_id,
-    mission_turn_id: uiState.mission_turn_id,
-    final_turn_id: uiState.final_turn_id,
-    run_id: uiState.run_id,
-    profile_ref: uiState.profile_ref,
-    mission_ref: uiState.mission_ref,
-    basis_refs: missionRecord.basis_refs.map(String),
-    dropped_unbound_count: Number(missionRecord.dropped_unbound_count ?? 0),
-    input_ref_count: Number(missionRecord.input_ref_count ?? 0),
-    key_events: keyEventsForSlice(sliceId),
-  };
-}
-
-function wr02PlanningMissionBehavior(turnIds, records, evidence, options = {}) {
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "wr02-planning-mission-before-outline" &&
-      record.run_id === evidence.run_id,
-  );
-  if (!uiState) return null;
-  if (uiState.mission_narrative_visible !== true || uiState.mission_event_source_bound !== true) {
-    return null;
-  }
-  if (uiState.basis_refs_within_materials !== true || uiState.unbound_basis_excluded !== true) {
-    return null;
-  }
-  if (uiState.trace_mission_ref_matches !== true) return null;
-  if (
-    uiState.outline_pending !== true ||
-    uiState.no_write !== true ||
-    uiState.no_adoption !== true
-  ) {
-    return null;
-  }
-  if (options.provider !== "lmstudio" && Number(evidence.dropped_unbound_count ?? 0) < 1) {
-    return null;
-  }
-
-  return {
-    slice_id: "wr02-planning-mission-before-outline",
-    behavior: "model_derived_planning_mission_before_plot_outline_with_bound_basis_and_no_write",
-    turn_ids: turnIds,
-    run_id: evidence.run_id,
-    profile_ref: evidence.profile_ref,
-    mission_ref: evidence.mission_ref,
-    basis_refs: evidence.basis_refs,
-    dropped_unbound_count: evidence.dropped_unbound_count,
-    assertions: [
-      "real_workbench_planning_request_reached_the_bounded_outline_profile",
-      "mechanical_step_order_ran_planning_mission_before_plot_outline",
-      "mission_step_selected_materials_and_listed_refs_mechanically",
-      "mission_basis_refs_stayed_inside_selected_materials",
-      "out_of_material_basis_was_dropped_by_binding_filter",
-      "mission_narrative_was_source_bound_and_visible_in_reasoning_area",
-      "turn_result_trace_carried_planning_mission_ref_and_statement",
-      "outline_draft_remained_tentative_without_production_write",
     ],
   };
 }

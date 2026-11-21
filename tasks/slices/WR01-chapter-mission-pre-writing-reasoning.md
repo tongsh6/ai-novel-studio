@@ -63,12 +63,13 @@
   坏结构重试、失败降级）；prose flow 测试（计划含 mission 步、writer prompt 含「本章使命」、
   事件带 author_narrative、D1 漏步 replan）；I1/I2/I3；真实 Tauri 场景
   `wr01-chapter-mission-before-prose`。
-- **Acceptance Driver**：`scripts/tauri_slice_verify.sh wr01-chapter-mission-before-prose`：
-  seed 三章计划 + 两章已采纳 + 一条带预期且超期的伏笔（复用 au14 seed 形态）→ 真实工作台
-  发「续写第三章」→ 推理区出现「本章使命」标签段且正文可见 → verifier 从 app-log 证
-  `chapter_mission.derived.done` 的依据 ref ⊆ 输入 ref、`prose_execution_brief.built.done`
-  的 `brief_source` 含 `chapter_mission`、writer 调用 prompt 含「本章使命」段、无写入。
-  产品代码零验收感知逻辑。
+- **Acceptance Driver（R06 现役入口）**：
+  `bash scripts/quality_accept.sh wr01-chapter-mission-before-prose --surface tauri --provider slice_verify`。
+  统一入口消费现场景登记并委派 `native_b71_batch`，外部 AX/CGEvent 驱动真实工作台；
+  seed 与作者请求由同一登记绑定。核对使命原响应、接收事件、设计态持久化、Writer 实际材料、
+  待采纳候选及历史/为什么恢复；确定性拒收→纠错和真实 Provider 预注册分别留证。
+  产品代码零验收感知逻辑。当前迁移与验收状态只见 [B87 §17](B87-model-interaction-request-projection.md#17-r06-开始范围与实施裁决2026-11-21)；
+  下文早期交付记录保留，不作为 R06 通过证明。
 - **Exploration**：本期使命不持久化（随 run 消失，用户拍板），非要素物化——**不适用**；
   若后续 CP 落 `chapters.plan_direction["chapter_mission"]`，须同批让 `chapter_read`
   渲染该键（探索面同步律）。

@@ -8,6 +8,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { isVisibleNode } from "./scenario_driver.mjs";
+import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
+import { missionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
+import { assistantCalls, sourceMissionEvents, sourceMissionNarrativeContext, validations } from "./authoring_revision_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { actionLabelsFor, locatePendingItem, locateScopedButton, writerArtifactMatch } from "./authoring_pending_evidence.mjs";
+import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import {
   all,
   assertAllChecks,
@@ -16,6 +24,7 @@ import {
   assertRecordFresh,
   frameBody,
   frameEvent,
+  frameOf,
   read,
   sha256,
   shaFile,
@@ -27,12 +36,13 @@ import { authorVisibleScenario, readConfig } from "./authoring_capture_evidence.
 import {
   bindNativeCalls,
   fingerprintUnchanged,
+  lastCompletedTurn,
   readR05Inputs,
   g2CandidateReport,
   g2PageReport,
   g2UsageReport,
 } from "./authoring_run_evidence.mjs";
-import { countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
+import { axTurnOutcome, countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
   requestFactsFromRecord,
@@ -45,8 +55,8 @@ import {
 } from "./live_run_wait.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
 import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
-import { r05GoalEvidence, r05VisibleEvidence } from "./authoring_r05_evidence.mjs";
-import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
+import { r05GoalEvidence, r05VisibleEvidence, r05ReplyEdgeVisible, renderedNarrativeNodes } from "./authoring_r05_evidence.mjs";
+import { compareAuthoringCanonSnapshots, compareSourceDesignSnapshots } from "./authoring_canon_evidence.mjs";
 
 export const LIVE_CHECKS_SCHEMA = "b71-live-checks/v1";
 export const LIVE_CHECKPOINTS = Object.freeze(["start", "final"]);
@@ -688,6 +698,16 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
     readingAfterText: visibleTextIfExists(dir, "03-reading-after"),
   };
   const visible = mode === "read_only" ? g3VisibleEvidence(evidenceInput) : g2VisibleEvidence(evidenceInput);
+  // C9 同时覆盖原始 AX 接缝和全部实际截图文字，不按模型正文/固定文案筛掉失败。
+  const scan = capturedSurfaceScan(dir, common);
+  visible.captured_surface_scan = scan;
+  visible.observed.all_captured_surfaces_clean = scan.ok;
+  if (!scan.ok) {
+    visible.ok = false;
+    if (scan.captures.some((capture) => capture.missing.length > 0)) visible.failures.push("captured_surface_missing");
+    if (scan.captures.some((capture) => capture.read_errors.length > 0)) visible.failures.push("captured_surface_read_error");
+    if (scan.captures.some((capture) => capture.hits.length > 0)) visible.failures.push("captured_surface_internal_token_leak");
+  }
   const checks = {
     schema: LIVE_CHECKS_SCHEMA,
     scenario_id: config.scenario_id,
@@ -738,6 +758,230 @@ function verifyAuthorVisibleBatch(dir, config, mode) {
   assert(visible.ok, `B82 ${config.scenario_id} 作者可见证据未成立: ${visible.failures.join(", ")}`);
   console.log(`B82 ${config.scenario_id} 作者可见判据通过`);
   return { checks, summary };
+}
+
+function capturedSurfaceScan(dir, common) {
+  const checks = common.ui.screenshots.map((file) => {
+    const name = file.replace(/\.jpg$/u, "");
+    const texts = {}, missing = [], readErrors = [];
+    for (const [field, suffix] of [["axText", ".ax.txt"], ["visibleText", ".text.txt"]]) {
+      const evidenceFile = name + suffix;
+      try {
+        texts[field] = fs.readFileSync(path.join(dir, evidenceFile), "utf8");
+      } catch (error) {
+        if (error.code === "ENOENT") missing.push(evidenceFile);
+        else readErrors.push({ file: evidenceFile, code: error.code ?? "unknown" });
+      }
+    }
+    const scan = checkAuthorVisibleTexts(texts);
+    return {
+      capture: name, ...scan, missing, read_errors: readErrors,
+      ok: missing.length === 0 && readErrors.length === 0 && scan.ok,
+    };
+  });
+  return { ok: checks.every((check) => check.ok), captures: checks };
+}
+
+function missionViewChecks(dir, config, common, driver, context, baselineAuthorCount) {
+  const options = { ...context, message: config.message, baselineAuthorCount };
+  const first = renderedNarrativeNodes(driver.mission?.initial_views?.[0]?.nodes ?? [], options);
+  const count = first.matches.length, result = {};
+  for (const phase of ["initial", "restored"]) {
+    const views = driver.mission?.[phase + "_views"];
+    result[phase] = first.ok && count > 0 && Array.isArray(views) && views.length === count * 2 &&
+      Array.from({ length: count }, (_, index) => index).every(index =>
+        ["start", "end"].every(edge => {
+          const matches = views.filter(view => view.unit === index && view.edge === edge);
+          if (matches.length !== 1 || matches[0].capture !== `mission-${phase}-${index + 1}-${edge}`) return false;
+          const view = matches[0];
+          assertCapturedNodes(dir, view.capture, view.nodes, driver, common);
+          const report = renderedNarrativeNodes(view.nodes, options);
+          const work = view.nodes.filter(node => node.role === "AXPopUpButton" && node.desc === "作品");
+          return report.ok && report.matches.length === count && work.length === 1 &&
+            work[0].title === config.author_visible_target.work_title &&
+            axTurnOutcome(view.nodes, options).kind === "completed" &&
+            r05ReplyEdgeVisible(view.nodes, report.matches[index], edge);
+        }));
+  }
+  return result;
+}
+function missionCandidateViews(dir, common, driver, artifact, pending) {
+  const items = artifact?.payload?.items ?? [];
+  const knownItems = pending.flatMap(entry => entry.payload?.items ?? [])
+    .map(item => ({ itemTitle: item.title, itemBody: item.body }));
+  const label = actionLabelsFor(artifact?.artifact_type).accept;
+  return ["candidate_views", "restored_candidate_views"].every(key => {
+    const views = driver.mission?.[key];
+    if (!Array.isArray(views) || items.length === 0 || views.length !== items.length * 2) return false;
+    return items.every((item, index) => {
+      const prefix = key === "candidate_views" ? "mission-candidate" : "mission-restored-candidate";
+      return ["entry", "action"].every(kind => {
+        const matches = views.filter(view => view.capture === `${prefix}-${index + 1}-${kind}`);
+        if (matches.length !== 1) return false;
+        const view = matches[0];
+        assertCapturedNodes(dir, view.capture, view.nodes, driver, common);
+        const options = { itemTitle: item.title, itemBody: item.body, knownItems, label };
+        const located = kind === "entry" ? locatePendingItem(view.nodes, options) : locateScopedButton(view.nodes, options);
+        if (!located.ok) return false;
+        const node = kind === "entry" ? view.nodes.find(node =>
+          node.path?.startsWith(located.scope.path + "/") && [node.title, node.value, node.desc].includes(item.title))
+          : located.button;
+        return Boolean(node && isVisibleNode(node));
+      });
+    });
+  });
+}
+
+function missionNativeExchange(history, calls, mission, kind, correction) {
+  const name = kind === "planning" ? "planning_mission" : "chapter_mission";
+  const attempts = assistantCalls(history.transcript).filter(call => call.name === name);
+  const results = validations(history.transcript);
+  const accepted = attempts.filter(call => call.pcall === mission?.provider_call_ref);
+  const passed = accepted.length === 1 && results.filter(result =>
+    result.call_id === accepted[0].call_id && result.status === "passed" &&
+    result.messageIndex > accepted[0].messageIndex).length === 1;
+  const bounded = attempts.length >= 1 && attempts.length <= 2;
+  if (!correction) return { ok: Boolean(passed && bounded), attempts: attempts.length };
+  const first = attempts[0], second = attempts[1];
+  const rejected = first && results.find(result => result.call_id === first.call_id && result.status === "failed");
+  const record = second && calls.records.find(record =>
+    record.provider_call_ref === second.pcall && record.provider_run_ref === second.prun);
+  const bindings = record ? canonicalRequestBindingsForProviderCall(record, { messages: history.sessionMessages }) : null;
+  const inheritedFailure = bindings?.some(binding => binding.canonical.role === "tool" &&
+    binding.canonical.blocks?.some(block => block.type === "validation_result" &&
+      block.call_id === first?.call_id && block.status === "failed"));
+  return { ok: Boolean(passed && attempts.length === 2 && rejected &&
+    rejected.messageIndex < second.messageIndex && accepted[0] === second && inheritedFailure),
+    attempts: attempts.length, rejected_call_id: first?.call_id ?? null, inherited_failure: Boolean(inheritedFailure) };
+}
+
+export function missionWriterMaterial(history, calls, mission, kind, writer, targetChapterRef = null) {
+  const candidates = assistantCalls(history.transcript).filter(call => call.pcall === writer.provider_call_ref &&
+    call.name === "submit_tentative_artifact");
+  if (candidates.length !== 1) return { ok: false };
+  const call = candidates[0];
+  const record = calls.records.find(record => record.provider_call_ref === call.pcall && record.provider_run_ref === call.prun);
+  const content = scopeForProviderCall(record, { messages: history.sessionMessages })?.scopeContent;
+  const operation = content?.operation;
+  const expectedCapability = kind === "planning" ? "plot_outline" : "prose_writing";
+  const material = operation?.[kind === "planning" ? "planning_mission" : "execution_brief"];
+  const targetMatches = content?.work_id === history.record.work_id &&
+    (kind === "planning" || (nonBlank(targetChapterRef) && content?.authoring_task?.scope?.target_chapter_ref === targetChapterRef));
+  const missionCalls = assistantCalls(history.transcript).filter(item => item.pcall === mission?.provider_call_ref &&
+    item.name === (kind === "planning" ? "planning_mission" : "chapter_mission"));
+  const accepted = missionCalls[0];
+  const passed = validations(history.transcript).filter(result => result.call_id === accepted?.call_id && result.status === "passed");
+  const bindings = canonicalRequestBindingsForProviderCall(record, { messages: history.sessionMessages });
+  const inheritedAcceptance = bindings?.some(binding => binding.canonical.role === "tool" &&
+    binding.canonical.blocks?.some(block => block.type === "validation_result" &&
+      block.call_id === accepted?.call_id && block.status === "passed"));
+  const acceptedBeforeWriter = missionCalls.length === 1 && passed.length === 1 &&
+    accepted.messageIndex < passed[0].messageIndex && passed[0].messageIndex < call.messageIndex &&
+    Boolean(inheritedAcceptance);
+  const text = [mission?.statement, ...(mission?.must_advance ?? []).map(item => item.text),
+    ...(mission?.must_avoid ?? []).map(item => item.text)];
+  return { ok: targetMatches && acceptedBeforeWriter && operation?.role === "creative_execution" &&
+    operation.capability === expectedCapability && typeof material === "string" &&
+    text.every(value => nonBlank(value) && material.includes(value)),
+    target_matches: targetMatches, accepted_before_writer: acceptedBeforeWriter,
+    provider_call_ref: call.pcall, provider_run_ref: call.prun,
+    material_field: kind === "planning" ? "planning_mission" : "execution_brief" };
+}
+// WR01/WR02 的实际消费者共用原 native/live owner；无需再造 runner 或让空调用集合代签。
+export function verifyMissionBatch(dir) {
+  const config = readConfig(dir);
+  assert.equal(config.journey, "mission", "使命 verifier 必须来自已登记 mission journey");
+  assert(["chapter", "planning"].includes(config.mission_kind), "缺少已登记使命种类");
+  const common = assertCommonEvidence(dir, { sliceId: config.slice_id, minScreenshots: 7,
+    minimumWaits: 8, requiredKinds: ["input", "turn", "maintenance", "restore"] });
+  const driver = read(dir, "native-b71-driver-log.json");
+  assert.equal(common.ready.provider, config.provider);
+  assert.equal(driver.provider, config.provider);
+  const evidence = assertProviderAndWire(dir, { expectProviders: [config.provider] });
+  const workId = frozenWorkId(dir, config.author_visible_target.work_title);
+  const history = readBatchAuthoringHistory(dir, { wire: evidence.wire, messageText: config.message, workId });
+  const calls = config.provider === "splash" ? reconcileNativeCalls(dir, config, history, evidence.llmRecords) :
+    bindNativeCalls(dir, history.transcript.run, history, evidence.llmRecords);
+  const sent = evidence.userMessages.find(frame => frameBody(frame)?.text === config.message);
+  const identity = { runId: history.record.id, turnId: history.record.parent_turn_ref, workId,
+    sessionId: history.record.session_id, topic: frameOf(sent)[2], since: sent.at };
+  const body = lastCompletedTurn(evidence.wire, identity, "使命消费者缺少同 run 完成结果");
+  const events = sourceMissionEvents(evidence.wire, identity).map(frameBody);
+  const start = canonSnapshotOf(read(dir, "b71-start.json")), final = canonSnapshotOf(read(dir, "b71-final.json"));
+  const planning = config.mission_kind === "planning";
+  const targets = planning ? [workId] : Object.keys(start.chapters).filter(id =>
+    start.chapters[id].work_id === workId && start.chapters[id].title === config.author_visible_target.chapter_title);
+  assert.equal(targets.length, 1, "使命目标必须唯一命中冻结作品/章节");
+  const target = targets[0];
+  const beforeEntity = planning ? start.works?.[target] : start.chapters[target];
+  const afterEntity = planning ? final.works?.[target] : final.chapters[target];
+  const mission = afterEntity?.mission;
+  const source = missionSourceChecks({
+    missionKind: config.mission_kind, requireDerivation: true,
+    ...(planning ? { startWork: beforeEntity, beforeWork: afterEntity, targetWorkId: target,
+      artifactTargetWork: config.author_visible_target.work_title } :
+      { startChapter: beforeEntity, beforeChapter: afterEntity, targetChapterId: target,
+        targetChapterRef: `chapter:${target}`, artifactTargetChapter: config.author_visible_target.chapter_title }),
+    sourceRunId: history.record.id, sourceWorkId: workId, sourceRunRecord: history.record,
+    transcript: history.transcript, sessionMessages: history.sessionMessages, records: calls.records,
+    joinedRefs: calls.refs, missionEvents: events, window: { startAt: start.at, beforeAt: final.at },
+  });
+  const canon = compareSourceDesignSnapshots(start, final,
+    planning ? { targetWorkId: workId } : { targetChapterId: target });
+  const persisted = withDb(dir, db => all(db,
+    "SELECT payload FROM agent_events WHERE run_id = ? AND event_type = 'mission_derived'", [history.record.id]))
+    .map(row => JSON.parse(row.payload));
+  const pending = body.adoption_state?.pending ?? [];
+  const artifacts = pending.filter(artifact => artifact.artifact_type === (planning ? "outline_draft" : "prose_fragment") &&
+    artifact.adoption_status === "TENTATIVE");
+  assert.equal(artifacts.length, 1, "使命消费者必须真实产生对应 tentative 候选");
+  const writer = writerArtifactMatch({ artifact: artifacts[0], records: calls.records });
+  const material = missionWriterMaterial(history, calls, mission, config.mission_kind, writer,
+    planning ? null : `chapter:${target}`);
+  const exchange = missionNativeExchange(history, calls, mission, config.mission_kind,
+    config.provider === "slice_verify" && config.mission_correction === "reject_then_valid");
+  const observation = visibleTurnObservation(dir, config, common);
+  const observedTimeline = read(dir, "native-b71-turn-observation.json");
+  const rejectionHidden = config.provider !== "slice_verify" ||
+    (observedTimeline.rejected_narrative_probe === "R06MISSIONREJECTED" &&
+      observedTimeline.changes.some(change => change.rejected_narrative_visible === false) &&
+      observedTimeline.changes.every(change => change.rejected_narrative_visible !== true));
+  const context = sourceMissionNarrativeContext(evidence.wire, { ...identity, missionEventId: events[0]?.event_id });
+  const views = missionViewChecks(dir, config, common, driver, context, observation.baselineAuthorCount);
+  const scan = capturedSurfaceScan(dir, common);
+  const interval = driver.mission?.read_only;
+  const readOnly = interval && isDeepStrictEqual(interval.before, interval.after) &&
+    providerFreeInterval({ appRecords: evidence.appRecords, llmRecords: evidence.llmRecords,
+      start: interval.start, end: interval.end });
+  const checks = {
+    one_author_send: evidence.userMessages.length === 1 && frameBody(evidence.userMessages[0])?.text === config.message,
+    native_calls: Object.values(calls.checks).every(value => value === true),
+    mission_source_bound: Object.values(source.checks).every(value => value === true),
+    mission_persisted_from_same_event: events.length === 1 && persisted.length === 1 &&
+      isDeepStrictEqual(events[0].payload, persisted[0]),
+    mission_exchange_bounded_and_corrected: exchange.ok,
+    rejected_narrative_not_visible: rejectionHidden,
+    mission_reaches_actual_writer: writer.ok && material.ok,
+    mission_design_only: Object.values(canon.checks).every(value => value === true),
+    no_adoption: body.truthfulness?.artifact_adopted === false && body.truthfulness?.production_write_performed === false,
+    narrative_visible_and_restored: views.initial && views.restored,
+    candidate_visible_and_restored: missionCandidateViews(dir, common, driver, artifacts[0], pending),
+    why_and_restore_read_only: Boolean(driver.mission?.why?.opened && !driver.mission.why.close_error && readOnly),
+    author_visible_no_internal_tokens: scan.ok,
+    production_source_unchanged: fingerprintUnchanged(dir),
+  };
+  const report = { ok: Object.values(checks).every(value => value === true), scenario_id: config.scenario_id,
+    checks, source, canon, exchange, writer_material: material, views, scan,
+    semantic_review: "pending_independent_review_of_raw_narrative_and_captured_page",
+    not_signed: ["R08_literary_quality_and_capability_exam"] };
+  fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(report, null, 2));
+  const summary = writeNativeSummary(dir, { sliceId: config.slice_id, provider: config.provider,
+    driver: common.ui.driver, scope: common.ui.scope, checks, measured: { mission: source.measured,
+      provider_calls: calls.measured, screenshots: common.ui.screenshots, wait_ledger: common.ledger },
+    status: report.ok ? "pass" : "fail", extra: { scenario_id: config.scenario_id,
+      semantic_review: report.semantic_review, not_signed: report.not_signed } });
+  assert(report.ok, `使命原生证据未成立: ${JSON.stringify(checks)}`);
+  return { checks: report, summary };
 }
 
 export function verifyLiveBatch(dir) {

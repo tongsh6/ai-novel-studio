@@ -763,6 +763,34 @@ function compareSuccessBody(source, message, body, refs, add, nativeIdState) {
   compareAssistant(message, body, refs, add, nativeIdState);
 }
 
+// 窄纯入口：blockIndex 是 canonical blocks 下标。调用者仍负责唯一 record/run
+// 与作品作用域；此处只复用显式来源、整条 assistant 的原生 ID/参数/调用数比较。
+// SSE tool-only 没记录正文，contentObserved=false，绝不把缺失当作空正文证据。
+export function providerResponseForCanonicalCall(record, message, blockIndex) {
+  if (!isRecord(record) || message?.role !== "assistant" || message.provenance !== "model" ||
+      !Number.isInteger(blockIndex) || blockIndex < 0 ||
+      record.provider_call_ref !== message.provider_call_ref ||
+      record.provider_run_ref !== message.provider_run_ref ||
+      !nonBlank(message.provider_call_ref) || !nonBlank(message.provider_run_ref)) return null;
+  const block = list(message.blocks)[blockIndex];
+  if (block?.type !== "tool_call") return null;
+  if (!(record.response?.status === "ok" || isHttpSuccessStatus(record.response?.status))) return null;
+  const classified = classifyRecord(record);
+  if (classified.failure || classified.source === RECORD_SOURCE.PERSISTED_STREAM_ERROR) return null;
+  const failures = [];
+  const body = record.response.body;
+  compareSuccessBody(classified.source, message, body, {}, (...failure) => failures.push(failure),
+    { notProvided: 0 });
+  if (failures.length !== 0) return null;
+  const callIndex = message.blocks.slice(0, blockIndex).filter(item => item?.type === "tool_call").length;
+  const call = body.tool_calls[callIndex];
+  const parsed = argumentsFact(call);
+  if (parsed.failure) return null;
+  return { call, arguments: parsed.fact.parsed, toolCallCount: body.tool_calls.length,
+    source: classified.source, contentObserved: classified.source === RECORD_SOURCE.FIXTURE,
+    ...(classified.source === RECORD_SOURCE.FIXTURE ? { content: body.content ?? "" } : {}) };
+}
+
 function checkSuccessPair({ assistantMessages, row, record, source, add, nativeIdState }) {
   const refs = refsOfRun(row);
   if (row.status !== "completed") {

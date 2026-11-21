@@ -56,6 +56,49 @@ function match(reply, body, options = {}) {
   return r05.r05ReplyMatch({ reply, nodes: page(body), message: MESSAGE, ...options });
 }
 
+
+function processPage(values) {
+  const nodes = page(group(20, "候选已就绪。"));
+  nodes.find(node => node.path === ROOT + "/80/0").path = ROOT + "/80/90";
+  for (const [index, value] of values.entries()) {
+    nodes.push({ path: ROOT + "/80/" + index, role: "AXGroup" },
+      { path: ROOT + "/80/" + index + "/0", role: "AXStaticText", value, frame: [...FRAME] });
+  }
+  return nodes;
+}
+test("R06 完整使命复用 Markdown 单元匹配，原叙述按当前过程组连续映射", () => {
+  const narrative = " \n**先核对已有计划。**\n\n本章只推进这条线索Ω。\r\n";
+  const options = { message: MESSAGE, targetIndex: 2,
+    narratives: ["这段已在主回复交付。", "先读材料。", narrative, "随后产生候选。"] };
+  const nodes = processPage(["先读材料。", "先核对已有计划。", "本章只推进这条线索Ω。", "随后产生候选。"]);
+  const result = r05.renderedNarrativeNodes(nodes, options);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.matches.length, 2);
+  assert.deepEqual(result.matches.map(match => match.first.path), [ROOT + "/80/1/0", ROOT + "/80/2/0"]);
+  assert.equal(options.narratives[2], narrative);
+  assert.equal(r05.r05ReplyEdgeVisible(nodes, result.matches[0], "start"), true);
+});
+test("R06 使命页面缺段、夹段、额外无来源段、子串和另一过程组均拒绝", () => {
+  const options = { message: MESSAGE, targetIndex: 1,
+    narratives: ["先读材料。", "**先核对已有计划。**\n\n本章只推进这条线索Ω。", "随后产生候选。"] };
+  const original = processPage(["先读材料。", "先核对已有计划。", "本章只推进这条线索Ω。", "随后产生候选。"]);
+  for (const change of [
+    nodes => nodes.filter(node => node.path !== ROOT + "/80/2" && !node.path.startsWith(ROOT + "/80/2/")),
+    nodes => { nodes.find(node => node.path === ROOT + "/80/1/0").value += "额外改写"; return nodes; },
+    nodes => { nodes.push({ path: ROOT + "/80/1/1", role: "AXGroup" },
+      { path: ROOT + "/80/1/1/0", role: "AXStaticText", value: "夹入的段落", frame: [...FRAME] }); return nodes; },
+    nodes => { nodes.push({ path: ROOT + "/80/4", role: "AXGroup" },
+      { path: ROOT + "/80/4/0", role: "AXStaticText", value: "额外段落", frame: [...FRAME] }); return nodes; },
+    nodes => { nodes.push({ path: ROOT + "/80/99", role: "AXGroup" },
+      { path: ROOT + "/80/99/0", role: "AXStaticText", value: "状态后的额外段落", frame: [...FRAME] }); return nodes; },
+    nodes => { const a = nodes.find(node => node.path === ROOT + "/80/1/0");
+      const b = nodes.find(node => node.path === ROOT + "/80/2/0"); [a.value, b.value] = [b.value, a.value]; return nodes; },
+    nodes => { nodes.find(node => node.path === ROOT + "/80").title = "另一个区域"; return nodes; },
+    nodes => { nodes.push({ path: ROOT + "/81", role: "AXGroup", title: "本轮创作过程" }); return nodes; },
+  ]) assert.equal(r05.renderedNarrativeNodes(change(structuredClone(original)), options).ok, false);
+  assert.equal(r05.renderedNarrativeNodes(original, { ...options, baselineAuthorCount: 1 }).ok, false);
+});
+
 test("R05 独立业务红例：完整 Markdown 回复经标题加粗列表渲染后应可签收", () => {
   const reply = "## 结论\n\n**胜利的代价太轻。**\n\n1. 守卫三招落败。\n2. 主角没有损失。\n\n建议让选择留下后果。";
   const body = [

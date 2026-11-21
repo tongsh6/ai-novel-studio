@@ -19,9 +19,10 @@ import { authorBoundary, axTurnOutcome, countAxAuthorMessages, readingPageFailur
   withinAuthorBoundary } from "./lib/native_ui/authoring_g2_evidence.mjs";
 import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
+import { sourceMissionEvents, sourceMissionNarrativeContext } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { capturePendingItemViews, isScrollUnsupported } from "./lib/native_ui/authoring_pending_driver.mjs";
 import { actionLabelsFor } from "./lib/native_ui/authoring_pending_evidence.mjs";
-import { clippedViewport, r05ReplySurface, r05ReplyEdgeVisible } from "./lib/native_ui/authoring_r05_evidence.mjs";
+import { clippedViewport, r05ReplySurface, r05ReplyEdgeVisible, renderedNarrativeNodes } from "./lib/native_ui/authoring_r05_evidence.mjs";
 import {
   classifyTurnBody,
   summarizeModelBehavior,
@@ -51,30 +52,73 @@ const TURN_TIMEOUT_MS = Number(process.env.B71_LIVE_TURN_TIMEOUT_MS ?? 360_000);
 const INPUT_TIMEOUT_MS = Number(process.env.B71_LIVE_INPUT_TIMEOUT_MS ?? 120_000);
 const READY_TIMEOUT_MS = Number(process.env.B71_LIVE_READY_TIMEOUT_MS ?? 180_000);
 
-// R05 已观察终局之后只读同一次发送的 pending，作为滚动定位输入，不推进模型或采纳。
-async function captureR05Candidates(config) {
+// 终局后的只读定位共用同次作者/ACK/run，不用 DB 内容推进生成。
+function completedAuthorTurn(config) {
   const wire = harness.transport(), sent = sentUserMessages(wire, config.message);
-  if (sent.length !== 1) throw new Error("r05_visible_author_send_not_unique");
+  if (sent.length !== 1) throw new Error("visible_author_send_not_unique");
   const facts = turnFacts(wire, sent[0]), author = frameBody(sent[0]);
-  const body = lastCompletedTurn(wire, {
-    turnId: facts.turnId, runId: frameBody(facts.ack)?.response?.run_id,
-    topic: frameOf(sent[0])[2], workId: author.work_id, sessionId: author.session_id, since: sent[0].at,
-  }, "R05 可见终局缺少同次完成结果");
+  const identity = { turnId: facts.turnId, runId: frameBody(facts.ack)?.response?.run_id,
+    topic: frameOf(sent[0])[2], workId: author.work_id, sessionId: author.session_id, since: sent[0].at };
+  return { wire, identity, body: lastCompletedTurn(wire, identity, "可见终局缺少同次完成结果") };
+}
+
+async function capturePendingCandidates(config, { artifactType = "prose_fragment", prefix = "r05-candidate" } = {}) {
+  const { body } = completedAuthorTurn(config);
   const pending = Array.isArray(body.adoption_state?.pending) ? body.adoption_state.pending : [];
   const itemsOf = (artifact) => Array.isArray(artifact.payload?.items) ? artifact.payload.items : [];
   const knownItems = pending.flatMap(itemsOf).map((item) => ({ itemTitle: item.title, itemBody: item.body }));
-  const items = pending.filter((artifact) => artifact.artifact_type === "prose_fragment").flatMap(itemsOf);
-  if (items.length === 0) throw new Error("r05_visible_prose_candidate_missing");
+  const items = pending.filter((artifact) => artifact.artifact_type === artifactType).flatMap(itemsOf);
+  if (items.length === 0) throw new Error(`visible_candidate_missing:${artifactType}`);
   const views = [];
   for (const [index, item] of items.entries()) {
     views.push(...await capturePendingItemViews(harness, {
-      itemTitle: item.title, itemBody: item.body, knownItems, prefix: `r05-candidate-${index + 1}`,
-      buttonLabel: actionLabelsFor("prose_fragment").accept,
+      itemTitle: item.title, itemBody: item.body, knownItems, prefix: `${prefix}-${index + 1}`,
+      buttonLabel: actionLabelsFor(artifactType).accept,
     }));
   }
   return views;
 }
 
+async function captureMissionNarrative(config, context, baselineAuthorCount, phase) {
+  const options = { ...context, message: config.message, baselineAuthorCount };
+  const observed = await harness.pollAx((_text, nodes) => renderedNarrativeNodes(nodes, options).ok,
+    20_000, `mission:${phase}:complete`);
+  const count = renderedNarrativeNodes(observed.nodes, options).matches.length;
+  const views = [];
+  for (let index = 0; index < count; index += 1) {
+    const unitViews = await captureRenderedEdges(config, baselineAuthorCount, {
+      prefix: `mission-${phase}-${index + 1}`,
+      surfaceFor(nodes) {
+        const report = renderedNarrativeNodes(nodes, options);
+        return report.ok ? report.matches[index] ?? { ok: false, reason: "mission_unit_missing" } : report;
+      },
+    });
+    views.push(...unitViews.map(view => ({ ...view, unit: index })));
+  }
+  return views;
+}async function captureMissionJourney(config, baselineAuthorCount) {
+  const { wire, identity } = completedAuthorTurn(config);
+  const events = sourceMissionEvents(wire, identity).map(frameBody);
+  if (events.length !== 1 || typeof events[0].payload?.author_narrative !== "string") {
+    throw new Error("mission_derived_event_not_unique");
+  }
+  const context = sourceMissionNarrativeContext(wire, { ...identity, missionEventId: events[0].event_id });
+  const initialViews = await captureMissionNarrative(config, context, baselineAuthorCount, "initial");
+  const artifactType = config.mission_kind === "planning" ? "outline_draft" : "prose_fragment";
+  const candidateViews = await capturePendingCandidates(config, { artifactType, prefix: "mission-candidate" });
+  const readOnlyStart = harness.nowIso(), before = readProviderCounts();
+  const why = await observeWhy();
+  if (!why.opened || why.close_error) throw new Error("mission_why_not_observed");
+  await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
+  await harness.runStep("maintenance", "workbench_ready_restored", () =>
+    harness.rawWaitWorkbenchSettled("mission:restored", READY_TIMEOUT_MS));
+  await ensureWorkSelected(harness, config.author_visible_target.work_title, "mission:restored");
+  const restoredViews = await captureMissionNarrative(config, context, baselineAuthorCount, "restored");
+  const restoredCandidates = await capturePendingCandidates(config, { artifactType, prefix: "mission-restored-candidate" });
+  return { initial_views: initialViews, restored_views: restoredViews, candidate_views: candidateViews,
+    restored_candidate_views: restoredCandidates, why,
+    read_only: { start: readOnlyStart, end: harness.nowIso(), before, after: readProviderCounts() } };
+}
 // B82 G2/G3 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
 // 不读应用 DB、turn/run refs 或 wire 来推进；原始 wire/日志仍由外部代理采集供诊断。
 const excerptNode = (nodes, excerpt) =>
@@ -168,14 +212,14 @@ async function closeReadingPage(name) {
   });
 }
 
-async function captureR05ReplyViews(config, baselineAuthorCount) {
+async function captureRenderedEdges(config, baselineAuthorCount, { prefix, surfaceFor }) {
   const options = { message: config.message, baselineAuthorCount };
   const views = [];
   for (const edge of ["start", "end"]) {
-    const capture = `r05-reply-${edge}`;
+    const capture = `${prefix}-${edge}`;
     await harness.runStep("maintenance", capture, async () => {
       const before = harness.dumpNodes();
-      const surface = r05ReplySurface(before, options);
+      const surface = surfaceFor(before, options);
       if (!surface.ok || axTurnOutcome(before, options).kind !== "completed") {
         throw new Error(`${capture}:reply_not_delivered:${surface.reason}`);
       }
@@ -188,17 +232,14 @@ async function captureR05ReplyViews(config, baselineAuthorCount) {
           harness.log.push({ op: "reply_scroll_failed", edge, path: target.path,
             error: error.message, at: harness.nowIso() });
           if (!isScrollUnsupported(error)) throw error;
-          // 不支持 AX action 时仍可走现有原生滚轮；目标/权限错误已上抛。
         }
       }
-      // 滚动后重新按作者/助手归属选叶，不凭旧 path 或离屏 AX 内容签实际视口。
       await harness.pollAx((_text, nodes) => {
-        const current = r05ReplySurface(nodes, options);
+        const current = surfaceFor(nodes, options);
         if (!current.ok || axTurnOutcome(nodes, options).kind !== "completed") {
           throw new Error(`${capture}:reply_identity_changed`);
         }
         if (r05ReplyEdgeVisible(nodes, current, edge)) return true;
-        // AXScrollToVisible 不保证长单叶首/末对齐；仍在原预算内依据新鲜几何滚动。
         const leaf = edge === "start" ? current.first : current.last;
         const clip = clippedViewport(nodes, leaf), box = leaf.frame;
         if (!clip || !Array.isArray(box) || box.length !== 4 || !box.every(Number.isFinite)) {
@@ -218,7 +259,7 @@ async function captureR05ReplyViews(config, baselineAuthorCount) {
       }, 20_000, `${capture}:visible`);
       const nodes = harness.capture(capture, { allowFullScreenFallback: false });
       if (axTurnOutcome(nodes, options).kind !== "completed" ||
-          !r05ReplyEdgeVisible(nodes, r05ReplySurface(nodes, options), edge)) {
+          !r05ReplyEdgeVisible(nodes, surfaceFor(nodes, options), edge)) {
         throw new Error(`${capture}:captured_edge_not_visible`);
       }
       assertRecordFresh(dir, capture, harness.ready.ready_at);
@@ -227,7 +268,9 @@ async function captureR05ReplyViews(config, baselineAuthorCount) {
   }
   return views;
 }
-
+async function captureR05ReplyViews(config, baselineAuthorCount) {
+  return captureRenderedEdges(config, baselineAuthorCount, { prefix: "r05-reply", surfaceFor: r05ReplySurface });
+}
 async function waitAuthorMessageVisible(message, baselineAuthorCount) {
   return harness.pollAx(
     (text, nodes) => {
@@ -240,12 +283,18 @@ async function waitAuthorMessageVisible(message, baselineAuthorCount) {
   );
 }
 
-async function waitVisibleOutcome(message, { baselineAuthorCount, observation, candidateGrace = true }) {
+async function waitVisibleOutcome(message, { baselineAuthorCount, observation, candidateGrace = true, rejectedText = null }) {
   const terminal = new Set(["waiting", "failed", "completed", "capability_gap"]);
   const observe = (nodes, completed = false) => {
     const outcome = axTurnOutcome(nodes, { message, baselineAuthorCount });
-    observation.record(nodes, { data: { outcome }, change: { kind: outcome.kind } },
+    const rejectedVisible = rejectedText !== null && nodes.some(node => String(textOf(node)).includes(rejectedText));
+    const rejection = rejectedText === null ? {} : { rejected_narrative_visible: rejectedVisible };
+    observation.record(nodes, { data: { outcome, ...rejection }, change: { kind: outcome.kind, ...rejection } },
       { terminal: completed });
+    if (rejectedVisible) {
+      harness.capture("mission-rejected-visible", { allowFullScreenFallback: false });
+      throw new Error("rejected_mission_narrative_became_visible");
+    }
     return outcome;
   };
   try {
@@ -393,10 +442,15 @@ async function observeWhy() {
 async function run() {
   runEvidenceMode(evidence, "prepare", dir);
   const config = readConfig(dir);
-  if (config.journey !== "live") throw new Error(`live driver 只接受 journey=live，实测: ${config.journey}`);
-  if (!["strata", "splash"].includes(config.provider)) throw new Error(`live driver 未注册 provider: ${config.provider}`);
+  const mission = config.journey === "mission";
+  const rejectedText = mission && config.provider === "slice_verify" ? "R06MISSIONREJECTED" : null;
+  if (!mission && config.journey !== "live") throw new Error(`可见驱动未注册 journey: ${config.journey}`);
+  if (!(mission ? ["slice_verify", "splash"] : ["strata", "splash"]).includes(config.provider)) {
+    throw new Error(`可见驱动未注册 provider: ${config.provider}`);
+  }
   const strata = config.provider === "strata";
-  const model = config.preregistration?.model ?? config.target?.model ?? process.env.B71_STRATA_MODEL ?? "iq3_s";
+  const model = config.provider === "slice_verify" ? "slice_verify" :
+    config.preregistration?.model ?? config.target?.model ?? process.env.B71_STRATA_MODEL ?? "iq3_s";
   // b82-g2/b82-g3 新批次必须有冻结的作者可见目标；旧缺 visible_target 的批次只能读旧报告。
   const visibleMode = authorVisibleScenario(config.scenario_id);
   const authorVisible = visibleMode !== null;
@@ -429,7 +483,7 @@ async function run() {
     );
     harness.capture("01-workbench");
     // G2/G3 保持原页面路径；R05 的未采纳零写入需同批前后 Canon 快照。
-    if (!authorVisible || config.r05_goal) runEvidenceMode(evidence, "capture", dir, ["start"]);
+    if (!authorVisible || config.r05_goal || mission) runEvidenceMode(evidence, "capture", dir, ["start"]);
 
     const afterLaunch = strata ? await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
       ok: false,
@@ -438,7 +492,7 @@ async function run() {
     const launchSlot = strata ? strataSlotCheck(afterLaunch) : null;
     if (strata) harness.log.push({ op: "strata_after_launch", slot: launchSlot, at: harness.nowIso() });
 
-    if (authorVisible) {
+    if (authorVisible && !mission) {
       await captureReadingPage("02-reading-before", visibleTarget);
       await closeReadingPage("before");
     }
@@ -453,7 +507,8 @@ async function run() {
         file: "native-b71-turn-observation.json",
         meta: { schema: "native-turn-observation/v1", harness_run_ref: harness.target.run_ref,
           author_message: config.message, baseline_author_count: baselineAuthorCount,
-          baseline_capture: "before-input", baseline_nodes: baselineNodes },
+          baseline_capture: "before-input", baseline_nodes: baselineNodes,
+          ...(rejectedText ? { rejected_narrative_probe: rejectedText } : {}) },
       });
       // 唯一一次作者原话提交：只走可见输入/点击，等待仍由作者可见页面推进。
       await harness.runStep("input", "author_creation_request", () =>
@@ -464,7 +519,7 @@ async function run() {
         waitAuthorMessageVisible(config.message, baselineAuthorCount),
       );
       const outcome = await harness.runStep("turn", "author_visible_outcome", () =>
-        waitVisibleOutcome(config.message, { baselineAuthorCount, observation,
+        waitVisibleOutcome(config.message, { baselineAuthorCount, observation, rejectedText,
           candidateGrace: visibleMode === "candidate" && !config.r05_goal }),
       );
       // 先保留本次终局现场，再回阅读页核对已采纳正文未变；等待/失败也照实截证。
@@ -475,11 +530,14 @@ async function run() {
       observation.finalize({ capture: "final", terminal: true });
       assertRecordFresh(dir, "final", harness.ready.ready_at);
       const replyViews = config.r05_goal ? await captureR05ReplyViews(config, baselineAuthorCount) : [];
-      await captureReadingPage("03-reading-after", visibleTarget);
-      await closeReadingPage("after");
+      if (!mission) {
+        await captureReadingPage("03-reading-after", visibleTarget);
+        await closeReadingPage("after");
+      }
       const candidateViews = config.r05_goal && visibleMode === "candidate"
-        ? await captureR05Candidates(config) : [];
-      if (config.r05_goal) runEvidenceMode(evidence, "capture", dir, ["final"]);
+        ? await capturePendingCandidates(config) : [];
+      const missionViews = mission ? await captureMissionJourney(config, baselineAuthorCount) : null;
+      if (config.r05_goal || mission) runEvidenceMode(evidence, "capture", dir, ["final"]);
       driverLog = {
         slice_id: config.slice_id,
         provider: config.provider,
@@ -488,6 +546,7 @@ async function run() {
         author_visible_outcome: { kind: finalOutcome.kind, waited_kind: outcome.kind,
           observed_at: harness.nowIso() },
         ...(config.r05_goal ? { r05_candidate_views: candidateViews, r05_reply_views: replyViews } : {}),
+        ...(missionViews ? { mission: missionViews } : {}),
         ...(strata ? { strata: { endpoint: strataEndpoint, after_launch: launchSlot } } : { runtime: config.runtime }),
       };
       harness.writeDriverLog("native-b71-driver-log.json", driverLog);

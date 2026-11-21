@@ -362,20 +362,20 @@ function parsePlanDirection(value, path) {
   return requireRecord(parsed, path);
 }
 
-function chapterMission(planDirection, path) {
-  if (planDirection === null || !hasOwn(planDirection, "chapter_mission")) return null;
-  const value = planDirection.chapter_mission;
+function directionMission(planDirection, path, missionKey) {
+  if (planDirection === null || !hasOwn(planDirection, missionKey)) return null;
+  const value = planDirection[missionKey];
   if (value === null) return null;
   // 空对象由 parseMission 的必填字段边界拒绝，不再维护第二套“非空”判据。
-  return parseMission(value, `${path}.chapter_mission`);
+  return parseMission(value, `${path}.${missionKey}`);
 }
 
-function protectedFields(row, planDirection, path) {
-  const protectedRow = { ...row, plan_direction: planDirection };
+function protectedFields(row, planDirection, path, directionKey, missionKey) {
+  const protectedRow = { ...row, [directionKey]: planDirection };
   delete protectedRow.updated_at;
   if (isRecord(planDirection)) {
-    protectedRow.plan_direction = { ...planDirection };
-    delete protectedRow.plan_direction.chapter_mission;
+    protectedRow[directionKey] = { ...planDirection };
+    delete protectedRow[directionKey][missionKey];
   }
   return sha256(canonicalJson(jsonSafe(protectedRow, path)));
 }
@@ -391,8 +391,8 @@ function chapterFact(row, path) {
     title: requireString(requireOwn(row, "title", path), `${path}.title`),
     status: requireString(requireOwn(row, "status", path), `${path}.status`),
     updated_at: requireTimestamp(requireOwn(row, "updated_at", path), `${path}.updated_at`),
-    protected_sha256: protectedFields(row, planDirection, path),
-    mission: chapterMission(planDirection, path),
+    protected_sha256: protectedFields(row, planDirection, path, "plan_direction", "chapter_mission"),
+    mission: directionMission(planDirection, path, "chapter_mission"),
   };
 }
 
@@ -435,6 +435,37 @@ function parseChapterFact(id, value, path) {
     protected_sha256: requireHash(requireOwn(record, "protected_sha256", path), `${path}.protected_sha256`),
     mission,
   };
+}
+
+// 规划使命使用相同 mission/保护字段边界；完整 works 表 hash 仍保留原义。
+function workFact(row, path) {
+  const direction = parsePlanDirection(requireOwn(row, "planning_direction", path), `${path}.planning_direction`);
+  return {
+    title: requireString(requireOwn(row, "title", path), `${path}.title`),
+    updated_at: requireTimestamp(requireOwn(row, "updated_at", path), `${path}.updated_at`),
+    protected_sha256: protectedFields(row, direction, path, "planning_direction", "planning_mission"),
+    mission: directionMission(direction, path, "planning_mission"),
+  };
+}
+
+function workFacts(rows) {
+  return Object.fromEntries(rows.map((row, index) => [row.id, workFact(row, `tables.works[${index}]`)]));
+}
+
+function parseWorkFacts(value, expectedRows) {
+  const source = requireRecord(value, "works");
+  if (Object.keys(source).length !== expectedRows) invalid("works", "one evidence entry per works row");
+  return Object.fromEntries(Object.entries(source).map(([id, value]) => {
+    const path = `works.${id}`;
+    if (id === "") invalid(path, "a non-empty work id");
+    const row = requireRecord(value, path);
+    return [id, {
+      title: requireString(requireOwn(row, "title", path), `${path}.title`),
+      updated_at: requireTimestamp(requireOwn(row, "updated_at", path), `${path}.updated_at`),
+      protected_sha256: requireHash(requireOwn(row, "protected_sha256", path), `${path}.protected_sha256`),
+      mission: parseMission(requireOwn(row, "mission", path), `${path}.mission`),
+    }];
+  }));
 }
 
 function parseChapterSignatures(_id, value, path) {
@@ -537,17 +568,19 @@ function normalizedLogs(value) {
 // 章节设计态逐字段见证；真实 b71-first-consumer seed 的 chapter_mission 可能缺
 // decided_at 等设计态字段，不能为了 live 快照伪造或修改 seed。默认 true，planning/
 // revision 的严格解析不变。
-export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, includeChapterFacts = true } = {}) {
+export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, includeChapterFacts = true, includeWorkFacts = false } = {}) {
   const source = requireRecord(tables, "tables");
   const snapshotAt = requireString(at, "at");
   parseUtcTimestamp(snapshotAt);
   const snapshotTables = {};
   let memoryRows = [];
   let chapterRows = [];
+  let workRows = [];
   for (const table of CANON_TABLES) {
     const rows = normalizedRows(source[table], table);
     if (table === "memory_items") memoryRows = rows;
     if (table === "chapters") chapterRows = rows;
+    if (table === "works") workRows = rows;
     const hashes = rowHashes(rows, table);
     snapshotTables[table] = {
       row_count: rows.length,
@@ -561,6 +594,7 @@ export function buildAuthoringCanonSnapshot({ tables, referenceLogs, at, include
     at: snapshotAt,
     tables: snapshotTables,
     chapters: includeChapterFacts ? chapterFacts(chapterRows) : liveChapterEvidence(chapterRows),
+    ...(includeWorkFacts ? { work_evidence: "design_state", works: workFacts(workRows) } : {}),
     memory_items: memoryStats(memoryRows),
     memory_reference_logs: normalizedLogs(referenceLogs),
   };
@@ -615,6 +649,13 @@ function parseSnapshot(value, label) {
   const chapters = snapshot.version === SNAPSHOT_VERSION
     ? parseChapters(snapshot.chapters, tables.chapters.row_count, parseFact)
     : null;
+  let works = null;
+  if (hasOwn(snapshot, "work_evidence") || hasOwn(snapshot, "works")) {
+    if (snapshot.version !== SNAPSHOT_VERSION || snapshot.work_evidence !== "design_state") {
+      invalid(`${label}.work_evidence`, "version 2 design_state witness required");
+    }
+    works = parseWorkFacts(snapshot.works, tables.works.row_count);
+  }
   const memoryItems = parseMemoryStats(snapshot.memory_items, tables.memory_items.row_count);
   const logs = normalizedLogs(snapshot.memory_reference_logs);
   return {
@@ -623,6 +664,7 @@ function parseSnapshot(value, label) {
     at,
     tables,
     chapters,
+    works,
     memory_items: memoryItems,
     memory_reference_logs: logs,
   };
@@ -821,21 +863,27 @@ function chapterChange(id, before, after, targetId, startAt, finalAt) {
   return { valid, change: null };
 }
 
-function sourceChapterAccounted(start, final, targetId, startAt, finalAt) {
-  // id 集合相同时目标章在两侧同在同缺，检查一侧即可。
-  if (!chapterIdsSame(start, final) || !start.chapters[targetId]) {
+function sourceDesignAccounted(start, final, targetId, startAt, finalAt, table) {
+  const before = start[table];
+  const after = final[table];
+  if (!isRecord(before) || !isRecord(after) || !before[targetId] ||
+      !isDeepStrictEqual(Object.keys(before).sort(), Object.keys(after).sort())) {
     return { valid: false, changes: [] };
   }
-  const results = Object.keys(start.chapters)
-    .sort()
-    .map((id) => chapterChange(
-      id,
-      start.chapters[id],
-      final.chapters[id],
-      targetId,
-      startAt,
-      finalAt,
-    ));
+  const results = Object.keys(before).sort().map((id) => {
+    // works.updated_at 是既有「最近打开」账面时钟。使命及全部保护字段不变时
+    // 仍保留完整 rows hash，但不把正常重连误判为规划使命写入。
+    if (table === "works" && isDeepStrictEqual(before[id].mission, after[id].mission)) {
+      return { valid: before[id].protected_sha256 === after[id].protected_sha256,
+        change: null };
+    }
+    const result = chapterChange(id, before[id], after[id], targetId, startAt, finalAt);
+    if (table === "works" && result.change) {
+      const { chapter_id, ...change } = result.change;
+      result.change = { work_id: chapter_id, ...change };
+    }
+    return result;
+  });
   if (!results.every((result) => result.valid)) return { valid: false, changes: [] };
   return { valid: true, changes: results.map((result) => result.change).filter(Boolean) };
 }
@@ -890,19 +938,22 @@ export function compareAuthoringCanonSnapshots(startValue, finalValue) {
 // start→before-revision：其它表/其它章完全不变；只有目标章可新增/刷新暂定使命，
 // 且 protected 字段、作者版、updated_at 因果都必须成立。v1 快照没有逐章见证，
 // 不能补齐也不能放行设计态变化。
-export function compareSourceDesignSnapshots(startValue, beforeValue, { targetChapterId } = {}) {
+export function compareSourceDesignSnapshots(startValue, beforeValue, { targetChapterId, targetWorkId } = {}) {
   const { start, final } = requireDesignSnapshots(startValue, beforeValue, "before-revision");
   const { startAt, finalAt } = stageRange(start, final);
-  const otherTablesSame = sameTablesExcept(start, final, ["chapters"]);
-  const chapterCountSame =
-    start.tables.chapters.row_count === final.tables.chapters.row_count;
+  const planning = targetWorkId !== undefined;
+  if (planning && targetChapterId !== undefined) invalid("target", "one mission target");
+  const table = planning ? "works" : "chapters";
+  const targetId = planning ? targetWorkId : targetChapterId;
+  const otherTablesSame = sameTablesExcept(start, final, [table]);
+  const rowCountSame = start.tables[table].row_count === final.tables[table].row_count;
   const receiptsSame = tablesWithSameRows(start, final, "author_action_receipts");
-  const design = sourceChapterAccounted(start, final, targetChapterId, startAt, finalAt);
+  const design = sourceDesignAccounted(start, final, targetId, startAt, finalAt, table);
   const accounting = memoryAccounting(start, final, startAt, finalAt);
   return {
     checks: {
-      canon_unchanged_except_chapter_mission: otherTablesSame && chapterCountSame,
-      chapter_mission_change_is_legal: design.valid,
+      [planning ? "canon_unchanged_except_planning_mission" : "canon_unchanged_except_chapter_mission"]: otherTablesSame && rowCountSame,
+      [planning ? "planning_mission_change_is_legal" : "chapter_mission_change_is_legal"]: design.valid,
       author_action_receipts_unchanged: receiptsSame,
       memory_reference_updates_accounted: accounting.accounted,
     },
@@ -910,8 +961,8 @@ export function compareSourceDesignSnapshots(startValue, beforeValue, { targetCh
       snapshot_version: start.version,
       start_at: start.at,
       final_at: final.at,
-      target_chapter_id: targetChapterId ?? null,
-      chapter_design_changes: design.changes,
+      [planning ? "target_work_id" : "target_chapter_id"]: targetId ?? null,
+      [planning ? "work_design_changes" : "chapter_design_changes"]: design.changes,
       ...memoryMeasured(start, final, accounting),
     },
   };
