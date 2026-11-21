@@ -5396,9 +5396,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @b28_conditional ~r/(如果|若|假如|要是|万一|一旦|如有).{0,30}(就|则|再|便|才)/u
   @b28_negated_whole ~r/(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(整章|全章|整篇|全文)[^，,。；;]{0,10}(重写|改写|润色|修订|修改|整理|优化|调整|改)|(不要|别|先别|先不要|无需|不用|勿)(要|用|再)?[^，,。；;]{0,6}(重写|改写|润色|修订|修改|整理|优化|调整|改)[^，,。；;]{0,10}(整章|全章|整篇|全文)/u
 
-  # B28 CP1：测试替身镜像产品的作者授权范围语义（novel_agent 不能依赖 novel_application，
-  # 故同一决策树在此复刻；product 侧由 NovelApplication.ChapterRevisionScope 与其测试守护）。
-  # 授权失败（只读/明确不改）→ 无修订意图（返回 nil），与产品零写入拒绝一致。
+  # B28 CP1：此替身保留既有测试场景的预设规则，不充当产品授权判断或实模证据。
+  # 产品原话判定由 ChapterRevisionAuthorInput 统一承担，机械范围/观察绑定归 ChapterRevisionScope；
+  # novel_agent 不反向依赖 application。替身只读/不改拒绝仍返回 nil，不声明镜像完整产品语法。
   defp chapter_revision_intent?(author_text) do
     text = to_string(author_text)
 

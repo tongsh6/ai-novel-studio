@@ -18,6 +18,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AuthoringTaskPolicy,
     CapabilityRegistry,
     ChapterReadEvidence,
+    ChapterRevisionAuthorInput,
     ChapterRevisionScope,
     CharacterProfile,
     DialogueGateway,
@@ -617,6 +618,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
+         :ok <- ChapterRevisionAuthorInput.validate_target(run.goal.text, facts),
          {:ok, revision_scope} <-
            b36_revision_scope(
              facts,
@@ -914,7 +916,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     AdoptionWorkflow.chapter_revision_context(work_id, chapter_ref)
   end
 
-  # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionScope 判定；
+  # B28 §元原则整改 CP1：修改范围属于作者授权，由纯函数 ChapterRevisionAuthorInput 判定；
   # 读取/通读/否定/条件不授予整章。显式 opts 仅承接既有候选，基线和原授权另行复核。
   defp resolve_modification_scope(run, opts) do
     case Keyword.fetch(opts, :modification_scope) do
@@ -926,7 +928,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         {:error, :author_scope_not_authorized}
 
       :error ->
-        ChapterRevisionScope.authorize(to_string(run.goal.text || ""))
+        ChapterRevisionAuthorInput.authorize(to_string(run.goal.text || ""))
     end
   end
 
@@ -1213,7 +1215,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   # 作者原话定位优先；只有原文没有明确/成功的目标、且本轮确有真实观察绑定时才采用绑定。
   # 明示目标不存在/歧义仍拒绝，不拿绑定覆盖作者写出的对象，也不跳过原文授权判断。
   defp revision_target_ids(segments, run, judgment) do
-    case ChapterRevisionScope.target_segment_ids(segments, run.goal.text) do
+    case ChapterRevisionAuthorInput.target_segment_ids(segments, run.goal.text) do
       {:ok, ids} ->
         {:ok, ids, :author}
 
@@ -1232,7 +1234,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       reason == :target_ambiguous ->
         {:error, reason}
 
-      ChapterRevisionScope.explicit_target?(author_text) ->
+      ChapterRevisionAuthorInput.explicit_target?(author_text) ->
         {:error, reason}
 
       true ->

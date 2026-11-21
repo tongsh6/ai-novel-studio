@@ -101,6 +101,50 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
     }
   end
 
+  @style_author "请先查看本作品已经确认的风格规则，并阅读第01章《黑市对账夜》已保存的正文。据此把这一章改写成一份修订候选，突出人物之间的试探；先不要保存。"
+  @whole_author "请先把第02章《灰烬中的手印》已保存的正文从头到尾读完，再给我一份整章修订候选，减少重复描写，保留开头和结尾的线索；先不要保存。"
+
+  for {scenario, words, kind, chapter_title, chapter_seq} <- [
+        {"style-04", @style_author, "whole_chapter", "第01章：黑市对账夜", 1},
+        {"style-04", @style_author <> "只改第一段，其余逐字保留。", "target_segments", "第01章：黑市对账夜", 1},
+        {"whole-03", @whole_author, "whole_chapter", "第02章：灰烬中的手印", 2}
+      ] do
+    @tag :r05_style_author_scope
+    test "R05 #{scenario} 自然原话经真实 PWF→Writer 保留 #{kind}，模型 goal 不扩权", c do
+      Repo.get!(Chapter, String.replace_prefix(c.chapter_ref, "chapter:", ""))
+      |> Ecto.Changeset.change(title: unquote(chapter_title), seq: unquote(chapter_seq))
+      |> Repo.update!()
+
+      words = unquote(words)
+      input = %{c.author_input | text: words}
+      run = %{c.run | goal: %{text: words, version: 1}}
+      first = hd(NovelPersistence.LocalizedRevision.segment(c.base_text))
+      ids = if unquote(kind) == "target_segments", do: [first.segment_id]
+      body = if ids, do: first.raw, else: c.base_text
+
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(
+                 judgment(c.chapter_ref, %{dialogue_goal: "整章改写全部正文，不按原话缩小范围"}),
+                 input,
+                 run,
+                 c.context,
+                 provider(body, self(), ids)
+               )
+
+      assert_received {:chapter_writer_prompt, request}
+      assert TestProviderPrompt.author_text(request) == words
+      task = TestProviderPrompt.scope_content(request)["authoring_task"]
+      assert task["scope"]["modification_scope"] == unquote(kind)
+      assert Enum.any?(task["materials"], &(&1["ref"] == c.draft1_ref and &1["version"] == 2))
+      assert Enum.any?(task["materials"], &(&1["ref"] == c.draft2_ref and &1["version"] == 1))
+      assert TestProviderPrompt.scope_content(request)["operation"]["context_text"] =~ c.base_text
+      assert [pending] = result.turn_result.adoption_state.pending
+      assert pending.payload.modification_scope == unquote(kind)
+      assert pending.payload.target_chapter_ref == c.chapter_ref
+      assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) == c.base_text
+    end
+  end
+
   for {scope_name, author_words, goal} <- [
         {"whole_chapter", "  请通读整章并修订第一章正文。 R05CHAPTERAUTHOR91\r\n", "统一修订第一章正文"},
         {"target_segments", "  只把第一章开头一段改得更紧张，其他段落逐字保留。 R05CHAPTERAUTHOR91\r\n", "修订第一章开头的目标段落"}

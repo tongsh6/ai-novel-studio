@@ -47,7 +47,8 @@ be found at <https://hexdocs.pm/novel_application>.
 - [exploration_service.ex](lib/novel_application/exploration_service.ex)：唯一探索目录、读取编排与 Observation 包装；档案材料委托 WorkArchiveService，保留实际来源、版本、范围与省略事实。
 - [work_archive_service.ex](lib/novel_application/work_archive_service.ex)：档案应用读边界；面板 DTO 与显式目录/详情有界查询复用既有持久端口，不生成 AgentObservation 或模型事实。
 - [character_profile.ex](lib/novel_application/character_profile.ex)：已采纳人物的真实单对象/目录读与 canonical 详情绑定；所需字段、同作品身份与完整持久指纹在候选派发前再次核验，无伪版本或未观察基线替换。
-- [chapter_revision_scope.ex](lib/novel_application/chapter_revision_scope.ex)：作者章修订授权、显式目标定位与判断绑定编排；读页证据不扩大修改范围。
+- [chapter_revision_author_input.ex](lib/novel_application/chapter_revision_author_input.ex)：作者原话的唯一授权判定、章/段/字面操作数解释与已选章一致性核验；明确拒绝和未知对象不能经目标定位恢复，不选择 chapter_ref。
+- [chapter_revision_scope.ex](lib/novel_application/chapter_revision_scope.ex)：原候选 scope/effect 与当前基线的机械复核、原始模型目标形状及真实观察绑定；作者原话统一消费 ChapterRevisionAuthorInput，读页证据不扩大修改范围。
 - [chapter_read_evidence.ex](lib/novel_application/chapter_read_evidence.ex)：R05 唯一章读页证据 owner；当前作者后的目标段绑定与本次可见 fresh 完整基线分别取证，共用页/hash/版本/连续范围算法。真实消费者为 ChapterRevisionScope 与 PendingArtifactWorkflow，验证沿现 B28 和 chapter_revision_request 测试。
 - [pending_artifact_workflow.ex](lib/novel_application/pending_artifact_workflow.ex)：消费协议绑定的真实人物观察生成字段候选/无变化说明；最终采纳仍由既有采纳事务再次核验基线。
 

@@ -792,13 +792,13 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
   end
 
-  test "CP1 条件性整章未判定 → 保守不授整章（无目标解析时拒绝，不猜整章）", c do
+  test "CP1 条件性修改未授权 → 明确拒绝且不经局部定位恢复", c do
     input = %{c.author_input | text: "如果第03章有明显问题就整章改一遍，没有问题就告诉我。"}
     run = %{c.run | goal: %{text: input.text, version: 1}}
 
     before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
 
-    assert {:error, {:pending_artifact_invalid, :incomplete_scope}, incomplete_state} =
+    assert {:error, {:pending_artifact_invalid, :author_scope_not_authorized}, unauthorized_state} =
              PendingArtifactWorkflow.run(
                judgment(c.chapter_ref, %{dialogue_goal: "按条件处理"}),
                input,
@@ -807,7 +807,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                %Execution{result_fn: fn _ -> flunk("条件未判定不得自动生成整章候选") end}
              )
 
-    assert incomplete_state.tool_call_count == 0 and incomplete_state.provider_call_count == 0
+    assert unauthorized_state.tool_call_count == 0 and unauthorized_state.provider_call_count == 0
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
   end
