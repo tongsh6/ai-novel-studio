@@ -83,14 +83,35 @@ function assistantBlocks(message) {
   return blocks;
 }
 
+// 当前 native 夹具只生成七字段结果；旧 flat wire 不属于现 reader 的输入。
+export function toolResultContent(block) {
+  const { call_id: _callId, retryable = null, budget_after = null, ...data } = block;
+  const observation = data.type === "observation";
+  const ok = observation ? ["ok", "partial", "truncated"].includes(data.status) : data.status === "passed";
+  const diagnostic = observation ? (ok ? null : data.content?.summary) : data.detail?.message;
+  const identity = observation ? data.content?.observation_ref : null;
+  return JSON.stringify({
+    ok,
+    data,
+    error_code: ok ? null : observation ? data.status : data.reason_code ?? null,
+    message: typeof diagnostic === "string" ? diagnostic : null,
+    retryable,
+    observation_ref: typeof identity === "string" && identity.startsWith("observation:") &&
+      identity.length > "observation:".length ? identity : null,
+    budget_after,
+  });
+}
+
 function toolBlocks(message) {
   if (typeof message?.content !== "string") return [];
   try {
-    const payload = JSON.parse(message.content);
-    if (!isRecord(payload) || !["observation", "validation_result"].includes(payload.type)) {
+    const envelope = JSON.parse(message.content);
+    if (!isRecord(envelope) || !isRecord(envelope.data) ||
+        !["observation", "validation_result"].includes(envelope.data.type)) {
       return [];
     }
-    return [payload];
+    return [{ ...envelope.data, call_id: message.tool_call_id,
+      retryable: envelope.retryable, budget_after: envelope.budget_after }];
   } catch {
     return [];
   }

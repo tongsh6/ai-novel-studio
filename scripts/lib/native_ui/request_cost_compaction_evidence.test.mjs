@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { auditSubjectWindowBoundary, evaluatePreregisteredCompaction } from "./request_cost_compaction_evidence.mjs";
-import { canonicalMessagesFromRows } from "./authoring_history_evidence.mjs";
-import { discussionMaintenanceFacts } from "./fixtures/authoring_discussion_facts.mjs";
+import { canonicalMessagesFromRows, composeSessionMessages } from "./authoring_history_evidence.mjs";
+import { checkpointWire, discussionMaintenanceFacts } from "./fixtures/authoring_discussion_facts.mjs";
 import { autoMaintenanceConfig } from "./fixtures/authoring_auto_maintenance_facts.mjs";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 
@@ -16,7 +16,9 @@ const finalRecord = (input) => input.records.find((record) => record.provider_ca
 
 function refreshHistory(input) {
   const messages = canonicalMessagesFromRows(input.dbFacts.authoring_session_messages, input.dbFacts.agent_runs);
-  for (const binding of input.bindings) if (binding) binding.history.sessionMessages = messages;
+  for (const binding of [...input.bindings, input.successorBinding]) {
+    if (binding) binding.history.sessionMessages = composeSessionMessages(messages, binding.root.id);
+  }
 }
 
 function changeCheckpoint(input, change) {
@@ -50,7 +52,8 @@ function batch(length) {
     versions: oldScope.versions, sourceRefs: oldScope.source_refs,
   });
   const firstDiscussionWire = { role: "assistant", content: plan[0].discussion };
-  let prefix = [];
+  let prefix = [structuredClone(wire(fixture.after).find((message) =>
+    message.role === "user" && message.content.startsWith("【应用数据 · application_base ·")))];
 
   for (const [index, item] of plan.entries()) {
     const isCurrent = item.run === "current";
@@ -197,9 +200,11 @@ function successorBatch() {
   const add = (runSequence, message) => db.authoring_session_messages.push({ ...last,
     sequence: last.sequence + runSequence, id: "successor-row-" + runSequence, run_id: root.id,
     run_sequence: runSequence, role: message.role, message: JSON.stringify(message) });
-  add(1, { role: "user", provenance: "author", blocks: [{ type:"text", text: input.source.successorAuthor.text }],
+  add(1, { role: "application_base", provenance: "application", blocks: [{ type: "text", text: "创作助手" }],
+    source_refs: [], versions: {} });
+  add(2, { role: "user", provenance: "author", blocks: [{ type:"text", text: input.source.successorAuthor.text }],
     source_refs: [{ref:root.parent_turn_ref}], versions:{} });
-  add(2, { role: "assistant", provenance: "model", blocks: [{type:"text",text:"只按原文核对。"}],
+  add(3, { role: "assistant", provenance: "model", blocks: [{type:"text",text:"只按原文核对。"}],
     provider_call_ref:record.provider_call_ref,provider_run_ref:record.provider_run_ref,source_refs:[],versions:{} });
   db.provider_runs.push({...root,id:record.provider_run_ref,agent_run_id:root.id,
     provider_call_ref:record.provider_call_ref,purpose:"planner",owner_refs:{}});
@@ -207,7 +212,6 @@ function successorBatch() {
     event_type:"started",emitted_at:"2026-11-04T10:00:04.000Z"});
   input.successorBinding = { root, records:[record], operations:new Map(), history:{} };
   refreshHistory(input);
-  input.successorBinding.history.sessionMessages = input.bindings[0].history.sessionMessages;
   input.wire.push({direction:"sent",at:"2026-11-04T10:00:03.500Z",
     frame:["join","request","workspace:"+root.workspace_id,"user_message",{turn_id:root.parent_turn_ref,text:input.source.successorAuthor.text}]},
     {direction:"received",at:"2026-11-04T10:00:05.000Z",
@@ -230,18 +234,17 @@ test("后继新增维护完整保留并列为未观察，不递归要求第二�
   const input=successorBatch(), db=input.dbFacts;
   const oldScope=db.authoring_session_messages.find(row=>row.run_id==="current" && row.role==="scope_update");
   const body=JSON.parse(oldScope.message), last=db.authoring_session_messages.at(-1);
-  const scope={...oldScope,id:"successor-scope",run_id:"successor",run_sequence:3,sequence:last.sequence+1};
+  const scope={...oldScope,id:"successor-scope",run_id:"successor",run_sequence:4,sequence:last.sequence+1};
   const covers={call_ids:[],message_refs:[{run_id:"current",run_sequence:oldScope.run_sequence,
     role:"scope_update",source_refs:body.source_refs,versions:body.versions}],turn_range:"turn-current"};
   const checkpoint={role:"checkpoint",provenance:"application",blocks:[{type:"checkpoint",covers,
     source_refs:[...body.source_refs,{ref:"session_message:current:"+oldScope.run_sequence,version:1}],
     versions:{},omissions:["旧范围已整理"]}],source_refs:[],versions:{}};
-  db.authoring_session_messages.push(scope,{...last,id:"successor-checkpoint",run_sequence:4,
+  db.authoring_session_messages.push(scope,{...last,id:"successor-checkpoint",run_sequence:5,
     sequence:last.sequence+2,role:"checkpoint",message:JSON.stringify(checkpoint)});
   db.agent_events.push({run_id:"successor",sequence:10,event_type:"checkpoint_created",
     inserted_at:"2026-11-04T10:00:06.000Z",payload:{covered_counts:{tool_exchanges:0,scope_updates:1,discussion_messages:0}}});
   refreshHistory(input);
-  input.successorBinding.history.sessionMessages=input.bindings[0].history.sessionMessages;
   const result=evaluatePreregisteredCompaction(input);
   assert.equal(result.status,"pass",JSON.stringify(result.checks));
   assert.equal(result.canonical_checkpoints.length,2);
@@ -414,6 +417,40 @@ for (const mutation of ["delete", "extra", "reorder", "bytes"]) {
   });
 }
 
+for (const missing of [false, true]) {
+  test(missing ? "合法同文保留讨论缺失时拒绝，但不误报已覆盖讨论重放" :
+    "与已覆盖讨论同文的独立保留消息仍合法", () => {
+    const { input, plan } = batch(10);
+    const retained = input.dbFacts.authoring_session_messages.find((row) =>
+      row.run_id === "middle-2" && row.role === "assistant");
+    const body = JSON.parse(retained.message);
+    assert.equal(body.blocks[0].text, plan[1].discussion);
+    body.blocks[0].text = plan[0].discussion;
+    retained.message = JSON.stringify(body);
+    for (const record of input.records) {
+      for (const message of wire(record)) {
+        if (message.role === "assistant" && message.content === plan[1].discussion)
+          message.content = plan[0].discussion;
+      }
+    }
+    refreshHistory(input);
+    const messages = wire(finalRecord(input));
+    const retainedCopies = messages.filter((message) =>
+      message.role === "assistant" && message.content === plan[0].discussion);
+    assert.equal(retainedCopies.length, 1);
+    if (missing) messages.splice(messages.indexOf(retainedCopies[0]), 1);
+
+    const result = evaluatePreregisteredCompaction(input);
+    assert.equal(result.checks.canonical_coverage.ok, true);
+    assert.equal(result.checks.next_request.ok, !missing, JSON.stringify(result.checks.next_request));
+    if (missing) {
+      assert.notEqual(result.checks.next_request.reason, "covered_discussion_still_in_next_request");
+    } else {
+      assert.equal(result.checks.next_request.reason, null);
+    }
+  });
+}
+
 test("已覆盖纯讨论不得在后请求原文重放", () => {
   const { input, plan } = batch(10);
   wire(finalRecord(input)).push({ role: "assistant", content: plan[0].discussion });
@@ -425,8 +462,8 @@ test("已覆盖纯讨论不得在后请求原文重放", () => {
 });
 
 test("作者原话的单字节变化独立于讨论检查被拒绝", () => {
-  const { input } = batch(3);
-  wire(finalRecord(input))[0].content += " ";
+  const { input, plan } = batch(3);
+  wire(finalRecord(input)).find((message) => message.role === "user" && message.content === plan[0].author).content += " ";
   const result = evaluatePreregisteredCompaction(input);
   const last = result.checks.every_request_preserved.calls.at(-1);
   assert.equal(last.author_original_bytes, false);
@@ -475,6 +512,7 @@ test("只整理 Scope 的合法 checkpoint 不能代签早期纯讨论已被覆�
   const block = changeCheckpoint(input, (checkpoint) => {
     checkpoint.covers.message_refs = checkpoint.covers.message_refs.filter((ref) => ref.role === "scope_update");
     checkpoint.source_refs = [{ ref: "context:old", version: 7 }, { ref: "session_message:early:3", version: 1 }];
+    checkpoint.summary = "仅整理旧范围。";
     delete checkpoint.discussion;
   });
   input.records = input.records.filter((record) => record.provider_call_ref !== "pcall-summary");
@@ -483,9 +521,9 @@ test("只整理 Scope 的合法 checkpoint 不能代签早期纯讨论已被覆�
   input.dbFacts.provider_outputs = [];
   input.dbFacts.agent_events[0].payload.covered_counts.discussion_messages = 0;
   const messages = wire(finalRecord(input));
-  messages.find((message) => message.content.includes("· checkpoint ·")).content =
-    "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " + JSON.stringify(block.covers) + "】\n仅整理旧范围。";
-  messages.splice(1, 0, { role: "assistant", content: plan[0].discussion });
+  messages.find((message) => message.content.includes("· checkpoint ·")).content = checkpointWire(block).content;
+  const authorIndex = messages.findIndex((message) => message.role === "user" && message.content === plan[0].author);
+  messages.splice(authorIndex + 1, 0, { role: "assistant", content: plan[0].discussion });
   const result = evaluatePreregisteredCompaction(input);
   assert.equal(result.checks.canonical_coverage.ok, true);
   assert.equal(result.checks.every_request_preserved.ok, true);
@@ -511,9 +549,12 @@ test("同run多作者只按来源最近在先作者判早期覆盖，不能借�
   const rows = input.dbFacts.authoring_session_messages;
   const source = rows.find((row) => row.run_id === "early" && row.role === "assistant");
   const fourth = rows.filter((row) => row.run_id === "middle-4");
-  fourth.forEach((row, index) => { row.run_id = "early"; row.run_sequence = 4 + index; });
+  const fourthBase = fourth.find((row) => row.role === "application_base");
+  fourth.forEach((row, index) => {
+    if (row !== fourthBase) { row.run_id = "early"; row.run_sequence = 4 + index; }
+  });
   source.run_sequence = 7;
-  const reordered = rows.filter((row) => row !== source);
+  const reordered = rows.filter((row) => row !== source && row !== fourthBase);
   reordered.splice(reordered.indexOf(fourth.at(-1)) + 1, 0, source);
   input.dbFacts.authoring_session_messages = reordered.map((row, index) => ({ ...row, sequence: index + 1 }));
   input.dbFacts.agent_runs = input.dbFacts.agent_runs.filter((run) => run.id !== "middle-4");
@@ -526,8 +567,9 @@ test("同run多作者只按来源最近在先作者判早期覆盖，不能借�
 
   // 独立书写真实时间序列：第一作者的 run 在第4作者后才输出该长讨论。
   const firstRecord = input.records.find((record) => record.provider_call_ref === "pcall-early");
-  const oldScopeWire = structuredClone(wire(firstRecord)[1]);
-  const delayedRequest = [];
+  const oldScopeWire = structuredClone(wire(firstRecord).find((message) => message.content.includes("· scope_update ·")));
+  const delayedRequest = [structuredClone(wire(firstRecord).find((message) =>
+    message.role === "user" && message.content.startsWith("【应用数据 · application_base ·")))];
   for (let index = 0; index < 4; index += 1) {
     delayedRequest.push({ role: "user", content: plan[index].author });
     if (index === 0) delayedRequest.push(oldScopeWire);
@@ -552,8 +594,11 @@ test("同run多作者只按来源最近在先作者判早期覆盖，不能借�
     checkpoint.covers.message_refs.find((ref) => ref.role === "assistant").run_sequence = 7;
     checkpoint.source_refs.find((ref) => ref.ref === "session_message:early:4").ref = "session_message:early:7";
   });
+  const discussionProjection = discussionMaintenanceFacts().discussionProjection;
+  discussionProjection.entries[0].source.ref = "session_message:early:7";
+  discussionProjection.entries[0].locator.run_sequence = 7;
   wire(finalRecord(input)).find((message) => message.content.includes("· checkpoint ·")).content =
-    "【应用数据 · checkpoint · 非作者原话】\n【应用数据 · checkpoint · 覆盖 " + JSON.stringify(block.covers) + "】\n有来源的讨论摘要。";
+    checkpointWire(block, discussionProjection).content;
 
   const result = evaluatePreregisteredCompaction(input);
   assert.equal(result.checks.canonical_coverage.ok, true, JSON.stringify(result.checks));
@@ -575,6 +620,10 @@ test("合法引用形状不代签义务无遗漏：漏承诺摘要仍列实际�
     checkpoint.discussion.response_sha256 = hash(checkpoint.discussion.response_text);
   });
   input.dbFacts.provider_outputs[0].content_summary.content_sha256 = block.discussion.response_sha256;
+  const discussionProjection = discussionMaintenanceFacts().discussionProjection;
+  discussionProjection.entries[0].retained_source_fragments = [];
+  wire(finalRecord(input)).find((message) => message.content.includes("· checkpoint ·")).content =
+    checkpointWire(block, discussionProjection).content;
   const result = evaluatePreregisteredCompaction(input);
   assert.equal(result.status, "pass", JSON.stringify(result.checks));
   assert.equal(result.signed, false);

@@ -1476,14 +1476,14 @@ defmodule NovelApplication.DialoguePlanningService do
     # 单次成功页、原生观察续读提示与 stage_state 共用同一份追加后列表：预算
     # 必须包含刚发生的 observation，否则本页 next_offset 不会进入续读提示。
     explorations = explorations ++ [observation]
+    budget_after = ExplorationPolicy.budget(explorations)
 
     request_observation =
       request_observation
       |> Map.put(:coverage_note, coverage_note(explorations))
-      |> Map.put(
-        :continue_hint,
-        continue_hint(explorations, ExplorationPolicy.budget(explorations))
-      )
+      |> Map.put(:continue_hint, continue_hint(explorations, budget_after))
+      |> Map.put(:retryable, false)
+      |> Map.put(:budget_after, %{exploration: budget_after})
 
     transcript =
       JudgmentProtocol.observation_transcript(judgment.transcript, judgment, request_observation)

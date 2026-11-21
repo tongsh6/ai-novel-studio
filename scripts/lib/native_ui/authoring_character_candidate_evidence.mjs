@@ -8,7 +8,7 @@ import { locatePendingItem, locateScopedButton } from "./authoring_pending_evide
 import { judgmentNarrativeSourceBound, r05ReplyMatch, withinViewport } from "./authoring_r05_evidence.mjs";
 import { scanAuthorVisibleTexts } from "../author_visible/leak_scan.mjs";
 import { observationNextRequestEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
-import { AUTHORING_REQUEST_IR, requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { AUTHORING_REQUEST_IR, canonicalToolResult, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const list = (value) => Array.isArray(value) ? value : [];
@@ -254,7 +254,7 @@ function observationInRequest(record, parent) {
   if (!facts.ok || !parent) return false;
   const matches = facts.toolResults.filter((result) => result.callId === parent.call_id);
   return matches.length === 1 && matches[0].toolCallId === parent.call_id &&
-    isDeepStrictEqual(matches[0].payload, parent);
+    isDeepStrictEqual(matches[0].payload, canonicalToolResult(parent));
 }
 
 function initialMaterialsMinimal(records, starts, before) {
@@ -296,7 +296,7 @@ function failedCallCarriedForward({ call, next, failure, messages, records, star
   return appended[1]?.role === "tool" && result?.length === 1 &&
     result[0].callId === call.call_id &&
     (second.format === AUTHORING_REQUEST_IR || result[0].toolCallId === (responseCalls[0].id || call.call_id)) &&
-    isDeepStrictEqual(result[0].payload, payload);
+    isDeepStrictEqual(result[0].payload, canonicalToolResult(payload));
 }
 
 export function characterReadCandidateEvidence({

@@ -8,7 +8,7 @@ import { wireTerminal } from "./live_run_wait.mjs";
 import { canonicalMessagesFromRows, composeSessionMessages } from "./authoring_history_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 import { canonicalRequestBindingsForProviderCall, providerOperation } from "./authoring_call_evidence.mjs";
-import { NATIVE_CHAT_WIRE, checkpointSelectionsFromFacts, plannedExplorationLeaves,
+import { NATIVE_CHAT_WIRE, canonicalToolResult, checkpointSelectionsFromFacts, plannedExplorationLeaves,
   requestFactsFromRecord, scopeContentOf } from "./authoring_request_facts.mjs";
 
 const list = (value) => Array.isArray(value) ? value : [];
@@ -317,7 +317,7 @@ function resumedHistory(rows, answer, facts, bindings, db, records) {
     if (typeof call.raw_arguments === "string") assert.equal(facts.toolCalls[index].rawArguments, call.raw_arguments);
     else assert.deepEqual(JSON.parse(facts.toolCalls[index].rawArguments), call.arguments);
   });
-  assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults);
+  assert.deepEqual(facts.toolResults.map((result) => result.payload), retainedResults.map(canonicalToolResult));
   const authorTexts = history.filter((row) => row.role === "user" && row.provenance === "author").map(textOf);
   assert(bindings, "恢复请求消息必须与完整 canonical 前缀逐项一致");
   const actualAuthors = bindings.filter(({ canonical }) => canonical.role === "user" && canonical.provenance === "author")

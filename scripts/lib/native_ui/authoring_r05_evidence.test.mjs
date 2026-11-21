@@ -5,7 +5,7 @@ import test from "node:test";
 import { r05GoalEvidence, r05VisibleEvidence } from "./authoring_r05_evidence.mjs";
 import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 import { g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
-import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import { G2_VISIBLE_TARGET, visibleAfterInput, visibleReadingPage } from "./fixtures/authoring_live_facts.mjs";
 import flatPending from "./fixtures/b71-pending-flat-ax-dual-candidates.json" with { type: "json" };
 
@@ -60,7 +60,7 @@ function nativePagedRequest(content, {
       { role: "assistant", content: "", tool_calls: [{ id: callId,
         type: "function", function: { name: "chapter_content_read",
           arguments: JSON.stringify({ chapter_ref: CHAPTER, offset: start - 1 }) } }] },
-      { role: "tool", tool_call_id: callId, content: JSON.stringify(page) },
+      { role: "tool", tool_call_id: callId, content: toolResultContent(page) },
     ];
   });
   messages.push(scopeWireMessage(content));

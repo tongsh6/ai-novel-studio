@@ -807,7 +807,7 @@ defmodule NovelApplication.ExplorationServiceTest do
     [tool] = Enum.filter(body.messages, &(&1.role == "tool"))
     assert tool.tool_call_id == call_id
     assert Enum.any?(body.messages, &(&1 == %{role: "user", content: author_text}))
-    Jason.decode!(tool.content)
+    Jason.decode!(tool.content) |> Map.fetch!("data")
   end
 
   defp page_body(observation) do

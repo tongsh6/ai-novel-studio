@@ -18,6 +18,7 @@ defmodule NovelApplication.AuthoringSessionHistory do
   """
 
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.AuthoringTranscript.Codec
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
   alias NovelCommon.RequestIR.MessageCoverage
@@ -150,7 +151,7 @@ defmodule NovelApplication.AuthoringSessionHistory do
   defp committed_messages(rows, run_id) do
     rows
     |> Enum.map(&field(&1, :message))
-    |> AuthoringTranscript.normalize_messages()
+    |> Codec.normalize_messages()
     |> Enum.zip(rows)
     |> Enum.map(fn {message, row} ->
       reference =

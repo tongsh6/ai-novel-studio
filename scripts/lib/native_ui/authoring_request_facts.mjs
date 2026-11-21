@@ -171,7 +171,7 @@ function irToolResult(block, messageIndex, blockIndex) {
     type: block.type,
     status: block.status,
     reasonCode: block.reason_code ?? null,
-    payload: block,
+    payload: canonicalToolResult(block),
     raw: block,
   };
 }
@@ -317,20 +317,51 @@ function wireToolCall(call, messageIndex, callIndex) {
   };
 }
 
+// 只把缺失恢复事实表示为 null；原 canonical 行与原始 wire 始终留在 raw。
+export function canonicalToolResult(block) {
+  if (!isRecord(block)) return block;
+  return { ...block, retryable: block.retryable ?? null, budget_after: block.budget_after ?? null };
+}
+
 function wireToolResult(message, messageIndex) {
-  if (typeof message.content !== "string") return null;
-  const payload = decodedJson(message.content);
-  if (!isRecord(payload)) return null;
-  if (!["observation", "validation_result"].includes(payload.type)) return null;
-  if (!nonBlank(payload.call_id)) return null;
+  if (typeof message.content !== "string" || !nonBlank(message.tool_call_id)) return null;
+  const envelope = decodedJson(message.content);
+  const keys = ["budget_after", "data", "error_code", "message", "observation_ref", "ok", "retryable"];
+  if (!isRecord(envelope) || !isDeepStrictEqual(Object.keys(envelope).sort(), keys)) return null;
+  const data = envelope.data;
+  if (!isRecord(data) || !["observation", "validation_result"].includes(data.type) ||
+      ["call_id", "retryable", "budget_after"].some(key => Object.hasOwn(data, key)) ||
+      !(envelope.retryable === null || typeof envelope.retryable === "boolean") ||
+      !(envelope.budget_after === null || isRecord(envelope.budget_after))) return null;
+
+  const observation = data.type === "observation";
+  if (observation ? !validRefValues(data.source_refs) : !nonBlank(data.reason_code)) return null;
+  if (!observation && Object.hasOwn(data, "detail") && !isRecord(data.detail)) return null;
+  const statuses = observation ? ["ok", "partial", "truncated", "unavailable", "stale"] : ["passed", "failed"];
+  if (!statuses.includes(data.status)) return null;
+  const ok = observation ? ["ok", "partial", "truncated"].includes(data.status) : data.status === "passed";
+  if ((observation || ok) && envelope.retryable === true) return null;
+  const errorCode = ok ? null : observation ? data.status : data.reason_code;
+  const actualMessage = observation ? (ok ? null : data.content?.summary) : data.detail?.message;
+  const diagnostic = typeof actualMessage === "string" ? actualMessage : null;
+  const observationRef = observation ? observationRefOf(data) : null;
+  if (envelope.ok !== ok || envelope.error_code !== errorCode || envelope.message !== diagnostic ||
+      envelope.observation_ref !== observationRef) return null;
+
+  const payload = {
+    ...data,
+    call_id: message.tool_call_id,
+    retryable: envelope.retryable,
+    budget_after: envelope.budget_after,
+  };
   return {
     messageIndex,
     blockIndex: 0,
-    callId: payload.call_id,
-    toolCallId: message.tool_call_id ?? message.tool_call ?? null,
-    type: payload.type,
-    status: payload.status,
-    reasonCode: payload.reason_code ?? null,
+    callId: message.tool_call_id,
+    toolCallId: message.tool_call_id,
+    type: data.type,
+    status: data.status,
+    reasonCode: data.reason_code ?? null,
     payload,
     raw: message,
   };
@@ -626,7 +657,7 @@ function nativeMessageMatches(actual, { message: canonical, result, checkpoint }
     case "tool":
       return actual.role === "tool" && actual.toolResults.length === 1 &&
         actual.toolResults[0].toolCallId === result.call_id &&
-        isDeepStrictEqual(actual.toolResults[0].payload, result);
+        isDeepStrictEqual(actual.toolResults[0].payload, canonicalToolResult(result));
     case "checkpoint":
       return sameCheckpointMessage(actual, canonical, checkpoint);
     default:
@@ -718,7 +749,7 @@ export function observationRefOf(payload) {
   const ref = content && typeof content.observation_ref === "string"
     ? content.observation_ref
     : "";
-  return ref.startsWith(OBSERVATION_REF_PREFIX) ? ref : null;
+  return ref.startsWith(OBSERVATION_REF_PREFIX) && ref.length > OBSERVATION_REF_PREFIX.length ? ref : null;
 }
 
 // 已识别的 planned_exploration 聚合父块只读取一层叶（按 content.observations 执行顺序）；

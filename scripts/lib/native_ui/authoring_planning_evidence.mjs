@@ -1,6 +1,6 @@
 // B71：从实际请求与持久 canonical 事实核验计划消费链；本模块无 I/O。
 import { isDeepStrictEqual } from "node:util";
-import { requestFactsFromBody } from "./authoring_request_facts.mjs";
+import { canonicalToolResult, requestFactsFromBody } from "./authoring_request_facts.mjs";
 const STAGES = Object.freeze([
   "agent_plan_revision",
   "submit_tentative_artifact", "submit_tentative_artifact",
@@ -95,7 +95,7 @@ function parseCanonicalBlock(value, path) {
   if (["validation_result", "observation"].includes(block.type)) {
     requireString(block.call_id, `${path}.call_id`);
     requireString(block.status, `${path}.status`);
-    return { ...block, detail: optionalRecord(block.detail, `${path}.detail`) };
+    return { ...canonicalToolResult(block), detail: optionalRecord(block.detail, `${path}.detail`) };
   }
   return block;
 }

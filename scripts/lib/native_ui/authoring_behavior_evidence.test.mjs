@@ -2,6 +2,7 @@
 // trap_controls 覆盖（B70 oracles.yml 映射）。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import { effectsFromTurnResults, evaluateBehavior, observedActionsFromCalls, stateFactsCheck, TRAP_CONTROL_EXPECTATIONS } from "./authoring_behavior_evidence.mjs";
 import { loadLiveCaseCorpus, selectLiveCase } from "../quality/author_behavior_live_cases.mjs";
 
@@ -329,7 +330,7 @@ test("HO5 逐调用反例：A 自报 ref 只在 B 的请求/事件/段头出现 
           {
             role: "tool",
             tool_call_id: "call_b",
-            content: JSON.stringify({
+            content: toolResultContent({
               type: "observation",
               call_id: "call_b",
               status: "ok",

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import {
   REQUEST_COST_SCHEMA,
   analyzeRequestCost,
@@ -126,10 +127,11 @@ test("wire 消息互斥分类：内容 UTF-8 字节 + JSON 包装开销守恒", 
     {
       role: "tool",
       tool_call_id: "call_1",
-      content: JSON.stringify({
+      content: toolResultContent({
         type: "observation",
         call_id: "call_1",
         status: "ok",
+        source_refs: [],
         content: { text: "观察正文" },
       }),
     },
@@ -200,7 +202,7 @@ test("role=tool 按真实 type 拆 observation/validation，未知不伪造观�
       {
         role: "tool",
         tool_call_id: "call-v",
-        content: JSON.stringify({
+        content: toolResultContent({
           type: "validation_result",
           call_id: "call-v",
           status: "failed",

@@ -811,6 +811,15 @@ export function evaluateAutoMaintenance({
     ) };
     const next = canonicalCoverageForProviderCall(records[0], history);
     if (!next?.ok) return { ok: null, reason: "next_request_canonical_prefix_missing", detail };
+    // 已验证覆盖后的额外副本仅作失败诊断；合法同文保留消息仍须通过后续完整绑定。
+    for (const ref of messageRefs.filter((ref) => ref.role === "assistant")) {
+      const source = history.messages.find((row) => row.canonical_ref.run_id === ref.run_id && row.canonical_ref.run_sequence === ref.run_sequence);
+      const text = source.blocks.map((block) => block.text).join("");
+      const expected = next.retainedMessages.filter((row) => row.role === "assistant" && row.blocks.every((block) => block.type === "text") &&
+        row.blocks.map((block) => block.text).join("") === text).length;
+      const actual = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length && message.content === text).length;
+      if (actual > expected) return { ok: false, reason: "covered_discussion_still_in_next_request", detail };
+    }
     const bindings = canonicalRequestBindingsForProviderCall(records[0], history);
     if (bindings === null)
       return { ok: false, reason: "scope_projection_does_not_match_valid_coverage", detail };
@@ -825,14 +834,6 @@ export function evaluateAutoMaintenance({
         row.blocks.length > 0 && row.blocks.every((block) => block.type === "text")).map((row) => row.blocks.map((block) => block.text).join(""));
       const nativeDiscussions = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length)
         .map((message) => message.content);
-      for (const ref of messageRefs.filter((ref) => ref.role === "assistant")) {
-        const source = history.messages.find((row) => row.canonical_ref.run_id === ref.run_id && row.canonical_ref.run_sequence === ref.run_sequence);
-        const text = source.blocks.map((block) => block.text).join("");
-        const expected = next.retainedMessages.filter((row) => row.role === "assistant" && row.blocks.every((block) => block.type === "text") &&
-          row.blocks.map((block) => block.text).join("") === text).length;
-        const actual = facts.messages.filter((message) => message.role === "assistant" && !message.tool_calls?.length && message.content === text).length;
-        if (actual !== expected) return { ok: false, reason: "covered_discussion_still_in_next_request", detail };
-      }
       if (!sameSelection(nativeDiscussions, retainedDiscussions))
         return { ok: false, reason: "retained_discussion_bytes_not_preserved", detail };
     }

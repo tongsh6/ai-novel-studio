@@ -1,7 +1,7 @@
 // B71 外部验收请求事实边界测试：只按 source format 读取，不把未知格式读成空事实。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import {
   AUTHORING_REQUEST_IR,
   bindRequestMessages,
@@ -119,7 +119,8 @@ test("wire 应用正文保留完整字节，HTTP 消息不能自行冒充 canoni
 test("R05 完整消息配对：工具结果一对多、首位 system 与原始参数各守消息边界", () => {
   const first = { type: "observation", call_id: "read-one", status: "ok",
     source_refs: ["chapter:one"], content: { summary: "第一份实读。" } };
-  const second = { type: "validation_result", call_id: "read-two", status: "passed" };
+  const second = { type: "validation_result", call_id: "read-two", status: "passed",
+    reason_code: "judgment_validated", detail: {} };
   const canonical = [
     irMessage("application_base", "application", [{ type: "text", text: "本次材料。" }],
       { base_refs: ["chapter:base"] }),
@@ -140,9 +141,9 @@ test("R05 完整消息配对：工具结果一对多、首位 system 与原始�
       { id: "read-two", type: "function", function: { name: "submit_tentative_artifact", arguments: "{}" } },
     ] },
     { role: "tool", tool_call_id: "read-one",
-      content: '{"type":"observation","call_id":"read-one","status":"ok","source_refs":["chapter:one"],"content":{"summary":"第一份实读。"}}' },
+      content: toolResultContent(first) },
     { role: "tool", tool_call_id: "read-two",
-      content: '{"type":"validation_result","call_id":"read-two","status":"passed"}' },
+      content: toolResultContent(second) },
   ];
   const original = JSON.stringify({ canonical, messages });
   const bind = actual => bindRequestMessages(requestFactsFromBody({ messages: actual }), canonical);
@@ -189,11 +190,11 @@ test("R05 完整消息配对：未知结构块不能被文字抽取静默跳过"
   for (const role of ["user", "assistant", "tool"]) {
     const provenance = role === "user" ? "author" : role === "assistant" ? "model" : "tool_result";
     const known = role === "tool"
-      ? { type: "observation", call_id: "read", status: "ok", content: { summary: "实读。" } }
+      ? { type: "observation", call_id: "read", status: "ok", source_refs: [], content: { summary: "实读。" } }
       : { type: "text", text: "完整正文。" };
     const canonical = [irMessage(role, provenance, [known, { type: "unknown_structured_block", content: "未供应事实" }])];
     const messages = role === "tool"
-      ? [{ role: "tool", tool_call_id: "read", content: '{"type":"observation","call_id":"read","status":"ok","content":{"summary":"实读。"}}' }]
+      ? [{ role: "tool", tool_call_id: "read", content: toolResultContent(known) }]
       : [{ role, content: "完整正文。" }];
     assert.equal(bindRequestMessages(requestFactsFromBody({ messages }), canonical), null, role);
   }
@@ -446,7 +447,7 @@ test("真实原生 Chat wire 仍按原格式读取，应用数据 marker 只在�
       {
         role: "tool",
         tool_call_id: "native-1",
-        content: JSON.stringify({ type: "observation", call_id: "native-1", status: "ok", content: {} }),
+        content: toolResultContent({ type: "observation", call_id: "native-1", status: "ok", source_refs: [], content: {} }),
       },
     ],
     tools: [{ type: "function", function: { name: "read_chapter" } }],
@@ -463,6 +464,115 @@ test("真实原生 Chat wire 仍按原格式读取，应用数据 marker 只在�
   assert.equal(facts.toolResults[0].blockIndex, 0);
   assert.equal(facts.applicationMessages.length, 1);
   assert.equal(facts.toolResults[0].payload.type, "observation");
+});
+
+test("R07 七字段 wire 按原生调用号恢复 typed 事实并与 canonical 完整配对", () => {
+  const budget = { exchange: { provider_call_budget: 2, provider_call_count: 1 } };
+  const block = {
+    type: "validation_result", call_id: "validated-call", status: "passed",
+    reason_code: "judgment_validated",
+    detail: { execution_authorized: false, canon_written: false },
+    retryable: false, budget_after: budget,
+  };
+  const envelope = {
+    ok: true,
+    data: {
+      type: "validation_result", status: "passed", reason_code: "judgment_validated",
+      detail: { execution_authorized: false, canon_written: false },
+    },
+    error_code: null, message: null, retryable: false, observation_ref: null, budget_after: budget,
+  };
+  const canonical = [
+    irMessage("user", "author", [{ type: "text", text: "只提出操作建议。" }]),
+    irMessage("assistant", "model", [
+      { type: "tool_call", call_id: "validated-call", name: "judgment_decision", arguments: {} },
+    ]),
+    irMessage("tool", "tool_result", [block]),
+  ];
+  const messages = [
+    { role: "user", content: "只提出操作建议。" },
+    { role: "assistant", content: "", tool_calls: [
+      { id: "validated-call", type: "function",
+        function: { name: "judgment_decision", arguments: "{}" } },
+    ] },
+    { role: "tool", tool_call_id: "validated-call", content: JSON.stringify(envelope) },
+  ];
+  const original = JSON.stringify({ canonical, messages });
+  const facts = requestFactsFromBody({ messages, tools: [] });
+  assert.equal(facts.malformedToolMessages, 0);
+  assert.equal(facts.toolResults.length, 1);
+  assert.equal(facts.toolResults[0].callId, "validated-call");
+  assert.equal(facts.toolResults[0].type, "validation_result");
+  assert.deepEqual(facts.toolResults[0].payload, block);
+  assert.deepEqual(facts.observations, []);
+  assert.equal(bindRequestMessages(facts, canonical).length, 3);
+  assert.equal(JSON.stringify({ canonical, messages }), original);
+
+  const altered = structuredClone(messages);
+  const changed = JSON.parse(altered[2].content);
+  changed.budget_after.exchange.provider_call_count = 2;
+  altered[2].content = JSON.stringify(changed);
+  assert.equal(bindRequestMessages(requestFactsFromBody({ messages: altered, tools: [] }), canonical), null);
+});
+
+test("R07 观察 envelope 保留 partial 覆盖和真实身份，不从 ok 提升材料信用", () => {
+  const data = {
+    type: "observation", status: "partial", source_refs: ["chapter:one"], versions: {},
+    coverage: { read: 3, total: 8 }, omissions: ["其余五段未供应"], next_offset: 3,
+    content: { summary: "真实页\n  原字节", observation_ref: "observation:page-one" },
+  };
+  const envelope = {
+    ok: true, data, error_code: null, message: null, retryable: false,
+    observation_ref: "observation:page-one", budget_after: null,
+  };
+  const facts = requestFactsFromBody({
+    messages: [{ role: "tool", tool_call_id: "read-page", content: JSON.stringify(envelope) }],
+    tools: [],
+  });
+  assert.equal(facts.malformedToolMessages, 0);
+  assert.deepEqual(facts.toolResults[0].payload, {
+    ...data, call_id: "read-page", retryable: false, budget_after: null,
+  });
+  assert.equal(facts.toolResults[0].status, "partial");
+  assert.equal(observationRefOf(facts.toolResults[0].payload), "observation:page-one");
+});
+
+test("R07 当前 reader 拒绝旧 flat 回执及不完整或自相矛盾的七字段信封", () => {
+  const valid = {
+    ok: false,
+    data: { type: "validation_result", status: "failed", reason_code: "invalid_tool_arguments",
+      detail: { message: "只纠正字段" } },
+    error_code: "invalid_tool_arguments", message: "只纠正字段",
+    retryable: true, observation_ref: null,
+    budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 1 } },
+  };
+  const missing = structuredClone(valid);
+  delete missing.retryable;
+  const invalid = [
+    { ...valid.data, call_id: "rejected-call" },
+    missing,
+    { ...valid, ok: true },
+    { ...valid, observation_ref: "observation:forged-validation" },
+    { ...valid, extra_success: true },
+    { ...valid, retryable: "true" },
+    { ...valid, budget_after: [] },
+    { ...valid, data: { ...valid.data, call_id: "forged-call" } },
+    { ...valid, data: { ...valid.data, reason_code: null } },
+    { ...valid, data: { ...valid.data, detail: [] } },
+    { ...valid, data: { ...valid.data, status: "accepted" } },
+    { ok: true, data: { type: "observation", status: "ok", content: {} },
+      error_code: null, message: null, retryable: false, observation_ref: null, budget_after: null },
+    { ok: true, data: { type: "observation", status: "ok", source_refs: [""], content: {} },
+      error_code: null, message: null, retryable: false, observation_ref: null, budget_after: null },
+  ];
+  for (const envelope of invalid) {
+    const facts = requestFactsFromBody({
+      messages: [{ role: "tool", tool_call_id: "rejected-call", content: JSON.stringify(envelope) }],
+      tools: [],
+    });
+    assert.equal(facts.toolResults.length, 0, JSON.stringify(envelope));
+    assert.equal(facts.malformedToolMessages, 1, JSON.stringify(envelope));
+  }
 });
 
 test("退役 provider_prompt 与未知格式明确不可判定，不回退成空数组通过", () => {

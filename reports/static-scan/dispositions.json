@@ -149,6 +149,13 @@
     "handling": "B87 R06 task-done-f0-01 逐条复核：bindPreregistration 仅修改 materializeFixture 创建的本次测试工作副本；Object.assign 的源是三个固定键 slice_id、seed、budget 的对象字面量，值来自现登记场景及本地 seed 哈希。没有外部输入的任意键合并、HTTP 响应或产品权限写入；它把测试预登记与对应场景的真实种子和预算绑定，不是 mass assignment 漏洞。",
     "recommendation": "保持 Semgrep 原规则和场景归属测试，不为消除告警改写测试语义。若输入改为外部对象、允许任意键或移入产品路径，必须重新审查。"
   },
+  "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/native_b29_evidence.test.mjs|443|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-11-22",
+    "handling": "B87 R07 task-done-engineering-01 复核当前 443 行：新增 toolResultContent import 使原 442 行移动；与 R06 dd8cd1b3 比较，固定 originalText、原文通过、仅替换下一请求换行及 model_execute_matches_source=false 的完整反例逐字不变。该表达式故意破坏回放字节并验证拒绝，不承担清洗或转义职责，没有不受信任输入被处理为安全输出。",
+    "recommendation": "保留 Semgrep 原规则、测试表达式与字节拒绝断言；保留旧 442/430 行处置和本次未处置失败原件。后续位置、输入来源或职责改变时重新逐条复核，不据此豁免产品文本处理。"
+  },
   "semgrep|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization|scripts/native_b29_evidence.test.mjs|442|javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization": {
     "status": "false_positive",
     "owner": "codex",

@@ -21,6 +21,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
+  alias NovelApplication.AuthoringTranscript.Codec
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Compaction
   alias NovelPersistence.AuthoringSessionLog
@@ -88,7 +89,7 @@ defmodule NovelApplication.AuthoringCheckpoint do
 
   defp restore_segment_data(version, data) do
     if version == AuthoringTranscript.checkpoint_version() do
-      AuthoringTranscript.normalize_segment(data)
+      Codec.normalize_segment(data)
     else
       {:error, :unsupported_transcript_checkpoint}
     end

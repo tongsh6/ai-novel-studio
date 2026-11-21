@@ -28,8 +28,9 @@ import {
   observationQuery,
 } from "./authoring_scenario_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
-import { irBodyFromWire, scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import { fullReadScenarioFacts } from "./fixtures/authoring_run_scenarios.mjs";
+import { requestFactsFromBody } from "./authoring_request_facts.mjs";
 
 const explorationScope = ({ allowed = false, tools = [] } = {}) => scopeWireMessage(
   { operation: { exploration: { allowed, tools } } },
@@ -52,6 +53,7 @@ const observationPayload = ({
   return {
     type: "observation",
     call_id: callId,
+    status: "ok",
     next_offset: nextOffset,
     content: { query, summary: summary ?? `读取 ${query}` },
     source_refs: sourceRefs,
@@ -62,7 +64,7 @@ const toolCall = (id, name = "search") => ({ id, function: { name } });
 const observationMessage = (payload) => ({
   role: "tool",
   tool_call_id: payload.call_id,
-  content: JSON.stringify(payload),
+  content: toolResultContent(payload),
 });
 const assistantCall = (call) => ({ role: "assistant", tool_calls: [call] });
 
@@ -122,7 +124,7 @@ test("空请求、缺请求、缺续读与缺失观察链接都失败而不是�
   }
   const missingContinuation = nativeBodies();
   const firstPayload = JSON.parse(missingContinuation[0].messages[3].content);
-  firstPayload.next_offset = 7000;
+  firstPayload.data.next_offset = 7000;
   missingContinuation[0].messages[3].content = JSON.stringify(firstPayload);
   assert.equal(nativeRequestChecks(missingContinuation).checks.continuation_observation_has_next_offset, false);
 
@@ -137,13 +139,13 @@ test("空请求、缺请求、缺续读与缺失观察链接都失败而不是�
 
 test("续读查询、章节来源、严格前缀、scope 与 application_base 被篡改时失败", () => {
   const notStringChapter = nativeBodies();
-  const continuation = JSON.parse(notStringChapter[1].messages.at(-1).content);
+  const continuation = { ...JSON.parse(notStringChapter[1].messages.at(-1).content).data, call_id: notStringChapter[1].messages.at(-1).tool_call_id };
   continuation.content = {
     ...continuation.content,
     query: JSON.stringify({ offset: 6000, chapter_ref: 7 }),
   };
   notStringChapter[1].messages[notStringChapter[1].messages.length - 1] = observationMessage(continuation);
-  const previousForNumber = JSON.parse(notStringChapter[0].messages.at(-1).content);
+  const previousForNumber = { ...JSON.parse(notStringChapter[0].messages.at(-1).content).data, call_id: notStringChapter[0].messages.at(-1).tool_call_id };
   previousForNumber.content = {
     ...previousForNumber.content,
     summary: `已读至续读查询 ${continuation.content.query}`,
@@ -152,13 +154,13 @@ test("续读查询、章节来源、严格前缀、scope 与 application_base �
   assert.equal(nativeRequestChecks(notStringChapter).checks.continuation_query_is_verbatim, false);
 
   const summaryMismatch = nativeBodies();
-  const previous = JSON.parse(summaryMismatch[0].messages.at(-1).content);
+  const previous = { ...JSON.parse(summaryMismatch[0].messages.at(-1).content).data, call_id: summaryMismatch[0].messages.at(-1).tool_call_id };
   previous.content = { ...previous.content, summary: "没有回显续读查询" };
   summaryMismatch[0].messages[summaryMismatch[0].messages.length - 1] = observationMessage(previous);
   assert.equal(nativeRequestChecks(summaryMismatch).checks.continuation_query_is_verbatim, false);
 
   const foreignSource = nativeBodies();
-  const source = JSON.parse(foreignSource[1].messages.at(-1).content);
+  const source = { ...JSON.parse(foreignSource[1].messages.at(-1).content).data, call_id: foreignSource[1].messages.at(-1).tool_call_id };
   source.source_refs = ["another-chapter"];
   foreignSource[1].messages[foreignSource[1].messages.length - 1] = observationMessage(source);
   assert.equal(nativeRequestChecks(foreignSource).checks.observation_has_real_chapter_ref, false);
@@ -206,7 +208,7 @@ test("坏观察信封不被当成 observation，非法续读 query 失败而不�
   for (const body of invalidQuery) {
     body.messages = body.messages.map((message) => {
       if (message.role !== "tool") return message;
-      const payload = JSON.parse(message.content);
+      const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
       return payload.call_id === "call-2"
         ? observationMessage({ ...payload, content: { query: "not json", summary: "读取" } })
         : message;
@@ -224,7 +226,7 @@ const wireAssistant = (calls) => ({ role: "assistant", tool_calls: calls });
 const wireResult = (callId, reason) => ({
   role: "tool",
   tool_call_id: callId,
-  content: JSON.stringify({
+  content: toolResultContent({
     type: "validation_result",
     call_id: callId,
     status: "passed",
@@ -766,13 +768,13 @@ test("请求体选择保留显式 request.body 优先，turn_id 与 nullish 语�
 });
 
 test("观察信封拒绝 null、非 tool 的 observation 与 JSON null", () => {
-  const valid = { type: "observation", call_id: "call-1", content: {} };
-  assert.deepEqual(observation({ role: "tool", content: JSON.stringify(valid) }), valid);
+  const valid = { type: "observation", call_id: "call-1", status: "ok", source_refs: [], content: {}, retryable: null, budget_after: null };
+  assert.deepEqual(observation({ role: "tool", tool_call_id: "call-1", content: toolResultContent(valid) }), valid);
   assert.equal(observation(null), null);
   assert.equal(observation({ role: "assistant", content: JSON.stringify({ type: "observation" }) }), null);
   assert.equal(observation({ role: "tool", content: "null" }), null);
   assert.equal(observation({ role: "tool", content: "[]" }), null);
-  assert.equal(observation({ role: "tool", content: new String(JSON.stringify(valid)) }), null);
+  assert.equal(observation({ role: "tool", content: new String(toolResultContent(valid)) }), null);
   assert.equal(observationQuery(null), null);
   assert.equal(observationQuery({}), null);
   assert.equal(observationQuery({ content: { query: "[]" } }), null);
@@ -786,7 +788,7 @@ test("续读 query 为数组或缺少 content 时失败而不是被条件或吞�
   for (const body of arrayQuery) {
     body.messages = body.messages.map((message) => {
       if (message.role !== "tool") return message;
-      const payload = JSON.parse(message.content);
+      const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
       if (payload.call_id === "call-1") {
         return observationMessage({ ...payload, content: { ...payload.content, summary: "已读至续读查询 []" } });
       }
@@ -800,7 +802,7 @@ test("续读 query 为数组或缺少 content 时失败而不是被条件或吞�
   assert.equal(arrayChecks.continuation_query_is_verbatim, false);
 
   const missingContent = nativeBodies();
-  const previous = JSON.parse(missingContent[0].messages.at(-1).content);
+  const previous = { ...JSON.parse(missingContent[0].messages.at(-1).content).data, call_id: missingContent[0].messages.at(-1).tool_call_id };
   delete previous.content;
   missingContent[0].messages[missingContent[0].messages.length - 1] = observationMessage(previous);
   assert.equal(nativeRequestChecks(missingContent).checks.continuation_query_is_verbatim, false);
@@ -819,22 +821,22 @@ test("空 body、空 assistant 与一侧 call_id 不匹配都不能被链接判�
   const oneSided = (callId, toolCallId) => [{
     messages: [
       { role: "assistant", tool_calls: [{ id: callId, function: { name: "search" } }] },
-      { role: "tool", tool_call_id: toolCallId, content: JSON.stringify(payload) },
+      { role: "tool", tool_call_id: toolCallId, content: toolResultContent(payload) },
       { role: "assistant", tool_calls: [{ id: "call-2", function: { name: "search" } }] },
-      { role: "tool", tool_call_id: "call-2", content: JSON.stringify(secondPayload) },
+      { role: "tool", tool_call_id: "call-2", content: toolResultContent(secondPayload) },
     ],
     tools: [{ type: "function", function: { name: "search" } }],
   }];
-  // payload.call_id 固定为 call-1：只匹配一半的 call id 仍然必须失败。
+  // 原调用与结果外层身份任意一侧偏移，都不能伪造原调用闭合。
   assert.equal(nativeRequestChecks(oneSided("call-1", "other")).checks.every_observation_links_original_tool_call, false);
-  assert.equal(nativeRequestChecks(oneSided("other", "other")).checks.every_observation_links_original_tool_call, false);
+  assert.equal(nativeRequestChecks(oneSided("other", "call-1")).checks.every_observation_links_original_tool_call, false);
 
   const nullCall = [{
     messages: [
       { role: "assistant", tool_calls: [null] },
-      { role: "tool", tool_call_id: "call-1", content: JSON.stringify(payload) },
+      { role: "tool", tool_call_id: "call-1", content: toolResultContent(payload) },
       { role: "assistant", tool_calls: [{ id: "call-2", function: { name: "search" } }] },
-      { role: "tool", tool_call_id: "call-2", content: JSON.stringify(secondPayload) },
+      { role: "tool", tool_call_id: "call-2", content: toolResultContent(secondPayload) },
     ],
     tools: [{ type: "function", function: { name: "search" } }],
   }];
@@ -842,9 +844,9 @@ test("空 body、空 assistant 与一侧 call_id 不匹配都不能被链接判�
   const nullOnly = [{
     messages: [
       null,
-      { role: "tool", tool_call_id: "call-1", content: JSON.stringify(payload) },
+      { role: "tool", tool_call_id: "call-1", content: toolResultContent(payload) },
       { role: "assistant", tool_calls: [{ id: "call-2", function: { name: "search" } }] },
-      { role: "tool", tool_call_id: "call-2", content: JSON.stringify(secondPayload) },
+      { role: "tool", tool_call_id: "call-2", content: toolResultContent(secondPayload) },
     ],
     tools: [{ type: "function", function: { name: "search" } }],
   }];
@@ -872,7 +874,7 @@ test("续读从 previous 之后查找，两个观察也满足链接数量，空 
   for (const body of noContinuation) {
     body.messages = body.messages.map((message) => {
       if (message.role !== "tool") return message;
-      const payload = JSON.parse(message.content);
+      const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
       return payload.call_id === "call-2"
         ? observationMessage({ ...payload, content: { ...payload.content, query: JSON.stringify({ offset: 7000, chapter_ref: "chapter-1" }) } })
         : message;
@@ -930,7 +932,7 @@ function validationMessage(
   return {
     role: "tool",
     tool_call_id: callId,
-    content: JSON.stringify({
+    content: toolResultContent({
       type: "validation_result",
       call_id: callId,
       status,
@@ -1005,8 +1007,7 @@ test("未知结果类型、空白 call id、畸形 tool_calls 与缺先调用都
         };
       }
       if (message.role === "tool") {
-        const payload = JSON.parse(message.content);
-        return { ...message, tool_call_id: "", content: JSON.stringify({ ...payload, call_id: "" }) };
+        return { ...message, tool_call_id: "" };
       }
       return message;
     });
@@ -1026,12 +1027,7 @@ test("未知结果类型、空白 call id、畸形 tool_calls 与缺先调用都
         };
       }
       if (message.role === "tool") {
-        const payload = JSON.parse(message.content);
-        return {
-          ...message,
-          tool_call_id: "   ",
-          content: JSON.stringify({ ...payload, call_id: "   " }),
-        };
+        return { ...message, tool_call_id: "   " };
       }
       return message;
     });
@@ -1214,9 +1210,9 @@ test("续航阶段缺 writer、错 detail、错状态与缺 durable 时对应检
     for (const record of fixture.records) {
       for (const message of record.request.body.messages) {
         if (message.role !== "tool" || message.tool_call_id !== "call-plan") continue;
-        const payload = JSON.parse(message.content);
+        const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
         mutate(payload);
-        message.content = JSON.stringify(payload);
+        message.content = toolResultContent(payload);
       }
     }
     assert.equal(continuationRequestChecks(fixture.records, fixture.durable).checks.planning_and_mission_validation_reach_writer, false);
@@ -1382,13 +1378,13 @@ test("durable run、revision 事件与 Why 窗口对 null 元素和边界时刻�
   assert.equal(noDurable.checks.exactly_one_plan_revision_event, false);
 });
 
-test("空章节 ref 的 measured 保留显式空字符串，空调用号不再是合法身份", () => {
+test("按现有 Observation.validate 拒收空 source_ref，保留坏字节且不产生观察", () => {
   const bodies = nativeBodies();
   const emptyQuery = JSON.stringify({ offset: 6000, chapter_ref: "" });
   for (const body of bodies) {
     body.messages = body.messages.map((message) => {
       if (message.role !== "tool") return message;
-      const payload = JSON.parse(message.content);
+      const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
       if (payload.call_id === "call-1") {
         return observationMessage({
           ...payload,
@@ -1403,11 +1399,18 @@ test("空章节 ref 的 measured 保留显式空字符串，空调用号不再�
       });
     });
   }
+  const malformed = bodies[1].messages.find(message => message.tool_call_id === "call-2");
+  const raw = malformed.content;
+  const facts = requestFactsFromBody({ messages: [malformed] });
+  assert.equal(facts.malformedToolMessages, 1);
+  assert.equal(facts.observations.length, 0);
+  assert.equal(facts.rawBody.messages[0].content, raw);
+  assert.deepEqual(JSON.parse(raw).data.source_refs, [""]);
   const { checks, measured } = nativeRequestChecks(bodies);
-  assert.equal(checks.continuation_query_is_verbatim, true);
-  assert.equal(checks.observation_has_real_chapter_ref, true);
-  assert.equal(measured.continuation_call_id, "call-2");
-  assert.equal(measured.continuation_chapter_ref, "");
+  assert.equal(checks.continuation_query_is_verbatim, false);
+  assert.equal(checks.observation_has_real_chapter_ref, false);
+  assert.equal(measured.continuation_call_id, null);
+  assert.equal(measured.continuation_chapter_ref, null);
 
   const blankCall = nativeBodies();
   for (const body of blankCall) {
@@ -1421,7 +1424,7 @@ test("空章节 ref 的 measured 保留显式空字符串，空调用号不再�
         };
       }
       if (message.role !== "tool") return message;
-      const payload = JSON.parse(message.content);
+      const payload = { ...JSON.parse(message.content).data, call_id: message.tool_call_id };
       if (payload.call_id !== "call-2") return message;
       return observationMessage({ ...payload, call_id: "" });
     });

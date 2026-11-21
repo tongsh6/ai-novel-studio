@@ -7,6 +7,7 @@
 // 复用它的单作者最小样本；schema/lengths 仍由该纯 owner 提供，不在这里另建枚举。
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { toolResultContent } from "./authoring_request_ir.mjs";
 import {
   historyManifest as baseHistoryManifest,
   manifestTarget,
@@ -175,17 +176,18 @@ export function exchangeMessages(messages, { pcall, prun, callId }) {
         {
           id: callId,
           type: "function",
-          function: { name: "read_chapter", arguments: JSON.stringify({ call: callId }) },
+          function: { name: "read_chapter", arguments: "{}" },
         },
       ],
     },
     {
       role: "tool",
       tool_call_id: callId,
-      content: JSON.stringify({
+      content: toolResultContent({
         type: "observation",
         call_id: callId,
         status: "ok",
+        source_refs: [],
         content: { text: "观察正文" },
       }),
     },
@@ -199,6 +201,8 @@ export function canonicalTranscript(turn, text) {
   const prun2 = `prun-${turn.index}-2`;
   const call1 = `call-${turn.index}-1`;
   const call2 = `call-${turn.index}-2`;
+  const applicationBase = "作品资料";
+  const scope = { summary: `当前范围${turn.index}` };
   return {
     pcall1,
     prun1,
@@ -206,7 +210,13 @@ export function canonicalTranscript(turn, text) {
     prun2,
     call1,
     call2,
+    applicationBase,
+    scope,
     messages: [
+      { role: "application_base", provenance: "application",
+        blocks: [{ type: "text", text: applicationBase }], source_refs: [], versions: {} },
+      { role: "scope_update", provenance: "application",
+        blocks: [{ type: "scope", content: scope }], source_refs: [], versions: {} },
       { role: "user", provenance: "author", source_refs: [{ ref: turn.turn_id }],
         blocks: [{ type: "text", text }] },
       {
@@ -216,7 +226,7 @@ export function canonicalTranscript(turn, text) {
         provider_run_ref: prun1,
         blocks: [{ type: "tool_call", call_id: call1, name: "read_chapter", arguments: {}, raw_arguments: "{}" }],
       },
-      { role: "tool", blocks: [{ type: "observation", call_id: call1, content: { text: "观察正文" } }] },
+      { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: call1, status: "ok", source_refs: [], content: { text: "观察正文" } }] },
       {
         role: "assistant",
         provenance: "model",
@@ -224,7 +234,7 @@ export function canonicalTranscript(turn, text) {
         provider_run_ref: prun2,
         blocks: [{ type: "tool_call", call_id: call2, name: "read_chapter", arguments: {}, raw_arguments: "{}" }],
       },
-      { role: "tool", blocks: [{ type: "observation", call_id: call2, content: { text: "观察正文" } }] },
+      { role: "tool", provenance: "tool_result", blocks: [{ type: "observation", call_id: call2, status: "ok", source_refs: [], content: { text: "观察正文" } }] },
     ],
   };
 }

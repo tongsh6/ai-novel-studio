@@ -514,7 +514,10 @@ defmodule NovelAgent.Provider.AnthropicTest do
         |> Enum.find(&(&1.type == "tool_result"))
 
       assert tool_result.tool_use_id == "call-1"
-      assert Jason.decode!(tool_result.content)["call_id"] == "call-1"
+      result = Jason.decode!(tool_result.content)
+      assert result["data"]["type"] == "observation"
+      refute Map.has_key?(result, "call_id")
+      refute Map.has_key?(result["data"], "call_id")
 
       # Anthropic 投影 1:1：application_base 与作者消息各自保留独立 user 条目；
       # 客户端不合并相邻 role，连续同 role 由 provider 官方语义在服务端合并。

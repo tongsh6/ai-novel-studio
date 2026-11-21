@@ -15,6 +15,27 @@ defmodule NovelCommon.RequestIR.Tools do
           optional(:description) => String.t()
         }
 
+  @doc "按显式名称选择原目录条目，保留目录顺序与原 schema；nil 表示整个目录。"
+  @spec select(RequestIR.t(), [String.t()] | nil) :: {:ok, [map()]} | {:error, term()}
+  def select(ir, nil), do: {:ok, ir.tools}
+
+  def select(ir, names) when is_list(names) do
+    known = MapSet.new(ir.tools, &name/1)
+    unknown = Enum.reject(names, &MapSet.member?(known, &1))
+
+    if unknown == [] do
+      {:ok, Enum.filter(ir.tools, &(name(&1) in names))}
+    else
+      {:error, {:unknown_tool_names, unknown}}
+    end
+  end
+
+  @doc "读取原目录条目的合法名称，不从规范化视图过滤或补造条目。"
+  @spec name(term()) :: String.t() | nil
+  def name(%{name: name}) when is_binary(name) and name != "", do: name
+  def name(%{"name" => name}) when is_binary(name) and name != "", do: name
+  def name(_tool), do: nil
+
   @doc "本次请求声明的工具目录（规范化视图；`tools` 是唯一来源）。"
   @spec tool_specs(RequestIR.t()) :: [tool_spec()]
   def tool_specs(%RequestIR{tools: tools}), do: normalize_tool_specs(tools)

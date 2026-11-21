@@ -18,6 +18,7 @@ defmodule NovelCommon.RequestIR do
   alias NovelCommon.RequestIR.Observation
   alias NovelCommon.RequestIR.Scope
   alias NovelCommon.RequestIR.SystemEnvelope
+  alias NovelCommon.RequestIR.Tools
 
   @roles ~w(system application_base scope_update application_notice user assistant tool checkpoint author_exit)
   @provenances ~w(product application author model tool_result)
@@ -242,13 +243,15 @@ defmodule NovelCommon.RequestIR do
   defdelegate observation_payloads(observation), to: Observation
 
   @doc "校验结果块（I-ART-5：作为 tool 原生结果回流，不追加 user 纠错）。"
-  def validation_result_block(call_id, status, reason_code, detail \\ %{}) do
+  def validation_result_block(call_id, status, reason_code, detail \\ %{}, receipt_context \\ %{}) do
     %{
       type: "validation_result",
       call_id: call_id,
       status: status,
       reason_code: reason_code,
-      detail: json_value(detail)
+      detail: json_value(detail),
+      retryable: Map.get(receipt_context, :retryable),
+      budget_after: json_value(Map.get(receipt_context, :budget_after))
     }
   end
 
@@ -404,20 +407,36 @@ defmodule NovelCommon.RequestIR do
   end
 
   defp validate_block(%{type: type} = block) when type in @block_types do
-    case type do
-      "text" -> validate_text_block(block)
-      "scope" -> Scope.validate_block(block)
-      "tool_call" -> validate_tool_call_block(block)
-      "observation" -> Observation.validate(block)
-      "validation_result" -> validate_validation_block(block)
-      "tentative_artifact" -> validate_artifact_block(block)
-      "author_exit" -> validate_author_exit_block(block)
-      "checkpoint" -> validate_checkpoint_block(block)
+    with :ok <- validate_result_context(block) do
+      case type do
+        "text" -> validate_text_block(block)
+        "scope" -> Scope.validate_block(block)
+        "tool_call" -> validate_tool_call_block(block)
+        "observation" -> Observation.validate(block)
+        "validation_result" -> validate_validation_block(block)
+        "tentative_artifact" -> validate_artifact_block(block)
+        "author_exit" -> validate_author_exit_block(block)
+        "checkpoint" -> validate_checkpoint_block(block)
+      end
     end
   end
 
   defp validate_block(%{type: type}), do: {:error, {:unknown_block_type, type}}
   defp validate_block(_block), do: {:error, :malformed_block}
+
+  # 当时的恢复事实由执行 owner 供应；缺失保持未知，不从当前 Scope 补算。
+  defp validate_result_context(%{type: type} = block)
+       when type in ["observation", "validation_result"] do
+    retryable = Map.get(block, :retryable)
+    budget_after = Map.get(block, :budget_after)
+
+    if (is_nil(retryable) or is_boolean(retryable)) and
+         (is_nil(budget_after) or is_map(budget_after)),
+       do: :ok,
+       else: {:error, :invalid_tool_result_context}
+  end
+
+  defp validate_result_context(_block), do: :ok
 
   defp validate_text_block(%{text: text}) when is_binary(text) and text != "", do: :ok
   defp validate_text_block(_block), do: {:error, :invalid_text_block}
@@ -494,7 +513,7 @@ defmodule NovelCommon.RequestIR do
   defp validate_checkpoint_block(_block), do: {:error, :invalid_checkpoint_block}
 
   defp validate_tools(tools) when is_list(tools) do
-    names = Enum.map(tools, &tool_name/1)
+    names = Enum.map(tools, &Tools.name/1)
 
     cond do
       Enum.any?(names, &is_nil/1) -> {:error, :malformed_tool_schema}
@@ -504,10 +523,6 @@ defmodule NovelCommon.RequestIR do
   end
 
   defp validate_tools(_tools), do: {:error, :invalid_tools}
-
-  defp tool_name(%{name: name}) when is_binary(name) and name != "", do: name
-  defp tool_name(%{"name" => name}) when is_binary(name) and name != "", do: name
-  defp tool_name(_tool), do: nil
 
   defp validate_call_bindings(messages) do
     calls = call_ids(messages)
@@ -769,10 +784,19 @@ defmodule NovelCommon.RequestIR do
       do: Scope.append_update(ir, content, versions, source_refs, base_refs)
 
   @doc "追加真实工具校验结果，保留 call_id 关联。"
-  @spec append_validation_result(t(), String.t(), String.t(), String.t(), map()) :: t()
-  def append_validation_result(%__MODULE__{} = ir, call_id, status, reason, detail \\ %{}) do
+  @spec append_validation_result(t(), String.t(), String.t(), String.t(), map(), map()) :: t()
+  def append_validation_result(
+        %__MODULE__{} = ir,
+        call_id,
+        status,
+        reason,
+        detail \\ %{},
+        receipt_context \\ %{}
+      ) do
     message =
-      message(:tool, :tool_result, [validation_result_block(call_id, status, reason, detail)])
+      message(:tool, :tool_result, [
+        validation_result_block(call_id, status, reason, detail, receipt_context)
+      ])
 
     %{ir | messages: ir.messages ++ [message]}
   end
@@ -787,8 +811,8 @@ defmodule NovelCommon.RequestIR do
   @doc "扩展当前工具目录；既有工具定义不被替换。"
   @spec add_tools(t(), [map()]) :: t()
   def add_tools(%__MODULE__{} = ir, tools) do
-    existing = Enum.map(ir.tools, &tool_name/1)
-    additions = Enum.reject(tools, fn tool -> tool_name(tool) in existing end)
+    existing = Enum.map(ir.tools, &Tools.name/1)
+    additions = Enum.reject(tools, fn tool -> Tools.name(tool) in existing end)
     %{ir | tools: ir.tools ++ additions}
   end
 
@@ -865,7 +889,7 @@ defmodule NovelCommon.RequestIR do
   def prepare_request(%__MODULE__{} = ir, opts) do
     with :ok <- validate(ir),
          :ok <- validate_request_ready(ir.messages),
-         {:ok, tools} <- active_tools(ir, Keyword.get(opts, :tool_names)) do
+         {:ok, tools} <- Tools.select(ir, Keyword.get(opts, :tool_names)) do
       tool_choice =
         case Keyword.fetch(opts, :tool_choice) do
           {:ok, choice} -> choice
@@ -885,19 +909,6 @@ defmodule NovelCommon.RequestIR do
 
   defp put_projection_tool_choice(projection, choice),
     do: Map.put(projection, :tool_choice, choice)
-
-  defp active_tools(ir, nil), do: {:ok, ir.tools}
-
-  defp active_tools(ir, names) when is_list(names) do
-    known = MapSet.new(ir.tools, &tool_name/1)
-    unknown = Enum.reject(names, &MapSet.member?(known, &1))
-
-    if unknown == [] do
-      {:ok, Enum.filter(ir.tools, &(tool_name(&1) in names))}
-    else
-      {:error, {:unknown_tool_names, unknown}}
-    end
-  end
 
   @doc """
   把请求构造失败 reason 转为作者安全的可读文案。

@@ -4,7 +4,7 @@
 // import fs/os/path、不建目录/DB、不 import 被测 SUT。时间字段固定为历史批次值，
 // 使同一规格在 run 内只物化一次；纯 verifier 判据在
 // `../authoring_live_evidence.test.mjs` 不消费本文件。
-import { scopeWireMessage } from "./authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./authoring_request_ir.mjs";
 
 export const AUTHOR =
   "先看看第01章现在的设定和正文，再按现有设定写一段更紧张的开场：主角在雨夜收到一封没有署名的信，生成待采纳的候选，先不要保存。";
@@ -193,7 +193,7 @@ export function replayMessages() {
       content: null,
       tool_calls: [{ id: SSE_TOOL_CALL.id, type: "function", function: { name: SSE_TOOL_CALL.name, arguments: SSE_TOOL_ARGUMENTS } }],
     },
-    { role: "tool", tool_call_id: SSE_TOOL_CALL.id, content: JSON.stringify(SSE_OBSERVATION) },
+    { role: "tool", tool_call_id: SSE_TOOL_CALL.id, content: toolResultContent(SSE_OBSERVATION) },
   ];
 }
 

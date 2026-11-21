@@ -307,6 +307,10 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
                call_id: "first-call",
                status: "failed",
                reason_code: "invalid_validation_callback_result",
+               retryable: false,
+               budget_after: %{
+                 "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 1}
+               },
                detail: detail
              }
            ] = tool_results(session.request_ir, "first-call")
@@ -572,6 +576,39 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
            ]
   end
 
+  test "R07 失败回执的重试资格与真实交换窗口同源，末次不得再宣称可重试" do
+    {provider, calls} =
+      scripted_provider([
+        {:ok, native_result("first-rejected", %{})},
+        {:ok, native_result("last-rejected", %{})}
+      ])
+
+    assert {%{status: :error, error: %{code: "plan_invalid"}}, session} =
+             exchange(request_ir(), provider, [])
+
+    assert session.provider_call_budget == 2
+    assert session.provider_call_count == 2
+    assert length(calls.()) == 2
+    assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
+    assert [first, last] = validation_results(session.request_ir)
+    assert first.call_id == "first-rejected"
+    assert first.retryable == true
+
+    assert first.budget_after == %{
+             "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 1}
+           }
+
+    assert last.call_id == "last-rejected"
+    assert last.retryable == false
+
+    assert last.budget_after == %{
+             "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 2}
+           }
+
+    [_, correction_request] = calls.()
+    assert [^first] = validation_results(correction_request)
+  end
+
   test "max_provider_calls=0 返回预算错误且零调用、保留原 IR" do
     {provider, calls} = scripted_provider([{:ok, native_result("unused", %{plan: "不该出现"})}])
     initial = request_ir()
@@ -584,6 +621,7 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
               }
             }, session} = exchange(initial, provider, max_provider_calls: 0)
 
+    assert session.provider_call_budget == 0
     assert session.provider_call_count == 0
     assert session.provider_result == nil
     assert session.request_ir == initial
@@ -612,7 +650,15 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert_receive {:validated, "第一版"}
     refute_receive {:validated, _}, 10
     assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
-    assert Enum.map(validation_results(session.request_ir), & &1.call_id) == ["first-call"]
+    assert [result] = validation_results(session.request_ir)
+    assert result.call_id == "first-call"
+    assert result.retryable == false
+
+    assert result.budget_after == %{
+             "exchange" => %{"provider_call_budget" => 1, "provider_call_count" => 1}
+           }
+
+    assert session.provider_call_budget == 1
   end
 
   test "max_provider_calls 大于 2 时有效上限仍为 2" do

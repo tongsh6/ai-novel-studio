@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extractRefTokens, liveRefsCheck } from "./authoring_live_refs.mjs";
-import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
 const AUTHOR = "请为第01章写一段约300字的开篇正文。";
@@ -64,7 +64,7 @@ function fixtureWireMessages(messages) {
         ((block.omissions ?? []).length ? "省略：" + block.omissions.join("; ") + "\n" : "") + (block.summary ?? "") }];
     }
     if (message.role === "tool") return message.blocks.map(block =>
-      ({ role: "tool", tool_call_id: block.call_id, content: JSON.stringify(block) }));
+      ({ role: "tool", tool_call_id: block.call_id, content: toolResultContent(block) }));
     if (message.role === "assistant") {
       const calls = message.blocks.filter(block => block.type === "tool_call");
       return [{ role: "assistant", content: text,
@@ -854,8 +854,11 @@ test("L7 不授信来源：system/author/history assistant/失败 observation/va
     ["system", [system("chapter:sys"), appBase("材料 chapter:ch-1"), author()], "chapter:sys"],
     ["author", [system(), appBase("材料 chapter:ch-1"), author("chapter:author")], "chapter:author"],
     ["history assistant", [...base, irMessage("assistant", "model", [{ type: "text", text: "chapter:history" }])], "chapter:history"],
-    ["failed observation", [...base, assistantToolCall(), nativeObservation({ status: "failed", sourceRefs: ["chapter:failed"] })], "chapter:failed"],
-    ["validation_result", [...base, assistantToolCall(), nativeObservation({ type: "validation_result", sourceRefs: ["chapter:validation"] })], "chapter:validation"],
+    ["failed observation", [...base, assistantToolCall(), nativeObservation({ status: "unavailable", sourceRefs: ["chapter:failed"] })], "chapter:failed"],
+    ["validation_result", [...base, assistantToolCall(), irMessage("tool", "tool_result", [{
+      type: "validation_result", call_id: "call_1", status: "passed", reason_code: "judgment_validated",
+      detail: { source_refs: ["chapter:validation"], execution_authorized: false, canon_written: false },
+    }])], "chapter:validation"],
     ["call id mismatch", [...base, assistantToolCall(), nativeObservation({ callId: "call_other", sourceRefs: ["chapter:mismatch"] })], "chapter:mismatch"],
     ["no preceding call", [...base, nativeObservation({ sourceRefs: ["chapter:no-call"] })], "chapter:no-call"],
     ["content text", [...base, assistantToolCall(), nativeObservation({ sourceRefs: [], content: { text: "chapter:content-only" } })], "chapter:content-only"],
@@ -1325,7 +1328,7 @@ test("L7 同请求 observation 身份：content.observation_ref 与 source_refs 
       assistantToolCall({ callId: "call_failed" }),
       nativeObservation({
         callId: "call_failed",
-        status: "failed",
+        status: "unavailable",
         content: { observation_ref: "observation:obs_failed_identity" },
       }),
     ],

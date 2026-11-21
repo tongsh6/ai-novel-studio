@@ -125,8 +125,67 @@ defmodule NovelCommon.RequestIR.Projection do
     end
   end
 
-  @doc "observation/validation 的 content 投影：类型、status、refs 与版本均可辨识。"
-  def structured_content(block), do: Jason.encode!(json_value(block))
+  @doc "原生工具结果统一七字段视图；typed 事实与当时恢复快照仍由 canonical 块持有。"
+  def structured_content(block) do
+    block = json_value(block)
+
+    payload =
+      case block do
+        %{"type" => "observation", "status" => status} ->
+          ok? = status in ["ok", "partial", "truncated"]
+
+          result_envelope(
+            block,
+            ok?,
+            if(ok?, do: nil, else: status),
+            if(ok?, do: nil, else: result_text(block["content"], "summary")),
+            observation_identity(block["content"])
+          )
+
+        %{"type" => "validation_result", "status" => status} ->
+          ok? = status == "passed"
+
+          result_envelope(
+            block,
+            ok?,
+            if(ok?, do: nil, else: block["reason_code"]),
+            result_text(block["detail"], "message"),
+            nil
+          )
+
+        _ ->
+          block
+      end
+
+    Jason.encode!(payload)
+  end
+
+  defp result_envelope(block, ok?, error_code, message, observation_ref) do
+    %{
+      ok: ok?,
+      data: Map.drop(block, ["call_id", "retryable", "budget_after"]),
+      error_code: error_code,
+      message: message,
+      retryable: block["retryable"],
+      observation_ref: observation_ref,
+      budget_after: block["budget_after"]
+    }
+  end
+
+  defp result_text(value, key) when is_map(value) do
+    case Map.get(value, key) do
+      text when is_binary(text) -> text
+      _ -> nil
+    end
+  end
+
+  defp result_text(_value, _key), do: nil
+
+  defp observation_identity(%{"observation_ref" => "observation:" <> identity = ref})
+       when identity != "",
+       do: ref
+
+  defp observation_identity(_content), do: nil
 
   @doc "IR 的 JSON 值边界；单一实现在 `RequestIR.json_value/1`，投影不复制。"
   defdelegate json_value(value), to: RequestIR

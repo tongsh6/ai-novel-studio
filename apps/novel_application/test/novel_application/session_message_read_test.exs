@@ -298,7 +298,7 @@ defmodule NovelApplication.SessionMessageReadTest do
 
     for format <- ["chat_completions", "responses_api", "anthropic_messages"] do
       assert {:ok, projected} = Projection.project(request, format)
-      block = projected |> observation_text(format) |> Jason.decode!()
+      block = projected |> observation_text(format) |> Jason.decode!() |> Map.fetch!("data")
       assert block["content"]["summary"] == original
       assert block["content"]["source_hash"] == sha256(original)
       assert block["source_refs"] == [source_ref]

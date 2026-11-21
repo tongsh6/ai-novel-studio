@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { b71LiveModelBehavior } from "./authoring_live_evidence.mjs";
-import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 
 const AUTHOR = "先看看第01章现在的设定和正文，再写一段更紧张的开场：主角在雨夜收到一封没有署名的信。";
 const TURN = "message_live_1";
@@ -222,7 +222,7 @@ test("L5/L6 正例：tool_call 与 tool result 按 call_id 绑定且 observation
   const second = [
     ...first,
     { role: "assistant", content: "", tool_calls: [call] },
-    { role: "tool", tool_call_id: "call_read_1", content: "第01章正文：雨夜，旧书铺。" },
+    { role: "tool", tool_call_id: "call_read_1", content: toolResultContent({ type: "observation", call_id: "call_read_1", status: "ok", source_refs: [], content: { summary: "第01章正文：雨夜，旧书铺。" } }) },
   ];
   const checks = evaluate({
     llmRecords: [
@@ -265,7 +265,7 @@ test("L5/L6：只有 messages 回放、无实时响应 tool_calls 时不伪造�
   const second = [
     ...first,
     { role: "assistant", content: "", tool_calls: [call] },
-    { role: "tool", tool_call_id: "call_replay_1", content: "第01章正文" },
+    { role: "tool", tool_call_id: "call_replay_1", content: toolResultContent({ type: "observation", call_id: "call_replay_1", status: "ok", source_refs: [], content: { summary: "第01章正文" } }) },
   ];
   const checks = evaluate({
     llmRecords: [
@@ -340,7 +340,7 @@ test("L7 live 消费会话 Scope 前缀，历史 run 自报不混入当前段", 
     scopeWireMessage(priorScope.blocks[0].content, { versions: priorScope.versions, sourceRefs: priorScope.source_refs }),
     { role: "assistant", content: "", tool_calls: [{ id: "call-prior", type: "function",
       function: { name: "submit_tentative_artifact", arguments: JSON.stringify(previousArguments) } }] },
-    { role: "tool", tool_call_id: "call-prior", content: JSON.stringify(previousResult) },
+    { role: "tool", tool_call_id: "call-prior", content: toolResultContent(previousResult) },
     author(),
     scopeWireMessage(currentScope.blocks[0].content, { versions: currentScope.versions, sourceRefs: currentScope.source_refs }),
   ];
@@ -445,9 +445,9 @@ test("同一 run 的 <turn>:agent:N step turn 合并：前缀连续、跨段工�
   const call = (id) => ({ id, type: "function", function: { name: "read_chapter", arguments: "{}" } });
   const base = [system(), appBase(), author(), scope()];
   const req1 = base;
-  const req2 = [...base, { role: "assistant", content: "", tool_calls: [call("call_1")] }, { role: "tool", tool_call_id: "call_1", content: "观察 1" }];
+  const req2 = [...base, { role: "assistant", content: "", tool_calls: [call("call_1")] }, { role: "tool", tool_call_id: "call_1", content: toolResultContent({ type: "observation", call_id: "call_1", status: "ok", source_refs: [], content: { summary: "观察 1" } }) }];
   // 最后一次请求（run 内第 3 次）发出的 call_3 不再有后续请求：由 run 终局证明。
-  const req3 = [...req2, { role: "assistant", content: "", tool_calls: [call("call_2")] }, { role: "tool", tool_call_id: "call_2", content: "观察 2" }];
+  const req3 = [...req2, { role: "assistant", content: "", tool_calls: [call("call_2")] }, { role: "tool", tool_call_id: "call_2", content: toolResultContent({ type: "observation", call_id: "call_2", status: "ok", source_refs: [], content: { summary: "观察 2" } }) }];
   const records = [
     record(req1, { ts: "2026-11-03T10:00:01.000Z", provider_call_ref: "pcall_1", turn_id: TURN, response: { status: 200, body: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, tool_calls: [call("call_1")] } } }),
     record(req2, { ts: "2026-11-03T10:00:03.000Z", provider_call_ref: "pcall_2", turn_id: `${TURN}:agent:7`, response: { status: 200, body: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }, tool_calls: [call("call_2")] } } }),
@@ -483,7 +483,7 @@ test("L7 逐调用反例：A 自报的 ref 只在 B 的请求/事件/段头出�
       {
         role: "tool",
         tool_call_id: "call_b",
-        content: JSON.stringify({
+        content: toolResultContent({
           type: "observation",
           call_id: "call_b",
           status: "ok",

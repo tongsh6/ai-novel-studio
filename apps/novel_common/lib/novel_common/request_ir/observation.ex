@@ -20,7 +20,9 @@ defmodule NovelCommon.RequestIR.Observation do
       coverage: RequestIR.json_value(Map.get(payload, :coverage, %{})),
       omissions: Map.get(payload, :omissions, []),
       next_offset: Map.get(payload, :next_offset),
-      content: RequestIR.json_value(Map.get(payload, :content, %{}))
+      content: RequestIR.json_value(Map.get(payload, :content, %{})),
+      retryable: Map.get(payload, :retryable),
+      budget_after: RequestIR.json_value(Map.get(payload, :budget_after))
     }
   end
 

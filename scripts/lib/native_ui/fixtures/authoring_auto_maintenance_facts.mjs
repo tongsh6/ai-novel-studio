@@ -2,7 +2,7 @@
 // 或子进程。真实文件与 8 表 SQLite 模板在 `authoring_auto_maintenance_io_fixture.mjs`；
 // 纯评估测试与 IO 测试共享本文件的同一组事实，避免各自复制期望。
 import { discussionMaintenanceFacts } from "./authoring_discussion_facts.mjs";
-import { scopeWireMessage } from "./authoring_request_ir.mjs";
+import { scopeWireMessage, toolResultContent } from "./authoring_request_ir.mjs";
 
 export const WORK = "work-auto-1";
 export const SESSION = "session-auto-1";
@@ -123,7 +123,7 @@ export function afterWireMessages({ replayCall = false, replayResult = false, su
     messages.push({
       role: "tool",
       tool_call_id: CALL_ID,
-      content: JSON.stringify({ type: "observation", call_id: CALL_ID, status: "ok" }),
+      content: toolResultContent({ type: "observation", call_id: CALL_ID, status: "ok", source_refs: ["source-1"], versions: {} }),
     });
   }
   return messages;
@@ -284,7 +284,7 @@ export function beforeRecord() {
           {
             role: "tool",
             tool_call_id: CALL_ID,
-            content: JSON.stringify({ type: "observation", call_id: CALL_ID, status: "ok" }),
+            content: toolResultContent({ type: "observation", call_id: CALL_ID, status: "ok", source_refs: ["source-1"], versions: {} }),
           },
         ],
       },
@@ -423,13 +423,13 @@ export function interleavedResumeFacts() {
         { role: "user", content: earlyAuthor },
         { role: "user", content: firstText },
         { role: "assistant", content: "", tool_calls: [{ id: CALL_ID, type: "function", function: { name: "chapter_read", arguments: "{}" } }] },
-        { role: "tool", tool_call_id: CALL_ID, content: JSON.stringify({
+        { role: "tool", tool_call_id: CALL_ID, content: toolResultContent({
           type: "observation", call_id: CALL_ID, status: "ok", source_refs: ["source-1"], versions: {},
         }) },
         { role: "assistant", content: waitingQuestion },
         { role: "user", content: laterText },
         { role: "assistant", content: "", tool_calls: [{ id: keepCall, type: "function", function: { name: "chapter_read", arguments: "{}" } }] },
-        { role: "tool", tool_call_id: keepCall, content: JSON.stringify(observation) },
+        { role: "tool", tool_call_id: keepCall, content: toolResultContent(observation) },
         scopeWireMessage(bScope.blocks[0].content, { versions: bScope.versions, sourceRefs }),
         early.checkpointWire,
         { role: "user", content: answerText },

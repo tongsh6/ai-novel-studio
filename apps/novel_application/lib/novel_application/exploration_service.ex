@@ -1207,6 +1207,8 @@ defmodule NovelApplication.ExplorationService do
         }),
       omissions: observation_field(observation, :omissions) || [],
       next_offset: observation_field(observation, :next_offset),
+      retryable: observation_field(observation, :retryable),
+      budget_after: observation_field(observation, :budget_after),
       content:
         %{
           summary: observation_field(observation, :summary),

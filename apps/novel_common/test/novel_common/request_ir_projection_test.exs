@@ -307,10 +307,15 @@ defmodule NovelCommon.RequestIRProjectionTest do
                Projection.structured_content(string_block)
 
       decoded = Jason.decode!(Projection.structured_content(atom_block))
-      assert decoded["content"]["query"] == "查询\n  空白"
-      assert decoded["content"]["未知"] == %{"role" => "作者", "items" => [%{"text" => "a\n b"}]}
-      assert decoded["content"]["at"] == "2026-11-01T00:00:00Z"
-      assert decoded["coverage"]["nested"] == %{"role" => "domain"}
+      assert decoded["data"]["content"]["query"] == "查询\n  空白"
+
+      assert decoded["data"]["content"]["未知"] == %{
+               "role" => "作者",
+               "items" => [%{"text" => "a\n b"}]
+             }
+
+      assert decoded["data"]["content"]["at"] == "2026-11-01T00:00:00Z"
+      assert decoded["data"]["coverage"]["nested"] == %{"role" => "domain"}
 
       assert RequestIR.tool_call_block("read", %{query: "q", nested: %{role: "作者"}}, "call").arguments ==
                %{"query" => "q", "nested" => %{"role" => "作者"}}

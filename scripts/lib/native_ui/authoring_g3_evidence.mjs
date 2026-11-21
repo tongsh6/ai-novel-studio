@@ -11,7 +11,7 @@
 //
 // 结果只含检查、失败原因与技术关联 ref；不含作者原文、失败 detail 或 payload 正文。
 import { isDeepStrictEqual } from "node:util";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { canonicalToolResult, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 
 export const G3_SIGNED_SCOPE = "recovered_correction";
 export const G3_NOT_SIGNED = Object.freeze(["budget_exhaustion_termination"]);
@@ -225,9 +225,24 @@ function checkRecovery({ block, call, starts, records, add, refs }) {
     return;
   }
 
+  const requestCalls = list(nextRead.facts.toolCalls);
+  const nextCalls = requestCalls.filter((item) => item.callId === callId);
   const nextResults = list(nextRead.facts.toolResults).filter((result) =>
     result.callId === callId);
   if (nextResults.length === 0) {
+    // 只诊断同请求中没有在先真实调用的孤儿结果；不把它绑定到当前原调用。
+    if (nextCalls.length === 1) {
+      const orphans = list(nextRead.facts.toolResults).filter((result) =>
+        !requestCalls.some((requestCall) => requestCall.callId === result.toolCallId &&
+          requestCall.messageIndex < result.messageIndex));
+      for (const orphan of orphans) {
+        fail("next_result_id_mismatch", {
+          orphan_tool_call_id: orphan.toolCallId,
+          result_message_index: orphan.messageIndex,
+          next_started_index: nextIndex,
+        });
+      }
+    }
     if (laterHasResult(starts, records, nextIndex + 1, callId)) {
       fail("late_replay", { next_started_index: nextIndex });
     } else {
@@ -241,12 +256,6 @@ function checkRecovery({ block, call, starts, records, add, refs }) {
   }
   const result = nextResults[0];
   nextRef.result_message_index = result.messageIndex ?? null;
-  if (result.toolCallId !== callId) {
-    fail("next_result_id_mismatch", {
-      tool_call_id: result.toolCallId ?? null,
-      next_started_index: nextIndex,
-    });
-  }
   if (result.type !== "validation_result") {
     fail("next_result_not_validation", {
       result_type: result.type ?? null,
@@ -266,12 +275,11 @@ function checkRecovery({ block, call, starts, records, add, refs }) {
       next_started_index: nextIndex,
     });
   }
-  if (!isDeepStrictEqual(result.payload, block)) {
+  if (!isDeepStrictEqual(result.payload, canonicalToolResult(block))) {
     fail("next_result_payload_mismatch", { next_started_index: nextIndex });
   }
 
   // next 同请求内必须以同一 call ID 的原生 assistant tool call 先于该结果。
-  const nextCalls = list(nextRead.facts.toolCalls).filter((item) => item.callId === callId);
   if (nextCalls.length === 0) {
     fail("next_call_missing", { next_started_index: nextIndex });
     return;

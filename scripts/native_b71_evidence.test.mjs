@@ -16,7 +16,7 @@ import {
 } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { planningProtocolEvidence, providerFreeInterval } from "./lib/native_ui/authoring_planning_evidence.mjs";
 import { evaluateAnswerMode } from "./lib/native_ui/authoring_answer_mode_evidence.mjs";
-import { irBodyFromWire } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, toolResultContent } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 import {
   PREVIEW_CALL,
   PREVIEW_DELTAS,
@@ -96,7 +96,7 @@ function planningFixture() {
     const result = { type: "validation_result", call_id: id, status: "passed", reason_code: index < 2 ? "agent_plan_validated" : "tentative_artifact_validated", detail: { execution_authorized: false, canon_written: false } };
     messages.push({ role: "tool", blocks: [result] });
     projected.push({ role: "assistant", content: "", tool_calls: [{ id, function: { name, arguments: "{}" } }] });
-    projected.push({ role: "tool", tool_call_id: id, content: JSON.stringify(result) });
+    projected.push({ role: "tool", tool_call_id: id, content: toolResultContent(result) });
   }
   return { bodies, messages, planVersion: 2, replans: 1, providerCalls: 4 };
 }
@@ -287,21 +287,24 @@ test("实际wire结果错绑不能用正确的durable结果代签", () => {
     for (const message of body.messages) {
       if (message.role === "tool" && message.tool_call_id === "call-0") {
         message.tool_call_id = "foreign-call";
-        message.content = JSON.stringify({ ...JSON.parse(message.content), call_id: "foreign-call" });
       }
     }
   }
   assert.equal(planningProtocolEvidence(fixture).checks.canonical_history_matches_requests, false);
 });
 
-test("请求内工具调用不能冒充user，工具结果信封与payload必须同call", () => {
+test("请求内工具调用不能冒充user，结果data不能重复承载call身份", () => {
   for (const mutate of [
     (message) => { message.role = "user"; },
   ]) {
     const fixture = planningFixture(); mutate(fixture.bodies[1].messages[1]);
     assert.throws(() => planningProtocolEvidence(fixture), /invalid_planning_evidence/);
   }
-  const fixture = planningFixture(); fixture.bodies[1].messages[2].tool_call_id = "wrong";
+  const fixture = planningFixture();
+  const result = fixture.bodies[1].messages[2];
+  const envelope = JSON.parse(result.content);
+  envelope.data.call_id = "wrong";
+  result.content = JSON.stringify(envelope);
   assert.throws(() => planningProtocolEvidence(fixture), /invalid_planning_evidence/);
 });
 
@@ -341,7 +344,7 @@ test("实际请求的校验内容必须来自持久原生结果，不只比call_
     for (const message of body.messages) {
       if (message.role === "tool" && message.tool_call_id === "call-1") {
         const payload = JSON.parse(message.content);
-        payload.detail.execution_authorized = true;
+        payload.data.detail.execution_authorized = true;
         message.content = JSON.stringify(payload);
       }
     }
@@ -546,7 +549,7 @@ const wireBody = (messages, names) => ({
 });
 const wireCall = (id, name) => ({ id, function: { name, arguments: "{}" } });
 const wireAssistant = (calls) => ({ role: "assistant", tool_calls: calls });
-const wireTool = (payload) => ({ role: "tool", tool_call_id: payload.call_id, content: JSON.stringify(payload) });
+const wireTool = (payload) => ({ role: "tool", tool_call_id: payload.call_id, content: toolResultContent(payload) });
 const passedValidation = (callId, reason) => ({
   type: "validation_result",
   call_id: callId,

@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { scopeWireMessage } from "./authoring_request_ir.mjs";
 import {
   businessContentSha,
   contentCanonSnapshot,
@@ -511,17 +512,18 @@ export function writeCalls(batchDir, turns) {
   fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path.join(batchDir, BATCH_DB_REL));
   const lines = [];
-  let previous = [
-    { role: "system", content: "系统提示" },
-    { role: "user", content: "【应用数据 · application_base】作品资料" },
-  ];
+  let previous = [{ role: "system", content: "系统提示" }];
   try {
     for (const [offset, turn] of turns.entries()) {
       const text = SOURCE_TEXTS[offset % SOURCE_TEXTS.length];
       const transcript = insertRun(db, turn, text);
+      if (offset === 0) previous.push({
+        role: "user",
+        content: "【应用数据 · application_base · 非作者原话】\n" + transcript.applicationBase,
+      });
       const call1Messages = [
         ...previous,
-        { role: "user", content: `【应用数据 · scope_update】当前范围${turn.index}` },
+        scopeWireMessage(transcript.scope),
         { role: "user", content: text },
       ];
       const call2Messages = exchangeMessages(call1Messages, {

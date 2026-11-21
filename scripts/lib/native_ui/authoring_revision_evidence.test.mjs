@@ -21,7 +21,7 @@ import {
   sourceMissionEvents,
 } from "./authoring_revision_evidence.mjs";
 
-import { irBodyFromWire, scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
+import { irBodyFromWire, scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 const TOPIC = "workspace:owned";
 const FOREIGN = "workspace:foreign";
 const AT = "2026-11-02T03:40:01.000Z";
@@ -1065,7 +1065,7 @@ test("修订请求核验完整会话 Scope，调用计数保持当前 run", () =
       scopeWireMessage(oldScope.blocks[0].content, { versions: oldScope.versions }),
       { role: "assistant", content: "", tool_calls: [{ id: "call-previous", type: "function",
         function: { name: "submit_tentative_artifact", arguments: "{}" } }] },
-      { role: "tool", tool_call_id: "call-previous", content: JSON.stringify(previousResult) },
+      { role: "tool", tool_call_id: "call-previous", content: toolResultContent(previousResult) },
       scopeWireMessage(currentScope.blocks[0].content, { versions: currentScope.versions }),
     ] } },
     response: { body: { tool_calls: [{ name: "submit_tentative_artifact", arguments: {} }] } },
@@ -1397,8 +1397,8 @@ test("第二请求必须逐字携带第一轮 assistant tool_calls 与关联 val
   });
   const failed = (over = {}) => ({
     role: "tool",
-    tool_call_id: "call-1",
-    content: JSON.stringify({
+    tool_call_id: over.call_id ?? "call-1",
+    content: toolResultContent({
       type: "validation_result",
       call_id: "call-1",
       status: "failed",

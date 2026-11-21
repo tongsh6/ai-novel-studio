@@ -6,7 +6,8 @@ defmodule NovelApplication.TranscriptCompactionSummary do
   """
 
   alias NovelAgent.Provider.{Execution, InferenceParams, Result}
-  alias NovelApplication.{AuthoringSessionHistory, AuthoringTranscript, ProviderActivityProjector}
+  alias NovelApplication.{AuthoringSessionHistory, ProviderActivityProjector}
+  alias NovelApplication.AuthoringTranscript.Codec
   alias NovelCommon.Contracts.{ProviderOutput, ProviderRun}
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.{Compaction, DiscussionSummary, Operation}
@@ -190,7 +191,7 @@ defmodule NovelApplication.TranscriptCompactionSummary do
     # Reuse the canonical JSON codec on a real checkpoint message shape, including
     # selectors and references. Unknown nested fields survive and are rejected below.
     [message] =
-      AuthoringTranscript.normalize_messages([
+      Codec.normalize_messages([
         %{"role" => "checkpoint", "blocks" => [Map.put(data, "type", "checkpoint")]}
       ])
 

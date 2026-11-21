@@ -43,4 +43,46 @@ defmodule NovelCommon.RequestIR.ToolsTest do
              %{name: "string_key_schema", description: "", input_schema: %{"type" => "object"}}
            ]
   end
+
+  test "select 的 nil 与显式名称保留原目录顺序和 schema 字节结构" do
+    first = %{
+      name: "first",
+      input_schema: %{type: "object", properties: %{text: %{type: "string"}}}
+    }
+
+    second = %{"name" => "second", "parameters" => %{"type" => "object"}, "description" => " 原文 "}
+    request = ir([first, second], "auto")
+
+    assert Tools.select(request, nil) == {:ok, [first, second]}
+    assert Tools.select(request, ["second", "first"]) == {:ok, [first, second]}
+    assert Tools.select(request, ["second"]) == {:ok, [second]}
+    assert Tools.select(request, []) == {:ok, []}
+
+    assert Tools.select(request, ["missing", "first"]) ==
+             {:error, {:unknown_tool_names, ["missing"]}}
+  end
+
+  test "select 不经 tool_specs 过滤坏条目，请求边界仍先拒收坏目录" do
+    valid = %{name: "first", input_schema: %{type: "object"}}
+    missing_schema = %{name: "missing_schema"}
+    malformed = %{name: "", input_schema: %{type: "object"}}
+    request = ir([valid, missing_schema, malformed], "auto")
+
+    assert Tools.select(request, nil) == {:ok, [valid, missing_schema, malformed]}
+    assert Tools.select(request, ["missing_schema"]) == {:ok, [missing_schema]}
+
+    assert {:error, :malformed_tool_schema} =
+             RequestIR.prepare_request(request, tool_names: ["first"])
+  end
+
+  test "name 保留原目录 atom 与 string 键规则，不补合法名称" do
+    assert Tools.name(%{name: "first"}) == "first"
+    assert Tools.name(%{"name" => "second"}) == "second"
+    assert Tools.name(%{"name" => "fallback", name: ""}) == "fallback"
+    assert Tools.name(%{"name" => "ignored", name: "first"}) == "first"
+
+    for invalid <- [nil, %{}, %{name: ""}, %{"name" => false}, "first"] do
+      assert Tools.name(invalid) == nil
+    end
+  end
 end

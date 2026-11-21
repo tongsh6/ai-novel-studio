@@ -45,6 +45,7 @@ import {
 import { authorBoundary, axTurnOutcome, countAxAuthorMessages, g2VisibleEvidence, g3VisibleEvidence } from "./authoring_g2_evidence.mjs";
 import {
   NATIVE_CHAT_WIRE,
+  requestFactsFromBody,
   requestFactsFromRecord,
 } from "./authoring_request_facts.mjs";
 import {
@@ -129,12 +130,12 @@ function toolCallsOf(messages) {
 }
 
 function toolMessagesOf(messages) {
-  return messages
-    .filter((message) => message?.role === "tool")
-    .map((message) => ({
-      tool_call_id: message.tool_call_id ?? message.tool_call ?? null,
-      content: messageContent(message),
-    }));
+  const facts = requestFactsFromBody({ messages });
+  if (!facts.ok) return [];
+  return facts.toolResults.map((result) => ({
+    tool_call_id: result.toolCallId,
+    content: messageContent(result.raw),
+  }));
 }
 
 function extractRefs(value) {

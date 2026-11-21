@@ -263,7 +263,7 @@ defmodule NovelApplication.B30ExplorationSeqTest do
     [tool] = Enum.filter(body.messages, &(&1.role == "tool"))
     assert tool.tool_call_id == call_id
     assert Enum.any?(body.messages, &(&1 == %{role: "user", content: author_text}))
-    Jason.decode!(tool.content)
+    Jason.decode!(tool.content) |> Map.fetch!("data")
   end
 
   defp long_prose(total) do
@@ -285,7 +285,7 @@ defmodule NovelApplication.B30ExplorationSeqTest do
     |> Repo.insert!()
   end
 
-  defp seed_work_with_chapter(title, prose, opts \\ []) do
+  defp seed_work_with_chapter(title, prose, opts) do
     work_id =
       case opts[:work_id] do
         nil ->

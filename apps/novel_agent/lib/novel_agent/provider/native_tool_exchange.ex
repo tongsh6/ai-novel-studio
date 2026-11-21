@@ -225,7 +225,7 @@ defmodule NovelAgent.Provider.NativeToolExchange do
     }
   end
 
-  defp reject_response(ir, result, feedback) do
+  defp reject_response(ir, result, feedback, receipt_context) do
     case Map.get(result, :tool_calls, []) do
       [] ->
         RequestIR.append_application_notice(ir, feedback.message)
@@ -239,7 +239,8 @@ defmodule NovelAgent.Provider.NativeToolExchange do
             field(call, :id),
             "failed",
             feedback.reason_code,
-            detail
+            detail,
+            receipt_context
           )
         end)
     end
@@ -258,8 +259,17 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   defp validation_detail(%{message: message}), do: %{message: message}
 
   defp reject(feedback, state, operation, decision) do
-    state = %{state | ir: reject_response(state.ir, state.result, feedback)}
-    retry_or_finish(Map.put(decision, :feedback, feedback), state, operation)
+    retryable = decision.retryable and state.count < state.max_calls
+
+    receipt_context = %{
+      retryable: retryable,
+      budget_after: %{
+        exchange: %{provider_call_budget: state.max_calls, provider_call_count: state.count}
+      }
+    }
+
+    state = %{state | ir: reject_response(state.ir, state.result, feedback, receipt_context)}
+    retry_or_finish(%{decision | retryable: retryable}, state, operation)
   end
 
   # 唯一重试/结束决定：协议、应用校验、程序契约故障与传输失败都构造同一种
@@ -302,7 +312,12 @@ defmodule NovelAgent.Provider.NativeToolExchange do
 
   defp finish(parsed, state) do
     {parsed,
-     %{request_ir: state.ir, provider_result: state.result, provider_call_count: state.count}}
+     %{
+       request_ir: state.ir,
+       provider_result: state.result,
+       provider_call_budget: state.max_calls,
+       provider_call_count: state.count
+     }}
   end
 
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))

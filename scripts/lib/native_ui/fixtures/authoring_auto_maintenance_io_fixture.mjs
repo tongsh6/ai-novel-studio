@@ -11,6 +11,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { checkpointWire, maintenanceRecoveryFacts } from "./authoring_discussion_facts.mjs";
+import { toolResultContent } from "./authoring_request_ir.mjs";
 import {
   AUTO_EXECUTABLE,
   autoMaintenanceConfig,
@@ -142,7 +143,7 @@ function currentAdmissionScenario(scenario) {
     message.role === "user" && message.content === firstRecoveryText ? [index] : []);
   if (recoveryIndices.length !== 1) throw new Error("fixture must uniquely identify the first recovery author");
   finalRequest.splice(recoveryIndices[0], 0, ...items.map(message => message.role === "tool"
-    ? { role: "tool", tool_call_id: message.blocks[0].call_id, content: JSON.stringify(message.blocks[0]) }
+    ? { role: "tool", tool_call_id: message.blocks[0].call_id, content: toolResultContent(message.blocks[0]) }
     : message.blocks[0].type === "tool_call"
       ? { role: "assistant", content: "", tool_calls: [{ id: message.blocks[0].call_id, type: "function",
         function: { name: "chapter_read", arguments: "{}" } }] }

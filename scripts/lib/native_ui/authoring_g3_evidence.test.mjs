@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AUTHORING_REQUEST_IR } from "./authoring_request_facts.mjs";
+import { toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import {
   G3_NOT_SIGNED,
   G3_SIGNED_SCOPE,
@@ -401,7 +402,7 @@ test("缺下一个 started、未全部回流的多个失败、重复结果与 pa
   assert.equal(hasReason(reasonMismatch, "next_result_reason_mismatch"), true);
 });
 
-test("原生 wire 外层 tool_call_id 与 payload call_id 不一致时拒绝", () => {
+test("原生 wire 外层 tool_call_id 与原调用身份不一致时拒绝", () => {
   const wireRecord = (pcall, prun, messages) => ({
     provider_call_ref: pcall,
     provider_run_ref: prun,
@@ -421,7 +422,7 @@ test("原生 wire 外层 tool_call_id 与 payload call_id 不一致时拒绝", (
   const wireTool = (outerId) => ({
     role: "tool",
     tool_call_id: outerId,
-    content: JSON.stringify(failedResult()),
+    content: toolResultContent(failedResult()),
   });
   const sourceMessages = [wireApp(), wireAuthor()];
   const nextMessages = [wireApp(), wireAuthor(), wireAssistant(), wireTool("call-other")];
@@ -438,7 +439,48 @@ test("原生 wire 外层 tool_call_id 与 payload call_id 不一致时拒绝", (
 
   assert.equal(report.ok, false);
   assert.equal(hasReason(report, "next_result_id_mismatch"), true);
-  assert.equal(report.refs.recoveries[0].next.result_message_index, 3);
+  const mismatch = report.failures.find((failure) => failure.reason === "next_result_id_mismatch");
+  assert.equal(mismatch.result_message_index, 3);
+  assert.equal(mismatch.orphan_tool_call_id, "call-other");
+  assert.equal(report.refs.recoveries[0].next.result_message_index, undefined);
+});
+
+test("原 call 结果缺失时，不把同请求另一真实调用的合法结果误报为错 ID", () => {
+  const otherId = "call-g3-other-declared";
+  const sourceMessages = [{ role: "user", content: AUTHOR_TEXT }];
+  const nextMessages = [
+    ...sourceMessages,
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [CALL_ID, otherId].map((id) => ({
+        id, type: "function",
+        function: { name: "judgment_decision", arguments: "{}" },
+      })),
+    },
+    {
+      role: "tool",
+      tool_call_id: otherId,
+      content: toolResultContent({ ...failedResult(), call_id: otherId }),
+    },
+  ];
+  const wireRecord = (pcall, prun, messages) => ({
+    provider_call_ref: pcall,
+    provider_run_ref: prun,
+    request: { body: { messages } },
+  });
+  const report = reportOf({
+    records: [
+      wireRecord(SOURCE_PCALL, SOURCE_PRUN, sourceMessages),
+      wireRecord(NEXT_PCALL, NEXT_PRUN, nextMessages),
+    ],
+    transcriptMessages: [app(), author(), assistantCall(), tool(failedResult())],
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(hasReason(report, "next_result_missing"), true);
+  assert.equal(hasReason(report, "next_result_id_mismatch"), false);
+  assert.equal(report.refs.recoveries[0].next.result_message_index, undefined);
 });
 
 test("next 同请求缺同 call ID 的 assistant tool call 或顺序颠倒时拒绝", () => {

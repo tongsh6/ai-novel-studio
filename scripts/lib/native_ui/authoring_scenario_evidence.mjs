@@ -59,8 +59,6 @@ function parseJson(value) {
   }
 }
 
-const TOOL_RESULT_TYPES = new Set(["observation", "validation_result"]);
-
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -69,16 +67,11 @@ function nonBlankId(value) {
   return typeof value === "string" && value.trim() !== "";
 }
 
-// 完整 tool 结果图的唯一解析边界：支持类型与非空 call_id 在这里一次判定。
-// observation() 只是该解析结果的一个 consumer，不另起一套观察 parser。
+// 七字段 wire 只由共享 request reader 解析；场景只消费还原的 typed canonical 视图。
 function toolResult(message) {
-  if (!isObject(message)) return null;
-  if (message.role !== "tool") return null;
-  if (typeof message.content !== "string") return null;
-  const payload = parseJson(message.content);
-  if (!isObject(payload)) return null;
-  if (!TOOL_RESULT_TYPES.has(payload.type) || !nonBlankId(payload.call_id)) return null;
-  return payload;
+  if (!isObject(message) || message.role !== "tool" || typeof message.content !== "string") return null;
+  const facts = requestFactsFromBody({ messages: [message] });
+  return facts.ok && facts.malformedToolMessages === 0 ? facts.toolResults[0]?.payload ?? null : null;
 }
 
 export function observation(message) {
@@ -318,8 +311,7 @@ export function resultBlocks(messages, type) {
     if (Array.isArray(message?.blocks)) {
       return message.blocks.filter((block) => block?.type === type);
     }
-    if (message?.role !== "tool" || typeof message.content !== "string") return [];
-    const payload = parseJson(message.content);
+    const payload = toolResult(message);
     return payload?.type === type ? [payload] : [];
   });
 }

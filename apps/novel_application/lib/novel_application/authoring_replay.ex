@@ -17,6 +17,8 @@ defmodule NovelApplication.AuthoringReplay do
     TraceRedactor
   }
 
+  alias NovelApplication.AuthoringTranscript.Codec
+
   alias NovelPersistence.{AuthoringSessionLog, LongRunTaskLog, ProviderRunLog, WorkSessionRepo}
 
   @internal_marker ~r/\b(?:RequestIR|request_ir|provider_session|reasoning_content|call_id|tool_call)\b|\b(?:call_|run_|turn_|ctx_|trace_|pc_)[a-z0-9_-]+|\b(?:chapter|work|character):[a-z0-9_-]+/i
@@ -157,7 +159,7 @@ defmodule NovelApplication.AuthoringReplay do
       messages:
         messages
         |> Enum.map(&Map.get(&1, :message))
-        |> AuthoringTranscript.normalize_messages()
+        |> Codec.normalize_messages()
     }
 
     {:ok,

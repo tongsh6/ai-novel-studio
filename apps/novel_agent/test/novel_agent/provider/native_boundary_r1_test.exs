@@ -310,7 +310,29 @@ defmodule NovelAgent.Provider.NativeBoundaryR1Test do
         |> Enum.find(&(&1.type == "tool_result"))
 
       assert tool_result.tool_use_id == "call-1"
-      assert Jason.decode!(tool_result.content)["call_id"] == "call-1"
+      envelope = Jason.decode!(tool_result.content)
+
+      assert envelope == %{
+               "ok" => true,
+               "data" => %{
+                 "type" => "observation",
+                 "status" => "ok",
+                 "source_refs" => [%{"ref" => "character:1", "version" => 2}],
+                 "versions" => %{},
+                 "coverage" => %{},
+                 "omissions" => [],
+                 "next_offset" => nil,
+                 "content" => %{"narrative_role" => "ENSEMBLE_POV"}
+               },
+               "error_code" => nil,
+               "message" => nil,
+               "retryable" => nil,
+               "observation_ref" => nil,
+               "budget_after" => nil
+             }
+
+      refute Map.has_key?(envelope, "call_id")
+      refute Map.has_key?(envelope["data"], "call_id")
 
       assert [%{name: "read_character", input_schema: %{"type" => "object"}}] = body.tools
       assert body.tool_choice == %{type: "auto"}

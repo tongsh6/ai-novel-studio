@@ -210,9 +210,18 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
           |> result_call_ids()
           |> Enum.filter(&(&1 in pending))
 
+        receipt_context = result_receipt_context(session)
+
         ir =
           Enum.reduce(call_ids, ir, fn call_id, current ->
-            RequestIR.append_validation_result(current, call_id, status, reason_code, detail)
+            RequestIR.append_validation_result(
+              current,
+              call_id,
+              status,
+              reason_code,
+              detail,
+              receipt_context
+            )
           end)
 
         %{session | request_ir: ir}
@@ -220,6 +229,23 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
       {:error, _reason} ->
         invalid_request_ir!()
     end
+  end
+
+  # 此处已离开原生交换，只闭合最终应用结果；不能因为窗口有余量再开纠错。
+  # 没有当时的任一计数便保持未知，当前 Scope 和默认 0 都不能补成历史事实。
+  defp result_receipt_context(session) do
+    budget_after =
+      case session do
+        %{provider_call_budget: limit, provider_call_count: count}
+        when is_integer(limit) and limit >= 0 and is_integer(count) and count >= 0 and
+               count <= limit ->
+          %{exchange: %{provider_call_budget: limit, provider_call_count: count}}
+
+        _ ->
+          nil
+      end
+
+    %{retryable: false, budget_after: budget_after}
   end
 
   defp result_call_ids(result) when is_map(result) do

@@ -10,6 +10,7 @@ import path from "node:path";
 import * as nativeEvidence from "./native_b29_evidence.mjs";
 import { flatText } from "./lib/native_ui/workbench.mjs";
 import * as r05Evidence from "./lib/native_ui/authoring_r05_evidence.mjs";
+import { toolResultContent } from "./lib/native_ui/fixtures/authoring_request_ir.mjs";
 
 function capturedCandidateFixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b29-raw-"));
@@ -258,9 +259,9 @@ function fixture() {
   const wireBase = [{ role: "user", content: "【应用数据 · application_base · 非作者原话】\n固定判断契约；作品事实按需探索。" },
     scopeWire(), { role: "user", content: INPUT }];
   const dirPair = [wireCall("directory", directoryArgs),
-    { role: "tool", tool_call_id: "call-directory", content: JSON.stringify(directory) }];
+    { role: "tool", tool_call_id: "call-directory", content: toolResultContent(directory) }];
   const detailPair = [wireCall("detail", detailArgs),
-    { role: "tool", tool_call_id: "call-detail", content: JSON.stringify(detail) }];
+    { role: "tool", tool_call_id: "call-detail", content: toolResultContent(detail) }];
   const records = [
     ["directory", wireBase], ["detail", [...wireBase, ...dirPair]],
     ["execute", [...wireBase, ...dirPair, ...detailPair]],
@@ -429,7 +430,7 @@ test("只排除原call已失败闭合的execute，接受的纠正决定仍唯一
   record.provider_call_ref = "pcall-corrected"; record.provider_run_ref = "prun-corrected";
   record.response.body.tool_calls[0].id = "call-corrected";
   record.request.body.messages.push(wireCall("execute", args),
-    { role: "tool", tool_call_id: "call-execute", content: JSON.stringify(failure) });
+    { role: "tool", tool_call_id: "call-execute", content: toolResultContent(failure) });
   input.records.push(record);
   input.starts.push({ provider_call_ref: "pcall-corrected", provider_run_id: "prun-corrected" });
   assert.equal(evaluate(input).ok, true);
@@ -516,7 +517,7 @@ test("观察与候选同时携带错误指纹仍拒绝", () => {
   detail.versions[REF] = "wrong";
   detail.content.facts.character.base_fingerprint = "wrong";
   input.candidate.payload.base_fingerprint = "wrong";
-  input.records[2].request.body.messages.at(-1).content = JSON.stringify(detail);
+  input.records[2].request.body.messages.at(-1).content = toolResultContent(detail);
   assert.equal(check(input, "detail_matches_source"), false);
 });
 test("缺完整身份字段不可证明读到修订基线", () => {
@@ -543,7 +544,7 @@ test("详情本身合法但下一次判断请求未供应原观察", () => {
 test("后继请求篡改观察字段不得按 call id 放行", () => {
   const input = fixture();
   const payload = JSON.parse(input.records[2].request.body.messages.at(-1).content);
-  payload.content.facts.character.role = "冒充";
+  payload.data.content.facts.character.role = "冒充";
   input.records[2].request.body.messages.at(-1).content = JSON.stringify(payload);
   assert.equal(check(input, "detail_in_next_request"), false);
 });
@@ -616,9 +617,9 @@ test("长 summary 的真实首页足够单字段修订，未读尾页明确保�
     total_graphemes: 6004, offset_unit: "unicode_grapheme" };
   detail.next_offset = 6000;
   detail.omissions = ["其余正文尚未读取"];
-  input.records[1].request.body.messages.at(-1).content = JSON.stringify(directory);
-  input.records[2].request.body.messages[4].content = JSON.stringify(directory);
-  input.records[2].request.body.messages.at(-1).content = JSON.stringify(detail);
+  input.records[1].request.body.messages.at(-1).content = toolResultContent(directory);
+  input.records[2].request.body.messages[4].content = toolResultContent(directory);
+  input.records[2].request.body.messages.at(-1).content = toolResultContent(detail);
   input.candidate.payload.base_fingerprint = fingerprint;
   const result = evaluate(input);
   assert.equal(result.ok, true, JSON.stringify(result));

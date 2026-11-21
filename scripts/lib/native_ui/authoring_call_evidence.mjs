@@ -5,7 +5,7 @@
 // canonical 定位使用 assistant 顶层 provider_call_ref/provider_run_ref，而不是仅 call_id。
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
-import { AUTHORING_REQUEST_IR, NATIVE_CHAT_WIRE, bindRequestMessages, requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { AUTHORING_REQUEST_IR, NATIVE_CHAT_WIRE, bindRequestMessages, canonicalToolResult, requestFactsFromRecord } from "./authoring_request_facts.mjs";
 import { all, withDb } from "./scenario_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
@@ -123,7 +123,7 @@ export function observationNextRequestEvidence({ messages, records, starts, pare
     else fail(nextResults.length > 1 ? "next_result_ambiguous" : "next_result_missing");
   } else if (nextResults[0].toolCallId !== callId) {
     fail("result_id_mismatch");
-  } else if (!isDeepStrictEqual(nextResults[0].payload, parent)) {
+  } else if (!isDeepStrictEqual(nextResults[0].payload, canonicalToolResult(parent))) {
     fail("next_payload_mismatch");
   }
   return page;
