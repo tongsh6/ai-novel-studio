@@ -80,6 +80,11 @@ function requireOwn(record, key, path) {
   return record[key];
 }
 
+function requireBoolean(value, path) {
+  if (typeof value !== "boolean") invalid(path, "a boolean");
+  return value;
+}
+
 function requireCount(value, path) {
   if (!Number.isSafeInteger(value) || value < 0) invalid(path, "a non-negative safe integer");
   return value;
@@ -377,6 +382,15 @@ function protectedFields(row, planDirection, path, directionKey, missionKey) {
     protectedRow[directionKey] = { ...planDirection };
     delete protectedRow[directionKey][missionKey];
   }
+  if (directionKey === "planning_direction") {
+    // Work.changeset 的乐观锁版本由独立见证严格核算，不作为内容相等字段。
+    delete protectedRow.revision;
+    // 仅此列去掉使命后的空 map 投影为 null；原容器差异仍由必需见证保留。
+    const remainder = protectedRow[directionKey];
+    if (isRecord(remainder) && Object.keys(remainder).length === 0) {
+      protectedRow[directionKey] = null;
+    }
+  }
   return sha256(canonicalJson(jsonSafe(protectedRow, path)));
 }
 
@@ -437,11 +451,13 @@ function parseChapterFact(id, value, path) {
   };
 }
 
-// 规划使命使用相同 mission/保护字段边界；完整 works 表 hash 仍保留原义。
+// 规划使命另外保留真实版本与方向容器事实；完整 works 表 hash 仍保留原义。
 function workFact(row, path) {
   const direction = parsePlanDirection(requireOwn(row, "planning_direction", path), `${path}.planning_direction`);
   return {
     title: requireString(requireOwn(row, "title", path), `${path}.title`),
+    revision: requirePositiveInteger(requireOwn(row, "revision", path), `${path}.revision`),
+    planning_direction_is_null: direction === null,
     updated_at: requireTimestamp(requireOwn(row, "updated_at", path), `${path}.updated_at`),
     protected_sha256: protectedFields(row, direction, path, "planning_direction", "planning_mission"),
     mission: directionMission(direction, path, "planning_mission"),
@@ -461,6 +477,11 @@ function parseWorkFacts(value, expectedRows) {
     const row = requireRecord(value, path);
     return [id, {
       title: requireString(requireOwn(row, "title", path), `${path}.title`),
+      revision: requirePositiveInteger(requireOwn(row, "revision", path), `${path}.revision`),
+      planning_direction_is_null: requireBoolean(
+        requireOwn(row, "planning_direction_is_null", path),
+        `${path}.planning_direction_is_null`,
+      ),
       updated_at: requireTimestamp(requireOwn(row, "updated_at", path), `${path}.updated_at`),
       protected_sha256: requireHash(requireOwn(row, "protected_sha256", path), `${path}.protected_sha256`),
       mission: parseMission(requireOwn(row, "mission", path), `${path}.mission`),
@@ -871,11 +892,20 @@ function sourceDesignAccounted(start, final, targetId, startAt, finalAt, table) 
     return { valid: false, changes: [] };
   }
   const results = Object.keys(before).sort().map((id) => {
-    // works.updated_at 是既有「最近打开」账面时钟。使命及全部保护字段不变时
-    // 仍保留完整 rows hash，但不把正常重连误判为规划使命写入。
-    if (table === "works" && isDeepStrictEqual(before[id].mission, after[id].mission)) {
-      return { valid: before[id].protected_sha256 === after[id].protected_sha256,
-        change: null };
+    if (table === "works") {
+      const unchanged = isDeepStrictEqual(before[id].mission, after[id].mission);
+      const versionAndContainerAccounted = unchanged
+        ? before[id].revision === after[id].revision &&
+          before[id].planning_direction_is_null === after[id].planning_direction_is_null
+        : after[id].revision === before[id].revision + 1 &&
+          after[id].planning_direction_is_null === false;
+      if (!versionAndContainerAccounted) return { valid: false, change: null };
+      // works.updated_at 是既有「最近打开」账面时钟；使命、版本、容器及保护
+      // 内容不变时允许正常重连。使命有变化则继续核目标、来源、状态和写入时间。
+      if (unchanged) {
+        return { valid: before[id].protected_sha256 === after[id].protected_sha256,
+          change: null };
+      }
     }
     const result = chapterChange(id, before[id], after[id], targetId, startAt, finalAt);
     if (table === "works" && result.change) {

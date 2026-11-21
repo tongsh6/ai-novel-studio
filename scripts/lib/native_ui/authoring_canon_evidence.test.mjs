@@ -1290,11 +1290,11 @@ test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品
 });
 
 
-function planningSnapshot({ planningMission = null, at = START, changes = {}, otherWorks = [] } = {}) {
+function planningSnapshot({ planningMission = null, revision = 1, at = START, changes = {}, otherWorks = [] } = {}) {
   const tables = baseTables();
   tables.works = [{
     id: WORK, title: "原作品名", genre: "原类型", inserted_at: START,
-    updated_at: at,
+    revision, updated_at: at,
     planning_direction: JSON.stringify({
       theme: "作者原规划方向",
       ...(planningMission ? { planning_mission: planningMission } : {}),
@@ -1310,7 +1310,7 @@ function planningSnapshot({ planningMission = null, at = START, changes = {}, ot
 test("R06 规划使命沿现设计态快照保存works见证，只允许目标作品暂定使命变化", () => {
   const start = planningSnapshot();
   const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
-  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  const final = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL });
   const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK });
   assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify(result.checks));
   assert.equal(start.works[WORK].mission, null);
@@ -1328,11 +1328,11 @@ test("R06 规划使命不能豁免作品标题、其它规划字段、未知列�
     { future_work_column: "偷偷改未知列" },
     { planning_direction: JSON.stringify({ theme: "偷偷改原方向", planning_mission: planned }) },
   ]) {
-    const final = planningSnapshot({ planningMission: planned, at: FINAL, changes });
+    const final = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL, changes });
     assert.equal(Object.values(compareSourceDesignSnapshots(start, final, { targetWorkId: WORK }).checks)
       .every(Boolean), false, JSON.stringify(changes));
   }
-  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  const final = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL });
   assert.equal(Object.values(compareSourceDesignSnapshots(start, final, { targetWorkId: OTHER_WORK }).checks)
     .every(Boolean), false);
 });
@@ -1341,17 +1341,160 @@ test("R06 已定版规划使命不被重新推导，非model/TENTATIVE不能作�
   const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
   const authorMission = mission({ source: "author", status: "AUTHOR_EDITED", decided_at: START });
   const protectedStart = planningSnapshot({ planningMission: authorMission });
-  const final = planningSnapshot({ planningMission: planned, at: FINAL });
+  const final = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL });
   assert.equal(Object.values(compareSourceDesignSnapshots(protectedStart, final, { targetWorkId: WORK }).checks)
     .every(Boolean), false);
   const changed = planningSnapshot({
-    planningMission: mission({ source: "author", status: "CONFIRMED", decided_at: FINAL }), at: FINAL,
+    planningMission: mission({ source: "author", status: "CONFIRMED", decided_at: FINAL }), revision: 2, at: FINAL,
   });
   assert.equal(Object.values(compareSourceDesignSnapshots(planningSnapshot(), changed, { targetWorkId: WORK }).checks)
     .every(Boolean), false);
   assert.throws(() => planningSnapshot({
     planningMission: mission({ status: "DISCARDED", decided_at: FINAL }), at: FINAL,
   }), /invalid_authoring_canon_snapshot/u);
+});
+
+
+test("R06 work 设计见证保留真实 revision 和 null 容器位，旧缺事实与非法值不得补默认", () => {
+  const start = planningSnapshot({ revision: 4, changes: { planning_direction: null } });
+  assert.equal(start.works[WORK].revision, 4);
+  assert.equal(start.works[WORK].planning_direction_is_null, true);
+  const roundTrip = JSON.parse(JSON.stringify(start));
+  assert.deepEqual(roundTrip.works[WORK], start.works[WORK]);
+  const final = planningSnapshot({ revision: 4, at: FINAL, changes: { planning_direction: null } });
+  assert.ok(Object.values(compareSourceDesignSnapshots(roundTrip, final, { targetWorkId: WORK }).checks).every(Boolean));
+
+  for (const [key, values] of [
+    ["revision", [undefined, null, 0, -1, 1.5, "4", true, Number.MAX_SAFE_INTEGER + 1]],
+    ["planning_direction_is_null", [undefined, null, 0, 1, "true", "false"]],
+  ]) {
+    for (const value of values) {
+      const bad = structuredClone(roundTrip);
+      if (value === undefined) delete bad.works[WORK][key];
+      else bad.works[WORK][key] = value;
+      assert.throws(() => compareSourceDesignSnapshots(bad, final, { targetWorkId: WORK }),
+        /invalid_authoring_canon_snapshot/u, key + "=" + String(value));
+    }
+  }
+});
+
+test("R06 work revision 从原始完整行读取，缺列、非正整数或不安全整数均拒绝", () => {
+  for (const revision of [undefined, null, 0, -1, 1.5, "1", false, Number.MAX_SAFE_INTEGER + 1]) {
+    const tables = baseTables();
+    const work = { id: WORK, title: "原作品名", updated_at: START, planning_direction: null, revision };
+    if (revision === undefined) delete work.revision;
+    tables.works = [work];
+    assert.throws(() => buildAuthoringCanonSnapshot({
+      tables, referenceLogs: [], at: START, includeWorkFacts: true,
+    }), /invalid_authoring_canon_snapshot/u, String(revision));
+  }
+});
+
+test("R06 真实 null 到仅含规划使命的 map 与空 map、原方向保存都要求 revision 恰好加一", () => {
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  for (const direction of [null, {}, { theme: "作者原规划方向" }, { retained: null }]) {
+    const start = planningSnapshot({ revision: 1, changes: {
+      planning_direction: direction === null ? null : JSON.stringify(direction),
+    } });
+    const final = planningSnapshot({ revision: 2, at: FINAL, changes: {
+      planning_direction: JSON.stringify({ ...(direction ?? {}), planning_mission: planned }),
+    } });
+    const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK });
+    assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify({ direction, checks: result.checks }));
+    assert.equal(start.works[WORK].planning_direction_is_null, direction === null);
+    assert.equal(final.works[WORK].planning_direction_is_null, false);
+    assert.equal(start.works[WORK].protected_sha256, final.works[WORK].protected_sha256);
+    assert.notEqual(start.tables.works.rows_sha256, final.tables.works.rows_sha256);
+    assert.notEqual(start.tables.works.canon_sha256, final.tables.works.canon_sha256);
+    assert.equal(compareAuthoringCanonSnapshots(start, final).checks.no_canon_write, false);
+  }
+});
+
+test("R06 新暂定和旧暂定刷新只接受目标 work revision 加一，零增量、加二和倒退不成立", () => {
+  const planned = mission({ mission_id: "cm-new", derived_at: "2026-11-01T08:00:05.000Z" });
+  const previous = mission({ mission_id: "cm-old", provider_call_ref: "pcall-old",
+    derived_at: "2026-11-01T07:59:50.000Z" });
+  for (const beforeMission of [null, previous]) {
+    const start = planningSnapshot({ planningMission: beforeMission, revision: 4 });
+    const good = planningSnapshot({ planningMission: planned, revision: 5, at: FINAL });
+    assert.ok(Object.values(compareSourceDesignSnapshots(start, good, { targetWorkId: WORK }).checks).every(Boolean));
+    for (const revision of [4, 6, 3]) {
+      const bad = planningSnapshot({ planningMission: planned, revision, at: FINAL });
+      assert.equal(compareSourceDesignSnapshots(start, bad, { targetWorkId: WORK })
+        .checks.planning_mission_change_is_legal, false, String(revision));
+    }
+    const impossibleContainer = structuredClone(good);
+    impossibleContainer.works[WORK].planning_direction_is_null = true;
+    assert.equal(compareSourceDesignSnapshots(start, impossibleContainer, { targetWorkId: WORK })
+      .checks.planning_mission_change_is_legal, false);
+  }
+});
+
+test("R06 mission 未变含作者版保持时，允许既有打开时钟但 revision 和原容器态必须不变", () => {
+  for (const planningMission of [null, mission(),
+    mission({ source: "author", status: "CONFIRMED", decided_at: START }),
+    mission({ source: "author", status: "AUTHOR_EDITED", decided_at: START })]) {
+    const start = planningSnapshot({ planningMission, revision: 4 });
+    const unchanged = planningSnapshot({ planningMission, revision: 4, at: FINAL });
+    assert.ok(Object.values(compareSourceDesignSnapshots(start, unchanged, { targetWorkId: WORK }).checks).every(Boolean));
+    const advanced = planningSnapshot({ planningMission, revision: 5, at: FINAL });
+    assert.equal(compareSourceDesignSnapshots(start, advanced, { targetWorkId: WORK })
+      .checks.planning_mission_change_is_legal, false);
+  }
+  for (const [beforeDirection, afterDirection] of [[null, "{}"], ["{}", null]]) {
+    const start = planningSnapshot({ revision: 4, changes: { planning_direction: beforeDirection } });
+    const final = planningSnapshot({ revision: 4, at: FINAL, changes: { planning_direction: afterDirection } });
+    assert.equal(compareSourceDesignSnapshots(start, final, { targetWorkId: WORK })
+      .checks.planning_mission_change_is_legal, false, JSON.stringify([beforeDirection, afterDirection]));
+  }
+});
+
+test("R06 目标合法使命写入不能同时豁免非目标 work 的 revision、容器或使命变化", () => {
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  const other = { id: OTHER_WORK, title: "另一作品", updated_at: START,
+    planning_direction: null, revision: 7, future_work_column: "保留" };
+  const start = planningSnapshot({ revision: 1, otherWorks: [other] });
+  const unchangedOther = { ...other, updated_at: FINAL };
+  const good = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL, otherWorks: [unchangedOther] });
+  assert.ok(Object.values(compareSourceDesignSnapshots(start, good, { targetWorkId: WORK }).checks).every(Boolean));
+  assert.equal(compareSourceDesignSnapshots(start, good, { targetWorkId: OTHER_WORK })
+    .checks.planning_mission_change_is_legal, false);
+  for (const changes of [
+    { revision: 8 },
+    { planning_direction: "{}" },
+    { planning_direction: JSON.stringify({ planning_mission: planned }), revision: 8 },
+    { future_work_column: "偷偷改写" },
+  ]) {
+    const bad = planningSnapshot({ planningMission: planned, revision: 2, at: FINAL,
+      otherWorks: [{ ...unchangedOther, ...changes }] });
+    assert.equal(compareSourceDesignSnapshots(start, bad, { targetWorkId: WORK })
+      .checks.planning_mission_change_is_legal, false, JSON.stringify(changes));
+  }
+});
+
+test("R06 仅投影 work 的空残余容器，带 null 值的其它规划键和 chapter 原边界仍受保护", () => {
+  const planned = mission({ derived_at: "2026-11-01T08:00:05.000Z" });
+  for (const [beforeDirection, afterDirection] of [
+    [null, { extra: null, planning_mission: planned }],
+    [{ retained: null }, { planning_mission: planned }],
+    [{ retained: null }, { retained: "改写", planning_mission: planned }],
+  ]) {
+    const start = planningSnapshot({ revision: 1, changes: {
+      planning_direction: beforeDirection === null ? null : JSON.stringify(beforeDirection),
+    } });
+    const final = planningSnapshot({ revision: 2, at: FINAL, changes: {
+      planning_direction: JSON.stringify(afterDirection),
+    } });
+    assert.notEqual(start.works[WORK].protected_sha256, final.works[WORK].protected_sha256);
+    assert.equal(compareSourceDesignSnapshots(start, final, { targetWorkId: WORK })
+      .checks.planning_mission_change_is_legal, false);
+  }
+  const nullChapter = baseTables();
+  nullChapter.chapters = [chapterRow({ plan_direction: null })];
+  const emptyChapter = baseTables();
+  emptyChapter.chapters = [chapterRow({ plan_direction: "{}" })];
+  assert.notEqual(snapshot({ tables: nullChapter }).chapters["chapter-row"].protected_sha256,
+    snapshot({ tables: emptyChapter }).chapters["chapter-row"].protected_sha256);
 });
 
 test("v2 evidence 明确种类，不从旧字段形状猜测或补默认设计事实", () => {
