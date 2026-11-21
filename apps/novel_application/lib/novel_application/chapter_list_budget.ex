@@ -2,8 +2,9 @@ defmodule NovelApplication.ChapterListBudget do
   @moduledoc """
   章节结构条目的有界投影。
 
-  章数不超过 12 时全列；超限时保留首章、最近 6 章和作者点名章。
-  原条目的身份、当前序号和标题保持不变，返回准确的遗漏数量，
+  规划清单不超过 12 章时全列；超限时保留首章、最近 6 章和作者点名章。
+  检索索引按摘要与结构事实的实际材料大小保留完整条目前缀。
+  原条目的身份、当前序号和标题保持不变，
   由既有调用方写入结构事实、覆盖范围和不足说明。
   """
 
@@ -37,6 +38,43 @@ defmodule NovelApplication.ChapterListBudget do
 
     listed = Enum.filter(entries, &MapSet.member?(keep_keys, entry_key(&1)))
     {listed, length(entries) - length(listed)}
+  end
+
+  @doc """
+  按真实摘要与结构事实的序列化大小投影章节索引，只保留完整条目。
+  查询结论、覆盖范围和省略说明由读口保留，不因预算裁减改变身份。
+  """
+  @spec project_index([map()], String.t(), map(), pos_integer()) :: [map()]
+  def project_index(chapters, summary, counts, max_chars) do
+    Enum.reduce_while(chapters, [], fn chapter, entries ->
+      candidate = entries ++ [index_entry(chapter)]
+      material = %{summary: summary, facts: Map.put(counts, :chapters, candidate)}
+
+      if String.length(Jason.encode!(material)) <= max_chars,
+        do: {:cont, candidate},
+        else: {:halt, entries}
+    end)
+  end
+
+  defp index_entry(chapter) do
+    id =
+      case Map.get(chapter, :id) do
+        nil -> ""
+        id -> id |> to_string() |> String.downcase()
+      end
+
+    title =
+      case Map.get(chapter, :title) do
+        title when is_binary(title) -> String.trim(title)
+        _ -> ""
+      end
+
+    %{
+      ref: "chapter:#{id}",
+      title: title,
+      seq: Map.get(chapter, :seq),
+      has_prose: Map.get(chapter, :word_count, 0) > 0
+    }
   end
 
   defp entry_field(entry, key, default) do

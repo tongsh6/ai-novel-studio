@@ -18,6 +18,7 @@ defmodule NovelApplication.ExplorationService do
   alias NovelApplication.{
     AuthorContentRegistration,
     ChapterDisplay,
+    ChapterListBudget,
     MemoryManagementService,
     ReadingProjectionService,
     SessionMessageRead,
@@ -605,22 +606,7 @@ defmodule NovelApplication.ExplorationService do
 
   # 候选身份只进入结构事实；完整条目与自然摘要共同遵守原错误观察预算。
   defp chapter_index_material(summary, chapters, counts) do
-    entries =
-      Enum.reduce_while(chapters, [], fn chapter, entries ->
-        entry = %{
-          ref: chapter_ref(chapter),
-          title: chapter_title(chapter),
-          seq: Map.get(chapter, :seq),
-          has_prose: Map.get(chapter, :word_count, 0) > 0
-        }
-
-        candidate = entries ++ [entry]
-        material = %{summary: summary, facts: Map.put(counts, :chapters, candidate)}
-
-        if String.length(Jason.encode!(material)) <= @summary_max_chars,
-          do: {:cont, candidate},
-          else: {:halt, entries}
-      end)
+    entries = ChapterListBudget.project_index(chapters, summary, counts, @summary_max_chars)
 
     returned = length(entries)
     total = length(chapters)
