@@ -2960,3 +2960,56 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 4. 文档与代码最终稳定后，以真实同源 UI binding 执行原 scope 的完整 `task_done`，全 DoD 满足才签 R08 PASS。R06/R07 不因本批提交或未来通过而自动销账。
 
 **本批没有扩写的责任。** R17 的 system 生命周期、跨生产者重复规则及现有 `Real.nonce_requirement` 留在原责任批次；不宣称全产品已经没有自然语言特判。另在原基线中核到 `ChapterReadEvidence` 的部分读取路径仍使用 `visible_observations`，父观察失效时叶观察资格需由原 R05/R07 材料责任复核；R08 只修正自己新增的作者来源消费者，不改写章基线机制。I3 参考层与 B84 原 89/90 自检的历史缺口均未由本批结果代签。
+
+### 19.8 续行边界核对与当前验收消费者修复（2026-11-22）
+
+本次接手实际基线为 `4c9afb69177ac9c89f17b9187327ad61168e6aa3`，分支仍为 `develop/dialogue-based-novel-workbench`，工作树干净，与已记录 upstream 一致。沿原 R08 scope 继续，不重建开工记录。按愿景、元原则、VS-00M §6.4 和 R08 卡重新核对：唯一目标与 §19.2–19.4 保持；R06/R07 原失败、R09 新能力、R17 system 生命周期和 R18/R19 文学总验均不并入。现 B33 六场不能独自覆盖原卡的来源、引用、同名歧义及完整修订矩阵。
+
+当前前台只读观测仍为 `com.apple.SecurityAgent`、PID `13294`，`ps` 确认该进程仍在。当前桌面截图 `resume-native-preflight-01/desktop.png`（SHA `6ba1a6f5263443218937a1d73fa2a8cd19bfd46284ffbf3ef3ae7674baf796e7`）实际显示 Docker 本地网络授权弹窗叠在钥匙串提示之前；这是本机待处理的安全界面，不推断为 AX 失权或模型失败。没有向安全对话框输入、重复启动原生批次或调用真实模型。`resume-baseline-compile-01` 通过现 owned 入口执行 `mix compile --warnings-as-errors`，exit 0；Node 使用本次核实的 v24.19.0，未安装/升级依赖，未推定旧证据采用同版本。
+
+**已核实的独立可推进缺口。** 本次续行审查时，`native_b33_evidence` 仍要求 provider=strata、写死模型元数据；`native_b33_drive` 仍读取并请求卸载 Strata，且 verifier 把空 loaded 当作卸载成功。它们不能直接承担本批已授权 Splash 的实际语义验证，也不具备操作作者模型服务的任务所有权。修复先写入 VS-00M §6.4，限定在既有 B33 driver/evidence、现 runtime-facts 注册及对应测试；六条原输入、当前无补答规则和真实工作台边界保持。
+
+存在性审查：复用 `scenario_evidence.assertProviderAndWire` 的实际 Provider/调用/原生帧检查、`request_cost_runtime_recipe` 的参数与 runtime 事实、`strata_lifecycle.readStrataState` 的只读能力；退役 B33 私有 unload/默认成功推断，实际 provider/model 从同批声明与观察贯通 prepare→driver→verify。新增生产类、表、字段、工具、API、Schema、harness 均为 none；必要纯核验函数留原 evidence owner，独立错配/缺证反例留现测试文件。当前消费者实施与独立代码复核已完成；验证事实及最终工程入口见本节后文，不签 UI、实模或 R08 PASS。
+
+**完整验收覆盖核对。** 下表只把本批义务连接到现有 owner；旧批次 PASS 不升级为当前证据，改造消费者不意味着把 B48/Q1C 整批纳入 R08。
+
+| 本批作者效果 | 既有落点 | 当前未闭环后果 |
+|---|---|---|
+| 原三轮事实询问、结构异议、明确效果 | `native_request_cost` | 原话及完整源快照 preflight 已重新通过；Before `429c8fc4` 与实际 After 的独立批次尚未执行。原 manifest 的 lengths=3/10/20 是既有格式，不能推导本批获准运行 10/20 轮。 |
+| 讨论、条件不成立、明确执行 | 当前 `native_b33` 六场 | 本节修供应商与外部服务边界；它不能代签以下来源/修订/歧义矩阵。 |
+| 当前/历史原文、短原文、仅收资料、缺来源及完整分页 | `b71-authoring-pending`、Q3D、`AuthorContentRegistration` / `SessionMessageRead` | 现 pending 原生链默认替身，live allowlist 未含该 journey；Q3C/Q3D 的 Chromium 结果不能算原生；最近十条之外和 partial/assistant 非来源仍缺当前原生实模证据。 |
+| 引用段号/数值、普通修订与独立采纳 | 现 pending owner、B27 M06/M08/M11–M18 语料 | 原 B27 快照/arms 已退休，只作历史判据；现普通候选的真实模型接线和独立引用负例仍待本批按原 owner 补验。 |
+| 章否定、条件、局部/整章/排版 | `native_b28_scope` 七场 | 现 driver 的自动推荐选择/补话与 R08 原句证据不一致，且仍绑 Strata；必须前向迁移后才能消费，不能直接跑到 PASS；条件成立正例不由 no-op 负例代签。 |
+| 同名章、多候选及同名角色 | B70/B73 冻结语料与 B71 behavior、B48 既有责任 | behavior 现 live 仍限 Strata；B48 CP3 原生 driver/evidence 尚缺。只复用语义判据和已验证 owner，不借旧预算或把未存在入口写为可运行。 |
+
+`ab-input-check-01` 通过现 `readManifest` / `loadSourceAuthors` / `preflightNative` 重新核对三条原话 SHA、原日志与完整数据库/引用日志快照，owned exit 0（run `6da66210933fb661`）；这次仅做前置读取，未写 batch 输出目录、未启动 UI/模型。原三轮 driver/capture/batch/seed 相对 `429c8fc4` 字节一致；它们不是新建 R08 harness 的理由。正式 A/B 仍须在执行前完成实际源码、独立预算和停止条件的冻结，不将此前 R01 manifest 当成 R08 已执行许可。
+
+**本次消费者实施与反证。** 四个既有脚本/测试文件的实现已经完成。配置在首次作者输入前固定实际 provider/model/endpoint、runtime 事实/hash、六条输入及预算；驱动使用同一预算，失败只留 partial，不补作者答案或 UI completion。真实请求 URL、body.model、effort/max_tokens 与同批 runtime/config 对账；每条调用以各自唯一的 pcall/prun 联结真实持久 ProviderRun，并核 workspace/work/session/agent_run/parent turn。实际身份来自唯一作者原文和成功 ACK，复用现 `readProviderRuns`、`providerTurnMatchesParent`、`providerOperation`，不建立第二关联框架。HTTP 200 不等于完成；failed/cancelled 作为真实终态错误保留，每场仍须有 completed 的非维护调用。8192 上限只授予完整绑定当前场景且 purpose=other、operation=transcript_compaction 的实际维护调用。外部模型服务只读观察，未知状态不冒充成功卸载。
+
+| 已执行验证 | 实际结果 | 归档 / owned run |
+|---|---|---|
+| 原供应商限制独立反例 → 修复 | RED 9 项中 2 失败；首轮 GREEN 30/30 | `resume-b33-provider-red-01` / `ffa09c4c3723699d`；`resume-b33-provider-green-01` / `5deac36b5a43854d` |
+| 实际身份/URL/持久绑定独立反例 → 修复 | RED 63 项中 32 失败；GREEN 63/63 | `resume-b33-binding-red-01` / `eb1840669bf0cfdc`；`resume-b33-binding-green-01` / `0a75cfecb3e4136e` |
+| 最终源码相关 9 文件回归 | 320/320；Node/shell 语法及四文件 diff-check 通过；exit 0、tree_finalized=true | `resume-b33-owner-gates-03` / `30e47ab7b3ab8598` |
+| 首次完整裸扫描（修补中间版本） | 21 项：19 passed、2 raw failed、0 skipped；改动文件 findings=0。失败为 task-done 缺 manifest 和已有 gitleaks 命中；不作为最终源码 PASS | `resume-static-scan-01.log`、`resume-static-scan-01/report` / `db779383a7e42dba` |
+
+上述目录相对 `artifacts/slice-verify/b87-r08-20261122/`。另保留 `resume-b33-owner-gates-01`（run `0d81c6a4f7b9b03e`）的 exit 2：父线程任务文档末尾空行使 diff-check 在测试启动前停止，修复后 gates-02、最终 gates-03 均通过；不将未执行的那次测试记为通过。最终四文件修改止于 2026-11-22 16:07:18 +08:00；独立只读审查确认持久行漏核、实际 URL 漏核及 runtime/config 共同漂移已闭合。此次续行真实模型调用仍为 0，未新增原生批次。
+
+**首轮扫描 Top10 逐项处置。** 该表保留首次裸扫描事实；现有 disposition 原件不改写，缺完成记录不得认作误报。
+
+| # | 命中 | 处置 |
+|---|---|---|
+| 1 | gitleaks：`authoring_confirmation_evidence.test.mjs:309` | false_positive，既有测试身份 fixture |
+| 2 | gitleaks：`verify_b65_origin_boundary.sh:22` | false_positive，既有 RFC nonce |
+| 3 | gitleaks：`B63-known-gaps-remediation.md:118` | false_positive，历史规范示例 |
+| 4 | gitleaks：`e2e_01_full_chain_check.sh:243` | false_positive，产物规范示例 |
+| 5 | gitleaks：`novel-studio.pen:5739` | false_positive，Pencil 元数据；不以文本方式修改设计源 |
+| 6 | gitleaks：历史 `tools/company-console/server/config.mjs:4` | 既有 accepted_risk，原责任方轮换凭据；本批不重写 Git 历史 |
+| 7 | task-done：缺当前 scope/manifest | 当次运行真实 pending；须经现 owner 建立实际执行记录，不能改规则或补造通过记录 |
+| 8 | semgrep：`authoring_live_verifier.test.mjs:113` | false_positive，固定 fixture 的 Object.assign |
+| 9 | semgrep：`authoring_request_facts.test.mjs:112` | false_positive，故意构造的畸形换行反例 |
+| 10 | semgrep：`native_b29_evidence.test.mjs:443` | false_positive，故意破坏字节的反例 |
+
+**最终工程核验入口与任务签字边界。** 提交前沿原 scope `d072fb9c-7dfb-40b1-8d3a-9918e9279ef6` 执行 `bash scripts/task_done.sh --scope artifacts/slice-verify/b87-r08-20261122/scope.json --top 10`，不使用 quick/skip；本次输出固定在 `resume-engineering-scope-01.log`，owned 记录在同名目录，真实 manifest/checks-start/checks-binding 由该 owner 生成，具体目录和执行结果以日志及原件为准。现 `--ui-required` 的源码路径判定实际返回 false，仅表示本批没有自动门禁定义的生产 UI 文件变更；该 owner 的 `task_acceptance=not_asserted` 与 engineering-only 证据边界不免除 R08 明列的原生实模 DoD。首次裸扫描与后续同源工程记录分别保留，不能把后者升级为真实页面或模型行为证明。
+
+**当前签字仍为 R08 BLOCKED / NOT PASS。** 下一步先由作者在本机处理实际安全弹窗，再按 §19.7 冻结当前源码配对 A/B 与各批独立预算、恢复真实 Tauri 验收，并沿上表已有 owner 补齐来源/引用/歧义/普通与章修订矩阵。工程提交不撤销原失败，不前移 R09，不代签 R06/R07，也不把六场 B33 当作完整 R08。
