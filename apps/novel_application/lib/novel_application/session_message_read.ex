@@ -119,6 +119,11 @@ defmodule NovelApplication.SessionMessageRead do
         parent_turn_ref: row.parent_turn_ref,
         run_status: row.run_status,
         role: row.role,
+        provenance: row.message["provenance"],
+        source_refs: row.message["source_refs"] || [],
+        workspace_id: row.workspace_id,
+        work_id: row.work_id,
+        session_id: row.session_id,
         format_version: row.format_version
       },
       activity_summary: "已回查会话原文。"

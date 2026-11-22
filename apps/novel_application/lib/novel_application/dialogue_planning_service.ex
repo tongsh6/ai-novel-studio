@@ -863,9 +863,8 @@ defmodule NovelApplication.DialoguePlanningService do
        ) do
     case JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input) do
       {:ok, judgment} ->
-        validate_judgment_result(
+        handle_judgment(
           judgment,
-          protocol_input,
           run,
           sequence,
           input,
@@ -879,36 +878,6 @@ defmodule NovelApplication.DialoguePlanningService do
 
       {:error, reason} ->
         {:error, reason}
-    end
-  end
-
-  defp validate_judgment_result(
-         judgment,
-         protocol_input,
-         run,
-         sequence,
-         input,
-         context,
-         snapshot,
-         explorations
-       ) do
-    case AuthorContentRegistration.validate_author_registration(
-           judgment,
-           protocol_input.options[:author_content_sources]
-         ) do
-      :ok ->
-        handle_judgment(
-          judgment,
-          run,
-          sequence,
-          input,
-          context,
-          snapshot,
-          explorations
-        )
-
-      {:error, reason} ->
-        AuthoringSession.inherit_failure({:error, reason}, judgment)
     end
   end
 
@@ -1009,10 +978,6 @@ defmodule NovelApplication.DialoguePlanningService do
         adopted_content_targets:
           NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
         registered_sources: AuthorContentRegistration.registered_sources(context),
-        author_content_sources:
-          context
-          |> AuthorContentRegistration.author_sources(author_input.turn_id)
-          |> Enum.map(& &1.turn_ref),
         exploration_budget: budget,
         explore: budget.open?,
         explore_tools: ExplorationPolicy.allowed_tools(budget)
@@ -1330,28 +1295,33 @@ defmodule NovelApplication.DialoguePlanningService do
   defp settle_state(:completed), do: "completed"
   defp settle_state(:awaiting_author), do: "awaiting_author"
 
-  # Q3c 作者内容物化（R1）：判断①置 author_content_registration=true（模型判定）
-  # 时，把作者消息字节机械物化为待采纳 world_setting 候选——写入大门（作者采纳）
-  # 不再只放模型的东西。来源缺失或空文本诚实失败，不用存档指令替代历史原文。
+  # 接收时绑定的真实来源，在物化前与当前输入或同作品/会话的持久作者原字节对账。
+  # 本步只生成待采纳候选；原文登记不会直接写入作品档案。
   defp maybe_attach_author_content(turn_result, judgment, input, run, context) do
     if judgment.action == "author_content_registration" do
+      binding = judgment[:author_content_source]
       author_input = TurnInteractionService.author_input(input, run)
-      current_ref = author_input.turn_id
-      input_bytes = author_input.text
+      {actual_ref, actual_text} = author_source_bytes(binding, author_input, run)
 
       with {:ok, source_ref, text} <-
-             AuthorContentRegistration.source_text(
-               judgment[:author_content_source_ref],
-               input_bytes,
-               context,
-               current_ref
-             ) do
+             AuthorContentRegistration.source_text(binding, actual_ref, actual_text) do
         attach_author_source(turn_result, context, source_ref, text)
       end
     else
       {:ok, turn_result}
     end
   end
+
+  defp author_source_bytes(%{ref: ref}, %{turn_id: ref, text: text}, _run), do: {ref, text}
+
+  defp author_source_bytes(%{ref: ref}, _author_input, run) do
+    case NovelPersistence.WorkSessionRepo.user_entry(run.work_id, run.session_id, ref) do
+      %{turn_id: ^ref, role: "user", content: content} -> {ref, content["text"]}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp author_source_bytes(_binding, _author_input, _run), do: {nil, nil}
 
   defp attach_author_source(turn_result, context, source_ref, text) do
     turn_result =

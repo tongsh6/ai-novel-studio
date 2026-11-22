@@ -13,6 +13,7 @@ defmodule NovelApplication.SessionMessageReadTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   alias NovelApplication.{
+    AuthorContentRegistration,
     AuthoringTranscript,
     DialoguePlanningService,
     ExplorationService,
@@ -57,8 +58,42 @@ defmodule NovelApplication.SessionMessageReadTest do
              parent_turn_ref: "turn-author-source",
              run_status: "awaiting_author",
              role: "user",
+             provenance: "author",
+             source_refs: [%{"ref" => "input:author-source"}],
+             workspace_id: context.work.id,
+             work_id: context.work.id,
+             session_id: context.session.id,
              format_version: "authoring-session-message/v1"
            }
+  end
+
+  @tag :r08_author_sources
+  test "R08 同 run 多条作者原话各自保留真实来源，不能借 parent_turn_ref 代签", context do
+    first = "  旧钟在退潮时鸣响。\r\n"
+    second = "  这是第二条作者原文：e\u0301 👩‍💻。  "
+
+    source =
+      context
+      |> transcript("r08-multiple-authors", first)
+      |> AuthoringTranscript.append_author_turn(second, "input:r08-second-author")
+
+    assert :ok = TestAgenticLoopFixtures.append_segment!(source, status: "awaiting_author")
+    assert {:ok, first_read} = read(context, "r08-multiple-authors", 2)
+    assert {:ok, second_read} = read(context, "r08-multiple-authors", 3)
+
+    for {observed, ref, bytes} <- [
+          {first_read, "input:r08-multiple-authors", first},
+          {second_read, "input:r08-second-author", second}
+        ] do
+      assert observed.summary == bytes
+      assert observed.source_hash == sha256(bytes)
+      assert observed.facts.role == "user"
+      assert observed.facts.provenance == "author"
+      assert observed.facts.source_refs == [%{"ref" => ref}]
+      assert observed.facts.work_id == context.work.id
+      assert observed.facts.session_id == context.session.id
+      refute observed.facts.parent_turn_ref == ref
+    end
   end
 
   test "早期长答按 grapheme 分页，所有页拼合原文且全文 hash 不随页变", context do
@@ -460,6 +495,249 @@ defmodule NovelApplication.SessionMessageReadTest do
     assert final_exploration["allowed"] == false
     assert final_exploration["budget"]["continuation_open?"] == false
   end
+
+  test "R08 完整分页回查才授予作者来源，最后一页或有缺口的页不能代替全文", context do
+    original = String.duplicate("e\u0301👩‍💻", 6000) <> "  尾声\r\n"
+    source_ref = "input:r08-page-source"
+    source = transcript(context, "r08-page-source", original)
+    assert :ok = TestAgenticLoopFixtures.append_segment!(source, status: "completed")
+
+    assert {:ok, first} = read(context, "r08-page-source", 2, 0)
+    assert {:ok, second} = read(context, "r08-page-source", 2, 6000)
+    assert {:ok, last} = read(context, "r08-page-source", 2, 12_000)
+
+    for pages <- [[first], [last], [first, last]] do
+      request = observed_request(context, pages)
+
+      assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+               AuthorContentRegistration.bind_judgment(registration(source_ref), request)
+    end
+
+    request = observed_request(context, [first, second, last])
+
+    assert {:ok, bound} =
+             AuthorContentRegistration.bind_judgment(registration(source_ref), request)
+
+    assert bound.author_content_source == %{ref: source_ref, source_hash: sha256(original)}
+
+    assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+             AuthorContentRegistration.bind_judgment(
+               registration("turn-r08-page-source"),
+               request
+             )
+  end
+
+  test "R08 回查的目录、assistant、partial、跨作品会话与错误 provenance 均不授信", context do
+    original = "  作者提供的原始材料。\r\n"
+
+    source =
+      context
+      |> transcript("r08-invalid-read", original)
+      |> AuthoringTranscript.append_assistant("助手的同名答复，不能冒充作者原文。", [])
+
+    assert :ok = TestAgenticLoopFixtures.append_segment!(source, status: "completed")
+    assert {:ok, observed} = read(context, "r08-invalid-read", 2)
+    assert {:ok, assistant} = read(context, "r08-invalid-read", 3)
+    ref = "input:r08-invalid-read"
+
+    invalid = [
+      %{observed | summary: ""},
+      assistant,
+      %{observed | outcome: :partial, omissions: ["尚未完整读取"]},
+      put_in(observed, [:facts, :work_id], "different-work"),
+      put_in(observed, [:facts, :workspace_id], "different-workspace"),
+      put_in(observed, [:facts, :session_id], "different-session"),
+      put_in(observed, [:facts, :provenance], "model")
+    ]
+
+    for evidence <- invalid do
+      assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+               AuthorContentRegistration.bind_judgment(
+                 registration(ref),
+                 observed_request(context, [evidence])
+               )
+    end
+
+    wrong_hash = %{observed | source_hash: sha256("另一段内容")}
+
+    assert {:error, {:author_content_registration_invalid, :source_content_mismatch}} =
+             AuthorContentRegistration.bind_judgment(
+               registration(ref),
+               observed_request(context, [wrong_hash])
+             )
+
+    assert {:error, {:author_content_registration_invalid, :source_identity_conflict}} =
+             AuthorContentRegistration.bind_judgment(
+               registration(ref),
+               observed_request(context, [observed, wrong_hash])
+             )
+  end
+
+  @tag :r08_source_parent
+  test "R08 父观察不可用时，完整 ok 作者原文叶也不能授予来源资格", context do
+    source_ref = "input:r08-parent-observation"
+    source = transcript(context, "r08-parent-observation", "  作者原文仍需真实可用的观察。\r\n")
+    assert :ok = TestAgenticLoopFixtures.append_segment!(source, status: "completed")
+    assert {:ok, observed} = read(context, "r08-parent-observation", 2)
+    request = observed_request(context, [observed])
+
+    for status <- ["ok", "unavailable", "stale"] do
+      messages =
+        Enum.map(request.messages, fn
+          %{role: "tool", blocks: [block]} = message ->
+            leaf = block |> Map.drop([:type, :call_id]) |> RequestIR.json_value()
+
+            parent = %{
+              block
+              | status: status,
+                content: %{"tool" => "planned_exploration", "observations" => [leaf]}
+            }
+
+            %{message | blocks: [parent]}
+
+          message ->
+            message
+        end)
+
+      supplied = %{request | messages: messages}
+      assert :ok = RequestIR.validate(supplied)
+      assert [_leaf] = RequestIR.visible_observations(supplied)
+
+      if status == "ok" do
+        assert {:ok, bound} =
+                 AuthorContentRegistration.bind_judgment(registration(source_ref), supplied)
+
+        assert bound.author_content_source.ref == source_ref
+      else
+        assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+                 AuthorContentRegistration.bind_judgment(registration(source_ref), supplied)
+      end
+    end
+  end
+
+  test "R08 真实回查来源穿过判断与物化，目录外原文形成待采纳候选", context do
+    original = "  潮水退尽后，旧钟才鸣响。\r\n保留 e\u0301 👩‍💻。  "
+    source_run = "r08-registration-source"
+    source_ref = "input:" <> source_run
+    source = transcript(context, source_run, original)
+    assert :ok = TestAgenticLoopFixtures.append_segment!(source, status: "completed")
+
+    for index <- 0..12 do
+      assert {:ok, _} =
+               NovelPersistence.InteractionLifecycle.call(:receive, %{
+                 workspace_id: context.work.id,
+                 session_id: context.session.id,
+                 run_id: if(index == 0, do: source_run, else: "r08-recent-run-#{index}"),
+                 turn_id: if(index == 0, do: source_ref, else: "r08-recent-input-#{index}"),
+                 text: if(index == 0, do: original, else: "第 #{index} 条普通讨论")
+               })
+    end
+
+    recent = NovelPersistence.InteractionLifecycle.context(context.work.id, context.session.id)
+    refute Enum.any?(recent.author_inputs, &(&1.turn_ref == source_ref))
+    parent = self()
+
+    execution = %NovelAgent.Provider.Execution{
+      result_fn: fn request ->
+        send(parent, {:r08_registration_request, request})
+
+        call =
+          case observation_blocks(request) do
+            [] ->
+              TestAgenticLoopFixtures.judgment_call("judgment_decision", %{
+                action: "explore",
+                explore_request: %{
+                  tool: "session_message_read",
+                  query: query(source_run, 2, 0)
+                }
+              })
+
+            [observed] ->
+              assert observed.content["summary"] == original
+              assert observed.content["facts"]["source_refs"] == [%{"ref" => source_ref}]
+
+              TestAgenticLoopFixtures.judgment_call("register_author_content", %{
+                author_content_source_ref: source_ref,
+                dialogue_goal: "将指定的作者原文登记为候选",
+                author_reasoning: "已形成待采纳候选，采纳后才会入档。"
+              })
+          end
+
+        {:ok,
+         TestAgenticLoopFixtures.judgment_response(
+           "",
+           [call],
+           TestAgenticLoopFixtures.unique_provider_call_id("r08-read-registration")
+         )}
+      end
+    }
+
+    {:ok, spec} =
+      DialoguePlanningService.plan_agent_run(
+        %{
+          text: "把旧钟那条原文登记为候选。",
+          workspace_id: context.work.id,
+          work_id: context.work.id,
+          session_id: context.session.id,
+          turn_id: "r08-read-register"
+        },
+        NovelPersistence.WorkspaceContext.context_fetcher_with_query(),
+        execution
+      )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    {_snapshot, result} = run_until_turn_result(spec, run, 6)
+
+    assert [pending] = result.turn_result.adoption_state.pending
+    assert pending.requires_adoption
+    assert [%{body: ^original, provider_call_ref: provenance}] = pending.payload.items
+    assert provenance == "author_input:" <> source_ref
+
+    assert_receive {:r08_registration_request, first_request}
+    assert_receive {:r08_registration_request, final_request}
+    assert observation_blocks(first_request) == []
+
+    assert Enum.any?(
+             TestProviderPrompt.scope_content(final_request)["operation"][
+               "author_content_sources"
+             ],
+             &(&1 == %{"ref" => source_ref, "source_hash" => sha256(original)})
+           )
+
+    refute Enum.any?(final_request.messages, fn message ->
+             message.role == "user" and
+               Enum.any?(message.source_refs, &(&1.ref == source_ref))
+           end)
+  end
+
+  defp observed_request(context, observations) do
+    next =
+      observations
+      |> Enum.with_index(1)
+      |> Enum.reduce(transcript(context, "r08-registration-reader", "登记已回查的作者原文。"), fn
+        {observed, index}, transcript ->
+          call_id = "r08-source-read-#{index}"
+
+          transcript
+          |> AuthoringTranscript.append_assistant("", [
+            RequestIR.tool_call_block(
+              "judgment_decision",
+              %{
+                action: "explore",
+                explore_request: %{tool: "session_message_read", query: observed.query}
+              },
+              call_id
+            )
+          ])
+          |> JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, observed)
+      end)
+
+    assert {:ok, request} = AuthoringTranscript.to_request_ir(next)
+    request
+  end
+
+  defp registration(ref),
+    do: %{action: "author_content_registration", author_content_source_ref: ref}
 
   defp transcript(%{work: work, session: session}, run_id, author_text) do
     AuthoringTranscript.new(

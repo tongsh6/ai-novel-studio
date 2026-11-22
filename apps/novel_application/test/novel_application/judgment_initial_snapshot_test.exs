@@ -240,6 +240,8 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     assert [base, scope, author] = request.messages
     assert base.role == "application_base"
+    assert base.source_refs == @refs
+    assert base.base_refs == []
     assert scope.role == "scope_update"
     assert scope.provenance == "application"
     assert [%{type: "scope", content: content}] = scope.blocks
@@ -247,6 +249,8 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert scope.versions["scope_revision"] == 1
     assert scope.versions["change_reason"] == "initial_scope"
     assert scope.source_refs == @refs
+    assert scope.base_refs == @refs
+    assert content["goal"]["source_input_ref"] == "author-turn-a"
     assert author.role == "user"
     assert author.provenance == "author"
     assert Projection.text_of(author.blocks) == @author_a
@@ -259,8 +263,8 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert Enum.map(body.messages, & &1.role) == ["system", "user", "user", "user"]
     assert Enum.at(body.messages, 1).content =~ "application_base"
     assert Enum.at(body.messages, 2).content =~ "scope_update"
-    assert Enum.at(body.messages, 3).content == @author_a
     refute Enum.at(body.messages, 2).content =~ @author_a
+    assert Enum.at(body.messages, 3).content == @author_a
     assert Enum.count(body.messages, &(&1.role == "user" and &1.content == @author_a)) == 1
 
     assert_narrative_contract(request, body, [
@@ -273,13 +277,30 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     ])
   end
 
-  test "两个独立作者输入的同半稳定上下文共享前缀覆盖结构化 Scope 事实边界" do
+  test "两个独立作者输入共享静态规则与完整 Scope 事实，来源身份保持各自绑定" do
     first_request = JudgmentProtocol.request_for_production(input(@author_a, "author-turn-a"))
     second_request = JudgmentProtocol.request_for_production(input(@author_b, "author-turn-b"))
+    expected_facts = RequestIR.json_value(@scope.facts)
+
+    for {request, source_ref} <- [
+          {first_request, "author-turn-a"},
+          {second_request, "author-turn-b"}
+        ] do
+      assert [%{blocks: [%{type: "scope", content: scope}]}] =
+               Enum.filter(request.messages, &(&1.role == "scope_update"))
+
+      assert scope["facts"] == expected_facts
+      assert scope["goal"]["source_input_ref"] == source_ref
+    end
 
     first = capture(first_request) |> serialize()
     second = capture(second_request) |> serialize()
-    boundary = marker_offset!(first, "前缀度量样书")
+
+    boundary =
+      ["所有动作均须经系统门禁放行。", Jason.encode!(expected_facts)]
+      |> Enum.map(fn required -> marker_offset!(first, required) + byte_size(required) end)
+      |> Enum.max()
+
     shared = shared_prefix_bytes(first, second)
 
     assert shared >= boundary,
@@ -289,52 +310,6 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert occurrences(second, @author_b) == 1
     refute String.contains?(first, @author_b)
     refute String.contains?(second, @author_a)
-  end
-
-  test "已有 transcript 续行严格前缀不变，重复构造与 JSON restore 三类投影一致" do
-    {first_request, first_transcript} = production_request(input(@author_a, "author-turn-a"))
-
-    next_input =
-      input(
-        @author_b,
-        "author-turn-b",
-        put_in(@scope, [:context, :open_behavior_summary], "第02章需要压缩。")
-      )
-      |> Map.put(:transcript, first_transcript)
-      |> Map.put(:scope_change_reason, "run_scope_changed")
-
-    {next_request, next_transcript} = production_request(next_input)
-    {duplicate_request, duplicate_transcript} = production_request(next_input)
-
-    assert Enum.take(next_request.messages, length(first_request.messages)) ==
-             first_request.messages
-
-    author_texts =
-      next_request.messages
-      |> Enum.filter(&(&1.role == "user" and &1.provenance == "author"))
-      |> Enum.map(&Projection.text_of(&1.blocks))
-
-    assert author_texts == [@author_a, @author_b]
-    assert next_request.messages == duplicate_request.messages
-    assert next_transcript.messages == duplicate_transcript.messages
-
-    scope = AuthoringTranscript.current_scope(next_transcript)
-    assert scope.versions["scope_revision"] == 2
-    assert scope.versions["change_reason"] == "run_scope_changed"
-    assert scope.source_refs == @refs
-
-    assert {:ok, restored} = restore(next_transcript)
-
-    {restored_request, restored_transcript} =
-      production_request(Map.put(next_input, :transcript, restored))
-
-    assert restored_transcript.messages == next_transcript.messages
-
-    Enum.each(@projection_targets, fn target ->
-      expected = Projection.project(next_request, target)
-      assert Projection.project(duplicate_request, target) == expected
-      assert Projection.project(restored_request, target) == expected
-    end)
   end
 
   test "同内容的来源集合或业务 plan 版本变化必须追加 Scope，重复读取幂等" do
@@ -376,7 +351,8 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
 
     second =
       JudgmentProtocol.request_for_production(
-        input(capabilities: [], author_content_sources: ["other"])
+        input(capabilities: [])
+        |> Map.put(:source_input_ref, "other-author-turn")
       )
 
     assert first.tools == second.tools

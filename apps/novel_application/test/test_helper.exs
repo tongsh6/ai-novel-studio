@@ -76,6 +76,52 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
 
   import ExUnit.Assertions
 
+  alias NovelApplication.AgentRunFlows.AuthoringSession
+
+  # 驱动判断循环前两步：机械准备 context（0 调用）→ 判断①。
+  def drive_judgment(spec, run, sink, opts \\ []) do
+    {context, result} = drive_judgment_result(spec, run, sink, opts)
+    assert {:ok, judgment} = result
+    {context, judgment}
+  end
+
+  def drive_judgment_result(spec, run, sink, opts \\ []) do
+    empty = %{stage_state: %{}, observations: [], events: [], stage_sink: sink}
+
+    assert {:execute, context_step, context_decision, context_meta} =
+             spec.next_step_planner.(run, 1, empty)
+
+    assert context_decision.target_tool_ref == "context_assemble"
+    assert context_meta.provider_call_count == 0
+    assert {:ok, context_result} = context_step.(run, 1, empty)
+    assert context_result.provider_call_count == 0
+
+    snapshot = %{
+      stage_state: context_result.stage_state,
+      observations: context_result.observations,
+      events: [],
+      stage_sink: sink
+    }
+
+    assert {:execute, judgment_step, judgment_decision, judgment_meta} =
+             spec.next_step_planner.(run, 2, snapshot)
+
+    assert judgment_decision.target_tool_ref == "judgment"
+    assert judgment_meta.provider_call_count == 0
+
+    result =
+      if Keyword.get(opts, :session_history, false) do
+        AuthoringSession.with_request_view(
+          Map.put(snapshot, :run, run),
+          &judgment_step.(run, 2, &1)
+        )
+      else
+        judgment_step.(run, 2, snapshot)
+      end
+
+    {context_result, result}
+  end
+
   def judgment_response(text, calls, ref \\ "call-1") do
     %{
       content: text,

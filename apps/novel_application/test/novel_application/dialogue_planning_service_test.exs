@@ -1,6 +1,8 @@
 defmodule NovelApplication.DialoguePlanningServiceTest do
   use ExUnit.Case, async: true
 
+  import NovelApplication.TestAgenticLoopFixtures, only: [drive_judgment: 3]
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
@@ -361,89 +363,6 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert turn_result.assistant_message.text == narrative
   end
 
-  test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do
-    for {action, capability, source, reason} <- [
-          {"reply", nil, nil, {:author_content_registration_invalid, :source_required}},
-          {"reply", nil, "foreign",
-           {:author_content_registration_invalid, :source_not_available}},
-          {"execute", "world_building", "current",
-           {:judgment_protocol_violation, :invalid_tool_combination}}
-        ] do
-      execution =
-        judgment_execution(action, capability,
-          frame_type: "capability_gap",
-          author_content_registration: true,
-          author_content_source_ref: source
-        )
-
-      {:ok, spec} =
-        DialoguePlanningService.plan_agent_run(
-          %{
-            text: "把上一条原文保存为作品设定",
-            workspace_id: "ws-guard",
-            work_id: "work-guard",
-            session_id: "session-guard",
-            turn_id: "guard-#{inspect(reason)}"
-          },
-          nil,
-          execution
-        )
-
-      {:ok, run} = AgentRun.new(spec.run_attrs)
-
-      assert {_context, {:error, ^reason, _state}} =
-               drive_judgment_result(spec, run, fn _ -> :ok end)
-    end
-  end
-
-  test "Q3c 作者内容物化：注册信号把作者消息字节变成待采纳 world_setting 候选" do
-    author_text = "把这份大纲直接存档为作品设定：主角李衡靠账单推演天机，第一卷从记账学徒写到执掌灵市。"
-
-    provider_execution =
-      judgment_execution("reply", nil,
-        narrative: "我没有直接写入档案的能力；已把你的原文整理成待采纳候选，采纳后入档。",
-        reply_included: true,
-        frame_type: "capability_gap",
-        dialogue_goal: "把作者提供的内容登记进作品档案",
-        author_content_registration: true,
-        author_content_source_ref: "current"
-      )
-
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: author_text,
-                 workspace_id: "ws-acr",
-                 work_id: "work-acr",
-                 session_id: "session-acr",
-                 turn_id: "turn-acr"
-               },
-               nil,
-               provider_execution
-             )
-
-    {:ok, run} = AgentRun.new(spec.run_attrs)
-    sink = fn _event -> :ok end
-    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
-
-    turn_result = judgment_result.turn_result
-    assert turn_result.frame_summary.frame_type == :casual_reply
-
-    # 字节纯度：body 精确等于作者消息、title 是 body 字符前缀、来源 ref 结构化
-    assert [pending] = turn_result.adoption_state.pending
-    assert pending.artifact_type == :world_setting
-    assert pending.requires_adoption == true
-
-    item = pending.payload.items |> List.first()
-    assert item.body == author_text
-    assert String.starts_with?(item.body, item.title)
-    assert item.provider_call_ref == "author_input:turn-acr"
-    assert item.rationale == nil
-
-    # 采纳动作在场（AU-09 组装复用）；未采纳零写入由采纳链既有边界保证
-    assert Enum.any?(turn_result.available_actions, &(&1.action_type == "accept"))
-  end
-
   test "复合角色任务在 AgentRun 内路由到角色 profile" do
     {_spec, routed_run, _route_result} =
       assert_user_message_routes_to(
@@ -679,39 +598,6 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     {spec, routed_run, judgment_result}
   end
 
-  # 驱动判断循环前两步：机械准备 context（0 调用）→ 判断①。
-  defp drive_judgment(spec, run, sink) do
-    {context, result} = drive_judgment_result(spec, run, sink)
-    assert {:ok, judgment} = result
-    {context, judgment}
-  end
-
-  defp drive_judgment_result(spec, run, sink) do
-    empty = %{stage_state: %{}, observations: [], events: [], stage_sink: sink}
-
-    assert {:execute, context_step, context_decision, context_meta} =
-             spec.next_step_planner.(run, 1, empty)
-
-    assert context_decision.target_tool_ref == "context_assemble"
-    assert context_meta.provider_call_count == 0
-    assert {:ok, context_result} = context_step.(run, 1, empty)
-    assert context_result.provider_call_count == 0
-
-    snapshot = %{
-      stage_state: context_result.stage_state,
-      observations: context_result.observations,
-      events: [],
-      stage_sink: sink
-    }
-
-    assert {:execute, judgment_step, judgment_decision, judgment_meta} =
-             spec.next_step_planner.(run, 2, snapshot)
-
-    assert judgment_decision.target_tool_ref == "judgment"
-    assert judgment_meta.provider_call_count == 0
-    {context_result, judgment_step.(run, 2, snapshot)}
-  end
-
   defp capability_for_profile_ref("character_design_with_context_v1"), do: "character_design"
   defp capability_for_profile_ref("prose_drafting_with_quality_v1"), do: "prose_writing"
   defp capability_for_profile_ref("plot_outline_with_context_v1"), do: "plot_outline"
@@ -729,18 +615,6 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     {content, calls} =
       cond do
-        opts[:author_content_registration] ->
-          registration = %{
-            name: "register_author_content",
-            arguments: %{
-              author_content_source_ref: opts[:author_content_source_ref],
-              dialogue_goal: goal,
-              author_reasoning: narrative
-            }
-          }
-
-          {"", if(action == "execute", do: [registration, registration], else: [registration])}
-
         opts[:frame_type] == "capability_gap" ->
           {"",
            [

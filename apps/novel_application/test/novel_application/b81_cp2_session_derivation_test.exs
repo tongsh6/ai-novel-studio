@@ -121,7 +121,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     refute Enum.any?(segment.messages, &(message_text(&1) == @first_author_text))
     assert hd(segment.messages).role == "application_base"
 
-    # 请求 IR：base 唯一且最前 → 第一轮历史原序 → 当前作者最后。
+    # 请求 IR：base 唯一且最前 → 第一轮历史原序 → 唯一当前 Scope → 当前作者。
     request = JudgmentProtocol.request_for_production(input)
     roles = Enum.map(request.messages, & &1.role)
     assert Enum.count(roles, &(&1 == "application_base")) == 1
@@ -130,11 +130,34 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     texts = Enum.map(request.messages, &message_text/1)
     assert @first_author_text in texts
     assert Enum.any?(texts, &String.contains?(&1, "第01章正文（真实观察）"))
-    assert List.last(request.messages).role == "user"
-    assert message_text(List.last(request.messages)) == @second_author_text
+    assert roles == ["application_base", "user", "assistant", "tool", "scope_update", "user"]
+    assert request.messages |> Enum.at(1) |> message_text() == @first_author_text
+    assert [current_scope, current_author] = Enum.take(request.messages, -2)
 
-    # 历史观察来源 refs 进入 IR refs（I-ART-9 与审计回查依据）。
+    assert %{
+             role: "user",
+             provenance: "author",
+             source_refs: [%{ref: "author-turn-2"}],
+             blocks: [%{type: "text", text: @second_author_text}]
+           } = current_author
+
+    assert [^current_scope] = Enum.filter(request.messages, &(&1.role == "scope_update"))
+    assert current_scope.provenance == "application"
+    assert current_scope.canonical_ref.run_id == request.run.run_id
+    assert [%{type: "scope", content: scope}] = current_scope.blocks
+    assert scope["goal"]["source_input_ref"] == "author-turn-2"
+    assert current_author.canonical_ref.run_sequence == 3
+
+    historical_hash =
+      :crypto.hash(:sha256, @first_author_text) |> Base.encode16(case: :lower)
+
+    assert scope["operation"]["author_content_sources"] == [
+             %{"ref" => "turn-run-cp2-1", "source_hash" => historical_hash}
+           ]
+
+    # 历史观察来源与前后两轮 Base refs 共同进入 IR refs（I-ART-9 与审计回查依据）。
     assert Enum.any?(request.refs.observation_refs, &(&1.ref == "chapter:01"))
+    assert Enum.any?(request.refs.base_refs, &(&1.ref == "ctx:base-1"))
     assert Enum.any?(request.refs.base_refs, &(&1.ref == "ctx:base-2"))
   end
 
@@ -351,7 +374,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   defp message_text(message), do: inspect(message)
 
   describe "协议层合并视图（纯输入，无 DB）" do
-    test "base 唯一且最前、历史原序、当前作者最后、refs 会话累计" do
+    test "base 唯一且最前、历史原序、当前作者前仅一个最终 Scope、refs 会话累计" do
       history = %{
         rows:
           history_rows("run-cp2-history", [
@@ -380,8 +403,23 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
       assert hd(request.messages).role == "application_base"
       assert request.messages |> Enum.at(1) |> message_text() == "上一轮作者原话"
       assert request.messages |> Enum.at(2) |> message_text() == "上一轮助手回复"
-      assert List.last(request.messages).role == "user"
+      assert roles == ["application_base", "user", "assistant", "scope_update", "user"]
+      assert [current_scope, current_author] = Enum.take(request.messages, -2)
+
+      assert %{
+               role: "user",
+               provenance: "author",
+               source_refs: [%{ref: "author-turn-2"}],
+               blocks: [%{type: "text", text: @second_author_text}]
+             } = current_author
+
+      assert [^current_scope] = Enum.filter(request.messages, &(&1.role == "scope_update"))
+      assert current_scope.provenance == "application"
+      assert current_scope.canonical_ref.run_id == request.run.run_id
+      assert [%{type: "scope", content: scope}] = current_scope.blocks
+      assert scope["goal"]["source_input_ref"] == "author-turn-2"
       assert Enum.any?(request.refs.base_refs, &(&1.ref == "chapter:one"))
+      assert Enum.any?(request.refs.base_refs, &(&1.ref == "ctx:base-2"))
       assert Enum.any?(request.refs.observation_refs, &(&1.ref == "chapter:two"))
     end
 

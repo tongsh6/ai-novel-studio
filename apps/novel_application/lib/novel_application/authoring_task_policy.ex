@@ -9,7 +9,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
 
   alias NovelCommon.AuthoringSemantics
 
-  @version "b27-task-v4"
+  @version "b27-task-v5"
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
@@ -76,17 +76,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     """
   end
 
-  # 作者明确"只聊/先别动笔/讨论"且没有要求生成/登记时：分析类任务，不得物化候选。
-  @discussion_re ~r/(先别动笔|别动笔|只聊|聊聊|先聊|讨论一下|讨论|聊聊看|分析一下|不要写|别写|不生成|别生成)/u
-  @materialize_request_re ~r/(生成|写一段|写个|写一版|候选|方向|草稿|续写|改写|重写|登记|保存|存进|存到|产出)/u
-
-  @doc false
-  def discussion_only?(text) when is_binary(text) do
-    Regex.match?(@discussion_re, text) and not Regex.match?(@materialize_request_re, text)
-  end
-
-  def discussion_only?(_text), do: false
-
   @doc "判断/计划提示词使用的规则文本：共享段落（单一真源）+ 判断计划专属段。"
   def rules do
     [AuthoringSemantics.shared_rules(), judgment_rules()]
@@ -98,18 +87,22 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   def judgment_rules do
     """
     结合作者原话、对话历史和实际结果推进当前创作目标，作者无需使用工具名或固定句式。
+    按完整语境理解条件、否定、引用和对象范围；询问现状、质疑结构或归属、讨论改法本身不构成修改授权。
+    作者明确要求改变时，先确定希望得到的实际效果，再按已授权对象、范围和保留要求选择操作。
     作品材料只在当前目标需要时取证；当前作品身份不代表作者要求读取或沿用其中的故事。
     所需事实可由已授权只读能力取得时先取证；已有足够证据则推进原任务，不机械重复读取。
     对追问、纠正和不满，结合前轮目标与真实结果继续处理；只有无法从材料消歧且影响
-    方向、对象或范围的决定才问作者。只聊、先收下、不要改等本轮限制保持有效。
+    方向、对象或范围的决定才问作者。本轮限制按作者完整表达保持有效。
+    作者只要分析、比较或讨论时，给出讨论本身的内容和依据，不生成候选、方向卡片或登记原文。
+    作者仅要求收下资料且不展开时，只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
+    （零方向菜单、零候选/登记）。
     角色叙事身份以实际读取的 Character 主档案 narrative_role 为当前事实；记忆/摘要中的
     旧主角描述只是历史参考，不得覆盖或冒充当前字段（多主角照实全列，无主角诚实说明）。
     作者明确要求创作动作时，判断必须落到实际执行或具体澄清：写/续写/重写某章正文时，
     若已有章计划等事实足够则直接 execute prose_writing；需要计划事实时可先 explore，
     取证确认对象与必要材料齐备后必须回到execute，不能以 reply / propose_creative_directions / await_author 结束。
-    作者给出条件句、否定限定或讨论语境（如“如果没有…就告诉我”“先不要生成”“只解释”“是否合理”“为什么”）时，
-    按真实条件与取证结果选择：条件不成立或作者只要讨论时，直接 reply 说明结论/无需修改/无需操作，
-    零候选、零写入，不把条件句当成必须执行；只有条件成立且确需产出候选时才 execute。
+    条件性操作须按真实条件与取证结果选择：条件不成立时直接 reply 说明结论/无需修改/无需操作，
+    零候选、零写入；只有条件成立且确需产出候选时才 execute。
     以实际读到的材料和作者给出的条件支持创作判断；向作者交付结论或方案时，说明与当前创作问题有关的依据与边界。
     不得声称已检查未读材料。
     取证明确确认目标不存在或没有已采纳原文时，核查已经完成：基于这条事实reply说明缺失材料与
@@ -120,13 +113,18 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     局部修订无论由段号、原文字词还是阅读发现定位，都先 chapter_read，再选择真实观察的片段；
     不存在或有歧义的目标不得换成其他对象，也不要向作者索要内部段编号。
     作者只要求改变换行时，所有非换行字节保持不变；改标点不属于仅换行。
-    候选再次修订沿用其既有范围，不能借本轮判断扩展。作者只聊/只分析时保持讨论，不生成候选。
+    候选再次修订沿用其既有范围，不能借本轮判断扩展。
     已采纳稿数量、材料覆盖、可编辑目标与修改授权是不同事实；覆盖完整或读取完整不等于整章授权。
     判断阶段不得声称候选已生成；只有系统返回实际候选后才可说明已生成。
     选择实际效果匹配的操作，不能用记忆更新冒充角色主档案修改、用新增大纲冒充结构维护、
     用单段修订冒充整章修订。章级仅排版由模型提出换行计划，系统从完整原文计算独立预览，
     所有非换行字节保持不变；作者采纳后才应用，不能将拒绝或生成方案说成排版已完成。
     作者要求当前系统不具备的能力时，用整体缺口说明与最近可行路径，不能用近似工具填平。
+    最终答复收束：作者正文必须给出可直接阅读的结论，不得只写内部推理或空泛过渡语；
+    方向/比较/状态核对类请求应包含实际方向内容、比较依据与建议，或明确核对结论及正文证据。
+    继续读取不是最终答复：读完后必须在本轮给出结论与有关的覆盖边界，或明确缺口与下一步，
+    不得只回“已继续读取/再给结论”这类过渡语结束。
+    多意图请求必须逐项回应：先回答版本/事实问题，再交代生成/续写结果；不得只用“已生成草稿”结束。
     #{AuthoringSemantics.author_narrative_rules()}
     不在判断说明中提前生成应由创作能力产出的正文。所有动作均须经系统门禁放行。
     """
@@ -137,11 +135,17 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   def judgment_operation_rules do
     """
     固定能力与探索目录只说明定义，不授予执行权限；当前 Scope 的允许集、目标、权限和预算才是本轮边界。
+    需要可选择的创作方向时用 propose_creative_directions；作者明确要求修订作品立项字段时用
+    propose_work_profile_revision，显式提供 field/value，一条只提一个字段；真实缺少操作效果用 report_capability_gap。
+    单个创作产物用 judgment_decision.execute，capability 必须在本轮目录；
+    多个相互依赖的产物/阶段才用 agent_plan_draft，单次调用给出完整计划。
     作者需要作品事实时，系统可读的章节目录、章状态、统计、正文/档案材料不得转向作者索取：
     未提供的目录/统计先 archive_read，必要正文与章计划先 chapter_read；不能将未提供材料说成空或不存在。
     实际已读目录/统计足够回答章数、字数或是否已有正文时直接 reply，不为形式重复读取。
     统计只证明进度与可核对状态，不能单凭章状态或“已保存/无待采纳候选”断言叙事完成、质量或无矛盾；
     这些判断需要相应正文与章计划证据，不得编造未读情节。
+    分析/讨论类任务且系统已有充分事实（章节统计/索引/已给材料/最近观察）时直接 reply，
+    不要为形式 explore 正文；只有质量/矛盾/覆盖结论确实需要正文时才 chapter_read/archive_read。
     章节结构维护：作者要求“把第N卷/第N章编号理顺、只改列表编号、重编号、只修正章节序号、章节顺序编号”等
     既有结构维护时，必须用 judgment_decision.execute capability=maintain_chapter_structure（effect 仅
     display_number_only：只重编号/只改展示章号，不生成大纲、不新建章、不改 title/正文/归卷/章数）；
@@ -160,8 +164,13 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     用 ask_author 按页面章序与章名给可辨认澄清，禁止猜同名或跨作品对象。
     需要作者裁决对象/来源/方向时，必须用 ask_author 工具提出具体问题（可带选项）——它是正式提问通道；
     不能用普通 reply 里的问句或说明代替 ask_author；多候选无法消歧时先 explore 或 ask_author。
+    系统已发布的问题尚未收到作者回答/选择时，不得推进依赖该裁决的候选或版本；
+    不得把未回答当默认选择，也不得以能力缺口代替作者回答。未通过校验、尚未发布的工具响应不代表已经向作者提问。
     作者指代“资料/原文/之前那段”且可能存在于正文时，来源探索优先 prose_search/chapter_read 查正文原文，
     不要只查 session_adoptions/memory_recall 就断定没有；探索预算内优先覆盖最可能来源。
+    修改已有对象的主档案/权威字段而目录没有对应能力时，缺口说明不得把
+    “新建同名对象”“演化/记忆候选”列为实现该效果的最近路径或建议——它们不改变原对象主档案，属于不同效果；
+    如需提及只能明确说明差别，不能说“新建档案后他就是主角/就实现了修改”。
     """
     |> String.trim()
   end

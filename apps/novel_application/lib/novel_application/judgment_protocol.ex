@@ -27,8 +27,6 @@ defmodule NovelApplication.JudgmentProtocol do
   require NovelTelemetry.LogEmit, as: LogEmit
 
   @max_attempts 2
-  @pending_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:pending)
-  @adopted_target_capabilities AuthoringTaskPolicy.artifact_capabilities(:adopted)
   @error_excerpt_chars 400
   @type judgment :: map()
   def tool_name, do: "judgment_decision"
@@ -110,8 +108,7 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp request_transcript(input, profile, snapshot) do
-    # 判断入口只生成一次实际 scope；首次构造与既有 transcript 追加消费同一事实。
-    scope = profile_scope(input, profile)
+    # 首轮先用真实消息派生来源，再以 initial_scope 构造最终视图；来源预计算不交付。
     base_refs = context_refs(input, :supplied_context_refs)
     scope_refs = Enum.uniq(base_refs ++ context_refs(input, :scope_source_refs))
     text = author_text(input, profile)
@@ -120,28 +117,43 @@ defmodule NovelApplication.JudgmentProtocol do
     with :ok <- validate_profile_capabilities(input, profile),
          {:ok, author_messages} <- RequestIR.author_input_messages(text, source_input_ref),
          true <- profile != :judgment or author_messages != [],
-         {:ok, transcript} <- new_transcript(input, profile, scope, scope_refs, base_refs) do
-      transcript =
-        case text do
-          text when is_binary(text) ->
-            AuthoringTranscript.append_author_turn(
-              transcript,
-              text,
-              source_input_ref,
-              author_turn: Map.get(input, :author_turn)
-            )
+         {:ok, transcript} <- new_transcript(input, profile, nil, [], []),
+         transcript = append_request_author(transcript, input, profile),
+         {view, strip_history?} = compose_session_history(transcript, input, snapshot),
+         {:ok, scope} <- profile_scope(input, profile, view) do
+      case Map.get(input, :transcript) do
+        nil ->
+          initial_request_transcript(input, profile, snapshot, scope, scope_refs, base_refs)
 
-          nil ->
-            transcript
-        end
-
-      {view, strip_history?} = compose_session_history(transcript, input, snapshot)
-
-      {:ok, refresh_transcript(input, view, profile, scope, scope_refs, base_refs),
-       strip_history?}
+        _existing ->
+          {:ok, refresh_transcript(input, view, profile, scope, scope_refs, base_refs),
+           strip_history?}
+      end
     else
       false -> {:error, :invalid_author_input}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp append_request_author(transcript, input, profile) do
+    case author_text(input, profile) do
+      text when is_binary(text) ->
+        AuthoringTranscript.append_author_turn(
+          transcript,
+          text,
+          Map.get(input, :source_input_ref),
+          author_turn: Map.get(input, :author_turn)
+        )
+
+      nil ->
+        transcript
+    end
+  end
+
+  defp initial_request_transcript(input, profile, snapshot, scope, scope_refs, base_refs) do
+    with {:ok, initial} <- new_transcript(input, profile, scope, scope_refs, base_refs) do
+      {view, strip_history?} = compose_session_history(initial, input, snapshot)
+      {:ok, view, strip_history?}
     end
   end
 
@@ -194,8 +206,14 @@ defmodule NovelApplication.JudgmentProtocol do
         Map.drop(versions, ["scope_revision", "change_reason"])
   end
 
-  defp profile_scope(input, :judgment), do: judgment_scope(input)
-  defp profile_scope(input, :continuation), do: continuation_scope(input)
+  defp profile_scope(input, :judgment, transcript) do
+    with {:ok, request} <- AuthoringTranscript.to_request_ir(transcript),
+         {:ok, author_sources} <- AuthorContentRegistration.author_sources(request),
+         do: {:ok, judgment_scope(input, author_sources)}
+  end
+
+  defp profile_scope(input, :continuation, _transcript),
+    do: {:ok, continuation_scope(input)}
 
   defp ensure_profile_tools(transcript, profile) do
     ir =
@@ -262,7 +280,7 @@ defmodule NovelApplication.JudgmentProtocol do
     ]
   end
 
-  defp invoke(fun, transcript, input, profile, attempt, previous_tools \\ []) do
+  defp invoke(fun, transcript, input, profile, attempt) do
     case prepare_request(transcript, profile) do
       {:ok, request} ->
         supplied_refs =
@@ -272,14 +290,14 @@ defmodule NovelApplication.JudgmentProtocol do
           |> Enum.uniq()
 
         input = Map.put(input, :supplied_observation_refs, supplied_refs)
-        invoke_prompt(fun, request, transcript, input, profile, attempt, previous_tools)
+        invoke_prompt(fun, request, transcript, input, profile, attempt)
 
       {:error, reason} ->
         prompt_failure(reason, transcript, attempt)
     end
   end
 
-  defp invoke_prompt(fun, request, transcript, input, profile, attempt, previous_tools) do
+  defp invoke_prompt(fun, request, transcript, input, profile, attempt) do
     case fun.(request) do
       {:ok, provider_result} ->
         provider_result = ensure_provider_call_ids(transcript, provider_result)
@@ -292,7 +310,6 @@ defmodule NovelApplication.JudgmentProtocol do
           profile,
           attempt,
           provider_result,
-          previous_tools,
           request
         )
 
@@ -302,7 +319,7 @@ defmodule NovelApplication.JudgmentProtocol do
           reason_code: "provider_request_failed"
         })
 
-        invoke(fun, transcript, input, profile, attempt + 1, previous_tools)
+        invoke(fun, transcript, input, profile, attempt + 1)
 
       {:error, reason} ->
         failure(reason, transcript, attempt)
@@ -323,10 +340,9 @@ defmodule NovelApplication.JudgmentProtocol do
          profile,
          attempt,
          provider_result,
-         previous_tools,
          request
        ) do
-    with {:ok, judgment} <- decode(provider_result, profile, input, previous_tools, attempt),
+    with {:ok, judgment} <- decode(provider_result, profile, input),
          {:ok, judgment} <-
            CharacterProfile.bind_judgment(
              judgment,
@@ -335,6 +351,7 @@ defmodule NovelApplication.JudgmentProtocol do
            ),
          {:ok, judgment} <-
            ChapterRevisionScope.bind_observed_targets(judgment, request),
+         {:ok, judgment} <- AuthorContentRegistration.bind_judgment(judgment, request),
          :ok <- validate_pending_clarification(judgment, input) do
       {:ok,
        judgment
@@ -352,7 +369,7 @@ defmodule NovelApplication.JudgmentProtocol do
             do: Map.put(input, :unresolved_character_display, true),
             else: input
 
-        retry_or_reject(fun, transcript, input, profile, attempt, provider_result, reason)
+        correct_or_reject(fun, transcript, input, profile, attempt, reason)
     end
   end
 
@@ -370,19 +387,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_pending_clarification(_judgment, _input), do: :ok
 
-  defp retry_or_reject(fun, transcript, input, profile, attempt, provider_result, reason) do
-    # ask_author 即使参数有误，纠错也不得代作者回答或推进具体候选。
-    correct_or_reject(
-      fun,
-      transcript,
-      input,
-      profile,
-      attempt,
-      reason,
-      tool_names(provider_result)
-    )
-  end
-
   defp log_output_validation(attempt, reason) do
     LogEmit.emit(:judgment, :output_validation, :done, %{
       outcome: if(attempt < @max_attempts, do: "retry", else: "rejected"),
@@ -390,12 +394,6 @@ defmodule NovelApplication.JudgmentProtocol do
       reason: inspect(reason),
       attempt: attempt
     })
-  end
-
-  defp tool_names(result) do
-    (field(result, :tool_calls) || [])
-    |> Enum.map(&field(&1, :name))
-    |> Enum.reject(&is_nil/1)
   end
 
   defp correction_content(reason)
@@ -408,14 +406,6 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content(:author_visible_narrative_invalid) do
     "作者叙述包含内部协议字段、对象/调用标识或基线指纹。请用作者能理解的名称和自然语言重新说明，" <>
       "结构化引用仍留在对应参数；不要复述非法叙述，不改变任务、来源、目标、范围或权限。"
-  end
-
-  # M06：上一轮请求作者选择后，纠错重试不得改成推进具体候选/版本。
-  defp correction_content(:await_author_unanswered) do
-    "本次响应未通过契约校验：上一轮已向作者提问，但作者尚未回答/选择。" <>
-      "不得推进具体候选或版本：不能 execute/revise 指向某候选，不能规划“按某候选执行”，" <>
-      "也不能用 report_capability_gap 代替作者回答。请保持等待、重新做具体澄清（ask_author），或只说明仍在等待作者选择。" <>
-      "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
   end
 
   defp correction_content({:character_profile_invalid, reason}) do
@@ -449,21 +439,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "或用 ask_author 做必要澄清；覆盖已充分则直接给结论。不得以过程语或空内容收束。"
   end
 
-  defp correction_content(:discussion_only_violation) do
-    "本次响应未通过契约校验：discussion_only_violation（作者本轮只要求分析/讨论，明确说先别动笔/只聊/不生成）。" <>
-      "不得调用 propose_creative_directions、register_author_content 或任何生成/写入操作。" <>
-      "请只在 content 里给出分析/讨论本身；不要物化候选、方向卡片或登记原文。"
-  end
-
-  # M18：指代历史材料且可探索时，先取证再问作者；纠错给出明确顺序。
-  defp correction_content(:explore_before_ask_required) do
-    "本次响应未通过契约校验：explore_before_ask_required（来源缺失但尚未取证就先问作者）。" <>
-      "作者在指代系统可能已有的历史材料，而本轮还没有观察证据；若只读探索可用，" <>
-      "必须先用 judgment_decision.explore 取证（chapter_read/prose_search 查正文原文；session_adoptions 查历史候选/登记），" <>
-      "探索后仍无合法来源，再用 ask_author 具体澄清是哪条消息或请作者贴出原文；不得默认先问作者。" <>
-      "保留同一作者输入、来源、目标、范围与权限，只纠正取证顺序。"
-  end
-
   # 对象/版本证据纪律：ref 不在可见集合时，纠错必须给出“用真实 ref 或先取证/澄清”的路径。
   defp correction_content({:pending_artifact_invalid, :target_not_available}) do
     "本次响应未通过契约校验：target_not_available（引用的对象 ref 不在本轮可见目录）。" <>
@@ -493,16 +468,6 @@ defmodule NovelApplication.JudgmentProtocol do
       "纯文本回复必须给出非空 content；只输出思考、占位词或仅标点不算回复。" <>
       JudgmentToolContract.legal_combination_guidance() <>
       "保留同一作者输入、来源、目标、范围与权限，只补足实际回复。"
-  end
-
-  # M18：指代历史原文但把其它消息/指令当来源时，给出可执行的来源纠正路径。
-  defp correction_content(
-         {:author_content_registration_invalid, :anaphoric_current_source_requires_explicit_text}
-       ) do
-    "本次响应未通过契约校验：anaphoric_current_source_requires_explicit_text（作者在指代过去的资料，current 不是合法来源）。" <>
-      "current 只适用于本条消息本身就是被登记原文。请选择其一：改用已列出的合法历史来源，且仅当该来源完整原文就是作者指代的资料；用 judgment_decision.explore 取证合法来源；或用 ask_author 请作者指出来源/贴出原文。" <>
-      "不得把历史指令、会话摘要或保存指令当作原文，也不得先登记再说明来源不含内容。" <>
-      "保留同一作者输入、来源、目标、范围与权限，只纠正来源选择。"
   end
 
   # invalid_tool_combination 是模型最容易重复的协议错误：纠错回执必须给出可执行的
@@ -537,40 +502,31 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   # 所有结构纠错共用同一实际调用窗口，不按错误类别追加次数。
-  defp correct_or_reject(fun, transcript, input, profile, attempt, reason, previous_tools)
+  defp correct_or_reject(fun, transcript, input, profile, attempt, reason)
        when attempt < @max_attempts do
     invoke(
       fun,
       correction_transcript(transcript, reason, receipt_context(attempt, true)),
       input,
       profile,
-      attempt + 1,
-      previous_tools
+      attempt + 1
     )
   end
 
-  defp correct_or_reject(_, transcript, _, _, attempt, {family, _} = reason, _previous_tools)
+  defp correct_or_reject(_, transcript, _, _, attempt, {family, _} = reason)
        when family in [:author_content_registration_invalid, :pending_artifact_invalid],
        do: reject(reason, reason, transcript, attempt)
 
-  defp correct_or_reject(
-         _,
-         transcript,
-         _,
-         _,
-         attempt,
-         {:invalid_tool_arguments, detail},
-         _previous_tools
-       ),
-       do:
-         reject(
-           {:judgment_protocol_violation, :invalid_tool_arguments},
-           {:invalid_tool_arguments, detail},
-           transcript,
-           attempt
-         )
+  defp correct_or_reject(_, transcript, _, _, attempt, {:invalid_tool_arguments, detail}),
+    do:
+      reject(
+        {:judgment_protocol_violation, :invalid_tool_arguments},
+        {:invalid_tool_arguments, detail},
+        transcript,
+        attempt
+      )
 
-  defp correct_or_reject(_, transcript, _, _, attempt, reason, _previous_tools),
+  defp correct_or_reject(_, transcript, _, _, attempt, reason),
     do: reject({:judgment_protocol_violation, reason}, reason, transcript, attempt)
 
   # 终局拒绝也走同一个失败出口：先按既有 correction_transcript 闭合末次真实调用，
@@ -695,6 +651,15 @@ defmodule NovelApplication.JudgmentProtocol do
           |> RequestIR.run_envelope()
           |> put_scope_work_id(Map.get(input, :scope) || %{})
 
+        initial_scope =
+          if scope do
+            %{
+              content: scope,
+              versions: scope_versions(input, nil),
+              source_refs: scope_refs
+            }
+          end
+
         transcript =
           AuthoringTranscript.new(envelope,
             base_text: application_base_text(profile),
@@ -708,11 +673,7 @@ defmodule NovelApplication.JudgmentProtocol do
             allow_authorless: profile != :judgment,
             author_turn_ref: Map.get(input, :source_input_ref),
             author_turn: Map.get(input, :author_turn),
-            initial_scope: %{
-              content: scope,
-              versions: scope_versions(input, nil),
-              source_refs: scope_refs
-            },
+            initial_scope: initial_scope,
             base_refs: base_refs,
             tools: JudgmentToolContract.tools(profile),
             # 投影不携带供应商/能力/目标；Gateway 按实际 route 派生能力事实。
@@ -730,7 +691,7 @@ defmodule NovelApplication.JudgmentProtocol do
         end
 
       transcript ->
-        # 既有 transcript 只走追加规则；initial_scope 仅在首次构造时使用。
+        # 既有 transcript 只走追加规则；initial_scope 仅用于首轮最终构造。
         {:ok, transcript}
     end
   end
@@ -766,24 +727,25 @@ defmodule NovelApplication.JudgmentProtocol do
     """
   end
 
-  defp judgment_scope(input) do
+  defp judgment_scope(input, author_sources) do
     options = Map.get(input, :options, [])
     run = Keyword.get(options, :plan_run, %{})
     goal = Map.get(run, :goal, %{})
+    source_input_ref = Map.get(input, :source_input_ref)
 
     input
     |> Map.fetch!(:scope)
     |> Map.put(:goal, %{
       provenance: "application",
       version: field(goal, :version),
-      source_input_ref: Map.get(input, :source_input_ref)
+      source_input_ref: source_input_ref
     })
     |> Map.put(:operation, %{
       available_operations: Keyword.get(options, :capabilities, []),
       pending_artifact_targets: Keyword.get(options, :pending_artifact_targets, %{}),
       adopted_content_targets: Keyword.get(options, :adopted_content_targets, %{}),
       registered_sources: Keyword.get(options, :registered_sources, []),
-      author_content_sources: ["current" | Keyword.get(options, :author_content_sources, [])],
+      author_content_sources: Enum.reject(author_sources, &(&1.ref == source_input_ref)),
       exploration: %{
         allowed: Keyword.get(options, :explore, false),
         tools: Keyword.get(options, :explore_tools, []),
@@ -796,41 +758,14 @@ defmodule NovelApplication.JudgmentProtocol do
   defp judgment_output_text do
     """
     ## 决策与输出契约
-    普通问答或分析整段 content 就是回复，无需调工具，无固定开场或空行格式。
-    需要可点击创作方向时用 propose_creative_directions；作者明确要求修订作品立项字段时用 propose_work_profile_revision（显式 field/value，一条只提一个字段）；原文物化用 register_author_content；
-    真实缺少操作效果用 report_capability_gap；需要作者决定仅用 ask_author，可不给选项。
-    单个创作产物用 judgment_decision.execute，capability 必须在本轮目录；只读取证仅用
-    judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
-    多个相互依赖的产物/阶段才用 agent_plan_draft，单次调用给出完整计划。
+    普通文本回复使用非空 content，无固定开场或空行格式。
+    禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复。
     #{JudgmentToolContract.legal_combination_guidance()}
-    内容修订的目标和范围字段遵循本轮 judgment_decision 工具契约。
-    模型工具调用不代表执行授权。
-    纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
-    具有作者交付职责的工具按当前契约提供唯一正文。#{JudgmentToolContract.question_response_guidance()}
-    覆盖事实约束：若本轮观测明确显示章节正文未覆盖末页（覆盖事实显示“未读>0”），
-    不得声称已读全章或全章无矛盾；必须继续读取，或在结论中明确已覆盖范围与未读缺口。
-    最终答复收束：作者正文必须给出可直接阅读的结论，不得只写内部推理或空泛过渡语；
-    方向/比较/状态核对类请求应包含实际方向内容、比较依据与建议，或明确核对结论及正文证据。
-    作者只要求收下资料/只聊不展开时：只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
-    （零方向菜单、零候选/登记）。
-    完整计划由 agent_plan_draft 的独立参数契约承载。
-    修改已有对象的主档案/权威字段（如把已有角色改成主角/改身份）而目录没有对应能力时，缺口说明不得把
-    “新建同名对象”“演化/记忆候选”列为实现该效果的最近路径或建议——它们不改变原对象主档案，属于不同效果；
-    如需提及只能明确说明差别，不能说“新建档案后他就是主角/就实现了修改”。
-    作者明确“先别动笔/只聊/讨论/分析”且没有要求生成或登记时，属于分析任务：不得调用
-    propose_creative_directions、register_author_content 或任何生成/写入操作；只在 content 给分析内容。
-    分析/讨论类任务且系统已有充分事实（章节统计/索引/已给材料/最近观察）时直接 reply，
-    不要为形式 explore 正文；只有质量/矛盾/覆盖结论确实需要正文时才 chapter_read/archive_read。
-    工具调用必须使用原生 tool_calls；不得把“<tool_call>/<function=...>”这类伪工具文本写进 content
-    （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
-    上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
-    不得规划“按某候选执行”，也不得用 report_capability_gap 代替作者回答；应保持等待、重新做具体澄清，
-    或只说明仍在等待作者选择。不得把未回答当默认选择。
-    继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
-    这类过渡语结束。
-    禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复；覆盖不足时继续读取，或明确已覆盖范围+未读缺口+下一步。
-    多意图请求（如“当前最终用哪一版”+“再写一段”）必须逐项回应：最终答复先回答版本/事实问题
-    （例如当前最终版本是 EDITED_ACCEPTED 还是被 SUPERSEDED），再给生成/续写结果；不得只用“已生成草稿”结束。
+    读取请求使用 judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
+    内容修订的目标和范围字段遵循本轮 judgment_decision 工具契约；完整计划由 agent_plan_draft 的独立参数契约承载。
+    #{JudgmentToolContract.question_response_guidance()}
+    工具调用必须使用原生 tool_calls；不得把“<tool_call>/<function=...>”这类伪工具文本写进 content，
+    也不得用伪工具文本代替作者可见答复。
     """
   end
 
@@ -863,24 +798,13 @@ defmodule NovelApplication.JudgmentProtocol do
     |> Jason.decode!()
   end
 
-  defp decode(result, profile, input, previous_tools, attempt) when is_map(result) do
+  defp decode(result, profile, input) when is_map(result) do
     calls = field(result, :tool_calls) || []
 
     options =
       input
       |> Map.get(:options, [])
-      |> Keyword.put(
-        :author_text,
-        Map.get(input, :author_text) || ""
-      )
-      |> Keyword.put(:observation_count, length(Map.get(input, :observations) || []))
-      |> Keyword.put(:previous_attempt_tools, previous_tools)
-      |> Keyword.put(:attempt, attempt)
       |> Keyword.put(:profile, profile)
-      |> Keyword.put(
-        :discussion_only,
-        AuthoringTaskPolicy.discussion_only?(Map.get(input, :author_text) || "")
-      )
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
@@ -891,7 +815,7 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp decode(_, _, _, _, _), do: {:error, :invalid_judgment_result}
+  defp decode(_, _, _), do: {:error, :invalid_judgment_result}
 
   defp validate_tools(calls, profile) do
     case JudgmentToolContract.validate(calls, profile) do
@@ -962,59 +886,19 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp validate_operation("execute", args, options) do
-    capability = field(args, :capability)
-
-    # B33 CP2：动作意图 gate 主动纠错时明确要求「对象已知→execute」，此时不能沿用
-    # M06 的“上一轮 ask 未回答不得推进”否决；否则明确动作永远无法被纠错修复。
-    action_intent_retry? = Keyword.has_key?(options, :action_intent_correction_info)
-
-    if not action_intent_retry? and
-         "ask_author" in Keyword.get(options, :previous_attempt_tools, []) and
-         capability in (@pending_target_capabilities ++ @adopted_target_capabilities) do
-      {:error, :await_author_unanswered}
-    else
-      validate_execute_capability(capability, args, options)
-    end
-  end
+  defp validate_operation("execute", args, options),
+    do: validate_execute_capability(field(args, :capability), args, options)
 
   defp validate_operation("explore", args, options) do
     request = field(args, :explore_request)
     ExplorationPolicy.validate_requests([explore_request(request)], options)
   end
 
-  defp validate_operation("creative_directions", _args, options) do
-    if Keyword.get(options, :discussion_only, false),
-      do: {:error, :discussion_only_violation},
-      else: :ok
-  end
+  defp validate_operation("work_profile_revision", args, _options),
+    do: JudgmentToolContract.validate_work_profile_revision(args)
 
-  defp validate_operation("work_profile_revision", args, options) do
-    if Keyword.get(options, :discussion_only, false) do
-      {:error, :discussion_only_violation}
-    else
-      JudgmentToolContract.validate_work_profile_revision(args)
-    end
-  end
-
-  defp validate_operation("author_content_registration", args, options) do
-    if Keyword.get(options, :discussion_only, false) do
-      {:error, :discussion_only_violation}
-    else
-      validate_author_registration(args, options)
-    end
-  end
-
-  defp validate_operation("await_author", args, options) do
-    with :ok <- JudgmentToolContract.validate_question_options(field(args, :options)) do
-      # 作者指代可能已有的历史原文、只读探索可用且本轮尚无观察：先取证再问作者。
-      if Keyword.get(options, :explore, false) and
-           Keyword.get(options, :observation_count, 0) == 0 and
-           AuthorContentRegistration.anaphoric_reference?(Keyword.get(options, :author_text, "")),
-         do: {:error, :explore_before_ask_required},
-         else: :ok
-    end
-  end
+  defp validate_operation("await_author", args, _options),
+    do: JudgmentToolContract.validate_question_options(field(args, :options))
 
   defp validate_operation("capability_gap", args, options) do
     exploration =
@@ -1038,14 +922,6 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp validate_operation(_, _, _), do: :ok
-
-  defp validate_author_registration(args, options) do
-    AuthorContentRegistration.validate_author_registration(
-      Map.put(args, "action", "author_content_registration"),
-      Keyword.get(options, :author_content_sources, []),
-      Keyword.get(options, :author_text, "")
-    )
-  end
 
   defp validate_execute_capability(capability, args, options) do
     targets =

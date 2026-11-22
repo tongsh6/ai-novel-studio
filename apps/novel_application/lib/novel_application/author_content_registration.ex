@@ -1,76 +1,293 @@
 defmodule NovelApplication.AuthorContentRegistration do
   @moduledoc """
-  作者原文登记的纯应用规则：选择真实来源、校验登记意图并识别已有物化。
-  不读写持久状态；事务内重复登记裁决仍由 persistence 边界负责。
+  作者原文登记的纯来源规则：绑定实际供应的完整作者消息并识别已有物化。
+  意图与来源选择由 Judgment 承担；本模块不读写持久状态。
   """
 
-  def author_sources(context, current_turn) do
-    context
-    |> Map.get(:interaction_state, %{})
-    |> Map.get(:author_inputs, [])
-    |> Enum.reject(&(&1.turn_ref == current_turn))
-  end
+  alias NovelApplication.SessionMessageRead
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.{Compaction, MessageCoverage}
 
-  # M18：指代过去资料的语言标记 + 本条消息内显式给出原文的标记。
-  # 这是“来源语义”规则，不是按案例关键词拒真原文：current 的合法含义只有
-  # “本条消息本身即被登记原文”；作者指代过去材料时，除非本条消息显式给出要登记的
-  # 原文片段（引号/冒号后的实质内容或足够长的材料正文），否则 current 不成立。
-  @anaphoric_reference_re ~r/(之前|此前|早先|上次|上回|上一轮|上一条|前面|刚才|刚刚|上面|上文|那段|那份|那条|那篇|发你的|发给你的|给你的|刚才的|之前的)/u
-  @explicit_payload_re ~r/([：:]\s*\S{8,})|([“"「][^”"」]{8,}[”"」])/u
-  @min_current_material_chars 40
+  @doc "从当前真实请求派生作者来源资格；目录、摘要和未读完整的页不授信。"
+  @spec author_sources(RequestIR.t()) :: {:ok, [map()]} | {:error, term()}
+  def author_sources(%RequestIR{} = request) do
+    direct = canonical_sources(request)
+    pages = read_pages(request)
 
-  @doc "原文登记的联合前置条件；只有显式来源和保真分支可以进入物化。"
-  def validate_author_registration(judgment, sources, author_text \\ "") do
-    result =
-      if value(judgment, :action) == "author_content_registration",
-        do: validate_registration_fields(judgment, sources || [], author_text),
-        else: :ok
-
-    case result do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:author_content_registration_invalid, reason}}
+    with {:ok, _consistent} <- merge_sources(direct ++ Enum.map(pages, &source_binding/1)),
+         {:ok, reads} <- complete_read_sources(pages),
+         {:ok, sources} <- merge_sources(direct ++ reads) do
+      {:ok, sources}
+    else
+      {:error, reason} -> invalid(reason)
     end
   end
 
-  defp validate_registration_fields(judgment, sources, author_text) do
-    source = value(judgment, :author_content_source_ref)
+  @doc "接收时只由实际 RequestIR 绑定来源；内部绑定不是模型返回字段。"
+  @spec bind_judgment(map(), RequestIR.t()) :: {:ok, map()} | {:error, term()}
+  def bind_judgment(judgment, %RequestIR{} = request) do
+    if value(judgment, :action) == "author_content_registration" do
+      with {:ok, sources} <- author_sources(request),
+           {:ok, ref} <- selected_ref(value(judgment, :author_content_source_ref), request),
+           %{} = source <- Enum.find(sources, &(&1.ref == ref)) do
+        {:ok, Map.put(judgment, :author_content_source, source)}
+      else
+        nil -> invalid(:source_not_available)
+        {:error, {:author_content_registration_invalid, _}} = error -> error
+        {:error, reason} -> invalid(reason)
+      end
+    else
+      {:ok, judgment}
+    end
+  end
 
+  defp selected_ref(nil, _request), do: {:error, :source_required}
+  defp selected_ref("", _request), do: {:error, :source_required}
+  defp selected_ref("current", request), do: current_source_ref(request)
+  defp selected_ref(ref, _request) when is_binary(ref), do: {:ok, ref}
+  defp selected_ref(_ref, _request), do: {:error, :source_required}
+
+  defp current_source_ref(request) do
+    scope =
+      request.messages
+      |> Compaction.project()
+      |> Enum.reverse()
+      |> Enum.find(&(&1.role == "scope_update"))
+
+    with %{provenance: "application", canonical_ref: owner, blocks: blocks} <- scope,
+         true <- same_scope?(owner, request.run),
+         true <- value(owner, :run_id) == value(request.run, :run_id),
+         %{content: content} <- Enum.find(blocks, &(&1.type == "scope")),
+         ref when is_binary(ref) <- value(value(content, :goal), :source_input_ref),
+         true <-
+           Enum.any?(request.messages, fn message ->
+             value(value(message, :canonical_ref), :run_id) == value(request.run, :run_id) and
+               match?(%{ref: ^ref}, canonical_source(message, request.run))
+           end) do
+      {:ok, ref}
+    else
+      _ -> {:error, :source_not_available}
+    end
+  end
+
+  defp canonical_sources(request) do
+    request.messages
+    |> Compaction.project()
+    |> Enum.flat_map(fn message ->
+      case canonical_source(message, request.run) do
+        nil -> []
+        source -> [source]
+      end
+    end)
+  end
+
+  defp canonical_source(%{role: "user", provenance: "author"} = message, run) do
+    with true <- same_scope?(value(message, :canonical_ref), run),
+         %{} <- MessageCoverage.identity(message),
+         ref when is_binary(ref) <- single_ref(value(message, :source_refs)),
+         {:ok, text} <- original_text(value(message, :blocks)) do
+      %{ref: ref, source_hash: source_hash(text)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp canonical_source(_message, _run), do: nil
+
+  defp original_text([_ | _] = blocks) do
+    if Enum.all?(blocks, &match?(%{type: "text", text: text} when is_binary(text), &1)) do
+      text = Enum.map_join(blocks, "", & &1.text)
+      if nonblank?(text) and String.valid?(text), do: {:ok, text}, else: :unavailable
+    else
+      :unavailable
+    end
+  end
+
+  defp original_text(_blocks), do: :unavailable
+
+  defp same_scope?(source, run) do
+    Enum.all?([:workspace_id, :work_id, :session_id], fn key ->
+      actual = value(source, key)
+      nonblank?(actual) and actual == value(run, key)
+    end)
+  end
+
+  defp single_ref([source]) do
+    ref = value(source, :ref)
+    if nonblank?(ref), do: ref
+  end
+
+  defp single_ref(_sources), do: nil
+
+  defp read_pages(request) do
+    request
+    |> RequestIR.usable_observations()
+    |> Enum.flat_map(fn observation ->
+      case read_page(observation, request.run) do
+        nil -> []
+        page -> [page]
+      end
+    end)
+  end
+
+  defp read_page(%{status: status, content: content} = observation, run)
+       when status in ["ok", "partial"] do
+    facts = value(content, :facts)
+    coverage = value(observation, :coverage)
+
+    with "session_message_read" <- value(content, :tool),
+         "user" <- value(facts, :role),
+         "author" <- value(facts, :provenance),
+         true <- same_scope?(facts, run),
+         ref when is_binary(ref) <- single_ref(value(facts, :source_refs)),
+         {:ok, locator} <- SessionMessageRead.parse_query(value(content, :query)),
+         true <- locator.run_id == value(facts, :run_id),
+         true <- locator.run_sequence == value(facts, :run_sequence),
+         %{ref: message_ref, version: version} <- MessageCoverage.source_ref(locator),
+         true <- value(observation, :source_refs) == [message_ref],
+         true <- value(observation, :versions) == %{message_ref => version},
+         "unicode_grapheme" <- value(coverage, :offset_unit) do
+      page = %{
+        ref: ref,
+        source_hash: value(content, :source_hash),
+        message_ref: message_ref,
+        text: value(content, :summary),
+        start_byte: value(value(coverage, :byte_range), :start),
+        end_byte: value(value(coverage, :byte_range), :end_exclusive),
+        total_bytes: value(coverage, :total_bytes),
+        start_grapheme: value(value(coverage, :range), :start),
+        end_grapheme: value(value(coverage, :range), :end_exclusive),
+        total_graphemes: value(coverage, :total_graphemes)
+      }
+
+      if valid_page?(page, observation) and page.start_grapheme == locator.offset, do: page
+    else
+      _ -> nil
+    end
+  end
+
+  defp read_page(_observation, _run), do: nil
+
+  defp valid_page?(page, observation) do
+    page_content_valid?(page) and page_ranges_valid?(page) and page_status?(page, observation)
+  end
+
+  defp page_content_valid?(page) do
+    is_binary(page.text) and String.valid?(page.text) and
+      is_binary(page.source_hash) and byte_size(page.source_hash) == 64
+  end
+
+  defp page_ranges_valid?(page) do
+    counts = [
+      page.start_byte,
+      page.end_byte,
+      page.total_bytes,
+      page.start_grapheme,
+      page.end_grapheme,
+      page.total_graphemes
+    ]
+
+    Enum.all?(counts, &(is_integer(&1) and &1 >= 0)) and
+      page.start_byte <= page.end_byte and page.end_byte <= page.total_bytes and
+      page.start_grapheme <= page.end_grapheme and page.end_grapheme <= page.total_graphemes and
+      byte_size(page.text) == page.end_byte - page.start_byte and
+      String.length(page.text) == page.end_grapheme - page.start_grapheme
+  end
+
+  defp page_status?(page, observation) do
+    full? = page.start_byte == 0 and page.end_byte == page.total_bytes
+    omissions = value(observation, :omissions)
+    expected_next = if page.end_grapheme < page.total_graphemes, do: page.end_grapheme
+
+    truthful_status? =
+      if full?,
+        do: value(observation, :status) == "ok" and omissions == [],
+        else: value(observation, :status) == "partial" and is_list(omissions) and omissions != []
+
+    value(observation, :next_offset) == expected_next and truthful_status?
+  end
+
+  defp complete_read_sources(pages) do
+    pages
+    |> Enum.group_by(& &1.ref)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce_while({:ok, []}, fn {_ref, source_pages}, {:ok, sources} ->
+      case complete_read_source(source_pages) do
+        {:ok, source} -> {:cont, {:ok, sources ++ [source]}}
+        :incomplete -> {:cont, {:ok, sources}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp complete_read_source([first | _] = pages) do
+    identity = Map.take(first, [:message_ref, :source_hash, :total_bytes, :total_graphemes])
+
+    with true <- Enum.all?(pages, &(Map.take(&1, Map.keys(identity)) == identity)),
+         {:ok, text} <- pages |> Enum.sort_by(& &1.start_byte) |> join_pages() do
+      complete_read_binding(text, pages)
+    else
+      false -> {:error, :source_identity_conflict}
+      other -> other
+    end
+  end
+
+  defp complete_read_binding(text, [first | _] = pages) do
     cond do
-      is_nil(source) or source == "" ->
-        {:error, :source_required}
+      byte_size(text) != first.total_bytes or String.length(text) != first.total_graphemes ->
+        :incomplete
 
-      source not in ["current" | sources] ->
-        {:error, :source_not_available}
-
-      source == "current" ->
-        validate_current_registration_source(author_text)
+      source_hash(text) != first.source_hash or not Enum.all?(pages, &page_bytes?(text, &1)) ->
+        {:error, :source_content_mismatch}
 
       true ->
-        :ok
+        {:ok, source_binding(first)}
     end
   end
 
-  @doc false
-  def anaphoric_reference?(text) when is_binary(text),
-    do: Regex.match?(@anaphoric_reference_re, text)
+  defp join_pages(pages), do: Enum.reduce_while(pages, {:ok, ""}, &join_page/2)
 
-  defp validate_current_registration_source(author_text) do
-    text = to_string(author_text || "")
+  defp join_page(%{start_byte: start_byte}, {:ok, text}) when start_byte > byte_size(text),
+    do: {:halt, :incomplete}
 
-    cond do
-      not anaphoric_reference?(text) ->
-        :ok
+  defp join_page(page, {:ok, text}) do
+    overlap = min(byte_size(text) - page.start_byte, byte_size(page.text))
 
-      Regex.match?(@explicit_payload_re, text) ->
-        :ok
-
-      String.length(String.trim(text)) >= @min_current_material_chars ->
-        :ok
-
-      true ->
-        {:error, :anaphoric_current_source_requires_explicit_text}
+    if binary_part(text, page.start_byte, overlap) == binary_part(page.text, 0, overlap) do
+      tail = binary_part(page.text, overlap, byte_size(page.text) - overlap)
+      {:cont, {:ok, text <> tail}}
+    else
+      {:halt, {:error, :source_content_mismatch}}
     end
   end
+
+  defp page_bytes?(text, page) do
+    byte_size(String.slice(text, 0, page.start_grapheme)) == page.start_byte and
+      String.slice(text, page.start_grapheme, page.end_grapheme - page.start_grapheme) ==
+        page.text
+  end
+
+  defp source_binding(source), do: Map.take(source, [:ref, :source_hash])
+
+  # 同一作者消息可同时被 canonical 历史和回查证明；冲突证据不能覆盖已有事实。
+  defp merge_sources(sources) do
+    sources
+    |> Enum.reduce_while({%{}, []}, fn source, {known, ordered} ->
+      case Map.fetch(known, source.ref) do
+        :error -> {:cont, {Map.put(known, source.ref, source), [source | ordered]}}
+        {:ok, ^source} -> {:cont, {known, ordered}}
+        {:ok, _conflict} -> {:halt, {:error, :source_identity_conflict}}
+      end
+    end)
+    |> case do
+      {:error, _} = error -> error
+      {_known, ordered} -> {:ok, Enum.reverse(ordered)}
+    end
+  end
+
+  defp source_hash(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+  defp nonblank?(text), do: is_binary(text) and String.trim(text) != ""
+  defp invalid(reason), do: {:error, {:author_content_registration_invalid, reason}}
 
   @doc "判断与执行共用的业务规则；登记作者原文与生成新内容是不同操作。"
   def author_registration_rules do
@@ -82,19 +299,13 @@ defmodule NovelApplication.AuthorContentRegistration do
       待采纳的作品设定候选；应用按来源逐字复制，不调用创作能力重写，也不直接写入档案。
       这里的原文是被引用消息的完整文本，包括同条消息中的指令性前缀；系统不会自动抽取资料段或删去前缀，
       不能在回复中声称会剔除它们。若作者希望只保留资料内容，应修订现有候选或在“修改后保存”中编辑全文。
-    - `current` 只表示“本条消息本身就是被登记原文”。作者用“之前/那份/上次/前面/刚才/
-      发你的/上面”等指代过去资料时，current 不是合法来源；必须先取证合法来源，或让作者
-      指出来源/贴出原文，不能把保存指令本身当原文登记。
-    - 作者指代“之前/那份/上次/发你的”等历史原文、而当前来源清单无法确认时：若只读探索可用，
-      必须先 explore（chapter_read/prose_search 找正文原文；session_adoptions 查历史候选/登记），
-      探索后仍无合法来源，才用 ask_author 具体澄清是哪条消息/请作者贴出原文；不得默认先问作者。
-    - 历史来源只有在“该来源的完整原文本身就是作者要保存的资料”时才能登记；历史指令、
-      反馈、会话摘要、应用材料都不是原文。作者指代的对象必须完整存在于所选来源原文中：
-      来源原文只是提到同一名词（例如“别改灯油设定”这类指令）、并不包含被指代的资料时，
-      不得把它当作该资料的来源登记；此时应 explore 合法来源，或 ask_author 请作者指出/贴出原文。
-      不能因为来源列表里有相似词就选它，也不能先登记再在回复里说明来源不含内容。
-    - 原文来源必须明确：本条资料与已列出的历史资料分别引用，不能把来源缺失猜成当前
-      保存指令。来源不明确时等待作者补充，不登记、不生成候选。
+    - author_content_source_ref 使用当前 Scope.operation.author_content_sources 中的 ref；
+      current 表示本轮完整作者消息本身就是要登记的原文。source_hash 是应用提供的来源证据，不是工具参数。
+      选择依据是作者真实意图和完整原文，不由某个指代词、句长或标点决定。
+    - 历史来源必须是实际供应的完整作者消息，其原文本身就是作者要登记的具体内容；
+      目录、摘要、同名提及或模型答复不能替代该原文，也不能将本轮保存指令冒充历史资料。
+      需要补足来源时，可用 session_message_read 按真实消息坐标读取；部分页需继续读取直到来源完整。
+      无法确定指代对象或缺少定位事实时，用 ask_author 具体澄清，不猜来源。
     - 同一来源已有待采纳候选时，引导作者采纳；已经采纳时据实际事实回答，不重复生成。
       状态追问不重开创作，运行完成不等于已保存，只有采纳/实际写入事实支持已入档的说法。
       不要建议重新登记已有待采纳/已采纳来源；需要修改时修订实际对象，不以重新登记代替修改。
@@ -119,18 +330,28 @@ defmodule NovelApplication.AuthorContentRegistration do
   def author_registration_failure_message(_reason),
     do: "这次原文登记的处理方式未通过校验，已停止，没有改写原文、生成候选或写入档案。请明确要保留哪份原文后再试。"
 
-  def source_text(nil, _current_text, _context, _current_turn),
-    do: {:error, {:author_content_registration_invalid, :source_required}}
+  @doc "物化前核对持久层实际作者身份与原字节；不从目录或摘要重建内容。"
+  @spec source_text(map() | nil, String.t() | nil, String.t() | nil) ::
+          {:ok, String.t(), String.t()} | {:error, term()}
+  def source_text(nil, _actual_ref, _actual_text), do: invalid(:source_required)
 
-  def source_text("current", current_text, _context, current_turn),
-    do: {:ok, current_turn, current_text}
+  def source_text(%{ref: ref, source_hash: hash}, actual_ref, actual_text) do
+    cond do
+      not is_binary(actual_ref) or not is_binary(actual_text) ->
+        invalid(:source_not_available)
 
-  def source_text(ref, _current_text, context, current_turn) do
-    case Enum.find(author_sources(context, current_turn), &(&1.turn_ref == ref)) do
-      %{text: text} -> {:ok, ref, text}
-      _ -> {:error, {:author_content_registration_invalid, :source_not_available}}
+      ref != actual_ref ->
+        invalid(:source_identity_mismatch)
+
+      source_hash(actual_text) != hash ->
+        invalid(:source_content_mismatch)
+
+      true ->
+        {:ok, actual_ref, actual_text}
     end
   end
+
+  def source_text(_binding, _actual_ref, _actual_text), do: invalid(:source_required)
 
   def materialized_source?(context, source_ref) do
     materialized_entries(context)
@@ -167,5 +388,8 @@ defmodule NovelApplication.AuthorContentRegistration do
       end
   end
 
-  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp value(_map, _key), do: nil
 end
