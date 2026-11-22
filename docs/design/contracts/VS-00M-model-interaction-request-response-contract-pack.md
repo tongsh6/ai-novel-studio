@@ -380,6 +380,24 @@ data 保留原 typed 结果，排除外层已有 call_id 和以下快照字段�
 
 使命/材料窗口 ref 不能证明采纳；Replay 的缺证判断、状态链、说明和采纳回答均选择带真实持久写入/采纳字段的既有摘要，并保留实际 receipt 绑定，不依赖数组首项。运行恢复读取已持久 AgentRun 的 completed_step_refs/pending_artifact_refs/plan/status；WS 与既有 HTTP activity 同源投影到现 AgentRunState 合同，业务 TurnResult.agent_run 仍仅为关联摘要。恢复不能补造完成步数或 live 权限，旧摘要不能覆盖较新的运行事实。后台派生维护仍按原策略与来源记录，不把它当本轮候选已采纳。
 
+### 6.4 R08 意图解释、真实作者来源与普通候选修订（实施前裁决）
+
+本节按愿景 §2.3–2.4、VS-00D §11 与 B87 §19 的存在性审查，前向收束现有 Judgment、原文登记及普通候选修订职责。它替代 B33 当前说明中将中文 discussion_only、过去指代与固定 explore-before-ask 当作客观机械事实的部分；B27/B33/B34 历史输入、原始结果和失败证据不改写。本节不改变 R07 的未验收状态，不扩展 R09 能力或 R17 system 生命周期。
+
+**一次语义判断与规则归属。** 作者的否定、条件、引用、讨论、明确动作和来源选择由现 Judgment 根据真实原话、会话状态与实际材料判断。AuthoringTaskPolicy 承担判断/计划业务语义，AuthoringSemantics 承担现专业调用共同约束，AuthorContentRegistration 承担登记来源与保真规则；JudgmentProtocol 的输出说明仅承担原生工具、正文通道、字段和组合合同。重复业务指令从错误责任位置退役，不在渲染末端去重。删除 discussion_only? 中文正/反词表、依赖该标志的校验/纠错，以及从指代词推导“必须先探索”的机械拒绝；APP 不增加第二意图分类器、文本过滤器或新模型审查回合。结构事实充分不等于文学完成，结构异议不自动成为修改请求，明确效果只能对应实际能力或诚实缺口；资料接收与有内容的讨论保持不同作者效果。
+
+**纠错尝试不是作者问答事实。** 被拒绝的 ask_author 工具响应尚未向作者发布，不能由 previous_attempt_tools 将其推断为“已提问未获回答”，也不能因此否决同一有界协议窗口中的合法纠正。退役该推断和没有真实生产者的 action_intent_correction_info 例外。真正已发布的问题及作者选择继续由现 TurnInteraction/BehaviorState、来源与动作绑定消费；不得把重试、沉默或模型自述当作作者回答。原调用身份、两次实际 Provider 上限、失败留证和预算不改变。
+
+**来源资格来自真实消息。** 登记复用现 register_author_content、author_content_source_ref 和作者消息来源，不以“之前”等词、引号/冒号或 8/40 字门槛决定 current/历史资格。当前原文仍是本条完整作者消息的原字节；历史来源必须对应当前作品、当前会话中的真实作者消息。判断侧从当前实际供应的 canonical 作者消息或现 SessionMessageRead 的完整来源观察派生可用资格，不能把最近十条 interaction_state.author_inputs 当作全部可登记范围，也不能用摘要、元数据、部分页或 assistant/tool 内容冒充完整作者原文。回查证据沿现 MessageCoverage、AuthoringSessionLog、消息 role/provenance/source_refs 与完整内容 hash 绑定；同一 run 中的不同作者回合不能由 parent_turn_ref 猜成同一来源。
+
+**接收与物化贯通。** 现 DialoguePlanningService/AuthorContentRegistration 的来源接收、登记和请求供给消费同一个实际来源身份；历史物化复用 WorkSessionRepo.user_entry(work, session, turn) 取得受作品/会话约束的完整持久原字节，并与真实供应证据对账。只改 prompt 指向消息回查而不接通合法来源及物化不算完成。新鲜原字节、实际已供应和作者语义选择分别成立；完整读取不能自动授权采纳。保留来源未找到、错误身份、内容不一致及重复物化的现有业务边界，禁止扩大固定历史包、建立另一来源 registry 或从相似词猜来源。新增纯投影/组合函数只落现 owner，实施前记录首个消费者；不新增表、API、工具或来源主模型。
+
+**普通 artifact 的完整对象修订。** 沿现 pending_artifact_ref/adopted_content_ref、完整 artifact_body、AuthoringTask.scope.refs/base_ref/base_hash、真实作者原话与来源、Judgment 当前目标及原 Writer body/rationale 组织修订。删除 PendingArtifactWorkflow 的 guard_scope_text、layout_only_request?、paragraph_index、numeric_change、revision_target_hint 及仅服务它们的后验校验：不能把作者原话与模型 dialogue_goal 拼成第二份授权输入，再依词面选择一个范围或插入专项改写指令。普通 artifact 不建立第二套范围 DTO，不套用 whole_chapter 或章 segment IDs；完整对象候选是否忠实履行局部措辞要求由真实语义证据判断，不能以旧 regex 的通过代签。
+
+章正文的 format_only/target_segments/whole_chapter 仍按 §6.2 的真实基线、已读目标、版本/hash、确定性换行/区间应用及采纳事务执行。已声明章 scope 的候选不得退回普通分支；普通修订的 provider 原参数、来源、非空原 body、真实预算/call_id、tentative 和独立作者采纳保持。仅服务旧词法 guard 的纠错刺激迁移为真实可达的结构/来源失败，不能为删除旧规则丢掉原交换与执行计数覆盖。
+
+**现役字段和证明。** 局部正文仅使用 modification_scope=target_segments、items[].target_segment_ids 与原 rationale；不引入 paragraph_only、change_reason 或第二候选说明。真实目标与已供材料按操作关联，不把领域 ID 与 observation_ref 直接做字符串集合比较。观察 coverage_note 保留其材料覆盖说明职责，partial 不授信 full；rationale 与 body 的语义一致必须审阅实际结果。确定性测试证明接线、结构、来源与效果，实模 A/B 和当前工作台证明作者意图；B27 退休快照不作本批 Before，B33 当前证据不得继续以词法守卫是否触发代替讨论零候选/零作品写入。历史失败不抹去，缺实际模型/页面/binding 时不签 PASS。
+
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 
 ### 7.1 五个独立判断

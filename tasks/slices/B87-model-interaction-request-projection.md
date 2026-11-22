@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-22：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 已按 §18 完成五组实施及同批证据消费者补充收束，代码已分阶段推送至 daf22012，工程结果与保留失败见 §18.5–18.8；真实页面与原 scope completion 尚缺，当前 R07 blocked/NOT PASS，按 §18.7 恢复；R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
+**状态**：**doing（2026-11-22：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 已按 §18 完成五组实施及同批证据消费者补充收束，代码已分阶段推送至 daf22012，工程结果与保留失败见 §18.5–18.8；真实页面与原 scope completion 尚缺，当前 R07 blocked/NOT PASS，恢复条件保留在 §18.7；作者明确先进入 R08，现按 §19 独立开工，R08 doing/尚未验收；R06–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
 
 - **排期（2026-11-14）**：作者决定 B84 退出当前任务队列，B87 提为 [NEXT](../NEXT.md) 当前任务；R01 测量实现质量门与最终提交优先收口，随后按原依赖推进 R02–R19。调度变化不改变 R00–R19 的验收范围或证据状态。
 
@@ -2838,3 +2838,51 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 后二次成功运行均绑定 source fingerprint `ae19dabc5b5ea502f87e4914f37310d03dd7d0a0de2be5f60920685b91b352bb`，执行前后不变。补充提交 `daf22012b1dac7468bf8148f0b4933e3e32597b5` 只含上述 8 个文件；`commit-g3-followup-01` 核对提交字节与已验源一致。第二阶段 `push-stage2-01` 于 2026-11-22 00:55:11 +08:00 正常推送并读回同一远端 HEAD。本机 Git hook 输出未找到 lefthook 配置；工程结论来自本节明确执行的门禁，不声称配置缺失的 hook 已完成检查。
 
 当前任务/NEXT 的最终记录由独立 `closure-doc-validation-03` 对账：差异检查、NEXT 及开放清单复核、与已验源逐项比较；其实际结果与源快照见同目录原件。01、02 已通过的原件保留；02 包含后来补明的采纳动作身份恢复说明，03 仅进一步明确 §18.6 扫描属于第一阶段复跑。文档只记已发生事实与恢复条件，不触及已验生产字节。R07 原生验收次数和真实模型调用仍为 0，原 scope completion 未完成，继续按 §18.7 恢复，不因补充提交代签 PASS。
+
+## 19. R08 独立开工与意图语义责任收束（2026-11-22）
+
+### 19.1 调度授权、基线与原批次保留
+
+**当前 R08：doing，尚未验收。** 作者在本会话明确“先进入R08”，据此调整原 R05/R07 PASS 的开工顺序，独立推进本卡目标；这是任务级调度，不是把 R07 补签通过。R07 的实现及工程验证已分组推送，§18.7 的 native、ui-binding 和原 scope completion 缺口原地保留；R06 原失败亦保持。R08 若暴露这些依赖的真实缺陷，按原责任记录，不用本批结果反向签收前批。
+
+本批基线：develop/dialogue-based-novel-workbench，HEAD `429c8fc417e2c2c81978c7ea41b52e7335c29ed1`，开工时工作树干净。实施前已执行 `bash scripts/task_done.sh --begin artifacts/slice-verify/b87-r08-20261122/scope.json --task tasks/slices/B87-model-interaction-request-projection/R08.md`，exit 0；scope_id `d072fb9c-7dfb-40b1-8d3a-9918e9279ef6`，原件 SHA `36c421a254cba3abc4528009ebf98e5610dc2e654731c819f81d7b290b2c22c7`。该范围不复用 R07 scope，也不代表授权以外的完成证明。
+
+`baseline-compile-01` 在原基线执行 `mix compile --warnings-as-errors`，exit 0；owned run `dcfc9dfca970f403` 正常收口、源前后稳定，log SHA `71e41ed7280ad9fd5395d61b800b565e2b79f3b37a05f986e3175c119b457550`。本批 native 与真实模型调用尚未执行。开工前最近一次桌面只读观察仍为真实钥匙串授权提示；后续页面执行须重新确认现场。
+
+### 19.2 七问与可触及边界
+
+| 项 | 本批裁决 |
+|---|---|
+| Contract | 愿景 §2.3–2.4、VS-00D §11、现 Judgment 工具合同、AuthoringTask/AuthoringSemantics、VS-00M §6.1–6.4/§12；字段前向对齐现 target_segments、items[].target_segment_ids 与 rationale。 |
+| Invariant | 作者原话由当前判断链解释一次；APP 只裁决真实结构、来源、对象、作品/会话、权限、预算、版本及实际效果。讨论/条件不成立时零候选零作品写入；正文/原文原字节可溯源，候选不冒充采纳。词法守卫或 schema 合法不替代语义证明。 |
+| Boundary | 现 Application 判断、来源登记、候选修订及其 Common/Agent 当前消费者；现测试和外部验收 owner 同批迁移。禁止新增表、领域实体、Web API、意图分类器、第二控制环及产品验收 hook；R09 新能力、R17 system 生命周期、R18/R19 文学/全局总验不并入。 |
+| Consumer | 工作台作者输入→TurnInteraction/DialoguePlanning/Judgment→原文登记或候选修订→现 Writer/候选/TurnResult/Why/Replay/作者采纳。真实历史消息回查必须贯通接收资格与原字节物化，不能只改来源提示。 |
+| Proof | 独立正反例核结构、来源、对象/版本、协议纠错及实际状态；同模型、同输入/种子/预算 A/B 核作者语义，保留原请求、观察、响应、失败与分母。工程、模型和 UI 分层签收。 |
+| Acceptance Driver | 原三轮沿 native_request_cost；补充矩阵沿现 native_b33 和原文/候选场景 owner，复用 NativeScenarioHarness。先迁移已失效的 provider/词法 guard 假设，不新建 R08 平行 harness。真实页面、源码与原 scope 在执行时绑定。 |
+| Exploration | 适用。可信 Base 不预装全部材料，模型按真实缺口求证；session_message_read 的完整作者消息可供原文登记，摘要/部分页/assistant 不冒充作者原文。观察进入后续真实请求，目标和来源按实际操作关联。 |
+
+### 19.3 根因、存在性审计与前向设计
+
+实现前责任裁决已写入 [VS-00M §6.4](../../docs/design/contracts/VS-00M-model-interaction-request-response-contract-pack.md#64-r08-意图解释真实作者来源与普通候选修订实施前裁决)。三条现状不是正确性标准：中文词表替代讨论判断；历史指代/长度替代原文来源资格；普通候选修订在 Judgment 后再次解析原话并注入专项提示。另已查明最近十条 author_inputs 与 SessionMessageRead 的真实历史原文之间有接收/物化断点，须先修应用来源供给，不能归因于模型。
+
+| 对象/职责 | 现有 owner 与首个消费者 | 裁决及退役范围 |
+|---|---|---|
+| 讨论、条件、结构异议、明确动作 | AuthoringTaskPolicy → Judgment 初始/continuation、AgenticPlanDraftPlanner | refactor-and-retire：删除 discussion_only? 及其标志/纠错；业务规则归现 owner，Protocol 输出说明仅保留协议形状。无新分类器。 |
+| 已发布问题与被拒工具尝试 | TurnInteraction/BehaviorState 与 JudgmentProtocol 的原交换 | refactor-and-retire：previous_attempt_tools 不能推断作者未答；删除该 guard 和无生产者 action_intent_correction_info，真正问题沿真实状态/作者动作保护。 |
+| 作者原文来源资格与物化 | AuthorContentRegistration、当前 canonical 消息、SessionMessageRead/MessageCoverage/AuthoringSessionLog、WorkSessionRepo.user_entry/3 → DPS 登记链 | reuse/refactor-and-retire：删除指代词/8字/40字规则；从完整真实消息/观察取得来源，按 work/session/turn 读原字节并核证据。不得扩大固定最近消息包或新建来源 registry。 |
+| 普通候选修订 | PendingArtifactWorkflow、AuthoringTaskBuilder/AuthoringTask/AuthoringSemantics → 真实 Writer 与独立修订候选 | refactor-and-retire：删除 guard_scope_text/layout_only/paragraph_index/numeric_change/revision_target_hint 及专属后验规则；保留完整对象、基线/hash、原话、原输出、真实交换与采纳，不新增普通对象范围 DTO。 |
+| 章局部/整章/仅换行 | ChapterRevisionScope/ChapterReadEvidence/LocalizedRevision/ProseFormatting → 现章修订/采纳 | reuse：现范围枚举、目标片段与字节/版本核验保持；非章对象不得套用章 scope。 |
+| 语义反例与当前原生证据 | 现 B27/B33/B34 案例与 native_request_cost/native_b33/既有候选 owner | reuse：历史 snapshots/arms 不改；当前消费者转向真实候选/写入/来源事实，不再以词法 guard 触发作目标。新增数据只进现 fixture/scenario/运行证据体系。 |
+| 新类/表/列/工具/API/配置或意图枚举 | 全库既有 owner 已覆盖当前职责 | none；拒绝第二解释器、来源聚合、范围协议与去重过滤器。必要纯投影函数仅在现 owner 经具体调用审查后落地。 |
+
+原 B33 将 discussion_only/指代词探索门称为“机械检查”的说明与愿景冲突，按本次现役裁决前向替换，历史结果不删除。章修订已移除 ChapterRevisionAuthorInput 不代表普通 artifact 规则此前已经解决。问题尝试与已发布问题分别验，不能为移除旧 guard 放松真实作者选择绑定。
+
+### 19.4 独立判据与执行次序
+
+原三轮输入保持字节和连续语境：`当前有几章内容` → `第一章是 卷纲，这不对吧` → `不能接受卷纲在阅读里显示，应该在作品档案显示`。第一轮据真实结构事实回答；第二轮讨论结构异议，不自动修改或报能力缺口；第三轮识别明确效果，按现有真实能力执行或诚实说明缺口，不将 R09 功能搬入本批。
+
+反例至少覆盖：讨论中出现“候选/生成”、否定/条件/引用、真实条件成立/不成立、同名和多候选、仅接收材料与明确登记、含过去词的短原文与没有原文的长指令、超过最近十条的真实完整作者来源、部分页/摘要/assistant 非来源、普通修订中的被引用段号和非本轮数值、坏 ask 响应纠正与真正待答问题、局部/整章范围、材料覆盖和已采纳状态。R05 已供充分正确材料后的既有语义反例保留；文学总评分不加入本批。
+
+按可 review 的职责分组实现与验证后，沿作者既有授权分阶段正常 commit/push；阶段提交不代表 R08 PASS。所有受影响的当前消费者与测试同批迁移，原始失败保留。真实 A/B 必须另行冻结本批自己的输入、源、model/effort、种子、调用上限、超时、重试与停止条件；已授权 Splash 可复用，但不挪用 B71/B27/R07 的预算或退休 B27 快照。无真实 Before 不宣称配对收益，无当前原生 binding 不代签 UI。
+
+完成全部改动后执行本卡适用工程门禁和原 scope 完成检查；未能执行的真实模型/页面项保持缺证。当前仅已封存开工与编译基线，尚无本批功能或语义 PASS，后续证据只追加在本节。
