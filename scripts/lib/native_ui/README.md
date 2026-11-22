@@ -135,6 +135,8 @@ B85 release 责任扩展：`process_observation.mjs` 的 release 路径只对已
 
 ## 本批行为测试
 
+- `native_b33_evidence.test.mjs`：B33 正常讨论的独立证据正反例；核完整 canon 内容不变与 memory 引用核账、零候选、冻结作者输入和真实完成结果，拒绝同表行数下的正文变更、补话/追问、探索或失败冒充讨论。由现 `scripts/lib/native_ui/*.test.mjs` 普通 Node 测试入口发现，不启动模型或窗口。
+
 - `input_target.test.mjs`：ready→target 推导、绝对路径/唯一 executable、首次绑定同 PID 幂等/不同 PID 必须显式 relaunch 换代、pid_t 范围校验，以及错 PID/错路径/多义/前台缺失/非法/非目标/bundle 冲突/焦点/权限不足时授权拒绝；权限只认显式 boolean true，`enabled=null + value_settable=true` 保留为合法正例、`value_settable=false` 明确拒绝；合法 unfocused composer 的 `focus` 可授权而 `insert` 仍要求实际焦点；`probeObservation` 丢弃旧 probe 的 activation、`operationResultFacts` 只取操作 after；不发真实事件。
 - `input_boundary.test.mjs`：注入假 probe/deliver/sink，证明未授权/错 PID/错路径/多义/前台缺失/非目标/焦点不符时 deliver 零调用；probe 返回的 target/request 不能覆盖绑定 authority；未绑定 target 在 resolver 前失败；合法输入只投给绑定 PID；第 2 块焦点丢失立即停止；证据写失败零投递；`attempt` 不含 probe 伪造的 activation，`result` 使用投递返回的真实 activation/frontmost_after/focus，deliver 抛错时不拿观测冒充 after；adapter 失败只留安全 reason/code/signal/长度，错误与 JSONL 不含输入文本。临时 app 目录只落在系统临时目录。
 - `ax_cua_behavior.test.mjs` + `ax_cua_behavior_test.swift`：编译真实 `ax_cua_core.swift`，注入 clock/observer/advance 验证“不推进不确认、推进后确认、超时不成功”；注入 EventPoster factory 验证 nil 创建→0 投递与明确 `event_creation_failed`；Swift 纯 seam 用注入事实输出 `probeEvidence`/`operationEvidence`/`startupRunningFacts` JSON，Node 直接消费该 JSON 验证前台授权、unfocused focus 合法、insert 焦点拒绝、activation 结果落盘，以及 `is_finished_launching`/`launch_date`/`activation_policy`/`is_hidden` 只读投影。只跑纯函数，不启动 App、不发真实 CGEvent。

@@ -1,4 +1,4 @@
-// B33 CP3：语义判断与机械守卫分工的原生真实模型外部驱动。
+// B33 / R08：模型意图判断与客观协议边界的原生真实模型外部驱动。
 //
 // 用 macOS AX/CGEvent 操作真实 Tauri 窗口（原生窗口 + 真实 Phoenix 后端 + 嵌入真实前端），
 // 在同一个作品上串行执行 6 个预注册场景（S1→S2→S3→S6→S5→S4），采集 AX/截图/网络帧/
@@ -9,13 +9,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { pressKey, readJson, sleep, textOf, typeText } from "./lib/native_ui/driver.mjs";
+import { readJson, sleep } from "./lib/native_ui/driver.mjs";
+import { CARD } from "../frontend/src/lib/copy.ts";
+import { broadcastFrames, requestIdentity, requestReplies } from "./lib/native_ui/scenario_evidence.mjs";
+import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import { authorBoundary, countAxAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
+import {
+  actionAck, actionFrame, actionResult, isPendingWaitMiss, locateScopedButton, selectPendingAction,
+} from "./lib/native_ui/authoring_pending_evidence.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
   ensureWorkSelected,
   frameBody,
-  frameOf,
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 
@@ -29,34 +35,7 @@ const CONFIG = "native-b33-config.json";
 const harness = new NativeScenarioHarness(dir);
 const TURN_TIMEOUT = 330_000;
 const ACK_TIMEOUT = 60_000;
-const AUTHOR_QUESTION_LIMIT = 2;
 const questionEvents = [];
-const PAUSE_STATUSES = new Set([
-  "awaiting_author",
-  "awaiting_input",
-  "paused",
-  "stopped",
-  "blocked",
-  "completed",
-  "failed",
-  "cancelled",
-]);
-
-// 作者补充/澄清的默认决策：按当前场景给出具体、可继续的默认，而不是空等。
-function supplementFor(scenario) {
-  switch (scenario.id) {
-    case "S1":
-      return "第03章正文已经读过且没有错别字，请直接回复我无需修改，不要重复读取同一章。";
-    case "S2":
-      return "请直接解释当前编号规则即可，不需要修改或重编号任何章节。";
-    case "S3":
-      return "请直接给出讨论分析即可，不要生成候选，也不要修改角色主档案。";
-    case "S6":
-      return "本轮只讨论即可，不要生成候选，也不要动笔写任何内容。";
-    default:
-      return "按当前请求继续即可，不需要额外信息；保持人物与情节一致，不要重复读取同一材料。";
-  }
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -138,437 +117,142 @@ async function cleanupStrata(config, stage) {
   return after;
 }
 
-function findTurnResult(wire, turnId, predicate = () => true) {
-  return (
-    wire.find(
-      (entry) =>
-        entry.direction === "received" &&
-        Array.isArray(entry.frame) &&
-        entry.frame.length >= 5 &&
-        entry.frame[3] === "turn_result" &&
-        (String(entry.frame[4]?.turn_id ?? "") === turnId ||
-          String(entry.frame[4]?.turn_id ?? "").startsWith(`${turnId}:`)) &&
-        predicate(entry.frame[4]),
-    ) ?? null
-  );
-}
-
-function findButtonByText(nodes, predicate) {
-  const matches = nodes.filter(
-    (node) =>
-      node.role === "AXButton" &&
-      (predicate(String(node.title ?? "")) || predicate(String(node.value ?? ""))) &&
-      Array.isArray(node.frame) &&
-      node.frame[1] > 0,
-  );
-  return matches.at(-1) ?? null;
-}
-
-function authorQuestionDefault() {
-  return "先按当前作品事实继续，保持人物与情节一致；具体细节由你决定，不要停下来问我。";
-}
-
-async function rawRespondToAuthorQuestion(label, body, question) {
-  const actions = (body.available_actions ?? []).filter(
-    (action) =>
-      action.action_type === "author_choice" && action.question_ref === question.question_ref,
-  );
-  const options = question.options ?? [];
-  const choiceAction =
-    actions.find((action) => action.response_kind === "choice") ??
-    actions.find((action) => action.response_kind !== "free_text");
-  const choiceOptions = options.filter((option) => option.kind !== "free_text");
-  const recommended = choiceOptions.find((option) => option.recommended) ?? choiceOptions[0] ?? null;
-  const startedAt = nowIso();
-  let chosenLabel = null;
-  let replyText = null;
-
-  if (recommended) {
-    const nodes = harness.dumpNodes();
-    const button =
-      findButtonByText(nodes, (value) => value === recommended.label) ??
-      (choiceAction ? findButtonByText(nodes, (value) => value === choiceAction.label) : null);
-    if (!button) throw new Error(`author_question_option_button_not_found:${label}`);
-    harness.safeClick(button, `${label}:author-choice`);
-    chosenLabel = recommended.label;
-  } else {
-    const nodes = harness.dumpNodes();
-    const entry =
-      (choiceAction ? findButtonByText(nodes, (value) => value === choiceAction.label) : null) ??
-      findButtonByText(nodes, (value) => value.includes("回复此问题"));
-    if (!entry) throw new Error(`author_question_reply_entry_not_found:${label}`);
-    harness.safeClick(entry, `${label}:reply-entry`);
-    await sleep(900);
-    const textarea = harness.dumpNodes().find((node) => node.role === "AXTextArea");
-    if (!textarea) throw new Error(`author_question_textarea_not_found:${label}`);
-    harness.safeClick(textarea, `${label}:reply-textarea`);
-    await sleep(250);
-    replyText = authorQuestionDefault();
-    typeText(harness.APP, replyText);
-    await sleep(500);
-    const sendButton = findButtonByText(harness.dumpNodes(), (value) => value === "发送回复");
-    if (!sendButton) throw new Error(`author_question_send_button_not_found:${label}`);
-    harness.safeClick(sendButton, `${label}:send-reply`);
-  }
-
-  const action = await harness.pollWire(
-    (wire) =>
-      wire.find(
-        (entry) =>
-          entry.direction === "sent" &&
-          frameOf(entry) &&
-          entry.at >= startedAt &&
-          entry.frame[3] === "author_action",
-      ) ?? null,
-    60_000,
-    `${label}:author_question_action`,
-  );
-  const event = {
-    label,
-    at: nowIso(),
-    question: question.question,
-    question_ref: question.question_ref,
-    options: options.map((option) => ({
-      label: option.label,
-      kind: option.kind ?? null,
-      recommended: Boolean(option.recommended),
-    })),
-    chosen_option: chosenLabel,
-    free_text_reply: replyText,
-    response_kind: chosenLabel ? "choice" : "free_text",
-    action_type: action.frame[4]?.action?.action_type ?? null,
-    question_action_ref: action.frame[4]?.action?.payload?.question_ref ?? null,
-    source_turn_ref: action.frame[4]?.action?.source_turn_ref ?? null,
-  };
-  questionEvents.push(event);
-  writeJson("author_question_events.json", questionEvents);
-  harness.log.push({
-    op: "author_question",
-    label,
-    response_kind: event.response_kind,
-    question: question.question,
-  });
-}
-
-async function sendAuthorInput(text, label) {
+async function sendAuthorInput(text, label, config) {
   await harness.runStep("maintenance", `input_ready:${label}`, () => harness.rawWaitInputReady(label));
+  const baselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), text);
   const message = await harness.runStep("input", `type_send:${label}`, () =>
     harness.rawTypeAndSend(text, label),
   );
-  const turnId = String(frameBody(message)?.turn_id ?? "");
+  const body = frameBody(message);
+  const turnId = String(body?.turn_id ?? "");
   if (!turnId) throw new Error(`user_message_without_turn_id:${label}`);
-  if (String(frameBody(message)?.text ?? "") !== text) {
-    throw new Error(`user_message_text_mismatch:${label}`);
+  if (body?.text !== text) throw new Error(`user_message_text_mismatch:${label}`);
+  if (body?.work_id !== config.target.work_id || !body?.session_id ||
+      (config.target.session_id && body.session_id !== config.target.session_id)) {
+    throw new Error(`user_message_scope_mismatch:${label}`);
   }
+  const request = requestIdentity(message);
   const ack = await harness.runStep("ack", `ack:${label}`, () =>
-    harness.pollWire((wire) => harness.ackFor(wire, message), ACK_TIMEOUT, `ack:${label}`),
+    harness.pollWire((wire) => {
+      const replies = requestReplies(wire, request, message.at);
+      if (replies.length > 1) throw new Error(`user_message_ack_ambiguous:${label}`);
+      return replies[0] ?? null;
+    }, ACK_TIMEOUT, `ack:${label}`),
   );
-  return { message, turnId, runId: String(ack?.frame?.[4]?.response?.run_id ?? "") };
-}
-
-let completedGraceSince = null;
-
-function latestRunState(wire, turnId) {
-  const states = wire.filter(
-    (entry) =>
-      entry.direction === "received" &&
-      frameOf(entry) &&
-      entry.frame[3] === "agent_run_state" &&
-      String(entry.frame[4]?.parent_turn_ref ?? "") === turnId,
-  );
-  return states.at(-1)?.frame?.[4] ?? null;
-}
-
-function latestRunEvent(wire, turnId, eventType) {
-  const events = wire.filter(
-    (entry) =>
-      entry.direction === "received" &&
-      frameOf(entry) &&
-      entry.frame[3] === "agent_event" &&
-      String(entry.frame[4]?.event_type ?? "") === eventType &&
-      (String(entry.frame[4]?.run_id ?? "") === String(latestRunState(wire, turnId)?.run_id ?? "") ||
-        String(entry.frame[4]?.parent_turn_ref ?? "") === turnId),
-  );
-  return events.at(-1)?.frame?.[4] ?? null;
-}
-
-function runJudgmentEvents(wire, turnId) {
-  const runId = String(latestRunState(wire, turnId)?.run_id ?? "");
-  if (!runId) return [];
-  return wire
-    .filter(
-      (entry) =>
-        entry.direction === "received" &&
-        frameOf(entry) &&
-        entry.frame[3] === "agent_event" &&
-        String(entry.frame[4]?.run_id ?? "") === runId &&
-        String(entry.frame[4]?.event_type ?? "") === "judgment_decided",
-    )
-    .map((entry) => ({
-      action: entry.frame[4]?.payload?.action ?? null,
-      capability: entry.frame[4]?.payload?.capability ?? null,
-      stage: entry.frame[4]?.payload?.stage ?? null,
-      reason_codes: entry.frame[4]?.reason_codes ?? [],
-    }));
-}
-
-// 作者补充输入：AgentRun 进入 awaiting_author（无进展/需方向）时，真实 UI 面板出现
-// 「调整当前任务 / 在下方输入框回复或补充 / 发送调整」。像作者一样给出具体默认决策。
-async function respondToRunPause(label, scenario, state, pauseEvent, turnId) {
-  const startedAt = nowIso();
-  const stage = String(pauseEvent?.payload?.stage ?? "awaiting_author");
-  const summary = String(pauseEvent?.summary ?? state?.current_activity?.summary ?? "");
-  const duplicate = questionEvents.some(
-    (event) => event.label === label && event.stage === stage && event.summary === summary,
-  );
-  const attempts = questionEvents.filter((event) => event.label === label).length;
-  if (attempts >= AUTHOR_QUESTION_LIMIT || duplicate) {
-    throw new Error(`author_pause_repeated_without_progress:${label}:${stage}`);
+  const ackBody = frameBody(ack);
+  const runId = ackBody?.response?.run_id;
+  if (ackBody?.status !== "ok" || ackBody.response?.turn_id !== turnId ||
+      typeof runId !== "string" || runId === "") {
+    throw new Error(`user_message_ack_invalid:${label}`);
   }
-
-  const supplement = supplementFor(scenario);
-  const nodes = harness.dumpNodes();
-  // 运行暂停面板（真实 UI）：AXTextField title「调整当前任务」+ AXButton「发送调整」
-  // （输入文本后按钮启用）。整段已在调用方 runStep("maintenance") 内，内部只用 raw 操作。
-  const panelField =
-    nodes.find(
-      (node) =>
-        node.role === "AXTextField" &&
-        /调整当前任务|回复或补充|补充方向/.test(String(node.title ?? node.desc ?? node.value ?? "")),
-    ) ??
-    nodes.find(
-      (node) =>
-        node.role === "AXTextField" &&
-        !/输入/.test(String(node.desc ?? "")) &&
-        !/输入/.test(String(node.title ?? "")),
-    );
-  if (!panelField) {
-    throw new Error(`run_pause_panel_input_not_found:${label}:status=${state?.status ?? "unknown"}`);
-  }
-  const responseKind = "run_pause_panel";
-  harness.safeClick(panelField, `${label}:pause-field`);
-  await sleep(300);
-  typeText(harness.APP, supplement);
-  await sleep(600);
-  const send = findButtonByText(harness.dumpNodes(), (value) => value === "发送调整");
-  if (!send) throw new Error(`run_pause_send_button_not_found:${label}`);
-  harness.safeClick(send, `${label}:send-pause-adjust`);
-  harness.log.push({ op: "run_pause_panel_send", label, chars: supplement.length });
-
-  await harness.pollWire(
-    (wire) => {
-      const states = wire.filter(
-        (entry) =>
-          entry.direction === "received" &&
-          frameOf(entry) &&
-          entry.frame[3] === "agent_run_state" &&
-          String(entry.frame[4]?.parent_turn_ref ?? "") === turnId &&
-          entry.at >= startedAt,
-      );
-      const running = states.find((entry) => String(entry.frame[4]?.status ?? "") === "running");
-      if (running) return running;
-      return (
-        wire.find(
-          (entry) =>
-            entry.direction === "sent" &&
-            frameOf(entry) &&
-            entry.at >= startedAt &&
-            ["user_message", "author_action", "agent_command"].includes(String(entry.frame[3] ?? "")),
-        ) ?? null
-      );
+  return {
+    message, turnId, runId, baselineAuthorCount,
+    identity: {
+      topic: request.topic, turnId, runId, workId: body.work_id,
+      sessionId: body.session_id, since: message.at,
     },
-    60_000,
-    `${label}:supplement_sent`,
-  );
-  const event = {
-    kind: "run_pause",
-    label,
-    at: nowIso(),
-    stage,
-    summary,
-    question: summary,
-    response_kind: responseKind,
-    free_text_reply: supplement,
-    state_status: state?.status ?? null,
   };
-  questionEvents.push(event);
-  writeJson("author_question_events.json", questionEvents);
-  harness.log.push({ op: "run_pause_supplement", label, stage, response_kind: responseKind });
-  await sleep(800);
-  return event;
 }
 
-async function waitScenarioTurn(turnId, scenario, label) {
-  let questions = 0;
-  completedGraceSince = null;
-  for (;;) {
-    const record = await harness.runStep("turn", `turn_result:${label}:${questions}`, () =>
-      harness.pollWire(
-        (wire) => {
-          const found = findTurnResult(wire, turnId);
-          if (found) {
-            const body = found.frame[4] ?? {};
-            const question = body.author_question;
-            if (question?.question && question.status !== "answered" && question.status !== "closed") {
-              return { kind: "author_question", record: found };
-            }
-            if ((body.adoption_state?.pending ?? []).length > 0) {
-              return { kind: "turn_result", record: found };
-            }
-            if (String(body.status ?? "") === "failed") return { kind: "turn_result", record: found };
-            const agentStatus = String(body.agent_run?.status ?? "");
-            if (String(body.phase ?? "") === "running" || agentStatus === "running") return null;
-            if (String(body.assistant_message?.text ?? "").trim() !== "") {
-              return { kind: "turn_result", record: found };
-            }
-          }
-          const state = latestRunState(wire, turnId);
-          if (state && PAUSE_STATUSES.has(String(state.status ?? ""))) {
-            if (String(state.status ?? "") === "running") return null;
-            const status = String(state.status ?? "");
-            if (status === "awaiting_author" || status === "awaiting_input" || status === "paused") {
-              return { kind: "run_state", state, record: null };
-            }
-            // completed/failed/cancelled：先给 turn_result 一个晚到宽限窗口，
-            // 不把「run 已完成」直接当成「已有可见结果」。
-            if (completedGraceSince === null) completedGraceSince = Date.now();
-            if (Date.now() - completedGraceSince < 15_000) return null;
-            return { kind: "run_state", state, record: null };
-          }
-          return null;
-        },
-        TURN_TIMEOUT,
-        `${label}:turn_outcome`,
-      ),
-    );
+function runJudgmentEvents(wire, identity) {
+  return broadcastFrames(wire, {
+    topic: identity.topic, at: identity.since, runRef: identity.runId, event: "agent_event",
+  }).filter((entry) => frameBody(entry)?.event_type === "judgment_decided").map((entry) => ({
+    action: frameBody(entry)?.payload?.action ?? null,
+    capability: frameBody(entry)?.payload?.capability ?? null,
+    stage: frameBody(entry)?.payload?.stage ?? null,
+    reason_codes: frameBody(entry)?.reason_codes ?? [],
+  }));
+}
 
-    if (record.kind === "turn_result") {
-      return { turnResult: record.record.frame[4] ?? {}, finalKind: "turn_result", questions };
-    }
-    if (record.kind === "author_question") {
-      const body = record.record.frame[4] ?? {};
-      const question = body.author_question;
-      if (questions >= AUTHOR_QUESTION_LIMIT) throw new Error(`author_question_reply_limit:${label}`);
-      const duplicate = questionEvents.some(
-        (event) => event.question_ref === question.question_ref && event.label === label,
-      );
-      if (duplicate) {
-        throw new Error(`author_question_repeated_without_progress:${label}:${question.question_ref}`);
-      }
-      await harness.runStep("maintenance", `author_question:${label}:${questions + 1}`, () =>
-        rawRespondToAuthorQuestion(label, body, question),
-      );
-      questions += 1;
-      await sleep(800);
-      continue;
-    }
-
-    // AgentRun 暂停：真实 UI 面板 waits for author supplement/direction.
-    const state = record.state;
-    const pauseEvent = latestRunEvent(harness.transport(), turnId, "awaiting_author");
-    const status = String(state.status ?? "");
-    if (status === "awaiting_author" || status === "awaiting_input" || status === "paused") {
-      await harness.runStep("maintenance", `run_pause:${label}:${questions + 1}`, () =>
-        respondToRunPause(label, scenario, state, pauseEvent, turnId),
-      );
-      questions += 1;
-      continue;
-    }
-    return { turnResult: { status, agent_run: state }, finalKind: status, questions };
+async function waitScenarioTurn(identity, label) {
+  const terminal = await harness.runStep("turn", `turn_result:${label}`, () =>
+    harness.pollWire(
+      (wire) => wireTerminal(wire, {
+        ...identity, resultPosition: "last", requireWireTerminal: true,
+      }),
+      TURN_TIMEOUT,
+      `${label}:turn_outcome`,
+    ),
+  );
+  const turnResult = terminal.kind === "completed" ? terminal.body : null;
+  const question = turnResult?.author_question;
+  const unanswered = question?.question && !["answered", "closed"].includes(question.status);
+  const finalKind = unanswered ? "author_question"
+    : terminal.kind !== "completed" ? terminal.kind
+    : turnResult?.status === "failed" ? "failed" : "turn_result";
+  if (finalKind !== "turn_result") {
+    questionEvents.push({ label, at: nowIso(), kind: finalKind, terminal });
+    writeJson("author_question_events.json", questionEvents);
+    harness.log.push({ op: "scenario_stopped", label, kind: finalKind });
   }
+  return { turnResult, finalKind, questions: unanswered ? 1 : 0, terminal };
 }
 
 function pendingOf(turnResult) {
   return turnResult?.adoption_state?.pending ?? [];
 }
 
-function receiptMatchesArtifact(body, artifactId) {
-  if (!body || typeof body !== "object") return false;
-  const decision = body.decision ?? {};
-  return (
-    body.artifact_id === artifactId ||
-    body.target_ref === artifactId ||
-    decision.target_ref === `artifact:${artifactId}` ||
-    decision.candidate_ref === artifactId ||
-    decision.target_ref === artifactId
-  );
-}
-
-async function adoptPending(pendingEntry, label) {
-  const artifactId = String(pendingEntry.artifact_id ?? pendingEntry.id ?? "");
-  if (!artifactId) throw new Error(`pending_artifact_id_missing:${label}`);
-  const buttonLabels = ["保存到作品", "保存为章节正文", "采纳", "接受"];
+async function adoptPending(turnResult, identity, scenario, baselineAuthorCount) {
+  const label = scenario.id;
+  const pending = pendingOf(turnResult);
+  if (pending.length !== 1) throw new Error(`pending_target_not_unique:${label}:${pending.length}`);
+  const artifact = pending[0];
+  const artifactId = artifact.artifact_id;
+  const action = selectPendingAction(turnResult, { artifactId, actionType: "accept" });
+  const item = artifact.payload?.items?.[0];
+  if (!item) throw new Error(`pending_item_missing:${label}`);
+  const nodes = harness.dumpNodes();
+  const boundary = authorBoundary(nodes, scenario.input, baselineAuthorCount);
+  const located = [
+    CARD.tentativeArtifact.acceptLabel,
+    CARD.tentativeArtifact.acceptProseLabel,
+  ].map((buttonLabel) => ({
+    label: buttonLabel,
+    result: locateScopedButton(nodes, {
+      itemTitle: item.title, itemBody: item.body, artifact, knownArtifacts: pending,
+      authorBoundary: boundary, label: buttonLabel,
+    }),
+  }));
+  const matches = located.filter((entry) => entry.result.ok);
+  if (matches.length !== 1 || located.some((entry) => entry.result.reason === "action_ambiguous")) {
+    throw new Error(`adopt_button_not_unique:${label}:${JSON.stringify(located)}`);
+  }
+  const chosen = matches[0];
   const startedAt = nowIso();
-  let chosen = null;
-  for (const buttonLabel of buttonLabels) {
-    const button = findButtonByText(harness.dumpNodes(), (value) => value === buttonLabel);
-    if (!button) continue;
-    harness.safeClick(button, `${label}:adopt:${buttonLabel}`);
-    chosen = buttonLabel;
-    break;
-  }
-  if (!chosen) throw new Error(`adopt_button_not_found:${label}`);
-
-  const findSend = (wire) =>
-    wire.find(
-      (entry) =>
-        entry.direction === "sent" &&
-        frameOf(entry) &&
-        entry.at >= startedAt &&
-        entry.frame[3] === "author_action" &&
-        (entry.frame[4]?.action?.target_ref === artifactId ||
-          String(entry.frame[4]?.action?.target_ref ?? "").includes(artifactId)),
-    ) ?? null;
-  let send = await harness.tryPollWire(findSend, 15_000);
-  if (!send) {
-    const retryButton = findButtonByText(harness.dumpNodes(), (value) => value === chosen);
-    if (retryButton) harness.safeClick(retryButton, `${label}:adopt-retry`);
-    send = await harness.pollWire(findSend, 30_000, `${label}:author_action_sent`);
-  }
-  const receipt = await harness.pollWire(
-    (wire) =>
-      wire.find(
-        (entry) =>
-          entry.direction === "received" &&
-          frameOf(entry) &&
-          entry.at >= send.at &&
-          entry.frame[3] === "action_result" &&
-          entry.frame[4]?.status === "accepted" &&
-          receiptMatchesArtifact(entry.frame[4], artifactId),
-      ) ??
-      wire.find(
-        (entry) =>
-          entry.direction === "received" &&
-          frameOf(entry) &&
-          entry.at >= send.at &&
-          entry.frame[3] === "action_result" &&
-          entry.frame[4]?.status === "accepted",
-      ) ??
-      null,
-    60_000,
-    `${label}:action_result`,
-  );
-  await sleep(600);
+  harness.safeClick(chosen.result.button, `${label}:adopt:${chosen.label}`);
+  const waitFor = (reader, suffix) => harness.pollWire((wire) => {
+    try { return reader(wire); }
+    catch (error) {
+      if (isPendingWaitMiss(error)) return null;
+      throw error;
+    }
+  }, ACK_TIMEOUT, `${label}:${suffix}`);
+  const send = await waitFor((wire) =>
+    actionFrame(wire, { topic: identity.topic, since: startedAt, action }), "author_action_sent");
+  const ack = await waitFor((wire) =>
+    actionAck(wire, send, { actionStatus: "accepted" }), "author_action_ack");
+  const receipt = await waitFor((wire) =>
+    actionResult(wire, {
+      topic: identity.topic, since: send.at, action, actionStatus: "accepted",
+    }), "action_result");
   return {
-    artifact_id: artifactId,
-    button: chosen,
-    send: frameBody(send),
-    receipt: frameBody(receipt),
-    at: nowIso(),
+    artifact_id: artifactId, button: chosen.label, clicked_at: startedAt,
+    send: frameBody(send), ack: frameBody(ack.reply), receipt: frameBody(receipt), at: nowIso(),
   };
 }
 
 async function runScenario(config, scenario) {
   const label = scenario.id;
-  const { message, turnId, runId } = await sendAuthorInput(scenario.input, label);
-  const { turnResult, finalKind, questions } = await waitScenarioTurn(turnId, scenario, label);
+  const { message, turnId, runId, identity, baselineAuthorCount } =
+    await sendAuthorInput(scenario.input, label, config);
+  const { turnResult, finalKind, questions, terminal } = await waitScenarioTurn(identity, label);
   const pending = pendingOf(turnResult);
   let adoption = null;
-  if (scenario.adopt && pending.length > 0 && String(turnResult.status ?? "") !== "failed") {
+  if (scenario.adopt && finalKind === "turn_result") {
     adoption = await harness.runStep("adoption", `adopt:${label}`, () =>
-      adoptPending(pending[0], label),
+      adoptPending(turnResult, identity, scenario, baselineAuthorCount),
     );
-    await sleep(800);
   }
   harness.capture(`${label}-after`);
   runEvidenceMode(EVIDENCE, "capture", dir, [label]);
@@ -583,7 +267,7 @@ async function runScenario(config, scenario) {
     turn_status: turnResult?.status ?? null,
     final_kind: finalKind,
     run_id: runId,
-    judgment_events: runJudgmentEvents(harness.transport(), turnId),
+    judgment_events: runJudgmentEvents(harness.transport(), identity),
     frame_type: turnResult?.frame_summary?.frame_type ?? null,
     pending_count: pending.length,
     pending: pending.map((entry) => ({
@@ -592,6 +276,7 @@ async function runScenario(config, scenario) {
       item_count: entry.payload?.item_count ?? entry.payload?.items?.length ?? null,
     })),
     adoption,
+    terminal,
     captured_at: nowIso(),
   };
 }
@@ -620,6 +305,9 @@ async function main() {
       harness.log.push({ op: "scenario_start", id: scenario.id, at: nowIso() });
       const result = await runScenario(config, scenario);
       results.push(result);
+      if (result.final_kind !== "turn_result") {
+        throw new Error(`scenario_not_completed:${scenario.id}:${result.final_kind}`);
+      }
       harness.log.push({
         op: "scenario_done",
         id: scenario.id,

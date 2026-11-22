@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// B33 CP3：语义判断与机械守卫分工的原生真实模型验收证据核验。
+// B33 / R08：模型意图判断与客观协议边界的原生真实模型验收证据核验。
 //
 // 测量动作由外部 macOS AX/CGEvent 驱动真实 Tauri 窗口完成（scripts/native_b33_drive.mjs）；
 // 本文件只消费隔离批次的既有证据：native-driver-ready/ui-complete/等待账/AX/截图/
@@ -7,7 +7,7 @@
 //
 // 场景（B33 §元原则整改 CP3 预注册 S1–S6）：
 //   S1 条件性 no-op / S2 只解释编号 / S3 讨论主角 → 合法终局 reply，零候选零写入
-//   S6 讨论期违规候选负例 → discussion_only 守卫兜底；未触发记 guard_not_triggered
+//   S6 只讨论结尾 → 合法终局 reply，零候选零写入，不由词法守卫代替模型理解
 //   S5 明确重编号正例 → execute maintain_chapter_structure → 采纳 → seq 连续、内容不变
 //   S4 写章正例 → execute prose_writing → 采纳 → 第07章正文非空、其它章不变
 //
@@ -25,7 +25,9 @@ import {
   assertAllChecks,
   assertCommonEvidence,
   assertProviderAndWire,
+  broadcastFrames,
   checkProductionFingerprint,
+  frameBody,
   logs,
   productionFingerprint,
   productionTableCounts,
@@ -33,11 +35,18 @@ import {
   rewrite,
   sentUserMessages,
   transport,
-  turnFacts,
+  requestIdentity,
+  requestReplies,
   withDb,
   write,
   writeNativeSummary,
 } from "./lib/native_ui/scenario_evidence.mjs";
+import { planningCanonSnapshot } from "./lib/native_ui/authoring_capture_evidence.mjs";
+import { compareAuthoringCanonSnapshots } from "./lib/native_ui/authoring_canon_evidence.mjs";
+import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import {
+  actionAck, actionFrame, actionResult, selectPendingAction,
+} from "./lib/native_ui/authoring_pending_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SLICE_ID = "b33-authoring-intent-judgment-reliability";
@@ -67,11 +76,10 @@ export const SCENARIOS = Object.freeze([
   },
   {
     id: "S6",
-    kind: "discussion_guard",
+    kind: "discussion_ending",
     input: "只聊第03章结尾怎么处理，先别动笔。",
     expect_action: "reply",
     zero_write: true,
-    guard_optional: true,
   },
   {
     id: "S5",
@@ -95,12 +103,12 @@ const byId = new Map(SCENARIOS.map((scenario) => [scenario.id, scenario]));
 const modelName = () => process.env.NOVEL_STRATA_MODEL ?? "iq3_s";
 const strataEndpoint = () => process.env.NOVEL_STRATA_ENDPOINT ?? "http://127.0.0.1:47831/v1";
 
-const requestedIds = () =>
-  (process.env.B33_SCENARIOS ?? "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((id) => byId.has(id));
+const requestedIds = () => {
+  const ids = (process.env.B33_SCENARIOS ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+  assert(ids.every((id) => byId.has(id)), "B33_SCENARIOS 包含未登记场景");
+  assert.equal(new Set(ids).size, ids.length, "B33_SCENARIOS 不得重复登记同一场景");
+  return ids;
+};
 
 function seedField(dir, name) {
   const file = path.join(dir, "seed.log");
@@ -230,38 +238,16 @@ export async function prepare(dir) {
 export function capture(dir, checkpoint) {
   const config = read(dir, CONFIG_FILE);
   assert(config.checkpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
-  rewrite(dir, `b33-${checkpoint}.json`, {
+  write(dir, `b33-${checkpoint}.json`, {
     at: new Date().toISOString(),
     checkpoint,
     ...dbSnapshot(dir),
+    authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts: false }),
   });
 }
 
 // ── verify ────────────────────────────────────────────────────────────────
-function appEvents(dir) {
-  return logs(path.join(dir, "app-log"));
-}
 
-function judgmentEventFor(appRecords, turnId) {
-  // 一个 turn 可能被作者补充 steer 成 `<turn>:steer:N` 子回合；取该 turn（含子回合）
-  // 时间序上最后一次 judgment 事件，不能把第一次 explore 当成最终语义结果。
-  const matches = appRecords.filter(
-    (record) =>
-      record.event === "judgment.decided.done" &&
-      (String(record.turn_id ?? "") === turnId ||
-        String(record.turn_id ?? "").startsWith(`${turnId}:`)),
-  );
-  return matches.at(-1) ?? null;
-}
-
-function guardEventsFor(appRecords, turnId) {
-  return appRecords.filter(
-    (record) =>
-      record.event === "judgment.output_validation.done" &&
-      String(record.turn_id ?? "") === turnId &&
-      String(record.reason_code ?? "") === "discussion_only_violation",
-  );
-}
 
 function pendingOf(turnResult) {
   return turnResult?.adoption_state?.pending ?? [];
@@ -269,6 +255,21 @@ function pendingOf(turnResult) {
 
 function sameCounts(left, right) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+export function discussionEvidenceChecks({ before, after, turnResult, judgment, driverEntry }) {
+  const canon = compareAuthoringCanonSnapshots(before.authoring_canon, after.authoring_canon);
+  return {
+    judgment_action_reply: judgment?.action === "reply" && driverEntry.final_kind === "turn_result",
+    no_failed_result: turnResult?.status !== "failed" && driverEntry.turn_status !== "failed",
+    no_author_supplement: driverEntry.questions === 0,
+    no_author_question: turnResult?.author_question == null,
+    no_pending_candidate: pendingOf(turnResult).length === 0,
+    zero_production_write: canon.checks.no_canon_write,
+    memory_reference_updates_accounted: canon.checks.memory_reference_updates_accounted,
+    zero_candidate_write: Boolean(before.extra_counts && after.extra_counts) &&
+      sameCounts(before.extra_counts, after.extra_counts),
+  };
 }
 
 export function verify(dir, sliceIdArg) {
@@ -299,11 +300,21 @@ export function verify(dir, sliceIdArg) {
   });
 
   const wire = transport(dir);
-  const appRecords = appEvents(dir);
+  const sentInputs = wire.filter((entry) =>
+    entry.direction === "sent" && Array.isArray(entry.frame) && entry.frame[3] === "user_message");
   const checks = {
     provider_is_real_strata: wireCommon.providerStarts.every((record) => record.provider === "strata"),
     no_browser_frames: !fs.existsSync(path.join(dir, "ui-frames.json")),
+    scenario_registry_matches_frozen_matrix: sameCounts(config.scenarios, SCENARIOS),
     production_sources_unchanged: checkProductionFingerprint(dir).unchanged,
+    author_inputs_match_frozen_matrix: sameCounts(
+      sentInputs.map((entry) => entry.frame[4]?.text),
+      config.scenarios.map((scenario) => scenario.input),
+    ),
+    no_unregistered_author_answer: !wire.some((entry) =>
+      entry.direction === "sent" && Array.isArray(entry.frame) &&
+      (entry.frame[3] === "agent_command" ||
+        (entry.frame[3] === "author_action" && entry.frame[4]?.action?.action_type === "author_choice"))),
   };
 
   // 模型生命周期：运行前记录 + 结束卸载并核验为空。
@@ -334,24 +345,49 @@ export function verify(dir, sliceIdArg) {
     const messages = sentUserMessages(wire, scenario.input);
     scenarioChecks.user_message_exact_once = messages.length === 1;
 
-    const finalKind = String(driverEntry.final_kind ?? "turn_result");
+    const finalKind = String(driverEntry.final_kind ?? "");
     let turnResult = null;
-    let turnId = driverEntry.turn_id;
+    let turnId = null;
+    let identity = null;
+    let terminal = null;
+    let judgment = null;
+    scenarioChecks.author_ack_accepted = false;
+    scenarioChecks.user_message_scope_matches = false;
     if (messages.length === 1) {
-      const facts = turnFacts(wire, messages[0]);
-      turnId = facts.turnId;
-      turnResult = facts.results.at(-1)?.frame?.[4] ?? null;
+      const message = messages[0];
+      const body = frameBody(message);
+      const request = requestIdentity(message);
+      const replies = requestReplies(wire, request, message.at);
+      const ack = frameBody(replies[0]);
+      turnId = body?.turn_id;
+      scenarioChecks.author_ack_accepted = replies.length === 1 &&
+        ack?.status === "ok" && ack.response?.turn_id === turnId &&
+        typeof ack.response?.run_id === "string" && ack.response.run_id !== "";
+      scenarioChecks.user_message_scope_matches = body?.work_id === config.target.work_id &&
+        typeof body?.session_id === "string" && body.session_id !== "" &&
+        (!config.target.session_id || body.session_id === config.target.session_id);
+      if (scenarioChecks.author_ack_accepted && scenarioChecks.user_message_scope_matches) {
+        identity = {
+          topic: request.topic, turnId, runId: ack.response.run_id,
+          workId: body.work_id, sessionId: body.session_id, since: message.at,
+        };
+        terminal = wireTerminal(wire, {
+          ...identity, resultPosition: "last", requireWireTerminal: true,
+        });
+        if (terminal?.kind === "completed") turnResult = terminal.body;
+        const judgmentEvents = broadcastFrames(wire, {
+          topic: identity.topic, at: identity.since, runRef: identity.runId, event: "agent_event",
+        }).filter((entry) => frameBody(entry)?.event_type === "judgment_decided");
+        judgment = frameBody(judgmentEvents.at(-1))?.payload ?? null;
+      }
     }
+    scenarioChecks.run_completed = terminal?.kind === "completed";
     scenarioChecks.turn_result_present = finalKind === "turn_result" && Boolean(turnResult);
     scenarioChecks.turn_id_matches_driver = Boolean(turnId && driverEntry.turn_id === turnId);
-    scenarioChecks.assistant_text_nonempty = nonEmpty(
-      turnResult?.assistant_message?.text ?? driverEntry.assistant_text,
-    );
-    const judgment =
-      (turnId ? judgmentEventFor(appRecords, turnId) : null) ??
-      (Array.isArray(driverEntry.judgment_events) && driverEntry.judgment_events.length > 0
-        ? driverEntry.judgment_events.at(-1)
-        : null);
+    scenarioChecks.run_id_matches_driver = Boolean(identity && driverEntry.run_id === identity.runId);
+    scenarioChecks.assistant_text_nonempty = nonEmpty(turnResult?.assistant_message?.text);
+    scenarioChecks.no_failed_or_question_result = Boolean(turnResult) &&
+      turnResult.status !== "failed" && turnResult.author_question == null;
     scenarioChecks.judgment_event_present = Boolean(judgment);
     measured.scenarios[scenario.id] = {
       ...(measured.scenarios[scenario.id] ?? {}),
@@ -362,48 +398,39 @@ export function verify(dir, sliceIdArg) {
     };
 
     if (scenario.expect_action === "reply") {
-      scenarioChecks.judgment_action_reply =
-        String(judgment?.action ?? "") === "reply" && finalKind === "turn_result";
-      scenarioChecks.no_pending_candidate = pendingOf(turnResult).length === 0;
-      const beforeSnap = snapshots[previousCheckpoint];
-      const afterSnap = snapshots[scenario.id];
-      scenarioChecks.zero_production_write = sameCounts(
-        beforeSnap?.db_production_counts,
-        afterSnap?.db_production_counts,
-      );
-      scenarioChecks.zero_candidate_write = sameCounts(beforeSnap?.extra_counts, afterSnap?.extra_counts);
-      scenarioChecks.no_character_write = sameCounts(beforeSnap?.characters, afterSnap?.characters);
-      if ((driverEntry.questions ?? 0) > 0) {
-        // S1 等场景若模型 no_progress 暂停后由作者补充推进：结果可达但不算“模型一次到位”，
-        // 作为限定信息进入 measured/summary，不静默当整体 PASS。
-        measured.scenarios[scenario.id] = {
-          ...(measured.scenarios[scenario.id] ?? {}),
-          author_supplements: driverEntry.questions,
-          qualification: "author_supplement_required",
-        };
-      }
-      if (scenario.guard_optional) {
-        const guardHits = turnId ? guardEventsFor(appRecords, turnId) : [];
-        scenarioChecks.guard_triggered_or_clean = guardHits.length > 0 || pendingOf(turnResult).length === 0;
-        measured.scenarios[scenario.id] = {
-          kind: scenario.kind,
-          guard_triggered: guardHits.length > 0,
-          guard_events: guardHits.length,
-          pending_count: pendingOf(turnResult).length,
-        };
-      }
+      Object.assign(scenarioChecks, discussionEvidenceChecks({
+        before: snapshots[previousCheckpoint],
+        after: snapshots[scenario.id],
+        turnResult,
+        judgment,
+        driverEntry,
+      }));
     } else if (scenario.expect_action === "execute") {
       const action = String(judgment?.action ?? "");
       const capability = String(judgment?.capability ?? "");
       const pending = pendingOf(turnResult);
-      scenarioChecks.judgment_execute = action === "execute" || action === "explore";
+      scenarioChecks.judgment_execute = action === "execute";
       scenarioChecks.judgment_capability_expected = capability === scenario.expect_capability;
-      scenarioChecks.pending_or_adopted_present = pending.length > 0 || Boolean(driverEntry.adoption?.receipt);
-      scenarioChecks.adoption_receipt_accepted = Boolean(
-        driverEntry.adoption?.receipt?.status === "accepted" ||
-          driverEntry.adoption?.receipt?.status === "committed" ||
-          driverEntry.adoption?.receipt?.status === "applied",
-      );
+      scenarioChecks.pending_target_unique = pending.length === 1;
+      scenarioChecks.adoption_receipt_accepted = false;
+      scenarioChecks.adoption_log_matches_wire = false;
+      if (pending.length === 1 && identity && terminal?.kind === "completed") {
+        const artifactId = pending[0].artifact_id;
+        const authorAction = selectPendingAction(turnResult, { artifactId, actionType: "accept" });
+        const sent = actionFrame(wire, {
+          topic: identity.topic, since: terminal.record.at, action: authorAction,
+        });
+        const ack = actionAck(wire, sent, { actionStatus: "accepted" });
+        const receipt = actionResult(wire, {
+          topic: identity.topic, since: sent.at, action: authorAction, actionStatus: "accepted",
+        });
+        scenarioChecks.adoption_receipt_accepted = frameBody(receipt)?.status === "accepted";
+        scenarioChecks.adoption_log_matches_wire =
+          driverEntry.adoption?.artifact_id === artifactId &&
+          sameCounts(driverEntry.adoption?.send, frameBody(sent)) &&
+          sameCounts(driverEntry.adoption?.ack, frameBody(ack.reply)) &&
+          sameCounts(driverEntry.adoption?.receipt, frameBody(receipt));
+      }
       const afterSnap = snapshots[scenario.id];
       if (scenario.id === "S5") {
         scenarioChecks.chapters_seq_dense = isDense(afterSnap?.chapters ?? []);
@@ -483,7 +510,7 @@ export function verify(dir, sliceIdArg) {
     boundary:
       "真实 macOS Tauri 窗口（嵌入真实前端 + 真实 Phoenix 后端）+ AX/CGEvent 外部驱动 + " +
       `真实 provider strata（model=${config.model}，单槽，运行后 unload 核验）+ 外部 WS/HTTP 传输代理 + ` +
-      "隔离 test DB 只读快照；S1/S2/S3 为讨论/条件性 no-op，S6 为不可构造负例（未触发记 guard_not_triggered）。",
+      "隔离 test DB 完整内容快照；S1/S2/S3/S6 为讨论或条件性 no-op，固定输入不由驱动追加答案。",
     extra: {
       scenario_order: config.scenarios.map((scenario) => scenario.id),
       full_matrix: config.full_matrix,
