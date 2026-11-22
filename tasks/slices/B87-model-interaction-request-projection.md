@@ -2843,11 +2843,11 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 
 ### 19.1 调度授权、基线与原批次保留
 
-**当前 R08：doing，尚未验收。** 作者在本会话明确“先进入R08”，据此调整原 R05/R07 PASS 的开工顺序，独立推进本卡目标；这是任务级调度，不是把 R07 补签通过。R07 的实现及工程验证已分组推送，§18.7 的 native、ui-binding 和原 scope completion 缺口原地保留；R06 原失败亦保持。R08 若暴露这些依赖的真实缺陷，按原责任记录，不用本批结果反向签收前批。
+**当前 R08：BLOCKED（实现与工程检查已交付，原生 UI / 实模语义未闭环），不签 PASS。** 作者在本会话明确“先进入R08”，据此调整原 R05/R07 PASS 的开工顺序，独立推进本卡目标；这是任务级调度，不是把 R07 补签通过。R07 的实现及工程验证已分组推送，§18.7 的 native、ui-binding 和原 scope completion 缺口原地保留；R06 原失败亦保持。R08 若暴露这些依赖的真实缺陷，按原责任记录，不用本批结果反向签收前批。
 
 本批基线：develop/dialogue-based-novel-workbench，HEAD `429c8fc417e2c2c81978c7ea41b52e7335c29ed1`，开工时工作树干净。实施前已执行 `bash scripts/task_done.sh --begin artifacts/slice-verify/b87-r08-20261122/scope.json --task tasks/slices/B87-model-interaction-request-projection/R08.md`，exit 0；scope_id `d072fb9c-7dfb-40b1-8d3a-9918e9279ef6`，原件 SHA `36c421a254cba3abc4528009ebf98e5610dc2e654731c819f81d7b290b2c22c7`。该范围不复用 R07 scope，也不代表授权以外的完成证明。
 
-`baseline-compile-01` 在原基线执行 `mix compile --warnings-as-errors`，exit 0；owned run `dcfc9dfca970f403` 正常收口、源前后稳定，log SHA `71e41ed7280ad9fd5395d61b800b565e2b79f3b37a05f986e3175c119b457550`。本批 native 与真实模型调用尚未执行。开工前最近一次桌面只读观察仍为真实钥匙串授权提示；后续页面执行须重新确认现场。
+`baseline-compile-01` 在原基线执行 `mix compile --warnings-as-errors`，exit 0；owned run `dcfc9dfca970f403` 正常收口、源前后稳定，log SHA `71e41ed7280ad9fd5395d61b800b565e2b79f3b37a05f986e3175c119b457550`。截至该开工 checkpoint，native 与真实模型调用尚未执行。开工前最近一次桌面只读观察仍为真实钥匙串授权提示；后续实际原生尝试与结果见 §19.7。
 
 ### 19.2 七问与可触及边界
 
@@ -2885,4 +2885,78 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 
 按可 review 的职责分组实现与验证后，沿作者既有授权分阶段正常 commit/push；阶段提交不代表 R08 PASS。所有受影响的当前消费者与测试同批迁移，原始失败保留。真实 A/B 必须另行冻结本批自己的输入、源、model/effort、种子、调用上限、超时、重试与停止条件；已授权 Splash 可复用，但不挪用 B71/B27/R07 的预算或退休 B27 快照。无真实 Before 不宣称配对收益，无当前原生 binding 不代签 UI。
 
-完成全部改动后执行本卡适用工程门禁和原 scope 完成检查；未能执行的真实模型/页面项保持缺证。当前仅已封存开工与编译基线，尚无本批功能或语义 PASS，后续证据只追加在本节。
+完成全部改动后执行本卡适用工程门禁和原 scope 完成检查；未能执行的真实模型/页面项保持缺证。开工 checkpoint 只封存基线，后续实现、工程结果和未闭环后果分别见 §19.5–§19.7。
+
+### 19.5 实现交付、分组提交与责任收口
+
+本节使用证据根目录 `R8=artifacts/slice-verify/b87-r08-20261122`。下列提交均已正常推送到 `origin/develop/dialogue-based-novel-workbench` 并逐次以 `git ls-remote` 核对；未使用 force 或跳过验证。实现与设计收口 HEAD 为 `464e7789230f6728cbbe05ebabca09a51f0b3f64`，当时工作树干净。Git hook 提示没有 lefthook 配置，本节依据实际执行的工程检查，不把未运行的 hook 计为通过。
+
+| 分组 | 提交 | 已交付内容 |
+|---|---|---|
+| 开工与设计 | `dbfd9e1eaa57f0ee4c323ba9fb9587fb410f4f2f` | R08 调度、原批次保留、七问及职责审查。 |
+| 意图与真实来源 | `4fa6e5e7634b5be08ef76d6871e76473ac1b6452` | 退役词法意图门和未发布问题推断；真实完整作者来源、接收绑定与持久原文物化；首次 Scope 与历史追加接线。 |
+| 普通修订 | `6b74643b37984fdc6d53586bab42d76c15d98daf` | 删除普通候选二次词法解析和专项提示；统一 revision 规则及 v7 当前合同，保留真实原生交换、预算与独立采纳。 |
+| B33 当前消费者 | `e11b23843926b5ce1a3ae80997543bc19a5b0101` | 六条原输入保持；移除自动补话/选择，核完整 canon、真实 run、作者动作与回执；新增现 verifier 的独立 Node 反例。 |
+| 设计细化 | `464e7789230f6728cbbe05ebabca09a51f0b3f64` | 固化来源 API、首次构造、共享规则和现有测试 owner 的职责审查。 |
+
+**来源接线。** `author_sources/1` 消费最终可供给的真实 canonical 作者消息和 `SessionMessageRead` 完整页；`usable_observations` 保留父观察状态约束，完整消息、页坐标和原文 hash 共同成立才授信。当前来源按明确 `goal.source_input_ref` 绑定，历史按受 work/session 约束的 `WorkSessionRepo.user_entry/3` 物化；最近十条目录不再决定来源资格。来源冲突、部分页、缺页、错误角色/作品/会话、原文不一致均有独立反例。新增私有函数及内部字段均先按 §6.4 审核；未新建生产模块、表、对外 API、工具或意图枚举。
+
+**首次请求与缓存。** 初稿实现曾把来源计算顺序误作实际消息顺序，令动态作者消息先于 Scope，`engineering-check-01` 的四个 Judgment 前缀检查真实失败。修复复用现 `AuthoringTranscript.new(initial_scope)`：无 Scope 的临时视图只派生资格，最终一次构造 Base→Scope→author；已有段只追加，不改写历史或交付第二份 Scope。完整资格保留 current，历史目录与 current 别名各自承担原职责。最初迁移测试还错误要求动态 source_input_ref 也跨作者共享，`cache-core-green-01` 保留该失败；后按原目标验证静态规则及完整事实覆盖，并独立核对两个真实来源身份。未调整 I-CACHE 门禁、marker、projector 或缓存阈值。
+
+**规则和测试组织。** 判断业务规则归 `AuthoringTaskPolicy`，协议层只描述输出形状；专业共同约束归 `AuthoringSemantics`。普通修订不再按段号、数值、格式词重解意图，保留真实作者原话、完整对象/基线/hash、当前目标及原 Writer body/rationale；章范围与换行计划的专有合同保持。扫描发现的嵌套/复杂度通过现 owner 内职责分解修复，作者登记整例归现 `AuthorContentRegistrationTest`，续行恢复归现 `JudgmentProtocolTest`，角色档案修订归现 B29 测试；原驱动复用 `TestAgenticLoopFixtures`。没有新 ExUnit 模块、断言删减、机械压行、规模基线提升或豁免。
+
+### 19.6 工程证据与原失败保留
+
+实现收口的工程证据均在执行前后核对实际源码与 owned 进程树。最终 `engineering-check-03` 与 `static-scan-02` 同属 fingerprint `42282a359a50873bf451f1aa241db03c27241584a3c136d6cf938eb1ee41137c`；随后各组提交通过现 snapshot owner 逐项确认文件字节未变。检查期间没有真实模型调用。
+
+| 证据 / 实际命令 | 结果与边界 |
+|---|---|
+| `g1-red-01 / g2-red-01 / g3-red-01` | 独立的 3 / 4 / 3 个反例先失败，分别证明词法/问答推断、来源资格和普通修订旧机制；后续当前全量检查覆盖其最终实现。 |
+| `g3-prompt-red-02 / source-parent-red-01` | 各 1 个真实 RED，分别抓到原始出站专项规则及失效父观察下叶消息错误授信；其前置失败原件也保留。 |
+| `structure-core-green-01` | 定向 266/266；Credo、规模和 I-CACHE 通过。测试迁移产生的两处无消费者警告随后删除，最终全量检查无编译警告。 |
+| `engineering-check-03`：`mix format --check-formatted && mix check` | exit 0；全量强制 warnings-as-errors 编译、codegen、枚举 lint、xref 零环、**3748/3748 tests**、架构、ADR（33/33 accepted）与 I-CACHE 全部通过。log SHA `a1852e27e100219bc464dc3b2e25a19359594397560c764677290db2f4d56c4f`。 |
+| `b33-consumer-gates-01` | 相关 Node **199/199**，两个 B33 脚本语法、当前 CARD 文案消费者及 shell 语法检查通过；这些执行文件随后未改变。log SHA `802dec9e5289a6144b40fb1e84170c2828d50ed0899712728d0d0fd0a1fee0dd`。 |
+| `static-scan-02`：`bash scripts/task_done.sh --top 10`（无 scope） | **完整全树扫描** exit 0，21 项无跳过；20 个 raw command exit 0，gitleaks raw exit 1，9 项既有发现按原台账处置后 blocking 0、touched 0。这是工程扫描，不是 scope completion。report SHA `71ad32230768794d90438bad5e2af9d2736bfd378fa3a140b7b2ec44542e2c87`。 |
+| 扫描内前端与不变量 | typecheck/lint/audit/design trace 通过，前端 **593/593**；I1/I2/N-NARR/I-CACHE exit 0。I3 决定性 Layer-B **3/3**，参考 Layer-A **0/3** 原样报告，不能据退出码声称主链语义全绿。 |
+
+`static-scan-01` 的原始 exit 1、8 条新增 Credo 发现及 4 个规模失败保留；修复后完整复跑才得到上表结果。`core-compile-01`、各次 core/backend/check 的原失败也完整保留，不覆盖旧日志或用较新的默认报告倒签早先执行。运行目录含各次 `source-before/after.json`、`result.json`、`owned/` 与原始日志；默认扫描及不变量报告已复制到相应 phase，旧默认报告另封存在 `prior-default-reports-01`。
+
+**本次 Top 10 实际只有 9 项，均为既有处置，处置台账未改：**
+
+| 发现位置 | 处置与原因 |
+|---|---|
+| `authoring_confirmation_evidence.test.mjs` | false_positive：历史测试动作标识符，不是凭证。 |
+| `verify_b65_origin_boundary.sh` | false_positive：协议示例 nonce。 |
+| `B63-known-gaps-remediation.md` | false_positive：历史文档中的 spec 标识符。 |
+| `e2e_01_full_chain_check.sh` | false_positive：artifact spec 标识符。 |
+| `novel-studio.pen` | false_positive：Pencil 元数据，保留原扫描与专属编辑边界。 |
+| `tools/company-console/server/config.mjs`（历史分支） | accepted_risk：原台账已确认的历史凭证风险；轮换/吊销由凭证所有者处理，未在本批重写历史或声称已消除。 |
+| `authoring_live_verifier.test.mjs` | false_positive：固定本地测试键绑定，不是外部任意字段写入。 |
+| `authoring_request_facts.test.mjs` | false_positive：故意破坏段头的独立拒绝反例，不承担文本清洗。 |
+| `native_b29_evidence.test.mjs` | false_positive：故意改变回放字节的拒绝反例。 |
+
+文档首次检查 `closure-doc-validation-01` 因新增末尾空行 exit 2，原结果保留；删除空行后执行 `closure-doc-validation-02`（NEXT / open / diff 与已验生产字节）及 `static-scan-03` 完整文档收口扫描，以对应实际 `result.json` 为准。文档收口不把缺失的真实 UI / 模型证据升级为通过，最终文档提交结果由 `commit-closeout-01`、`push-closeout-01` 留证。
+
+### 19.7 原生实际阻塞、未闭环范围与恢复顺序
+
+**R08 仍为 BLOCKED / NOT PASS。** `native-preflight-01/02` 的前台只读观察本身不等于 UI 失败。已进一步核实现 `NativeScenarioHarness` 允许正常激活本批已绑定应用，于 **2026-11-22 10:11–10:12 +08:00** 实际执行一次现役 `b71-first-consumer`，显式固定 `B71_PROVIDER=SLICE_VERIFY_PROVIDER=slice_verify`；没有重装权限、修改输入边界或操作安全对话框。
+
+本次通过现 `task_done_check --start-execution --kind native` 在原 R08 scope 下真实生成 start，execution_id `0fa61a5e-351c-4bdc-8ad7-cb333a2c207d`。外层命令为 `node scripts/lib/test_env.mjs run --archive R8/native-runs/ui-first-consumer-01/owned --timeout-ms 900000 -- bash scripts/native_b71_batch.sh r08-ui-scope-01`（执行时使用完整实际路径）。结果目录为 `artifacts/slice-verify/b71-first-consumer-tauri-native-r08-ui-scope-01`。
+
+**实际结果：**
+
+- Tauri 本批 executable 已唯一绑定，PID `81114`，真实主窗口在屏幕上，AXWindow 与 WebView 均可观察；本批应用已完成启动。
+- `native-input-events.jsonl` 记录一次真实 activate：`ax_trusted=true`、`post_access=true`，系统调用 `returned=true`，等待 **2002ms** 后 `confirmed=false`；操作前后前台均为 `com.apple.SecurityAgent`、PID `13294`。
+- 失败为 `maintenance:launch_app / activation_unconfirmed`；只有激活事件，没有输入作者消息或执行业务场景。**原生批次尝试 1，真实模型调用 0**；不是模型语义失败，也不是 AX 权限丢失的推测。
+- runner/driver exit 1；owned run `e86fb34c5526e2fe` 用时 50537ms，`tree_finalized=true`、`scope_removed=true`、未超时；本批 app cleanup `remaining=[]`。
+- 实际 finish-execution 因没有 summary/completion 输出 exit 1，未形成有效 UI binding；原 scope completion **受阻、未执行**。没有补造 summary、manifest 或通过标记。
+- `native-runs/ui-first-consumer-01/source-verification.json` 另核真实 start 与结束后源码完全一致，HEAD `464e7789230f6728cbbe05ebabca09a51f0b3f64`、fingerprint 与 §19.6 相同。原日志 SHA `cc84cb57f557cafff319c187b9786669d169b076971a90ef68604223ab4d7761`；`failure.json` SHA `68b27141331427368b82c7f75a4c7ef9af32d3bc7b1d9e7ae1904ca11b5cbd6f`，输入事件 SHA `98c0202cd5ae748732c0ea42d07a11eeba814a1fb5661984c1d897b460a2fade`。
+
+**恢复仍只推进 R08，不跳到 R09：**
+
+1. 本机安全授权对话框处理完毕后，沿现 owned Tauri 入口以新 tag、当前实际源码和原 R08 scope 重新形成 UI start / summary / binding；保留本次失败目录。
+2. 冻结本批实模 A/B 的实际 Before `429c8fc4` 与当前 After、同一完整数据库快照、原三轮作者字节、同模型/effort/种子、独立预算、超时与停止条件。原三轮数据已由现 `loadSourceAuthors` 核对；可复用 `artifacts/model-contracts/b87-r01/20261113/formal-before/manifest.json` 的原日志来源及 `source-snapshot/20261113-real-v2-complete` 完整快照，不能沿用旧批次源码标签、预算或退休 B27 Before。R08 的配对执行尚未启动，不报告语义通过率或收益。
+3. 通过现 `native_request_cost`、`native_b33` 与已有关联场景补齐本卡原三轮、否定/条件/引用、歧义与来源、普通/章修订的实际作者效果；任何真实失败保留并按责任处理，不由驱动补话修到 PASS。
+4. 文档与代码最终稳定后，以真实同源 UI binding 执行原 scope 的完整 `task_done`，全 DoD 满足才签 R08 PASS。R06/R07 不因本批提交或未来通过而自动销账。
+
+**本批没有扩写的责任。** R17 的 system 生命周期、跨生产者重复规则及现有 `Real.nonce_requirement` 留在原责任批次；不宣称全产品已经没有自然语言特判。另在原基线中核到 `ChapterReadEvidence` 的部分读取路径仍使用 `visible_observations`，父观察失效时叶观察资格需由原 R05/R07 材料责任复核；R08 只修正自己新增的作者来源消费者，不改写章基线机制。I3 参考层与 B84 原 89/90 自检的历史缺口均未由本批结果代签。
