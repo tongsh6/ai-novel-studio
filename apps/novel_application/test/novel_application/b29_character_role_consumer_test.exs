@@ -37,9 +37,11 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
     CharacterProfile,
     CharacterRosterNarration,
     ExplorationService,
+    PendingArtifactWorkflow,
     WorkService
   }
 
+  alias NovelDomain.{AgentRun, DialogueContext}
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{AgentRunLog, Repo, WorkArchiveRepo, WorkSessionRepo}
   alias NovelPersistence.Schemas.{Character, Work}
@@ -111,6 +113,102 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
     message = CharacterRosterNarration.message(archive_characters)
     assert message =~ "当前作品的主角是 沈砚"
     refute message =~ "还没有谁被标记为主角"
+  end
+
+  test "B29 角色修订候选：trace 完整构造持久化不 crash，产出 character_profile_revision 且零写入", c do
+    shen =
+      Repo.insert!(%Character{
+        work_id: c.work.id,
+        name: "沈砚",
+        aliases: ["老沈"],
+        role: "灯楼查账人",
+        narrative_role: "ENSEMBLE_POV",
+        status: AdoptionStatus.accepted()
+      })
+
+    goal_text = "指定老沈为主角"
+    author_input = %{turn_id: "request", text: goal_text}
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-test",
+        run_mode: :bounded,
+        origin_frame_ref: "frame-request",
+        status: :running,
+        phase: :executing,
+        profile_ref: "judgment_loop_v1",
+        budget: %{max_tool_calls: 3, max_provider_calls: 6},
+        consumed_budget: %{
+          steps: 0,
+          execution_steps: 0,
+          tool_calls: 0,
+          provider_calls: 0,
+          replans: 0
+        },
+        authority_scope: %{production_write: false, allowed_tools: ["world_building"]},
+        workspace_id: c.work.id,
+        work_id: c.work.id,
+        session_id: c.session.id,
+        parent_turn_ref: author_input.turn_id,
+        goal: %{text: goal_text, version: 1}
+      })
+
+    context = %DialogueContext{work_id: c.work.id, interaction_state: %{}}
+
+    judgment = %{
+      action: "execute",
+      capability: "revise_character_profile",
+      character_ref: "character:#{shen.id}",
+      dialogue_goal: goal_text,
+      narrative: "我会生成角色主档案叙事身份的修订候选。"
+    }
+
+    assert {:error, {:character_profile_invalid, :not_observed}} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               author_input,
+               run,
+               context,
+               nil
+             )
+
+    query = Jason.encode!(%{facet: "characters", ref: "character:#{shen.id}", offset: 0})
+
+    assert {:ok, detail} =
+             NovelApplication.ExplorationService.run(c.work.id, "archive_read", query)
+
+    %{messages: [%{blocks: [observed]}]} =
+      NovelApplication.JudgmentProtocol.observation_transcript(
+        %{messages: [], observation_refs: []},
+        %{tool_call_id: "profile-detail-read"},
+        detail
+      )
+
+    judgment = Map.put(judgment, :character_observation, observed)
+
+    before = Repo.get!(Character, shen.id)
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               author_input,
+               run,
+               context,
+               nil
+             )
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.object_kind == "character_profile_revision"
+    assert pending.payload.character_ref == "character:#{shen.id}"
+    [change] = pending.payload.changes
+    assert change.field == "narrative_role"
+    assert change.old == "ENSEMBLE_POV"
+    assert change.new == "PROTAGONIST"
+
+    # 只产候选：主档案字段零变化，角色数不变。
+    after_row = Repo.get!(Character, shen.id)
+    assert after_row.narrative_role == before.narrative_role
+    assert after_row.name == before.name
   end
 
   @tag :r05_role_handoff

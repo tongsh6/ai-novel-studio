@@ -33,7 +33,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
   end
 
   test "version and content hash are stable for identical canonical text" do
-    assert AuthoringSemantics.version() == "b27-semantics-v6"
+    assert AuthoringSemantics.version() == "b27-semantics-v7"
     assert AuthoringSemantics.content_hash() == AuthoringSemantics.content_hash()
     assert String.length(AuthoringSemantics.content_hash()) == 64
   end
@@ -51,6 +51,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert task().semantic_version == AuthoringSemantics.version()
 
     for version <- [
+          "b27-semantics-v6",
           "b27-semantics-v5",
           "b27-semantics-v4",
           "b27-semantics-v3",
@@ -72,7 +73,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
       assert {:error,
               {:authoring_task_invalid,
-               {:semantic_version_mismatch, "b27-semantics-v6", ^expected_version}}} =
+               {:semantic_version_mismatch, "b27-semantics-v7", ^expected_version}}} =
                AuthoringSemantics.validate(restored)
     end
   end
@@ -295,7 +296,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
     expected =
       {:authoring_task_invalid,
-       {:semantic_version_mismatch, "b27-semantics-v6", "b27-semantics-v0"}}
+       {:semantic_version_mismatch, "b27-semantics-v7", "b27-semantics-v0"}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end

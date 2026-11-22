@@ -364,15 +364,14 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp supported_tool?(tool), do: tool == "prose_writing" or tool in @creative_tool_names
 
-  # 修订类正文：B28 CP1 按任务 modification_scope 分支渲染；
-  # 基线段落/未要求修改内容必须保留，且不得把修订表达成“继续往后写”。
+  # 仅显式章范围补充结构字段规则；普通修订共用 AuthoringSemantics 的静态操作契约。
   defp prose_revision_guidance(request) do
     case chapter_modification_scope(request) do
       :format_only -> format_only_guidance()
       :whole_chapter -> chapter_content_guidance("整章")
       :target_segments -> target_segments_guidance()
       "target_segments" -> target_segments_guidance()
-      _ -> single_revision_guidance()
+      _ -> ""
     end
   end
 
@@ -416,22 +415,6 @@ defmodule NovelAgent.CreativeProvider.Real do
     - 只改作者明确指定范围内的内容；其余段落/片段逐字保留，不得合并、删除或重排未要求的片段。
     - 不得写成续写或“继续往后写”；这是对已有正文的修订，不是新增正文。
     - body 是覆盖范围内完整候选，修改依据放 rationale。
-    """
-    |> String.trim()
-  end
-
-  defp single_revision_guidance do
-    """
-    ## 修订基线纪律
-    - 以给定原稿为唯一基线：保留原稿的段落边界与未要求修改段落的字句，只改作者明确要求的部分；
-      作者指定段落（如“第二段”）时，其它段落逐字保留、不得合并或拆分；修订要求中给出的
-      “目标段定位”就是该段原文，必须对它做真实修改。
-    - 必须输出完整修订稿：body 是包含目标段真实修改后的完整新版本；原样返回基线原文视为未执行修订。
-    - 若作者要求仅排版/分段/标点（如“只调标点和分段，别改字句”）：不得改动文字内容，
-      不得新增或删除段落/空行；该路径尚未接入 B28 format_only 任务时如实说明限制，不伪造完成。
-    - 作者给出明确改动（如“七成改六成”、某句替换）时，修订稿必须落实该改动；
-      若原稿没有对应表述而无法落实，如实说明并停止，不要输出未改动候选冒充完成。
-    - 不得写成续写或“继续往后写”；body 只放完整的新版本；修改依据放 rationale。
     """
     |> String.trim()
   end

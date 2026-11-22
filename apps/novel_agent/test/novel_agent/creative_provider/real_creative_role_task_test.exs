@@ -385,30 +385,21 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert [%{code: "unsupported_creative_tool"}] = result.errors
   end
 
-  test "prose revision prompt carries baseline/scope discipline (task-24/29)" do
+  test "prose revision uses shared semantics and preserves actual revision material" do
     task = AuthoringTaskFixtures.task(:revision)
-
-    request = %{
-      request("prose_writing", :prose_fragment, task)
-      | revision: "本轮修订已有候选。必须输出完整修订稿。\n\n目标段定位：作者要求修改第2段。\n第二段原文。"
-    }
-
+    revision = "  finding:original：把结尾改得更简洁。\r\n"
+    request = %{request("prose_writing", :prose_fragment, task) | revision: revision}
     ir = captured_prompt(request)
     prompt = AuthoringTaskFixtures.prompt_text(ir)
 
-    assert prompt =~ "本轮为修订"
-    assert prompt =~ "## 修订基线纪律"
-    assert prompt =~ "保留原稿的段落边界与未要求修改段落的字句"
-    assert prompt =~ "作者指定段落"
-    assert prompt =~ "不得写成续写或“继续往后写”"
-    assert prompt =~ "不得新增或删除段落/空行"
-    assert prompt =~ "明确改动（如“七成改六成”"
-    assert prompt =~ "目标段定位"
-    assert prompt =~ "必须输出完整修订稿"
-    assert prompt =~ "原样返回基线原文视为未执行修订"
-    assert prompt =~ "## 创作协作共同规则"
-    assert prompt =~ "submit_tentative_artifact"
-    refute prompt =~ "只返回 JSON 数组"
+    assert_task_prompt(ir, task, "本轮为修订")
+    assert prompt =~ "本任务实际目标范围的完整替换内容"
+    assert prompt =~ "修改依据放 rationale"
+    assert TestProviderPrompt.scope_content(ir)["operation"]["revision"] == revision
+
+    for retired <- ["目标段定位", "七成改六成", "不得新增或删除段落/空行", "B28 format_only"] do
+      refute prompt =~ retired
+    end
   end
 
   test "B28: format_only chapter revision renders ordered coverage + no continuation" do

@@ -33,9 +33,8 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
   test "真实 run 将 snapshot 传入修订 step，保留判断历史与真实 3 次预算", c do
     base = "第一段文字。\n第二段文字。\n\n第三段文字。"
-    invalid = "第一段文字。\n\n第二段文字。\n\n第三段文字。"
     valid = "第一段文字！\n第二段文字。\n\n第三段文字。"
-    goal = "整理第01章前两段的排版候选：只调标点和分段，别改字句"
+    goal = "把候选开头的句号改成感叹号，其余保留。"
 
     artifact_id = record_pending_candidate(c, base)
     parent = self()
@@ -69,23 +68,32 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
           "submit_tentative_artifact" in tool_names ->
             :counters.add(revision_calls, 1, 1)
             count = :counters.get(revision_calls, 1)
-            body = if count <= 1, do: invalid, else: valid
             send(parent, {:provider_call, {:revision, count, tool_names}})
+
+            arguments =
+              if count == 1 do
+                %{items: []}
+              else
+                %{
+                  items: [
+                    %{
+                      item_id: "agent-run-revision-#{count}",
+                      title: "修订稿",
+                      body: valid,
+                      rationale: nil
+                    }
+                  ]
+                }
+              end
 
             {:ok,
              %NovelAgent.Provider.Result{
                content: "",
                tool_calls:
-                 TestAgenticLoopFixtures.native_tool_calls("submit_tentative_artifact", %{
-                   items: [
-                     %{
-                       item_id: "agent-run-revision-#{count}",
-                       title: "修订稿",
-                       body: body,
-                       rationale: nil
-                     }
-                   ]
-                 }),
+                 TestAgenticLoopFixtures.native_tool_calls(
+                   "submit_tentative_artifact",
+                   arguments
+                 ),
                provider_call_ref: "pcall-run-revision-#{count}"
              }}
 
@@ -172,8 +180,9 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
           do: content
 
     assert [scope | _] = revision_scope
-    assert scope["operation"]["revision"] =~ "本轮修订已有候选"
-    assert scope["operation"]["creative_brief"] =~ goal
+    assert scope["operation"]["revision"] == nil
+    assert scope["authoring_task"]["kind"] == "revision"
+    assert scope["operation"]["creative_brief"] == goal
 
     assert Enum.any?(
              transcript.messages,
@@ -191,7 +200,7 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
     assert Enum.any?(
              validations,
-             &(&1.reason_code == "revision_scope_violation" and &1.status == "failed")
+             &(&1.reason_code == "provider_response_invalid" and &1.status == "failed")
            )
 
     assert Enum.any?(
@@ -219,8 +228,8 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
 
   test "判断成功后的候选执行失败保留最新修订会话，预算不重算历史", c do
     base = "第一段文字。\n第二段文字。\n\n第三段文字。"
-    invalid = "第一段文字。\n\n第二段文字。\n\n第三段文字。"
-    goal = "整理第01章前两段的排版候选：只调标点和分段，别改字句"
+    body = "第一段文字！\n第二段文字。\n\n第三段文字。"
+    goal = "把候选开头的句号改成感叹号，其余保留。"
 
     artifact_id = record_pending_candidate(c, base)
     parent = self()
@@ -262,10 +271,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
                      %{
                        item_id: "agent-run-failure-revision",
                        title: "修订稿",
-                       body: invalid,
+                       body: body,
                        rationale: nil
                      }
-                   ]
+                   ],
+                   self_report: %{used_context_refs: ["observation:not-supplied"]}
                  }),
                provider_call_ref: "pcall-failure-revision-#{System.unique_integer([:positive])}"
              }}
@@ -341,7 +351,11 @@ defmodule NovelApplication.AgentRunPendingRevisionFlowTest do
     assert Enum.count(tool_names, &(&1 == "submit_tentative_artifact")) == 2
 
     validations = transcript_blocks(transcript, "validation_result")
-    assert Enum.any?(validations, &(&1.status == "failed"))
+
+    assert Enum.count(
+             validations,
+             &(&1.reason_code == "used_context_refs_invalid" and &1.status == "failed")
+           ) == 2
 
     assert Enum.any?(
              validations,
