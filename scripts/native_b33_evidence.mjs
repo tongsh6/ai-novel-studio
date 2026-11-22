@@ -28,7 +28,6 @@ import {
   broadcastFrames,
   checkProductionFingerprint,
   frameBody,
-  logs,
   productionFingerprint,
   productionTableCounts,
   read,
@@ -40,7 +39,13 @@ import {
   withDb,
   write,
   writeNativeSummary,
+  shaFile,
 } from "./lib/native_ui/scenario_evidence.mjs";
+import { RUNTIME_PROFILE_ID, assertRuntimeFacts, getRuntimeProfile } from "./lib/native_ui/request_cost_runtime_recipe.mjs";
+import { providerOperation, providerTurnMatchesParent, readProviderRuns } from "./lib/native_ui/authoring_call_evidence.mjs";
+import { requestSettingsFacts } from "./lib/native_ui/request_cost_capture.mjs";
+import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./lib/native_ui/authoring_request_facts.mjs";
+import { DEFAULT_STRATA_ENDPOINT } from "./lib/native_ui/strata_lifecycle.mjs";
 import { planningCanonSnapshot } from "./lib/native_ui/authoring_capture_evidence.mjs";
 import { compareAuthoringCanonSnapshots } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
@@ -100,11 +105,13 @@ export const SCENARIOS = Object.freeze([
 ]);
 
 const byId = new Map(SCENARIOS.map((scenario) => [scenario.id, scenario]));
-const modelName = () => process.env.NOVEL_STRATA_MODEL ?? "iq3_s";
-const strataEndpoint = () => process.env.NOVEL_STRATA_ENDPOINT ?? "http://127.0.0.1:47831/v1";
+export const B33_BUDGET = Object.freeze({
+  max_author_inputs: SCENARIOS.length, max_harness_retries: 0,
+  turn_timeout_ms: 330_000, ack_timeout_ms: 60_000,
+});
 
-const requestedIds = () => {
-  const ids = (process.env.B33_SCENARIOS ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+const requestedIds = (env) => {
+  const ids = (env.B33_SCENARIOS ?? "").split(",").map((part) => part.trim()).filter(Boolean);
   assert(ids.every((id) => byId.has(id)), "B33_SCENARIOS 包含未登记场景");
   assert.equal(new Set(ids).size, ids.length, "B33_SCENARIOS 不得重复登记同一场景");
   return ids;
@@ -185,14 +192,26 @@ function sha256Hex(text) {
 }
 
 // ── prepare / capture ──────────────────────────────────────────────────────
-export async function prepare(dir) {
+export async function prepare(dir, { env = process.env } = {}) {
   const ready = read(dir, "native-driver-ready.json");
   assert.equal(ready.slice_id, SLICE_ID, `ready.slice_id 必须为 ${SLICE_ID}`);
   assert.equal(ready.driver, "external-system-ui");
   assert.equal(ready.browser_driver_started, false);
-  assert.equal(ready.provider, "strata", `B33 CP3 必须使用真实 strata provider，实测: ${ready.provider}`);
+  assert(["strata", "splash"].includes(ready.provider), `B33 需要已登记真实 provider: ${ready.provider}`);
+  let runtime = null;
+  if (ready.provider === "splash") {
+    const observed = read(dir, "runtime-facts.json");
+    assertRuntimeFacts(observed, RUNTIME_PROFILE_ID);
+    runtime = { profile: RUNTIME_PROFILE_ID, observed, facts_sha256: shaFile(path.join(dir, "runtime-facts.json")) };
+  }
+  const model = runtime?.observed.provider.model ?? env.NOVEL_STRATA_MODEL;
+  assert(nonEmpty(model), "B33 必须明确本批模型，不能猜测历史默认模型");
+  const endpoint = runtime?.observed.provider.endpoint ?? env.NOVEL_STRATA_ENDPOINT ?? `${DEFAULT_STRATA_ENDPOINT}/v1`;
+  const url = new URL(endpoint);
+  assert(["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash,
+    "B33 endpoint 必须是无凭证的服务地址");
 
-  const requested = requestedIds();
+  const requested = requestedIds(env);
   const scenarios = requested.length > 0 ? SCENARIOS.filter((scenario) => requested.includes(scenario.id)) : SCENARIOS;
   assert(scenarios.length > 0, `B33_SCENARIOS 过滤后没有场景: ${process.env.B33_SCENARIOS}`);
 
@@ -207,19 +226,13 @@ export async function prepare(dir) {
 
   write(dir, "production-sources-before.json", productionFingerprint());
 
-  let endpointModels = null;
-  try {
-    const response = await fetch(`${strataEndpoint()}/models`);
-    if (response.ok) endpointModels = (await response.json())?.data?.map((entry) => entry.id) ?? null;
-  } catch {
-    endpointModels = null;
-  }
-
   write(dir, CONFIG_FILE, {
     slice_id: SLICE_ID,
     provider: ready.provider,
-    model: modelName(),
-    strata_endpoint: strataEndpoint(),
+    model,
+    endpoint,
+    runtime,
+    budget: B33_BUDGET,
     run_ref: ready.run_ref,
     ready_at: ready.ready_at,
     target,
@@ -227,11 +240,10 @@ export async function prepare(dir) {
     scenarios,
     full_matrix: scenarios.length === SCENARIOS.length,
     checkpoints: ["start", ...scenarios.map((scenario) => scenario.id), "final"],
-    strata_models_visible_at_prepare: endpointModels,
   });
   console.log(
     `B33 CP3 证据准备完成: work=${target.work_id} title=${target.work_title} ` +
-      `provider=${ready.provider} model=${modelName()} scenarios=${scenarios.map((s) => s.id).join(",")}`,
+      `provider=${ready.provider} model=${model} scenarios=${scenarios.map((s) => s.id).join(",")}`,
   );
 }
 
@@ -272,6 +284,70 @@ export function discussionEvidenceChecks({ before, after, turnResult, judgment, 
   };
 }
 
+// Provider 身份取实际调用日志；服务可用模型目录和生命周期未知不冒充调用事实。
+export function providerEvidenceChecks({
+  config, ready, driverLog, providerStarts, llmRecords, providerRuns = [], scenarioScopes = [], runtimeFacts = null,
+}) {
+  const pairs = llmRecords.map((record) => {
+    const byRun = providerRuns.filter((row) => row.id === record.provider_run_ref);
+    const byCall = providerRuns.filter((row) => row.provider_call_ref === record.provider_call_ref);
+    const row = byRun.length === 1 && byCall.length === 1 && byRun[0] === byCall[0] ? byRun[0] : null;
+    const scopes = row ? scenarioScopes.filter((scope) =>
+      scope.runId === row.agent_run_id && scope.turnId === row.parent_turn_ref) : [];
+    const scope = scopes.length === 1 ? scopes[0] : null;
+    const owned = Boolean(scope && [scope.workspaceId, scope.workId, scope.sessionId].every(nonEmpty) &&
+      row.workspace_id === scope.workspaceId && row.work_id === scope.workId && row.session_id === scope.sessionId &&
+      record.work_id === row.work_id && record.session_id === row.session_id &&
+      (!Object.hasOwn(record, "workspace_id") || record.workspace_id === row.workspace_id) &&
+      providerTurnMatchesParent(record.turn_id, scope.turnId));
+    return { record, row, owned };
+  });
+  const checks = {
+    provider_identity_matches: ["splash", "strata"].includes(config.provider) && ready.provider === config.provider &&
+      driverLog.provider === config.provider && driverLog.model === config.model && driverLog.endpoint === config.endpoint,
+    provider_starts_match: providerStarts.length > 0 && providerStarts.every((record) => record.provider === config.provider),
+    provider_requests_match: llmRecords.length > 0 && llmRecords.every((record) => {
+      const facts = requestFactsFromRecord(record);
+      return facts.ok && facts.format === NATIVE_CHAT_WIRE && record.provider === config.provider &&
+        record.request?.body?.model === config.model && nonEmpty(record.provider_call_ref) && nonEmpty(record.provider_run_ref) &&
+        record.request.url === `${config.endpoint.replace(/\/+$/u, "")}/chat/completions`;
+    }),
+    provider_call_identities_unique: ["provider_call_ref", "provider_run_ref"].every((field) =>
+      new Set(llmRecords.map((record) => record[field])).size === llmRecords.length),
+    provider_runs_bound: pairs.length > 0 && providerRuns.length === pairs.length &&
+      pairs.every(({ row }) => row && row.provider_id === config.provider && row.model === config.model),
+    provider_runs_owned: pairs.length > 0 && pairs.every(({ owned }) => owned),
+    provider_runs_terminal: pairs.length > 0 &&
+      pairs.every(({ row }) => row && ["completed", "failed", "cancelled"].includes(row.status)),
+    provider_scenarios_completed: scenarioScopes.length > 0 &&
+      new Set(scenarioScopes.map((scope) => scope.runId)).size === scenarioScopes.length &&
+      scenarioScopes.every((scope) => pairs.some(({ row, owned }) =>
+        owned && row.agent_run_id === scope.runId && row.status === "completed" &&
+        providerOperation(row) !== "transcript_compaction")),
+    execution_budget_matches: sameCounts(config.budget, B33_BUDGET) && sameCounts(driverLog.budget, config.budget),
+  };
+  if (config.provider === "splash") {
+    checks.runtime_facts_match = false;
+    try {
+      assert.equal(config.runtime?.profile, RUNTIME_PROFILE_ID);
+      assertRuntimeFacts(runtimeFacts, RUNTIME_PROFILE_ID);
+      assert.equal(config.provider, runtimeFacts.provider.selected);
+      assert.equal(config.model, runtimeFacts.provider.model);
+      assert.equal(config.endpoint, runtimeFacts.provider.endpoint);
+      assert.deepEqual(config.runtime.observed, runtimeFacts);
+      checks.runtime_facts_match = true;
+    } catch { /* 缺失或冲突保持失败，不以准备时声明替代实际 runtime。 */ }
+    const profile = getRuntimeProfile(RUNTIME_PROFILE_ID);
+    checks.provider_request_settings_match = checks.provider_runs_bound && checks.provider_runs_owned &&
+      pairs.every(({ record, row }) => {
+        const compaction = row.purpose === "other" && providerOperation(row) === "transcript_compaction";
+        const tokens = compaction ? 8192 : profile.max_tokens;
+        return record.request?.body?.reasoning_effort === profile.reasoning_effort && record.request?.body?.max_tokens === tokens;
+      });
+  }
+  return checks;
+}
+
 export function verify(dir, sliceIdArg) {
   const config = read(dir, CONFIG_FILE);
   const sliceId = sliceIdArg ?? config.slice_id;
@@ -279,10 +355,7 @@ export function verify(dir, sliceIdArg) {
   assert.equal(config.slice_id, SLICE_ID, "prepare 配置 slice 不一致");
 
   const ready = read(dir, "native-driver-ready.json");
-  assert.equal(ready.provider, "strata", "B33 CP3 verify 必须基于 strata 真实模型批次");
   const driverLog = read(dir, "b33-native-driver-log.json");
-  assert.equal(driverLog.provider, "strata", "驱动日志 provider 必须为 strata");
-  assert.equal(driverLog.model, config.model, "驱动日志 model 与准备配置不一致");
 
   const common = assertCommonEvidence(dir, {
     sliceId: SLICE_ID,
@@ -296,14 +369,13 @@ export function verify(dir, sliceIdArg) {
     minUserMessages: Math.max(1, config.scenarios.length),
     minTurnResults: Math.max(1, config.scenarios.length),
     minProviderStarts: Math.max(1, config.scenarios.length),
-    expectProviders: ["strata"],
+    expectProviders: [config.provider],
   });
 
   const wire = transport(dir);
   const sentInputs = wire.filter((entry) =>
     entry.direction === "sent" && Array.isArray(entry.frame) && entry.frame[3] === "user_message");
   const checks = {
-    provider_is_real_strata: wireCommon.providerStarts.every((record) => record.provider === "strata"),
     no_browser_frames: !fs.existsSync(path.join(dir, "ui-frames.json")),
     scenario_registry_matches_frozen_matrix: sameCounts(config.scenarios, SCENARIOS),
     production_sources_unchanged: checkProductionFingerprint(dir).unchanged,
@@ -317,15 +389,14 @@ export function verify(dir, sliceIdArg) {
         (entry.frame[3] === "author_action" && entry.frame[4]?.action?.action_type === "author_choice"))),
   };
 
-  // 模型生命周期：运行前记录 + 结束卸载并核验为空。
+  // 外部服务由作者持有；只读观察未知不代表已卸载，也不替代上面的调用身份核验。
   const before = read(dir, "model-lifecycle-before.json");
   const after = read(dir, "model-lifecycle-after.json");
-  checks.model_lifecycle_before_recorded = Boolean(before?.at && before?.provider === "strata");
-  checks.model_unloaded_after = Boolean(
-    after?.unloaded === true || (after && after.loaded === null) || (after && after.loaded_after === null),
-  );
-  checks.model_loaded_before_consistent =
-    before?.loaded_before === null || before?.loaded_before === undefined || before?.loaded_before === modelName();
+  checks.external_service_observation_recorded = [before, after].every((record) =>
+    record?.at && record.provider === config.provider && record.model === config.model &&
+    record.read_only === true && record.lifecycle_action === "none");
+  if (config.provider === "splash") checks.runtime_facts_hash_matches =
+    shaFile(path.join(dir, "runtime-facts.json")) === config.runtime?.facts_sha256;
 
   const snapshots = Object.fromEntries(
     ["start", ...config.scenarios.map((scenario) => scenario.id), "final"].map((checkpoint) => [
@@ -334,8 +405,9 @@ export function verify(dir, sliceIdArg) {
     ]),
   );
 
-  const measured = { scenarios: {}, model: config.model, strata_endpoint: config.strata_endpoint };
-  const assertions = [];
+  const measured = { scenarios: {}, model: config.model, endpoint: config.endpoint,
+    request_settings: requestSettingsFacts(wireCommon.llmRecords) };
+  const scenarioScopes = [];
   let previousCheckpoint = "start";
 
   for (const scenario of config.scenarios) {
@@ -369,8 +441,10 @@ export function verify(dir, sliceIdArg) {
       if (scenarioChecks.author_ack_accepted && scenarioChecks.user_message_scope_matches) {
         identity = {
           topic: request.topic, turnId, runId: ack.response.run_id,
+          workspaceId: request.topic.startsWith("workspace:") ? request.topic.slice("workspace:".length) : null,
           workId: body.work_id, sessionId: body.session_id, since: message.at,
         };
+        if (nonEmpty(identity.workspaceId)) scenarioScopes.push(identity);
         terminal = wireTerminal(wire, {
           ...identity, resultPosition: "last", requireWireTerminal: true,
         });
@@ -481,10 +555,22 @@ export function verify(dir, sliceIdArg) {
     previousCheckpoint = scenario.id;
   }
 
+  const providerRuns = scenarioScopes.flatMap((scope) => readProviderRuns(dir, {
+    run_id: scope.runId, workspace_id: scope.workspaceId, work_id: scope.workId,
+    session_id: scope.sessionId, parent_turn_ref: scope.turnId,
+  }));
+  Object.assign(checks, providerEvidenceChecks({
+    config, ready, driverLog, ...wireCommon, providerRuns, scenarioScopes,
+    runtimeFacts: config.provider === "splash" ? read(dir, "runtime-facts.json") : null,
+  }));
+  measured.provider_executions = providerRuns.map((row) => ({
+    provider_run_ref: row.id, provider_call_ref: row.provider_call_ref, run_id: row.agent_run_id,
+    provider: row.provider_id, model: row.model, status: row.status, operation: providerOperation(row),
+  }));
+
   // 模型行为证据边界：必须至少有一次真实 provider 调用记录（llm-calls 已由 common 断言）。
   checks.full_matrix = config.full_matrix === true;
-  const llmRecords = logs(path.join(dir, "llm-calls"));
-  checks.real_provider_calls_present = llmRecords.length >= config.scenarios.length;
+  checks.real_provider_calls_present = wireCommon.llmRecords.length >= config.scenarios.length;
   const failurePath = path.join(dir, "failure.json");
   checks.evidence_boundary_no_failure_json =
     !fs.existsSync(failurePath) ||
@@ -506,21 +592,21 @@ export function verify(dir, sliceIdArg) {
     sliceId: SLICE_ID,
     checks,
     measured,
-    provider: "strata",
+    provider: config.provider,
     boundary:
       "真实 macOS Tauri 窗口（嵌入真实前端 + 真实 Phoenix 后端）+ AX/CGEvent 外部驱动 + " +
-      `真实 provider strata（model=${config.model}，单槽，运行后 unload 核验）+ 外部 WS/HTTP 传输代理 + ` +
+      `真实 provider ${config.provider}（model=${config.model}，外部服务只读观察）+ 原生 WS/应用 HTTP 传输代理 + ` +
       "隔离 test DB 完整内容快照；S1/S2/S3/S6 为讨论或条件性 no-op，固定输入不由驱动追加答案。",
     extra: {
       scenario_order: config.scenarios.map((scenario) => scenario.id),
       full_matrix: config.full_matrix,
       model: config.model,
-      strata_endpoint: config.strata_endpoint,
+      endpoint: config.endpoint,
       work_id: config.target.work_id,
       work_title: config.target.work_title,
       run_ref: ready.run_ref,
       ready_at: ready.ready_at,
-      model_lifecycle: { before, after },
+      model_lifecycle: { before, after, ownership: "external", loaded_state: "not_inferred" },
       wait_ledger: common.ledger,
       screenshots: common.ui.screenshots,
     },

@@ -408,7 +408,11 @@ AuthorContentRegistration 的页面核验复用原范围、原字节和来源身
 
 **现役字段和证明。** 局部正文仅使用 modification_scope=target_segments、items[].target_segment_ids 与原 rationale；不引入 paragraph_only、change_reason 或第二候选说明。真实目标与已供材料按操作关联，不把领域 ID 与 observation_ref 直接做字符串集合比较。观察 coverage_note 保留其材料覆盖说明职责，partial 不授信 full；rationale 与 body 的语义一致必须审阅实际结果。确定性测试证明接线、结构、来源与效果，实模 A/B 和当前工作台证明作者意图；B27 退休快照不作本批 Before，B33 当前证据不得继续以词法守卫是否触发代替讨论零候选/零作品写入。历史失败不抹去，缺实际模型/页面/binding 时不签 PASS。
 
-**当前 B33 外部验收消费者。** 复用 native_b33_evidence/drive 与现 authoring_canon_evidence 的完整内容快照比较，S6 改为正常讨论零候选/零作品内容写入；不再消费已退役 discussion_only_violation，也不以只比较表行数证明零写入。已有六条冻结输入及模型配置保持，驱动退役按场景补话和自动选择作者答案，遇到未预注册追问/暂停只记录原始结果并结束该批，不能由驱动纠正模型到达 PASS。discussionEvidenceChecks 是该既有 verifier 内抽出的纯断言函数，首个消费者仍为 verify，用独立内容变更、候选、追问和失败反例校验；不建立第二场景框架、产品开关或模型调用入口。原 B33 历史证据不重写；此证据维护不代替 R08 当前源码的实模 A/B 与原生绑定。
+**当前 B33 外部验收消费者。** 复用 native_b33_evidence/drive 与现 authoring_canon_evidence 的完整内容快照比较，S6 改为正常讨论零候选/零作品内容写入；不再消费已退役 discussion_only_violation，也不以只比较表行数证明零写入。已有六条冻结输入保持；旧批次模型配置与结果只读保留，当前独立批次按下述真实供应商裁决冻结。驱动退役按场景补话和自动选择作者答案，遇到未预注册追问/暂停只记录原始结果并结束该批，不能由驱动纠正模型到达 PASS。discussionEvidenceChecks 是该既有 verifier 内抽出的纯断言函数，首个消费者仍为 verify，用独立内容变更、候选、追问和失败反例校验；不建立第二场景框架、产品开关或模型调用入口。原 B33 历史证据不重写；此证据维护不代替 R08 当前源码的实模 A/B 与原生绑定。
+
+**B33 当前供应商与外部服务边界（R08 恢复前裁决）。** 现役六场输入和顺序保持，旧 Strata 批次原件不改写；当前 R08 批次允许沿已授权的 Splash 受控参数执行。复用现 `native_b33_evidence/drive` 的配置、`scenario_evidence.assertProviderAndWire`、`request_cost_runtime_recipe` 的受控参数及 runtime 事实核验、`strata_lifecycle.readStrataState` 的只读观察；不复制供应商注册、运行配方或模型生命周期控制。执行前的模型声明、实际 ready/runtime 事实、Provider 调用日志、真实请求 URL 及请求中的模型/effort/max_tokens 必须按实际供应商对账；请求 URL 必须来自该实际 endpoint 的原生产路径，缺失或地址错配均不授信；每条真实调用还须通过现执行双引用绑定唯一持久 ProviderRun 与本批真实作者运行，缺失、混绑、错误身份或终态不能靠同供应商计数通过。未观察到的事实不以默认值补成成功。现 B33 配置在首次作者输入前封存实际模型声明、来源引用与预算，驱动和 verifier 共同消费；不得直接借用旧批次源码标签、预算或把该参数组描述为产品默认。`tauri_slice_verify` 只在既有 B33 注册路径复用现 runtime-facts 观察，不新增生产 hook。原生网络帧与 Provider 调用日志分别说明覆盖范围，未采集原始 HTTP/SSE 不声称已经取得。
+
+作者运行的模型服务不属于 B33 进程树：退役 B33 自行请求 Strata unload 及其“loaded 为 null 即成功”的判据，结束只读记录实际 provider/model/endpoint 与可用状态；不得为验收启停、卸载或修改服务配置。开始失败、观察失败或未知状态如实记录；无实际作者效果时不补写 UI completion。新增私有函数/配置字段仅服务现 prepare→driver→verify 消费链，测试归现 `native_b33_evidence.test.mjs`；生产实体、Schema、独立 harness 和第二控制环均为 none。供应商接线修复只解除当前消费者的运行前置，不能代签 R08 实模 A/B 或完整语义矩阵。
 
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 

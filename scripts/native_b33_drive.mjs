@@ -2,14 +2,15 @@
 //
 // 用 macOS AX/CGEvent 操作真实 Tauri 窗口（原生窗口 + 真实 Phoenix 后端 + 嵌入真实前端），
 // 在同一个作品上串行执行 6 个预注册场景（S1→S2→S3→S6→S5→S4），采集 AX/截图/网络帧/
-// app-log/llm-calls/只读 DB 快照，并记录模型生命周期（strata 单槽加载前 + 结束 unload 核验）。
+// app-log/llm-calls/只读 DB 快照；模型服务由作者管理，驱动只记录服务观察，不加载或卸载。
 // 产品代码不读取本文件；驱动只用用户可见语义（输入框/发送/候选卡按钮/采纳按钮）。
 //
 // 用法：node scripts/native_b33_drive.mjs <batch-run-dir>
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import { readJson, sleep } from "./lib/native_ui/driver.mjs";
+import { fileURLToPath } from "node:url";
+import { readJson } from "./lib/native_ui/driver.mjs";
+import { readStrataState } from "./lib/native_ui/strata_lifecycle.mjs";
 import { CARD } from "../frontend/src/lib/copy.ts";
 import { broadcastFrames, requestIdentity, requestReplies } from "./lib/native_ui/scenario_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
@@ -25,18 +26,11 @@ import {
   runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 
-const dir = path.resolve(process.argv[2] ?? "");
-if (!dir) {
-  console.error("usage: node scripts/native_b33_drive.mjs <batch-run-dir>");
-  process.exit(64);
-}
+let dir;
+let harness;
 const EVIDENCE = path.join(ROOT, "scripts/native_b33_evidence.mjs");
 const CONFIG = "native-b33-config.json";
-const harness = new NativeScenarioHarness(dir);
-const TURN_TIMEOUT = 330_000;
-const ACK_TIMEOUT = 60_000;
 const questionEvents = [];
-
 function nowIso() {
   return new Date().toISOString();
 }
@@ -45,78 +39,21 @@ function writeJson(name, value) {
   fs.writeFileSync(path.join(dir, name), JSON.stringify(value, null, 2));
 }
 
-function execText(command, args) {
-  try {
-    return execFileSync(command, args, { encoding: "utf8", timeout: 15_000 });
-  } catch (error) {
-    return `error:${error.message}`;
-  }
-}
-
-const strataBase = (endpoint) => String(endpoint ?? "").replace(/\/v1\/?$/, "");
-
-async function strataState(endpoint) {
-  try {
-    const response = await fetch(`${strataBase(endpoint)}/api/models`);
-    if (!response.ok) return { error: `http_${response.status}` };
-    const body = await response.json();
-    return { mode: body.mode ?? null, current: body.current ?? null, loaded: body.loaded ?? null };
-  } catch (error) {
-    return { error: error.message };
-  }
-}
-
-function lifecycleRecord(endpoint, state) {
-  return {
-    at: nowIso(),
-    provider: "strata",
-    endpoint,
-    lms_ps: execText("lms", ["ps"]),
-    memory: execText("vm_stat", []).split("\n").slice(0, 6).join("\n"),
-    strata_processes: execText("pgrep", ["-fl", "strata"]).split("\n").slice(0, 10).join("\n"),
-    ...state,
+export async function observeExternalModelService(config, { readState = readStrataState } = {}) {
+  const record = {
+    at: nowIso(), provider: config.provider, model: config.model, endpoint: config.endpoint,
+    read_only: true, lifecycle_action: "none", ownership: "external",
   };
-}
-
-async function writeModelBefore(config) {
-  const state = await strataState(config.strata_endpoint);
-  const record = lifecycleRecord(config.strata_endpoint, {
-    loaded_before: state.loaded ?? null,
-    current_before: state.current ?? null,
-    state_before: state,
-  });
-  writeJson("model-lifecycle-before.json", record);
-  return record;
-}
-
-async function cleanupStrata(config, stage) {
-  const endpoint = config.strata_endpoint;
-  let unloadError = null;
+  if (config.provider !== "strata") return {
+    ...record, status: "not_observed", reason: "external_service_lifecycle_not_queried",
+  };
   try {
-    await fetch(`${strataBase(endpoint)}/api/models/unload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    const state = await readState({ endpoint: config.endpoint.replace(/\/v1\/?$/u, "") });
+    return { ...record, status: state.models_ok && state.api_ok && !state.error ? "observed" : "unavailable", state };
   } catch (error) {
-    unloadError = error.message;
+    return { ...record, status: "unavailable", error: error.message };
   }
-  await sleep(1_200);
-  const state = await strataState(endpoint);
-  const after = lifecycleRecord(endpoint, {
-    stage,
-    loaded: state.loaded ?? null,
-    current: state.current ?? null,
-    loaded_after: state.loaded ?? null,
-    unloaded: state.loaded === null && !state.error,
-    unload_error: unloadError,
-    state_after: state,
-    lms_ps_after: execText("lms", ["ps"]),
-  });
-  writeJson("model-lifecycle-after.json", after);
-  return after;
 }
-
 async function sendAuthorInput(text, label, config) {
   await harness.runStep("maintenance", `input_ready:${label}`, () => harness.rawWaitInputReady(label));
   const baselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), text);
@@ -137,7 +74,7 @@ async function sendAuthorInput(text, label, config) {
       const replies = requestReplies(wire, request, message.at);
       if (replies.length > 1) throw new Error(`user_message_ack_ambiguous:${label}`);
       return replies[0] ?? null;
-    }, ACK_TIMEOUT, `ack:${label}`),
+    }, config.budget.ack_timeout_ms, `ack:${label}`),
   );
   const ackBody = frameBody(ack);
   const runId = ackBody?.response?.run_id;
@@ -165,13 +102,13 @@ function runJudgmentEvents(wire, identity) {
   }));
 }
 
-async function waitScenarioTurn(identity, label) {
+async function waitScenarioTurn(identity, label, timeoutMs) {
   const terminal = await harness.runStep("turn", `turn_result:${label}`, () =>
     harness.pollWire(
       (wire) => wireTerminal(wire, {
         ...identity, resultPosition: "last", requireWireTerminal: true,
       }),
-      TURN_TIMEOUT,
+      timeoutMs,
       `${label}:turn_outcome`,
     ),
   );
@@ -193,7 +130,7 @@ function pendingOf(turnResult) {
   return turnResult?.adoption_state?.pending ?? [];
 }
 
-async function adoptPending(turnResult, identity, scenario, baselineAuthorCount) {
+async function adoptPending(turnResult, identity, scenario, baselineAuthorCount, timeoutMs) {
   const label = scenario.id;
   const pending = pendingOf(turnResult);
   if (pending.length !== 1) throw new Error(`pending_target_not_unique:${label}:${pending.length}`);
@@ -227,7 +164,7 @@ async function adoptPending(turnResult, identity, scenario, baselineAuthorCount)
       if (isPendingWaitMiss(error)) return null;
       throw error;
     }
-  }, ACK_TIMEOUT, `${label}:${suffix}`);
+  }, timeoutMs, `${label}:${suffix}`);
   const send = await waitFor((wire) =>
     actionFrame(wire, { topic: identity.topic, since: startedAt, action }), "author_action_sent");
   const ack = await waitFor((wire) =>
@@ -246,12 +183,12 @@ async function runScenario(config, scenario) {
   const label = scenario.id;
   const { message, turnId, runId, identity, baselineAuthorCount } =
     await sendAuthorInput(scenario.input, label, config);
-  const { turnResult, finalKind, questions, terminal } = await waitScenarioTurn(identity, label);
+  const { turnResult, finalKind, questions, terminal } = await waitScenarioTurn(identity, label, config.budget.turn_timeout_ms);
   const pending = pendingOf(turnResult);
   let adoption = null;
   if (scenario.adopt && finalKind === "turn_result") {
     adoption = await harness.runStep("adoption", `adopt:${label}`, () =>
-      adoptPending(turnResult, identity, scenario, baselineAuthorCount),
+      adoptPending(turnResult, identity, scenario, baselineAuthorCount, config.budget.ack_timeout_ms),
     );
   }
   harness.capture(`${label}-after`);
@@ -281,94 +218,61 @@ async function runScenario(config, scenario) {
   };
 }
 
-async function main() {
-  runEvidenceMode(EVIDENCE, "prepare", dir);
-  const config = readJson(path.join(dir, CONFIG));
-  const before = await writeModelBefore(config);
-  harness.log.push({
-    op: "model_lifecycle_before",
-    at: before.at,
-    loaded_before: before.loaded_before,
-  });
-
-  await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
-  await harness.runStep("maintenance", "workbench_ready:initial", () =>
-    harness.rawWaitWorkbenchSettled("initial"),
-  );
-  await ensureWorkSelected(harness, config.target.work_title, "initial");
-  harness.capture("01-workbench");
-  runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
-
+export async function main(artifact) {
+  if (typeof artifact !== "string" || artifact.trim() === "") throw new Error("usage: node scripts/native_b33_drive.mjs <batch-run-dir>");
+  dir = path.resolve(artifact);
+  harness = new NativeScenarioHarness(dir);
   const results = [];
+  let config = null;
+  let before = null;
+  let completed = false;
+  let failureReason = null;
   try {
+    runEvidenceMode(EVIDENCE, "prepare", dir);
+    config = readJson(path.join(dir, CONFIG));
+    before = await observeExternalModelService(config);
+    writeJson("model-lifecycle-before.json", before);
+    await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
+    await harness.runStep("maintenance", "workbench_ready:initial", () => harness.rawWaitWorkbenchSettled("initial"));
+    await ensureWorkSelected(harness, config.target.work_title, "initial");
+    harness.capture("01-workbench");
+    runEvidenceMode(EVIDENCE, "capture", dir, ["start"]);
     for (const scenario of config.scenarios) {
+      if (results.length >= config.budget.max_author_inputs) throw new Error("author_input_budget_exhausted");
       harness.log.push({ op: "scenario_start", id: scenario.id, at: nowIso() });
       const result = await runScenario(config, scenario);
       results.push(result);
-      if (result.final_kind !== "turn_result") {
-        throw new Error(`scenario_not_completed:${scenario.id}:${result.final_kind}`);
-      }
-      harness.log.push({
-        op: "scenario_done",
-        id: scenario.id,
-        at: nowIso(),
-        turn_id: result.turn_id,
-        pending_count: result.pending_count,
-        adopted: Boolean(result.adoption),
-      });
+      if (result.final_kind !== "turn_result") throw new Error(`scenario_not_completed:${scenario.id}:${result.final_kind}`);
+      harness.log.push({ op: "scenario_done", id: scenario.id, at: nowIso(), turn_id: result.turn_id,
+        pending_count: result.pending_count, adopted: Boolean(result.adoption) });
     }
     runEvidenceMode(EVIDENCE, "capture", dir, ["final"]);
     harness.capture("02-final");
-    harness.writeDriverLog("b33-native-driver-log.json", {
-      slice_id: config.slice_id,
-      provider: "strata",
-      model: config.model,
-      strata_endpoint: config.strata_endpoint,
-      work_id: config.target.work_id,
-      work_title: config.target.work_title,
-      scenario_order: config.scenarios.map((scenario) => scenario.id),
-      full_matrix: config.full_matrix,
-      scenarios: results,
-      author_question_events: questionEvents,
-      model_lifecycle_before: before,
-      transport_frames: harness.transport().length,
-    });
-    const after = await cleanupStrata(config, "completed");
-    harness.log.push({ op: "strata_cleanup", at: after.at, unloaded: after.unloaded });
-    harness.writeUiComplete(config.slice_id);
-    console.log(
-      `B33 CP3 原生驱动完成: scenarios=${results.map((result) => result.id).join(",")} ` +
-        `screenshots=${harness.screenshots.length} strata_unloaded=${after.unloaded}`,
-    );
+    completed = true;
   } catch (error) {
-    try {
+    failureReason = error.message;
+    throw error;
+  } finally {
+    if (config) {
+      const after = await observeExternalModelService(config);
+      writeJson("model-lifecycle-after.json", after);
       harness.writeDriverLog("b33-native-driver-log.json", {
-        slice_id: config.slice_id,
-        provider: "strata",
-        model: config.model,
-        strata_endpoint: config.strata_endpoint,
-        work_id: config.target.work_id,
-        work_title: config.target.work_title,
-        scenario_order: config.scenarios.map((scenario) => scenario.id),
-        full_matrix: config.full_matrix,
-        scenarios: results,
-        incomplete: true,
-        failure_reason: error.message,
-        author_question_events: questionEvents,
-        model_lifecycle_before: before,
+        slice_id: config.slice_id, provider: config.provider, model: config.model, endpoint: config.endpoint,
+        budget: config.budget, work_id: config.target.work_id, work_title: config.target.work_title,
+        scenario_order: config.scenarios.map((scenario) => scenario.id), full_matrix: config.full_matrix,
+        scenarios: results, incomplete: !completed, failure_reason: failureReason,
+        author_question_events: questionEvents, model_lifecycle_before: before, model_lifecycle_after: after,
         transport_frames: harness.transport().length,
       });
-    } catch (logError) {
-      harness.log.push({ op: "driver_log_write_failed", reason: logError.message });
     }
-    try {
-      const after = await cleanupStrata(config, "failed");
-      harness.log.push({ op: "strata_cleanup_failed_path", at: after.at, unloaded: after.unloaded });
-    } catch (cleanupError) {
-      harness.log.push({ op: "strata_cleanup_error", reason: cleanupError.message });
-    }
-    throw error;
   }
+  harness.writeUiComplete(config.slice_id);
+  console.log(`B33 原生驱动完成: scenarios=${results.map((result) => result.id).join(",")} provider=${config.provider} screenshots=${harness.screenshots.length}`);
 }
 
-main().catch((error) => harness.fail(error));
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main(process.argv[2]).catch((error) => {
+    if (harness) harness.fail(error);
+    else { console.error(error); process.exitCode = 1; }
+  });
+}
