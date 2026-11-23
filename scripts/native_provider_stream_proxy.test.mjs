@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createProviderStreamProxy } from "./native_provider_stream_proxy.mjs";
 import { verifyStreamCancellationFacts } from "./lib/native_ui/authoring_interleaved_resume_evidence.mjs";
 
@@ -27,9 +29,8 @@ async function setup(t, options = {}) {
     });
   });
   upstream.listen(0, "127.0.0.1"); await once(upstream, "listening");
-  const proxy = await createProviderStreamProxy({
-    upstreamEndpoint: "http://127.0.0.1:" + upstream.address().port + "/v1", artifactDir: dir, ...options,
-  });
+  const upstreamEndpoint = "http://127.0.0.1:" + upstream.address().port + "/v1";
+  const proxy = await createProviderStreamProxy({ upstreamEndpoint, artifactDir: dir, ...options });
   t.after(async () => { await proxy.close(); upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)); fs.rmSync(dir, { recursive: true, force: true }); });
   const control = async (route, data) => {
     const response = await fetch(proxy.ready.control_endpoint + route, data === undefined ? {} :
@@ -37,9 +38,9 @@ async function setup(t, options = {}) {
     const result = await response.json();
     return { status: response.status, ...result };
   };
-  const send = (body = '{ "model":"literal", "stream":true }', headers = {}, suffix = "/chat/completions") => {
+  const send = (body = '{ "model":"literal", "stream":true }', headers = {}, suffix = "/chat/completions", method = "POST") => {
     const received = [];
-    const req = http.request(proxy.ready.endpoint + suffix, { method: "POST", headers });
+    const req = http.request(proxy.ready.endpoint + suffix, { method, headers });
     req.on("error", () => {});
     const response = new Promise(resolve => req.on("response", res => {
       res.on("data", chunk => received.push(chunk)); res.on("error", () => {}); resolve(res);
@@ -51,7 +52,7 @@ async function setup(t, options = {}) {
     for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(r => setTimeout(r, 5)); }
     assert.fail("bounded fixture observation timeout");
   };
-  return { dir, proxy, control, send, requests, wait };
+  return { dir, proxy, control, send, requests, wait, upstreamEndpoint };
 }
 async function arm(f) {
   const registry = await f.control("/registry");
@@ -390,3 +391,237 @@ for (const mode of ["gate", "observe"]) {
     assert.equal(f.requests.length, 1, "关闭不得触发重试或额外上游请求");
   });
 }
+
+function assertBudget(value, maximum, admitted, rejected) {
+  assert.equal(value.max_upstream_requests, maximum);
+  assert.equal(value.upstream_requests_admitted, admitted);
+  assert.equal(value.budget_requests_rejected, rejected);
+}
+
+test("cap在创建上游HTTP请求前同步准入，并发及耗尽重试不得越界", async t => {
+  const f = await setup(t, { mode: "observe", maxUpstreamRequests: 2 });
+  const raw = Buffer.from('{ "model":"literal", "stream":true, "same":"bytes" }\n');
+  const clients = Array.from({ length: 5 }, () => f.send(raw));
+  const responses = await Promise.all(clients.map(client => client.response));
+  assert.deepEqual(responses.map(response => response.statusCode).sort(), [200, 200, 429, 429, 429]);
+  assert.equal(f.requests.length, 2);
+  assertBudget(f.proxy.ready, 2, 0, 0);
+  assertBudget(await f.control("/state"), 2, 2, 3);
+  const bytes = Buffer.concat([content, done]);
+  for (const request of f.requests) { assert.deepEqual(request.body, raw); request.res.end(bytes); }
+  for (const [index, response] of responses.entries()) {
+    if (response.statusCode === 200) await f.wait(() => Buffer.concat(clients[index].received).equals(bytes));
+  }
+  const retry = f.send(raw);
+  assert.equal((await retry.response).statusCode, 429);
+  await f.wait(() => Buffer.concat(retry.received).length > 0);
+  const snapshot = await f.control("/snapshot");
+  assertBudget(snapshot, 2, 2, 4);
+  assert.equal(f.requests.length, 2, "相同输入重试也不退款或额外转发");
+  const denied = snapshot.requests.filter(request => !request.upstream_admitted);
+  assert.equal(denied.length, 4);
+  for (const request of denied) {
+    assert.equal(request.reason, "upstream_request_budget_exhausted");
+    assert.equal(request.cause, "upstream_request_budget_exhausted");
+    assert.equal(request.forwarded, false);
+    assert.equal(request.local_response_status, 429);
+    assert.equal(request.response_status, undefined);
+    assert.ok(request.ended_at);
+    assert.deepEqual(fs.readFileSync(path.join(f.dir, "provider-stream-requests", request.request_id + ".bin")), raw);
+    assert.equal(fs.existsSync(path.join(f.dir, "provider-stream-requests", request.request_id + ".received.bin")), false);
+  }
+  const events = observationEvents(f);
+  assert.equal(events.filter(event => event.event === "upstream_request_admitted").length, 2);
+  assert.equal(events.filter(event => event.event === "request_budget_rejected").length, 4);
+  assertBudget(events.at(-1), 2, 2, 4);
+});
+
+test("GET models消耗同一额度，控制读与非法目标不消耗", async t => {
+  const f = await setup(t, { mode: "observe", maxUpstreamRequests: 1 });
+  for (const route of ["/state", "/snapshot", "/registry"]) assert.equal((await f.control(route)).status, 200);
+  for (const requestPath of ["http://127.0.0.1:1/v1/models", "//127.0.0.1:1/v1/models", "/other"]) {
+    const status = await new Promise((resolve, reject) => {
+      const req = http.request(f.proxy.ready.endpoint, { method: "GET", path: requestPath }, res => {
+        res.resume(); res.on("end", () => resolve(res.statusCode));
+      });
+      req.on("error", reject); req.end();
+    });
+    assert.equal(status, 502);
+  }
+  const client = f.send("", {}, "/models", "GET");
+  await client.response;
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].req.method, "GET");
+  f.requests[0].res.end('{"data":["literal"]}');
+  await f.wait(() => Buffer.concat(client.received).toString() === '{"data":["literal"]}');
+  assert.equal((await f.send().response).statusCode, 429);
+  for (const route of ["/state", "/snapshot", "/registry"]) assert.equal((await f.control(route)).status, 200);
+  assertBudget(await f.control("/state"), 1, 1, 1);
+  assert.equal(f.requests.length, 1);
+  const snapshot = await f.control("/snapshot");
+  assert.equal(snapshot.requests.slice(0, 3).every(request => request.upstream_admitted === false && request.forwarded === false), true);
+});
+
+for (const cause of ["upstream_aborted", "downstream_disconnect"]) {
+  test(cause + " 已准入额度不退，随后重试在本地拒绝", async t => {
+    const f = await setup(t, { mode: "observe", maxUpstreamRequests: 1 });
+    const client = f.send();
+    await client.response;
+    f.requests[0].res.write(content);
+    await f.wait(() => Buffer.concat(client.received).equals(content));
+    if (cause === "upstream_aborted") f.requests[0].res.destroy();
+    else client.req.destroy();
+    await f.wait(() => observationEvents(f).some(event => event.event === "request_closed"));
+    assert.equal((await f.send().response).statusCode, 429);
+    assertBudget(await f.control("/state"), 1, 1, 1);
+    assert.equal(f.requests.length, 1);
+    assert.equal((await f.control("/snapshot")).requests[0].cause, cause);
+  });
+}
+
+test("上游真实429原字节透传，与本地额度429事实分离", async t => {
+  const f = await setup(t, { mode: "observe", maxUpstreamRequests: 1, responseStatus: 429,
+    responseHeaders: { "content-encoding": "gzip", "x-fixture-origin": "upstream" } });
+  const first = f.send();
+  const response = await first.response;
+  const raw = Buffer.from([31, 139, 8, 0, 255, 0, 128]);
+  f.requests[0].res.end(raw);
+  await f.wait(() => Buffer.concat(first.received).equals(raw));
+  assert.equal(response.statusCode, 429);
+  assert.equal(response.headers["content-encoding"], "gzip");
+  assert.equal(response.headers["x-fixture-origin"], "upstream");
+  const retry = f.send();
+  const denied = await retry.response;
+  assert.equal(denied.statusCode, 429);
+  assert.equal(denied.headers["x-fixture-origin"], undefined);
+  await f.wait(() => Buffer.concat(retry.received).length > 0);
+  assert.deepEqual(JSON.parse(Buffer.concat(retry.received)), {
+    error: "upstream_request_budget_exhausted", upstream_admitted: false, forwarded: false,
+  });
+  const snapshot = await f.control("/snapshot");
+  assertBudget(snapshot, 1, 1, 1);
+  assert.equal(snapshot.requests[0].response_status, 429);
+  assert.equal(snapshot.requests[0].local_response_status, undefined);
+  assert.equal(snapshot.requests[0].upstream_admitted, true);
+  assert.equal(snapshot.requests[0].forwarded, true);
+  assert.equal(snapshot.requests[0].delivered_sha256, digest(raw));
+  assert.equal(snapshot.requests[1].response_status, undefined);
+  assert.equal(snapshot.requests[1].local_response_status, 429);
+  assert.equal(f.requests.length, 1);
+});
+
+test("两臂proxy独立持有额度，禁止共享或重置另臂计数", async t => {
+  const arms = await Promise.all([setup(t, { mode: "observe", maxUpstreamRequests: 1 }),
+    setup(t, { mode: "observe", maxUpstreamRequests: 1 })]);
+  for (const f of arms) {
+    const client = f.send();
+    assert.equal((await client.response).statusCode, 200);
+    f.requests[0].res.end(content);
+    await f.wait(() => Buffer.concat(client.received).equals(content));
+    assert.equal((await f.send().response).statusCode, 429);
+    assertBudget(await f.control("/state"), 1, 1, 1);
+    assert.equal(f.requests.length, 1);
+  }
+});
+
+test("capped gate拒绝额外请求但保留已准入暂停流及原取消链", async t => {
+  const f = await setup(t, { maxUpstreamRequests: 1 });
+  await f.control("/window", {});
+  const client = f.send();
+  await f.wait(() => f.requests.length === 1);
+  await arm(f);
+  f.requests[0].res.write(content);
+  await client.response;
+  await f.wait(() => f.proxy.state().gate.paused_at);
+  assert.equal((await f.send().response).statusCode, 429);
+  assert.equal(f.proxy.state().gate.cause, null);
+  assert.equal(f.proxy.state().active_requests.length, 1);
+  client.req.destroy();
+  await f.wait(() => f.proxy.state().gate.upstream_closed);
+  assert.equal((await f.control("/disarm", {})).status, 200);
+  assertBudget(await f.control("/state"), 1, 1, 1);
+  assert.equal(f.requests.length, 1);
+});
+
+for (const mode of ["gate", "observe"]) {
+  test(mode + " 省略cap保持既有无上限透传合同并显式报告null", async t => {
+    const f = await setup(t, { mode });
+    const raw = Buffer.concat([content, done]);
+    for (let index = 0; index < 3; index++) {
+      const client = f.send();
+      assert.equal((await client.response).statusCode, 200);
+      f.requests[index].res.end(raw);
+      await f.wait(() => Buffer.concat(client.received).equals(raw));
+    }
+    assertBudget(f.proxy.ready, null, 0, 0);
+    assertBudget(await f.control("/state"), null, 3, 0);
+    assert.equal(f.requests.length, 3);
+  });
+}
+
+test("API仅接受正安全整数cap，验证在创建文件及监听前完成", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "provider-invalid-cap-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const value of [null, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "2", true]) {
+    await assert.rejects(async () => {
+      const proxy = await createProviderStreamProxy({
+        upstreamEndpoint: "http://127.0.0.1:1/v1", artifactDir: dir, maxUpstreamRequests: value,
+      });
+      await proxy.close();
+    }, /invalid_max_upstream_requests/u);
+  }
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+function startCli(t, upstreamEndpoint, args) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "provider-cli-cap-"));
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./native_provider_stream_proxy.mjs", import.meta.url)),
+    upstreamEndpoint, dir, ...args], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", bytes => { stderr += bytes; });
+  const closed = once(child, "close");
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    await closed;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  return { dir, child, closed, stderr: () => stderr };
+}
+
+test("CLI显式cap实际限制HTTP，ready和state与参数一致", async t => {
+  const f = await setup(t, { mode: "observe" });
+  const cli = startCli(t, f.upstreamEndpoint, ["observe", "--max-upstream-requests", "1"]);
+  const readyPath = path.join(cli.dir, "provider-stream-ready.json");
+  await f.wait(() => fs.existsSync(readyPath) || cli.child.exitCode !== null);
+  assert.equal(fs.existsSync(readyPath), true, cli.stderr());
+  const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
+  assertBudget(ready, 1, 0, 0);
+  const first = fetch(ready.endpoint + "/models");
+  await f.wait(() => f.requests.length === 1);
+  f.requests[0].res.end("literal models");
+  assert.equal(await (await first).text(), "literal models");
+  const second = await fetch(ready.endpoint + "/chat/completions", { method: "POST", body: "{}" });
+  assert.equal(second.status, 429);
+  await second.text();
+  assertBudget(await (await fetch(ready.control_endpoint + "/state")).json(), 1, 1, 1);
+  assert.equal(f.requests.length, 1);
+});
+
+test("CLI拒绝缺值、非规范数字、拼错及多余参数，不能忽略参数假装有限额", async t => {
+  const invalid = ["0", "-1", "1.5", "1e3", "", "Infinity", "9007199254740992"]
+    .map(value => ["observe", "--max-upstream-requests", value]);
+  invalid.push(["observe", "--max-upstream-requests"],
+    ["observe", "--max-upstream-request", "1"], ["observe", "--max-upstream-requests", "1", "extra"]);
+  for (const args of invalid) {
+    const cli = startCli(t, "http://127.0.0.1:1/v1", args);
+    const readyPath = path.join(cli.dir, "provider-stream-ready.json");
+    for (let index = 0; index < 200 && cli.child.exitCode === null && !fs.existsSync(readyPath); index++) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.notEqual(cli.child.exitCode, null, "非法参数应在监听前退出：" + JSON.stringify(args));
+    assert.notEqual(cli.child.exitCode, 0);
+    await cli.closed;
+    assert.match(cli.stderr(), /invalid_max_upstream_requests|usage:/u);
+    assert.equal(fs.existsSync(readyPath), false);
+  }
+});

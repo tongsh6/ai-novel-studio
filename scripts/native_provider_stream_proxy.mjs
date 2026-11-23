@@ -41,18 +41,22 @@ function hasContent(record) {
     typeof choice?.delta?.content === "string" && choice.delta.content.length > 0);
 }
 
-export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir, pauseMs = 30000, mode = "gate" }) {
+export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir, pauseMs = 30000, mode = "gate", maxUpstreamRequests }) {
   assert(["gate","observe"].includes(mode), "invalid_proxy_mode");
   const upstreamUrl = new URL(upstreamEndpoint);
   assert(["http:", "https:"].includes(upstreamUrl.protocol) && !upstreamUrl.username &&
     !upstreamUrl.password && !upstreamUrl.search && !upstreamUrl.hash, "unsafe_upstream_endpoint");
   assert(Number.isInteger(pauseMs) && pauseMs > 0 && pauseMs <= 30000, "invalid_pause_bound");
+  assert(maxUpstreamRequests === undefined || (Number.isSafeInteger(maxUpstreamRequests) && maxUpstreamRequests > 0),
+    "invalid_max_upstream_requests");
   fs.mkdirSync(path.join(artifactDir, "provider-stream-requests"), {recursive:true});
-  let sequence = 0;
-  const log = (entry) => fs.appendFileSync(path.join(artifactDir, "provider-stream.jsonl"), JSON.stringify({at:now(), sequence:++sequence, ...entry})+"\n");
+  let sequence = 0, admitted = 0, rejected = 0;
+  const budget = () => ({max_upstream_requests:maxUpstreamRequests ?? null,
+    upstream_requests_admitted:admitted,budget_requests_rejected:rejected});
+  const log = (entry) => fs.appendFileSync(path.join(artifactDir, "provider-stream.jsonl"), JSON.stringify({at:now(), sequence:++sequence, ...entry,...budget()})+"\n");
   const entries = [], live = new Map(), sockets = new Set(), upstreamClosures = [];
   let window = null, gate = null, disarmed = false, closing = false;
-  const state = () => ({ mode, window, gate, disarmed, active_requests:[...live.keys()] });
+  const state = () => ({ mode, window, gate, disarmed, active_requests:[...live.keys()],...budget() });
   const counters = io => ({
     received_bytes:io.receivedBytes, delivered_bytes:io.deliveredBytes,
     received_sha256:io.received.copy().digest("hex"), delivered_sha256:io.delivered.copy().digest("hex"),
@@ -87,7 +91,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
       const requestId = "request-" + (entries.length + 1);
       entry = { request_id:requestId, method:req.method, path:req.url.startsWith("/") && !req.url.startsWith("//") ? req.url.split(/[?#]/u)[0] : "[rejected-origin]", received_at:now(),
         request_sha256:hash(raw), window_id:window?.id ?? null, first_content_at:null, ended_at:null,
-        upstream_ended:false, cause:null };
+        upstream_ended:false, cause:null, upstream_admitted:false, forwarded:false };
       fs.writeFileSync(path.join(artifactDir, "provider-stream-requests", requestId+".bin"), raw);
       entries.push(entry); log({event:"request_registered",...entry});
       assert(req.url.startsWith("/") && !req.url.startsWith("//"), "request_must_be_origin_form");
@@ -95,6 +99,16 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
       assert(target.origin === upstreamUrl.origin, "foreign_upstream_origin");
       // Only route the original configured API prefix, never arbitrary destinations.
       assert(target.pathname === upstreamUrl.pathname || target.pathname.startsWith(upstreamUrl.pathname.replace(/\/$/u,"")+"/"), "foreign_api_path");
+      if (maxUpstreamRequests !== undefined && admitted >= maxUpstreamRequests) {
+        rejected += 1;
+        entry.reason = entry.cause = "upstream_request_budget_exhausted";
+        entry.local_response_status = 429; entry.ended_at = now();
+        log({event:"request_budget_rejected",...entry});
+        return json(res,429,{error:entry.reason,upstream_admitted:false,forwarded:false});
+      }
+      // Reserve synchronously before request creation; errors and cancellation never refund admission.
+      admitted += 1; entry.upstream_admitted = true;
+      log({event:"upstream_request_admitted",...entry});
       const outgoing = (upstreamUrl.protocol === "https:" ? https : http).request(target, {
         method:req.method, headers:{...req.headers,host:upstreamUrl.host},
       });
@@ -207,6 +221,9 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
         finish(entry, closing ? "cleanup" : "downstream_disconnect");
       });
       outgoing.end(raw);
+      // Handoff to Node HTTP is observable; vendor receipt or execution is not inferred.
+      entry.forwarded = true;
+      log({event:"upstream_request_forwarded",request_id:requestId,upstream_admitted:true,forwarded:true});
     } catch (error) {
       log({event:"request_error",request_id:entry?.request_id,error:error.message});
       if (entry && live.has(entry.request_id)) finish(entry,"request_error");
@@ -251,7 +268,7 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
   });
   await listen(server); await listen(control);
   const ready = {mode,pid:process.pid,endpoint:address(server)+upstreamUrl.pathname.replace(/\/$/u,""),
-    control_endpoint:address(control),upstream_endpoint:upstreamEndpoint};
+    control_endpoint:address(control),upstream_endpoint:upstreamEndpoint,...budget()};
   fs.writeFileSync(path.join(artifactDir,"provider-stream-ready.json.tmp"),JSON.stringify(ready));
   fs.renameSync(path.join(artifactDir,"provider-stream-ready.json.tmp"),path.join(artifactDir,"provider-stream-ready.json"));
   return {ready,state,close:async () => {
@@ -263,7 +280,15 @@ export async function createProviderStreamProxy({ upstreamEndpoint, artifactDir,
   }};
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [upstreamEndpoint,artifactDir,mode = "gate"] = process.argv.slice(2);
-  const proxy = await createProviderStreamProxy({upstreamEndpoint,artifactDir,mode});
+  const [upstreamEndpoint,artifactDir,mode="gate",...budgetArgs] = process.argv.slice(2);
+  assert(upstreamEndpoint && artifactDir && (budgetArgs.length === 0 ||
+    (budgetArgs.length === 2 && budgetArgs[0] === "--max-upstream-requests")),
+    "usage: native_provider_stream_proxy.mjs UPSTREAM ARTIFACT_DIR [gate|observe [--max-upstream-requests N]]");
+  let maxUpstreamRequests;
+  if (budgetArgs.length) {
+    assert(/^[1-9][0-9]*$/u.test(budgetArgs[1]),"invalid_max_upstream_requests");
+    maxUpstreamRequests = Number(budgetArgs[1]);
+  }
+  const proxy = await createProviderStreamProxy({upstreamEndpoint,artifactDir,mode,maxUpstreamRequests});
   for (const signal of ["SIGTERM","SIGINT"]) process.once(signal,()=>void proxy.close());
 }
