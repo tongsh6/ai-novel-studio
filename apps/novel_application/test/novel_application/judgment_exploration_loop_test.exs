@@ -381,7 +381,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     observation = Enum.find(tool_message.blocks, &(&1.type == "observation"))
     assert observation.next_offset == 6000
     assert observation.coverage["continuation_hint"] =~ "未读 6001–7000 字符"
-    assert observation.coverage["continuation_hint"] =~ "chapter_read + 上一页【续读】"
+    hint = observation.coverage["continuation_hint"]
+    assert hint =~ "chapter_read"
+    assert hint =~ "coverage.chapter_ref"
+    assert hint =~ "next_offset"
+    refute hint =~ "【续读】给出的 query"
+    refute hint =~ Jason.encode!(%{chapter_ref: chapter_ref, offset: 6000})
     assert chapter_ref in observation.source_refs
     assert observation.versions == versions
     assert observation.content["observation_ref"] == page1_observation_ref

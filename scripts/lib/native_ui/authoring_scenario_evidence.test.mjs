@@ -55,8 +55,10 @@ const observationPayload = ({
     call_id: callId,
     status: "ok",
     next_offset: nextOffset,
-    content: { query, summary: summary ?? `读取 ${query}` },
+    content: { tool: "chapter_read", query, summary: summary ?? `已读 ${offset + 1}–${nextOffset} 字符` },
     source_refs: sourceRefs,
+    versions: { "draft:chapter-1": 1 },
+    coverage: { chapter_ref: chapterRef, prose_range: { start: offset + 1, end: nextOffset }, prose_total_chars: 18000 },
   };
 };
 
@@ -68,26 +70,50 @@ const observationMessage = (payload) => ({
 });
 const assistantCall = (call) => ({ role: "assistant", tool_calls: [call] });
 
+const continuationScope = (chapterRef = "chapter-1", total = 18000) => scopeWireMessage({
+  operation: {
+    exploration: {
+      allowed: true,
+      tools: ["chapter_read"],
+      budget: {
+        "open?": true, "normal_open?": false, "continuation_open?": true,
+        "continuation_only?": true, total: 2,
+        continuation: {
+          tool: "chapter_read", chapter_ref: chapterRef, next_offset: 6000,
+          read_end: 6000, total,
+        },
+      },
+    },
+  },
+}, { versions: { scope_revision: 2, change_reason: "exploration_observed" } });
+
+const readingCall = (payload) => assistantCall({
+  id: payload.call_id,
+  function: {
+    name: "judgment_decision",
+    arguments: JSON.stringify({
+      action: "explore", explore_request: { tool: "chapter_read", query: payload.content.query },
+    }),
+  },
+});
+
 function nativeBodies() {
   const first = observationPayload({ callId: "call-1", offset: 0, nextOffset: 6000 });
   const second = observationPayload({ callId: "call-2", offset: 6000, nextOffset: 12000 });
-  first.content = {
-    ...first.content,
-    summary: `已读至续读查询 ${second.content.query}`,
-  };
   const third = observationPayload({ callId: "call-3", offset: 12000, nextOffset: 18000 });
   const base = { role: "user", content: "【应用数据 · application_base】作品资料" };
-  const tools = [{ type: "function", function: { name: "search" } }];
+  const tools = [{ type: "function", function: { name: "judgment_decision" } }];
   const one = [
     { role: "user", content: "全章核对" },
     base,
-    assistantCall(toolCall("call-1")),
+    readingCall(first),
     observationMessage(first),
+    continuationScope(),
   ];
-  const two = [...one, assistantCall(toolCall("call-2")), observationMessage(second)];
+  const two = [...one, readingCall(second), observationMessage(second)];
   const three = [
     ...two,
-    assistantCall(toolCall("call-3")),
+    readingCall(third),
     observationMessage(third),
     explorationScope(),
   ];
@@ -145,19 +171,13 @@ test("续读查询、章节来源、严格前缀、scope 与 application_base �
     query: JSON.stringify({ offset: 6000, chapter_ref: 7 }),
   };
   notStringChapter[1].messages[notStringChapter[1].messages.length - 1] = observationMessage(continuation);
-  const previousForNumber = { ...JSON.parse(notStringChapter[0].messages.at(-1).content).data, call_id: notStringChapter[0].messages.at(-1).tool_call_id };
+  const previousForNumber = { ...JSON.parse(notStringChapter[0].messages[3].content).data, call_id: notStringChapter[0].messages[3].tool_call_id };
   previousForNumber.content = {
     ...previousForNumber.content,
     summary: `已读至续读查询 ${continuation.content.query}`,
   };
-  notStringChapter[0].messages[notStringChapter[0].messages.length - 1] = observationMessage(previousForNumber);
+  notStringChapter[0].messages[3] = observationMessage(previousForNumber);
   assert.equal(nativeRequestChecks(notStringChapter).checks.continuation_query_is_verbatim, false);
-
-  const summaryMismatch = nativeBodies();
-  const previous = { ...JSON.parse(summaryMismatch[0].messages.at(-1).content).data, call_id: summaryMismatch[0].messages.at(-1).tool_call_id };
-  previous.content = { ...previous.content, summary: "没有回显续读查询" };
-  summaryMismatch[0].messages[summaryMismatch[0].messages.length - 1] = observationMessage(previous);
-  assert.equal(nativeRequestChecks(summaryMismatch).checks.continuation_query_is_verbatim, false);
 
   const foreignSource = nativeBodies();
   const source = { ...JSON.parse(foreignSource[1].messages.at(-1).content).data, call_id: foreignSource[1].messages.at(-1).tool_call_id };
@@ -217,6 +237,105 @@ test("坏观察信封不被当成 observation，非法续读 query 失败而不�
   const { checks } = nativeRequestChecks(invalidQuery);
   assert.equal(checks.continuation_query_is_verbatim, false);
   assert.equal(checks.observation_has_real_chapter_ref, false);
+});
+
+
+test("结构化续读无需摘要回显，原 query 键序和空白保真后仍按同源坐标判定", () => {
+  const bodies = nativeBodies();
+  const query = '{ "chapter_ref": "chapter-1", "offset": 6000 }';
+  const response = bodies[1].messages.find((message) => message.tool_call_id === "call-2");
+  const envelope = JSON.parse(response.content);
+  envelope.data.content.query = query;
+  response.content = JSON.stringify(envelope);
+  const call = bodies[1].messages.find((message) =>
+    message.tool_calls?.some((entry) => entry.id === "call-2")).tool_calls[0];
+  call.function.arguments = JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query } });
+  assert.equal(bodies[0].messages[3].content.includes(query), false);
+  for (const input of [bodies, bodies.map(irBodyFromWire)]) {
+    assert.equal(nativeRequestChecks(input).checks.continuation_query_is_verbatim, true);
+  }
+});
+
+test("摘要回显不能代替调用前实际最近 Scope、真实上一页和原调用", async (t) => {
+  const changeScope = (bodies, mutate) => {
+    const message = bodies[0].messages[4];
+    const lines = message.content.split("\n");
+    const scope = JSON.parse(lines.slice(3).join("\n"));
+    mutate(scope.operation.exploration);
+    message.content = scopeWireMessage(scope, {
+      versions: { scope_revision: 2, change_reason: "exploration_observed" },
+    }).content;
+  };
+  const changeObservation = (bodies, callId, mutate) => {
+    const message = bodies.at(-1).messages.find((entry) => entry.tool_call_id === callId);
+    const envelope = JSON.parse(message.content);
+    mutate(envelope.data);
+    message.content = JSON.stringify(envelope);
+  };
+  const removeScope = (bodies) => {
+    const scope = bodies[0].messages[4];
+    for (const body of bodies) body.messages = body.messages.filter((message) => message !== scope);
+    return scope;
+  };
+  const cases = [
+    ["缺调用前 Scope", (bodies) => { removeScope(bodies); }],
+    ["只在续调用后补正确 Scope", (bodies) => {
+      const scope = removeScope(bodies);
+      for (const body of bodies.slice(1)) {
+        const index = body.messages.findIndex((message) => message.tool_call_id === "call-2");
+        body.messages.splice(index + 1, 0, scope);
+      }
+    }],
+    ["上一页之前的旧 Scope", (bodies) => {
+      const scope = removeScope(bodies);
+      for (const body of bodies) body.messages.splice(2, 0, scope);
+    }],
+    ["最近 Scope 已关闭而旧 Scope 仍开放", (bodies) => {
+      const closed = explorationScope();
+      for (const body of bodies) body.messages.splice(5, 0, closed);
+    }],
+    ["最近 Scope 无探索资格而旧 Scope 仍开放", (bodies) => {
+      const unrelated = scopeWireMessage({ operation: { role: "reply" } });
+      for (const body of bodies) body.messages.splice(5, 0, unrelated);
+    }],
+    ["缺实际产生续调用的请求", (bodies) => { bodies.shift(); }],
+    ["Scope 不允许探索", (bodies) => { changeScope(bodies, (value) => { value.allowed = false; }); }],
+    ["Scope 不允许 chapter_read", (bodies) => { changeScope(bodies, (value) => { value.tools = ["archive_read"]; }); }],
+    ["预算已关闭", (bodies) => { changeScope(bodies, (value) => { value.budget["open?"] = false; }); }],
+    ["续读额度已关闭", (bodies) => { changeScope(bodies, (value) => { value.budget["continuation_open?"] = false; }); }],
+    ["缺结构化 continuation", (bodies) => { changeScope(bodies, (value) => { delete value.budget.continuation; }); }],
+    ["Scope 借另一工具续读资格", (bodies) => { changeScope(bodies, (value) => { value.budget.continuation.tool = "archive_read"; }); }],
+    ["Scope 借另一章节续读资格", (bodies) => { changeScope(bodies, (value) => { value.budget.continuation.chapter_ref = "chapter-other"; }); }],
+    ["Scope 给出的 next_offset 不同", (bodies) => { changeScope(bodies, (value) => { value.budget.continuation.next_offset = 7000; }); }],
+    ["上一页真实覆盖来源不同", (bodies) => { changeObservation(bodies, "call-1", (value) => { value.coverage.chapter_ref = "chapter-other"; }); }],
+    ["上一页没有来源版本", (bodies) => { changeObservation(bodies, "call-1", (value) => { value.versions = {}; }); }],
+    ["续页版本与上一页不同", (bodies) => { changeObservation(bodies, "call-2", (value) => { value.versions = { "draft:chapter-1": 2 }; }); }],
+    ["原调用 query 与观察仅语义相同", (bodies) => {
+      const call = bodies[1].messages.find((message) =>
+        message.tool_calls?.some((entry) => entry.id === "call-2")).tool_calls[0];
+      call.function.arguments = JSON.stringify({
+        action: "explore", explore_request: { tool: "chapter_read", query: '{"chapter_ref":"chapter-1","offset":6000}' },
+      });
+    }],
+    ["原调用不是探索动作", (bodies) => {
+      const call = bodies[1].messages.find((message) =>
+        message.tool_calls?.some((entry) => entry.id === "call-2")).tool_calls[0];
+      call.function.arguments = JSON.stringify({ action: "reply" });
+    }],
+  ];
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const bodies = nativeBodies();
+      const next = JSON.parse(bodies[1].messages.at(-1).content).data;
+      changeObservation(bodies, "call-1", (value) => {
+        value.content.summary += "\n正文中碰巧引用 " + next.content.query;
+      });
+      mutate(bodies);
+      for (const input of [bodies, bodies.map(irBodyFromWire)]) {
+        assert.equal(nativeRequestChecks(input).checks.continuation_query_is_verbatim, false);
+      }
+    });
+  }
 });
 
 // ── 续航/角色请求 ────────────────────────────────────────────────────────────
@@ -588,12 +707,13 @@ test("计划结果把 UI、run、Why、canon 与来源指纹合成为同一套�
 });
 
 test("全章核对只认目录、首页、续页的真实调用与观察闭环，保留零写入等原门", async (t) => {
-  const { chapterRef, decoyRef, draftRef, firstQuery, lastQuery, firstSummary, eventPayloads, observations, calls } = fullReadScenarioFacts();
+  const { chapterRef, decoyRef, draftRef, firstQuery, eventPayloads, observations, calls } = fullReadScenarioFacts();
   const messages = [
     { role: "user", content: "【应用数据 · application_base · 非作者原话】\n只读作品资料。" },
     { role: "user", content: "「灰烬中的手印」这章我怀疑有重复，请把全章核对一遍。" },
     { ...assistantCall(calls[0]), content: "" }, observationMessage(observations[0]),
     { ...assistantCall(calls[1]), content: "" }, observationMessage(observations[1]),
+    continuationScope(chapterRef, 7000),
     { ...assistantCall(calls[2]), content: "" }, observationMessage(observations[2]),
     explorationScope(),
   ];
@@ -601,7 +721,7 @@ test("全章核对只认目录、首页、续页的真实调用与观察闭环�
     type: "function",
     function: { name: "judgment_decision", parameters: { type: "object", properties: { action: { type: "string" } }, required: ["action"] } },
   }];
-  const bodies = [2, 4, 6, 9].map((end) => ({ messages: structuredClone(messages.slice(0, end)), tools }));
+  const bodies = [2, 4, 7, 10].map((end) => ({ messages: structuredClone(messages.slice(0, end)), tools }));
   const explorations = eventPayloads.map((payload, index) => ({
     direction: "received",
     frame: [null, null, "workspace:full-read", "agent_event", {
@@ -701,7 +821,7 @@ test("全章核对只认目录、首页、续页的真实调用与观察闭环�
     ["调用 query 与实际观察不一致", (_events, _results, actualCalls) => {
       actualCalls[2].function.arguments = JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: firstQuery } });
     }],
-    ["续页跨章且 footer 与单页内部均自洽", (events, results, actualCalls) => {
+    ["续页跨章且调用、观察、事件内部一致", (events, results, actualCalls) => {
       const foreignQuery = '{"chapter_ref":"' + decoyRef + '","offset":6000}';
       events[2].frame[4].payload.query = foreignQuery;
       events[2].frame[4].payload.chapter_ref = decoyRef;
@@ -711,8 +831,6 @@ test("全章核对只认目录、首页、续页的真实调用与观察闭环�
       results[2].coverage.chapter_ref = decoyRef;
       results[2].source_refs = [decoyRef];
       actualCalls[2].function.arguments = JSON.stringify({ action: "explore", explore_request: { tool: "chapter_read", query: foreignQuery } });
-      events[1].frame[4].payload.summary = firstSummary.replace(lastQuery, foreignQuery);
-      results[1].content.summary = firstSummary.replace(lastQuery, foreignQuery);
     }],
   ]) {
     await t.test(name, () => {
@@ -724,10 +842,11 @@ test("全章核对只认目录、首页、续页的真实调用与观察闭环�
         ...structuredClone(messages.slice(0, 2)),
         { ...assistantCall(actualCalls[0]), content: "" }, observationMessage(results[0]),
         { ...assistantCall(actualCalls[1]), content: "" }, observationMessage(results[1]),
+        continuationScope(chapterRef, 7000),
         { ...assistantCall(actualCalls[2]), content: "" }, observationMessage(results[2]),
         explorationScope(),
       ];
-      const changedBodies = [2, 4, 6, 9].map((end) => ({ messages: structuredClone(changedMessages.slice(0, end)), tools }));
+      const changedBodies = [2, 4, 7, 10].map((end) => ({ messages: structuredClone(changedMessages.slice(0, end)), tools }));
       const checks = fullReadOutcomeChecks({ ...base, explorations: events, request: nativeRequestChecks(changedBodies) });
       assert.equal(checks.complete_reading_events_are_bound, false);
     });
@@ -802,9 +921,9 @@ test("续读 query 为数组或缺少 content 时失败而不是被条件或吞�
   assert.equal(arrayChecks.continuation_query_is_verbatim, false);
 
   const missingContent = nativeBodies();
-  const previous = { ...JSON.parse(missingContent[0].messages.at(-1).content).data, call_id: missingContent[0].messages.at(-1).tool_call_id };
+  const previous = { ...JSON.parse(missingContent[0].messages[3].content).data, call_id: missingContent[0].messages[3].tool_call_id };
   delete previous.content;
-  missingContent[0].messages[missingContent[0].messages.length - 1] = observationMessage(previous);
+  missingContent[0].messages[3] = observationMessage(previous);
   assert.equal(nativeRequestChecks(missingContent).checks.continuation_query_is_verbatim, false);
 });
 
@@ -946,24 +1065,21 @@ function validationMessage(
 function mixedExchangeBodies() {
   const firstRead = observationPayload({ callId: "read-1", offset: 0, nextOffset: 6000 });
   const secondRead = observationPayload({ callId: "read-2", offset: 6000, nextOffset: 12000 });
-  firstRead.content = {
-    ...firstRead.content,
-    summary: `已读至续读查询 ${secondRead.content.query}`,
-  };
   const base = { role: "user", content: "【应用数据 · application_base】作品资料" };
-  const tools = [{ type: "function", function: { name: "search" } }];
+  const tools = [{ type: "function", function: { name: "judgment_decision" } }];
   const one = [
     { role: "user", content: "全章核对" },
     base,
-    assistantCall(toolCall("read-1")),
+    readingCall(firstRead),
     observationMessage(firstRead),
-  ];
-  const two = [
-    ...one,
     { role: "assistant", content: "先核对判断协议" },
     assistantCall(toolCall("validate-1", "judgment_decision")),
     validationMessage("validate-1"),
-    assistantCall(toolCall("read-2")),
+    continuationScope(),
+  ];
+  const two = [
+    ...one,
+    readingCall(secondRead),
     observationMessage(secondRead),
   ];
   const three = [
@@ -1454,7 +1570,7 @@ test("canonical IR 请求与原生 wire 对同一事实给出相同判据", () =
 
 test("canonical IR 的 scope/provenance 不靠应用数据 marker 推断", () => {
   const ir = nativeBodies().map((body) => irBodyFromWire({ messages: body.messages, tools: body.tools }));
-  const scope = ir.at(-1).messages.find((message) => message.role === "scope_update");
+  const scope = ir.at(-1).messages.findLast((message) => message.role === "scope_update");
   assert.equal(scope.blocks[0].type, "scope");
   assert.equal(Object.hasOwn(scope.blocks[0], "text"), false);
   assert.equal(nativeRequestChecks(ir).checks.latest_scope_closes_exploration, true);

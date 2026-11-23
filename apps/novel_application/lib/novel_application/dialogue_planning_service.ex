@@ -604,7 +604,7 @@ defmodule NovelApplication.DialoguePlanningService do
     if is_map(observation) and is_map(continuation) and
          is_integer(Map.get(continuation, :next_offset)) do
       "\n\n（本章还有未读正文：#{continuation_coverage(continuation)}#{continuation_unread(continuation)}；" <>
-        "下一轮用 chapter_read + 上一页【续读】给出的 query 继续读取；不要重复读取同一页。" <>
+        "下一轮用 chapter_read，按上一页观察的 coverage.chapter_ref 与 next_offset 继续读取；不要换章、跳页或重复读取同一页。" <>
         "未覆盖末页时不得声称已读全章，需继续读取或以明确缺口收束。#{continuation_stage(budget)}）"
     else
       ""

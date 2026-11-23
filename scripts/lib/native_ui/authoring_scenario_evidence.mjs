@@ -173,22 +173,50 @@ function observationsLinkedAndEnough(exchanges, observations) {
   return observations.length >= 2 && exchanges.every((exchange) => exchange.valid);
 }
 
-function hasContinuationQuery(query, previous) {
-  if (!query) return false;
-  return query.offset === previous.next_offset && typeof query.chapter_ref === "string";
+// 续调用必须是前一真实请求之后追加的原调用；不能从未来请求或任意旧 Scope 借资格。
+function continuationRequestContext(exchanges, continuation) {
+  const index = exchanges.findIndex((exchange) =>
+    exchange.responses.some((response) => response.payload === continuation));
+  if (index < 1) return null;
+  const exchange = exchanges[index];
+  const supplied = exchanges[index - 1];
+  const calls = list(exchange.facts.toolCalls).filter((call) => call.callId === continuation.call_id);
+  const call = calls.length === 1 ? calls[0] : null;
+  const previous = supplied.responses.filter((response) => response.type === "observation").at(-1);
+  const scope = list(supplied.facts.scopeMessages).at(-1);
+  const suppliedMessages = list(supplied.facts.messages);
+  if (!exchange.valid || !supplied.valid || !call || !previous || !scope ||
+      call.messageIndex !== suppliedMessages.length || scope.index <= previous.index ||
+      !same(list(exchange.facts.messages).slice(0, call.messageIndex), suppliedMessages)) return null;
+  const argumentsValue = typeof call.arguments === "string" ? parseJson(call.arguments) : call.arguments;
+  return { call, argumentsValue, previous: previous.payload, exploration: scope.scopeContent?.operation?.exploration };
 }
 
-// 调用方已由 continuationFacts 保证 previous/continuation 存在，且 continuation
-// 的 query 能被解析（因此 content 存在）；这里只防御 previous 缺 content 的证据。
-function continuationQueryEchoed(previous, continuation) {
-  if (!previous.content) return false;
-  const summary = previous.content.summary;
-  const echoed = continuation.content.query;
-  return typeof summary === "string" && typeof echoed === "string" && summary.includes(echoed);
-}
-
-function continuationQueryIsVerbatim(previous, continuation, query) {
-  return hasContinuationQuery(query, previous) && continuationQueryEchoed(previous, continuation);
+function continuationQueryIsVerbatim(exchanges, previous, continuation, query) {
+  if (!previous || !continuation || !query || !nonBlankId(query.chapter_ref) ||
+      query.offset !== previous.next_offset) return false;
+  const context = continuationRequestContext(exchanges, continuation);
+  if (!context || !isDeepStrictEqual(context.previous, previous)) return false;
+  const { call, argumentsValue, exploration } = context;
+  const budget = exploration?.budget;
+  const target = budget?.continuation;
+  const chapterRef = query.chapter_ref;
+  return previous.status === "ok" && continuation.status === "ok" &&
+    previous.content?.tool === "chapter_read" && continuation.content?.tool === "chapter_read" &&
+    previous.coverage?.chapter_ref === chapterRef && continuation.coverage?.chapter_ref === chapterRef &&
+    previous.coverage?.prose_range?.end === previous.next_offset &&
+    list(previous.source_refs).includes(chapterRef) && list(continuation.source_refs).includes(chapterRef) &&
+    isObject(previous.versions) && Object.keys(previous.versions).length > 0 &&
+    isDeepStrictEqual(previous.versions, continuation.versions) &&
+    exploration?.allowed === true && list(exploration.tools).includes("chapter_read") &&
+    budget?.["open?"] === true && budget["continuation_open?"] === true &&
+    target?.tool === "chapter_read" && target.chapter_ref === chapterRef &&
+    target.next_offset === previous.next_offset &&
+    target.read_end === previous.coverage.prose_range.end &&
+    target.total === previous.coverage.prose_total_chars &&
+    call.name === "judgment_decision" && argumentsValue?.action === "explore" &&
+    argumentsValue.explore_request?.tool === "chapter_read" &&
+    argumentsValue.explore_request?.query === continuation.content.query;
 }
 
 function chapterRefObserved(continuation, query) {
@@ -250,7 +278,7 @@ export function nativeRequestChecks(input) {
       at_least_three_native_model_calls: factsList.length >= 3 && factsList.every((facts) => facts.ok),
       every_observation_links_original_tool_call: observationsLinkedAndEnough(exchanges, observations),
       continuation_observation_has_next_offset: Boolean(previous && continuation),
-      continuation_query_is_verbatim: continuationQueryIsVerbatim(previous, continuation, query),
+      continuation_query_is_verbatim: continuationQueryIsVerbatim(exchanges, previous, continuation, query),
       observation_has_real_chapter_ref: chapterRefObserved(continuation, query),
       request_messages_keep_strict_prefix: strictRequestPrefix(factsList),
       latest_scope_closes_exploration: scopeClosesExploration(finalScope),

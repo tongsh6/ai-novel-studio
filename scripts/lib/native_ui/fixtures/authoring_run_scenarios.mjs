@@ -157,7 +157,7 @@ export function fullReadScenarioFacts(directoryQuery = "chapters") {
   ].join("\n");
   const firstSummary = "「灰烬中的手印」（第 2 章）\n【计划】追查手印\n【摘要】（尚无章摘要）\n" +
     "【正文】第 1–6000 字符 / 共 7000 字符\n" + "灰".repeat(6000) +
-    "\n【续读】剩余 1000 字符；用 " + lastQuery + " 继续。";
+    "\n【续读】剩余 1000 字符，可继续阅读本章。";
   const lastSummary = "「灰烬中的手印」（第 2 章）\n【正文】第 6001–7000 字符 / 共 7000 字符\n" +
     "烬".repeat(1000 - lastPageAnchor.length) + lastPageAnchor;
   const directoryCoverage = {
