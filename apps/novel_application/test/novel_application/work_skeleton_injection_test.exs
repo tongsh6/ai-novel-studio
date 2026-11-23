@@ -67,6 +67,11 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
   end
 
   defp run(target_ref, snapshot, chapters) do
+    structured = Enum.map(chapters, &%{title: &1, has_prose: true})
+    run(target_ref, snapshot, chapters, structured)
+  end
+
+  defp run(target_ref, snapshot, chapters, structured) do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     complete = fn prompt ->
@@ -85,7 +90,8 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
       work_id: @work,
       assembly_policy: AssemblyPolicy.for_tier(:floor),
       current_work_snapshot: snapshot,
-      current_chapters: chapters
+      current_chapters: chapters,
+      structured_chapters: structured
     }
 
     input = %{
@@ -135,6 +141,51 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
   test "prose_writing + 骨架未立 → 无骨架段（诚实缺席）" do
     prompts = run("prose_writing", %{genre: "赛博修仙"}, ["第1章"])
     refute prompts =~ "全书规划（连载参照）"
+  end
+
+  test "正文与规划只计真实正文，不把第四个空章当成已写" do
+    chapters = ["已写甲", "已写乙", "已写丙", "第07章：空章待写"]
+
+    structured = [
+      %{title: "已写甲", has_prose: true},
+      %{title: "已写乙", has_prose: true},
+      %{title: "已写丙", has_prose: true},
+      %{title: "第07章：空章待写", has_prose: false}
+    ]
+
+    for capability <- ["prose_writing", "plot_outline"] do
+      prompts = run(capability, %{target_length: 140_000}, chapters, structured)
+      assert prompts =~ "当前进度：已写 3 章"
+      refute prompts =~ "当前进度：已写 4 章"
+    end
+  end
+
+  test "显示标题及缺失或非真正文标记都不能证明已写" do
+    chapters = ["有标题甲", "有标题乙", "有标题丙", "有标题丁"]
+
+    structured = [
+      %{title: "有标题甲", has_prose: false},
+      %{title: "有标题乙", has_prose: nil},
+      %{title: "有标题丙", has_prose: "true"},
+      %{title: "有标题丁"}
+    ]
+
+    for facts <- [structured, [], nil] do
+      prompts = run("prose_writing", %{target_length: 140_000}, chapters, facts)
+      assert prompts =~ "当前进度：已写 0 章"
+    end
+  end
+
+  test "大量空计划章不能把正文进度推过收官阈值" do
+    chapters = Enum.map(1..30, &"第#{&1}章")
+    structured = Enum.map(chapters, &%{title: &1, has_prose: false})
+
+    for capability <- ["prose_writing", "plot_outline"] do
+      prompts = run(capability, %{target_length: 28_000}, chapters, structured)
+      assert prompts =~ "当前进度：已写 0 章"
+      assert prompts =~ "不得规划终局/收官/大结局/完结章"
+      refute prompts =~ "已接近目标体量，可开始安排收束章"
+    end
   end
 
   test "未放行能力（character_design）→ 不注入骨架段（登记表门）" do

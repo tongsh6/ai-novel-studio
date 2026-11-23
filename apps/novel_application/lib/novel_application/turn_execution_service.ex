@@ -1496,9 +1496,9 @@ defmodule NovelApplication.TurnExecutionService do
     (action[:target_ref] || action[:capability_name]) == "plot_outline"
   end
 
-  # VS-00G CP3：规划期全书骨架段+收官守则（仅 plot_outline）。已写章数用当前章列表长度
-  # 近似（含计划章，作规模信号）；无 target_length 时空段（诚实缺席，R6 负债催办）。
-  # CA04 G1：正文与规划共用骨架事实与收官守则口径；正文向不含分卷守则（规划指令）。
+  # VS-00G / CA04：正文与规划共用已写进度及收官守则，正文向不含分卷规划指令。
+  # R08：与使命供给同口径，只计结构化事实中确有正文的章；标题和计划章不证明已写。
+  # 无 target_length 时空段（诚实缺席，R6 负债催办）。
   defp work_skeleton_section(action, context, volume_scope) do
     if CarryRegistry.carries?(:work_skeleton, capability_name(action)) do
       snapshot = work_skeleton_snapshot(context)
@@ -1530,9 +1530,9 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp work_skeleton_snapshot(_context), do: %{}
 
-  defp work_skeleton_written_count(%DialogueContext{current_chapters: chapters})
+  defp work_skeleton_written_count(%DialogueContext{structured_chapters: chapters})
        when is_list(chapters),
-       do: length(chapters)
+       do: Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
 
   defp work_skeleton_written_count(_context), do: 0
 
