@@ -90,10 +90,17 @@ defmodule NovelApplication.ProseExecutionBriefTraceTest do
   end
 
   defp run(target_chapter, scene_plans, chapter_emotion \\ "紧张") do
-    complete = fn _prompt ->
+    {:ok, agent} = Agent.start_link(fn -> [] end)
+
+    complete = fn prompt ->
+      call_index =
+        Agent.get_and_update(agent, fn calls -> {length(calls) + 1, [prompt | calls]} end)
+
       {:ok,
        %{
-         provider_call_id: "pc-b11c-trace",
+         provider_call_id: "pc-b11c-trace-#{call_index}",
+         provider_call_ref: "pc-b11c-trace-#{call_index}",
+         provider_run_ref: "prun-b11c-trace-#{call_index}",
          content:
            Jason.encode!(%{
              items: [

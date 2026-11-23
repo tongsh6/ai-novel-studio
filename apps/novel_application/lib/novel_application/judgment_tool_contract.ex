@@ -1,11 +1,12 @@
 defmodule NovelApplication.JudgmentToolContract do
   @moduledoc "B26：固定判断工具 schema 与同源字段校验，合法对象在派发前另行验证。"
 
+  alias NovelApplication.AuthoringTaskPolicy
   alias NovelApplication.JudgmentDecisionToolContract
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
 
-  @version "b26-tools-v7"
+  @version "b26-tools-v8"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
@@ -220,9 +221,12 @@ defmodule NovelApplication.JudgmentToolContract do
   end
 
   defp gap do
+    guidance = AuthoringTaskPolicy.capability_gap_guidance()
+
     tool(
       "report_capability_gap",
-      "所需效果不在本轮可用操作目录时必须用它说明缺失效果与最近可行路径；不派发近似工具，也不以 ask_author 代替。",
+      "所需效果不在本轮可用操作目录时必须用它说明缺失效果；不派发近似工具，也不以 ask_author 代替。\n" <>
+        guidance,
       %{
         dialogue_goal: @text,
         missing_effect: @text,
@@ -230,7 +234,7 @@ defmodule NovelApplication.JudgmentToolContract do
           Map.put(
             @text,
             :description,
-            "能力缺口的作者说明，说明当前目标缺少的效果及最近可行路径，不把建议说成已执行。"
+            "能力缺口的作者说明，说明当前目标缺少的效果，不把建议说成已执行。\n" <> guidance
           ),
         alternative_operation_refs: @strings
       },

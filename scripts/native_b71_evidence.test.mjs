@@ -30,6 +30,7 @@ import {
   streamPreviewRecords,
 } from "./lib/native_ui/fixtures/native_b71_stream_preview_facts.mjs";
 import { streamPreviewFixtureSpec } from "./lib/native_ui/fixtures/native_b71_stream_preview_io_fixture.mjs";
+import { driveBehavior } from "./native_b71_behavior_drive.mjs";
 
 let runScope;
 
@@ -100,6 +101,82 @@ function planningFixture() {
   }
   return { bodies, messages, planVersion: 2, replans: 1, providerCalls: 4 };
 }
+
+function planningResponseRejectionFixture() {
+  const fixture = planningFixture();
+  const refs = { provider_call_ref: "pcall-planning-rejected", provider_run_ref: "prun-planning-rejected" };
+  const block = {
+    type: "validation_result", status: "failed", reason_code: "native_tool_call_required",
+    detail: { message: "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n请使用现有计划工具。" },
+    retryable: true, budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 1 } },
+  };
+  const source = { role: "assistant", provenance: "model", ...refs,
+    blocks: [{ type: "text", text: "  这是一份尚未调用工具的首稿。\r\n" }] };
+  const notice = { role: "application_notice", provenance: "application", ...refs, blocks: [block] };
+  const envelope = {
+    ok: false,
+    data: { type: block.type, status: block.status, reason_code: block.reason_code, detail: block.detail },
+    error_code: block.reason_code, message: block.detail.message,
+    retryable: true, observation_ref: null, budget_after: block.budget_after,
+  };
+  const wirePair = [
+    { role: "assistant", content: source.blocks[0].text },
+    { role: "user", content: "【应用数据 · application_notice · 非作者原话】\n" + JSON.stringify(envelope) },
+  ];
+  // 首次请求真的产生失败响应；重试及后续四阶段完整带回这份事实。
+  const initialRequest = structuredClone(fixture.bodies[0]);
+  for (const body of fixture.bodies) body.messages.splice(1, 0, ...structuredClone(wirePair));
+  fixture.bodies.unshift(initialRequest);
+  fixture.providerCalls = 5;
+  fixture.messages[0].provenance = "author";
+  fixture.messages[0].source_refs = [{ ref: "author-planning-r08" }];
+  fixture.messages.splice(1, 0, source, notice);
+  const owner = { workspace_id: "ws-planning", work_id: "work-planning", session_id: "session-planning",
+    run_id: "run-planning", parent_turn_ref: "author-planning-r08" };
+  fixture.messages.forEach((message, index) => {
+    message.provenance ??= message.role === "tool" ? "tool_result" : "model";
+    message.canonical_ref = { ...owner, run_sequence: index + 1, run_status: "completed" };
+  });
+  return fixture;
+}
+
+test("R08 planning response rejection: 第五次真实调用可读，固定四调用场景仍明确预算失败", () => {
+  const fixture = planningResponseRejectionFixture();
+  const original = structuredClone(fixture);
+  let result;
+  assert.doesNotThrow(() => { result = planningProtocolEvidence(fixture); });
+  assert.equal(result.measured.request_count, 5);
+  assert.equal(result.measured.provider_calls, 5);
+  assert.deepEqual(result.measured.canonical_calls, [
+    { id: "call-0", name: "agent_plan_draft" },
+    { id: "call-1", name: "agent_plan_revision" },
+    { id: "call-2", name: "submit_tentative_artifact" },
+    { id: "call-3", name: "submit_tentative_artifact" },
+  ]);
+  assert.equal(result.checks.canonical_exchanges_closed, true);
+  assert.equal(result.checks.plan_validation_does_not_authorize_execution, true);
+  assert.equal(result.checks.provider_budget_matches_requests, false);
+  assert.equal(result.checks.canonical_history_matches_requests, false);
+  assert.equal(result.checks.planning_request_prefix, false);
+  assert.deepEqual(fixture, original);
+});
+
+test("R08 planning response rejection: 错绑或重复typed回执不能按非工具消息跳过校验", () => {
+  for (const mutate of [
+    fixture => { fixture.messages[2].provider_run_ref = "another-provider-run"; },
+    fixture => { fixture.messages.splice(3, 0, structuredClone(fixture.messages[2])); },
+  ]) {
+    const fixture = planningResponseRejectionFixture();
+    mutate(fixture);
+    assert.throws(() => planningProtocolEvidence(fixture), /invalid_planning_evidence/);
+  }
+});
+
+test("R08 planning response rejection: 原生tool结果缺call_id仍失败，不把缺失当作响应回执", () => {
+  const fixture = planningFixture();
+  delete fixture.messages[2].blocks[0].call_id;
+  assert.throws(() => planningProtocolEvidence(fixture), /invalid_planning_evidence/);
+});
 
 test("计划→重规划→两个独立创作请求保持历史并逐call闭合", () => {
   const { checks } = planningProtocolEvidence(planningFixture());
@@ -892,4 +969,144 @@ test("流式预览只接受终局之前、owning topic 上的增量", async (t) 
   ]) {
     await rejectsStreamPreview(t, mutate, /writer|增量|topic/);
   }
+});
+function behaviorDriverFixture({ status = "completed", changedSession = false } = {}) {
+  const events = [];
+  const frames = [];
+  const rows = new Map();
+  const config = {
+    journey: "behavior", provider: "splash", slice_id: "b71-first-consumer",
+    target: { work_id: "work-driver", session_id: "session-driver", work_title: "冻结作品" },
+    budget: { author_sends: 2, manual_retries: 0, input_timeout_ms: 120000, turn_timeout_ms: 360000 },
+    steps: [
+      { case_id: "step-first", journey_id: "journey-unit", sequence: 0, expression: "同一段作者原文。", expected: {} },
+      { case_id: "step-second", journey_id: "journey-unit", sequence: 1, expression: "同一段作者原文。", expected: {} },
+    ],
+  };
+  let index = 0;
+  const harness = {
+    log: [], nowIso: () => "2026-11-23T00:00:00.000Z",
+    runStep: async (kind, label, action) => action(),
+    rawLaunchApp: async () => { events.push({ op: "launch" }); },
+    rawWaitWorkbenchSettled: async () => true,
+    rawTrySelectWork: async (title) => { events.push({ op: "select_work", title }); return true; },
+    rawWaitInputReady: async () => true,
+    rawTypeAndSend: async (text) => {
+      const current = index++;
+      const turnId = `turn-${current}`;
+      const runId = `run-${current}`;
+      const sessionId = changedSession && current === 1 ? "session-foreign" : config.target.session_id;
+      const topic = "workspace:work-driver";
+      const at = `2026-11-23T00:00:${String(current * 10).padStart(2, "0")}.000Z`;
+      const sent = { at, direction: "sent", frame: ["join", `send-${current}`, topic, "user_message",
+        { text, turn_id: turnId, work_id: config.target.work_id, session_id: sessionId }] };
+      const reply = { at, direction: "received", frame: ["join", `send-${current}`, topic, "phx_reply",
+        { status: "ok", response: { turn_id: turnId, run_id: runId } }] };
+      const terminal = { at: at.replace(".000Z", ".100Z"), direction: "received",
+        frame: [null, null, topic, "turn_result", {
+          turn_id: turnId, work_id: config.target.work_id, session_id: sessionId, status: "conversational",
+          agent_run: { run_id: runId, status: current === 0 ? status : "completed" },
+          assistant_message: { text: current === 0 && status === "awaiting_author" ? "请选择一个对象。" : "已记录。" },
+          adoption_state: { pending: [] }, available_actions: [],
+        }] };
+      rows.set(runId, { id: runId, parent_turn_ref: turnId, status: current === 0 ? status : "completed",
+        work_id: config.target.work_id, session_id: sessionId, workspace_id: "work-driver", run_mode: "bounded" });
+      const waiting = current === 0 && ["awaiting_author", "needs_confirmation"].includes(status);
+      if (waiting) {
+        const body = terminal.frame[4];
+        body.author_question = { question_ref: `question-${current}`, run_id: runId,
+          source_turn_ref: turnId, goal_version: 1, question: body.assistant_message.text,
+          options: [], status: "open", provider_call_ref: `pcall-${current}` };
+        body.phase = "awaiting_author";
+        body.next_action = "waiting_for_author";
+        body.available_actions = [{ action_type: "author_choice", enabled: true,
+          question_ref: `question-${current}`, target_ref: runId, source_turn_ref: turnId,
+          expected_goal_version: 1, trace_ref: `pcall-${current}` }];
+      }
+      const runState = { at: at.replace(".000Z", ".200Z"), direction: "received",
+        frame: [null, null, topic, "agent_run_state", { run_id: runId, workspace_id: "work-driver",
+          work_id: config.target.work_id, session_id: sessionId, parent_turn_ref: turnId,
+          status: current === 0 ? status : "completed", goal: { version: 1 } }] };
+      frames.push(sent, reply, terminal, runState);
+      events.push({ op: "send", text, turnId, runId, sessionId });
+      return sent;
+    },
+    ackFor: (wire, sent) => wire.find((entry) => entry.direction === "received" &&
+      entry.frame[3] === "phx_reply" && entry.frame[1] === sent.frame[1] && entry.frame[2] === sent.frame[2]),
+    pollWire: async (predicate) => {
+      const value = predicate(frames);
+      assert(value, "fake-harness 当前真实身份应已有终局证据");
+      return value;
+    },
+    capture: (name) => events.push({ op: "ui_capture", name }),
+    writeDriverLog: (_name, value) => events.push({ op: "driver_log", value }),
+    writeUiComplete: () => events.push({ op: "complete" }),
+    rawAnswerQuestion: async () => { throw new Error("不得自动回答"); },
+    rawAcceptAction: async () => { throw new Error("不得自动采纳"); },
+  };
+  const hooks = {
+    capture: async (name, identity) => events.push({ op: "checkpoint", name, identity }),
+    readRunRow: (identity) => {
+      events.push({ op: "read_run", ...identity });
+      return rows.get(identity.runId) ?? null;
+    },
+    collectModelBehavior: async () => ({ provider_calls: 1, tool_call_count: 0 }),
+    observeWhy: async () => ({ opened: false, reason: "not_observed" }),
+  };
+  return { config, harness, hooks, events };
+}
+
+test("R08 behavior driver 逐步沿冻结顺序发送同文字节并保留不同身份、每步前后快照", async () => {
+  const fixture = behaviorDriverFixture();
+  await driveBehavior(fixture.harness, fixture.config, fixture.hooks);
+  const sends = fixture.events.filter((entry) => entry.op === "send");
+  assert.deepEqual(sends.map((entry) => entry.text), ["同一段作者原文。", "同一段作者原文。"]);
+  assert.deepEqual(sends.map((entry) => entry.turnId), ["turn-0", "turn-1"]);
+  assert.deepEqual(sends.map((entry) => entry.runId), ["run-0", "run-1"]);
+  assert.deepEqual([...new Set(sends.map((entry) => entry.sessionId))], ["session-driver"]);
+  const order = fixture.events.filter((entry) => entry.op === "send" ||
+    (entry.op === "checkpoint" && /^step-\d+-(before|after)$/u.test(entry.name)));
+  assert.deepEqual(order.map((entry) => entry.op === "send" ? entry.turnId : entry.name),
+    ["step-0-before", "turn-0", "step-0-after", "step-1-before", "turn-1", "step-1-after"]);
+  const bound = fixture.events.filter((entry) => entry.op === "read_run");
+  assert(bound.some((entry) => entry.turnId === "turn-0" && entry.runId === "run-0"));
+  assert(bound.some((entry) => entry.turnId === "turn-1" && entry.runId === "run-1"));
+});
+
+test("R08 behavior 中途待答保留真实状态并停止未冻结后继，不把澄清判成失败", async () => {
+  for (const status of ["awaiting_author", "needs_confirmation"]) {
+    const fixture = behaviorDriverFixture({ status });
+    const result = await driveBehavior(fixture.harness, fixture.config, fixture.hooks);
+    assert.equal(result.steps.length, 1);
+    assert.equal(result.steps[0].turn.terminal_status, status);
+    assert.equal(fixture.events.filter((entry) => entry.op === "send").length, 1);
+    assert.equal(fixture.events.some((entry) => entry.op === "complete"), false);
+  }
+});
+
+test("R08 behavior 最后一步合法澄清可采集，awaiting_author不能被改写成completed", async () => {
+  const fixture = behaviorDriverFixture({ status: "awaiting_author" });
+  fixture.config.steps = [fixture.config.steps[0]];
+  fixture.config.budget.author_sends = 1;
+  const result = await driveBehavior(fixture.harness, fixture.config, fixture.hooks);
+  assert.equal(result.steps.length, 1);
+  assert.equal(result.steps[0].turn.terminal_status, "awaiting_author");
+  assert.equal(fixture.events.filter((entry) => entry.op === "send").length, 1);
+});
+
+test("R08 behavior 实际失败或取消停止后继，不自动恢复或补发", async () => {
+  for (const status of ["failed", "cancelled"]) {
+    const fixture = behaviorDriverFixture({ status });
+    await assert.rejects(() => driveBehavior(fixture.harness, fixture.config, fixture.hooks),
+      /failed|cancelled|未完成|终局|停止|失败/u);
+    assert.equal(fixture.events.filter((entry) => entry.op === "send").length, 1);
+    assert.equal(fixture.events.some((entry) => entry.op === "complete"), false);
+  }
+});
+
+test("R08 behavior 同组第二步换session必须停止，不能把另一个会话算连续历史", async () => {
+  const fixture = behaviorDriverFixture({ changedSession: true });
+  await assert.rejects(() => driveBehavior(fixture.harness, fixture.config, fixture.hooks),
+    /session|会话|scope|作用域/u);
+  assert.equal(fixture.events.some((entry) => entry.op === "complete"), false);
 });

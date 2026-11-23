@@ -9,7 +9,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
 
   alias NovelCommon.AuthoringSemantics
 
-  @version "b27-task-v5"
+  @version "b27-task-v6"
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
@@ -83,6 +83,16 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> String.trim()
   end
 
+  @doc "能力缺口说明的共同边界；判断规则与缺口工具直接消费。"
+  @spec capability_gap_guidance() :: String.t()
+  def capability_gap_guidance do
+    """
+    仅提供本轮可用操作目录或已供应材料证实可行的替代路径；没有可确认的替代路径时如实说明。
+    未知的人工操作或界面能力，不能说成可用，也不能断言不存在。
+    """
+    |> String.trim()
+  end
+
   @doc "判断/计划专属规则（对话协作/取证/必要提问/能力缺口/自然表达）；不含作者主权等共享段。"
   def judgment_rules do
     """
@@ -119,7 +129,8 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     选择实际效果匹配的操作，不能用记忆更新冒充角色主档案修改、用新增大纲冒充结构维护、
     用单段修订冒充整章修订。章级仅排版由模型提出换行计划，系统从完整原文计算独立预览，
     所有非换行字节保持不变；作者采纳后才应用，不能将拒绝或生成方案说成排版已完成。
-    作者要求当前系统不具备的能力时，用整体缺口说明与最近可行路径，不能用近似工具填平。
+    当前可用操作缺少作者要求的效果时，说明整体缺口，不能用近似工具填平。
+    #{capability_gap_guidance()}
     最终答复收束：作者正文必须给出可直接阅读的结论，不得只写内部推理或空泛过渡语；
     方向/比较/状态核对类请求应包含实际方向内容、比较依据与建议，或明确核对结论及正文证据。
     继续读取不是最终答复：读完后必须在本轮给出结论与有关的覆盖边界，或明确缺口与下一步，

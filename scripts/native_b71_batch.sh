@@ -138,8 +138,12 @@ if [[ -n "$BEHAVIOR_CASE" ]]; then
     echo "B71_BEHAVIOR_CASE 与 B71_CONFIRMATION_ACTION 不能同时设置" >&2
     exit 64
   fi
-  if [[ "$B71_PROVIDER" != "strata" ]]; then
-    echo "behavior batch 只接受 B71_PROVIDER=strata，实测: $B71_PROVIDER" >&2
+  if [[ "$B71_PROVIDER" == "strata" ]]; then
+    echo "Strata behavior 旧 pilot 入口已退役；请使用已登记的 Splash 冻结预注册" >&2
+    exit 64
+  fi
+  if [[ "$B71_PROVIDER" != "splash" ]]; then
+    echo "behavior batch 只接受 B71_PROVIDER=splash，实测: $B71_PROVIDER" >&2
     exit 64
   fi
   if [[ "$SLICE" != "b71-first-consumer" ]]; then
@@ -185,7 +189,7 @@ if [[ -n "$AUTO_MAINTENANCE" ]]; then
   fi
 fi
 if [[ "$B71_PROVIDER" == "splash" && "$LIVE" == "1" && -z "${B71_LIVE_PREREGISTRATION:-}" ]]; then
-  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（b82-g2 或已登记 R05/WR01/WR02/runtime profile）" >&2
+  echo "Splash live 必须提供冻结的 B71_LIVE_PREREGISTRATION（现登记场景、作者原文与 runtime profile）" >&2
   exit 64
 fi
 if [[ "$AUTO_MAINTENANCE" == "1" ]]; then
@@ -297,7 +301,7 @@ if [[ -e "$DIR" ]]; then
   exit 64
 fi
 
-# B82 冻结输入：仅普通 live 批次可用；启动前只读一次源到 STATE_DIR 快照，
+# 冻结输入：现登记 live/pending/behavior 批次共用；启动前只读一次源到 STATE_DIR 快照，
 # 此后封存只链接同一快照，绝不再读源。判据只在 validatePreregistrationFile 中定义。
 preregistration_check() {
   local scenario_args=()
@@ -338,13 +342,15 @@ strata_precheck_ok() {
 
 LIVE_PREREGISTRATION="${B71_LIVE_PREREGISTRATION:-}"
 OWNED_SEED=""
+OWNED_RUNTIME=""
+PREREG_RECORD=""
 if [[ -n "$LIVE_PREREGISTRATION" ]]; then
   if [[ "$LIVE" != "1" ]]; then
     echo "B71_LIVE_PREREGISTRATION 只用于已登记真实 live 批次" >&2
     exit 64
   fi
-  if [[ "$BEHAVIOR" == "1" || "$AUTO_MAINTENANCE" == "1" || "$CONFIRMATION" == "1" || "$ANSWER_MODE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
-    echo "B71_LIVE_PREREGISTRATION 不能与 behavior/auto-maintenance/confirmation/answer-mode/memory-detail 混用" >&2
+  if [[ "$AUTO_MAINTENANCE" == "1" || "$CONFIRMATION" == "1" || "$ANSWER_MODE" == "1" || "$MEMORY_DETAIL" == "1" ]]; then
+    echo "B71_LIVE_PREREGISTRATION 不能与 auto-maintenance/confirmation/answer-mode/memory-detail 混用" >&2
     exit 64
   fi
   if [[ ! -f "$LIVE_PREREGISTRATION" ]]; then
@@ -355,6 +361,7 @@ if [[ -n "$LIVE_PREREGISTRATION" ]]; then
   PREREG_SNAPSHOT="$(mktemp "$STATE_DIR/prereg-$TAG.XXXXXX")" || exit 1
   cat "$LIVE_PREREGISTRATION" >"$PREREG_SNAPSHOT" || exit 1
   PREREG_RECORD="$(preregistration_check "$PREREG_SNAPSHOT")" || exit 1
+  OWNED_RUNTIME="$(node -e 'console.log(JSON.parse(process.argv[1]).runtime_profile ?? "")' "$PREREG_RECORD")"
   OWNED_SEED="$(node -e 'console.log(JSON.parse(process.argv[1]).seed?.script ?? "")' "$PREREG_RECORD")"
   if [[ -n "$OWNED_SEED" ]]; then
     OWNED_SLICE="$(node -e 'console.log(JSON.parse(process.argv[1]).slice_id)' "$PREREG_RECORD")"
@@ -376,7 +383,14 @@ if [[ -n "$LIVE_PREREGISTRATION" ]]; then
     fi
     export B71_LIVE_INPUT_TIMEOUT_MS="$OWNED_INPUT_TIMEOUT"
     export B71_LIVE_TURN_TIMEOUT_MS="$OWNED_TURN_TIMEOUT"
-    # 启动、AX 与 verify 同处根命令 test_env run --timeout-ms 900000 owned 边界。
+    if [[ "$BEHAVIOR" == "1" ]]; then
+      if [[ -n "${B71_BEHAVIOR_TURN_TIMEOUT_MS:-}" && "$B71_BEHAVIOR_TURN_TIMEOUT_MS" != "$OWNED_TURN_TIMEOUT" ]]; then
+        echo "behavior 等待预算与冻结场景不一致" >&2
+        exit 64
+      fi
+      export B71_BEHAVIOR_TURN_TIMEOUT_MS="$OWNED_TURN_TIMEOUT"
+    fi
+    # 启动、AX 与 verify 仍在根命令按冻结 scenario_seconds 建立的 owned 边界内。
   fi
 fi
 
@@ -426,9 +440,9 @@ fi
 if [[ "$AUTO_MAINTENANCE" == "1" || ( "$LIVE" == "1" && "$B71_PROVIDER" == "splash" ) ]]; then
   if [[ "$AUTO_MAINTENANCE" == "1" ]]; then export B71_AUTO_MAINTENANCE=1; fi
   export TAURI_NATIVE_ARTIFACT_DIR="$DIR"
-  RUNTIME_ENV="$(node --input-type=module - <<'RECIPE'
+  RUNTIME_ENV="$(node --input-type=module - "$OWNED_RUNTIME" <<'RECIPE'
 import { COMPACTION_RUNTIME_PROFILE_ID, runtimeEnvLines } from "./scripts/lib/native_ui/request_cost_runtime_recipe.mjs";
-console.log(runtimeEnvLines(COMPACTION_RUNTIME_PROFILE_ID).join("\n"));
+console.log(runtimeEnvLines(process.argv[2] || COMPACTION_RUNTIME_PROFILE_ID).join("\n"));
 RECIPE
 )" || exit 1
   while IFS= read -r assignment; do export "$assignment"; done <<<"$RUNTIME_ENV"
@@ -437,10 +451,14 @@ fi
 if [[ "$BEHAVIOR" == "1" ]]; then
   # 作者行为覆盖：seed 用 B70 状态夹具（S1–S4 合成样书），输入取冻结 case 原文。
   export B71_BEHAVIOR_CASE="$BEHAVIOR_CASE"
-  BEHAVIOR_STATE="$(node "$ROOT/scripts/author_behavior_live_case.mjs" --case "$BEHAVIOR_CASE" --field state_env)" || {
-    echo "behavior case 读取失败: $BEHAVIOR_CASE" >&2
-    exit 1
+  BEHAVIOR_STATE="$(node -e 'const record=JSON.parse(process.argv[1]);const step=record.steps?.[0];if(record.behavior_case_id!==process.argv[2]||!step?.driver?.state_env)process.exit(1);console.log(step.driver.state_env)' "$PREREG_RECORD" "$BEHAVIOR_CASE")" || {
+    echo "behavior 冻结 steps 缺少同一初态: $BEHAVIOR_CASE" >&2
+    exit 64
   }
+  if [[ -n "${B70_AUTHOR_BEHAVIOR_STATE:-}" && "$B70_AUTHOR_BEHAVIOR_STATE" != "$BEHAVIOR_STATE" ]]; then
+    echo "behavior 初态与冻结 case 不一致" >&2
+    exit 64
+  fi
   export B70_AUTHOR_BEHAVIOR_STATE="$BEHAVIOR_STATE"
   export TAURI_NATIVE_SEED_SCRIPT="scripts/seed_author_behavior_states.exs"
 fi

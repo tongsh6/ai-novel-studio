@@ -21,18 +21,18 @@ import {
 } from "./scenario_evidence.mjs";
 import { DEFAULT_STRATA_MODEL } from "./strata_lifecycle.mjs";
 import { validateAuthorInputs } from "./request_cost_manifest.mjs";
-import { COMPACTION_RUNTIME_PROFILE_ID, assertManifestRuntime, assertRuntimeFacts, getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
+import { COMPACTION_RUNTIME_PROFILE_ID, RUNTIME_PROFILE_ID, assertManifestRuntime, assertRuntimeFacts, expectedRuntimeFacts, getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { referenceLogRows } from "./reference_log_evidence.mjs";
+import { sessionShowCapture } from "./native_http_evidence.mjs";
 import {
   PENDING_FOLLOWUP_MESSAGE,
   PENDING_REVISION_MESSAGE,
   pendingSourceMessage,
 } from "./authoring_pending_evidence.mjs";
 import {
-  PILOT_GROUP_CASE_IDS,
   loadLiveCaseCorpus,
-  selectLiveCase,
+  selectLiveCaseSteps,
 } from "../quality/author_behavior_live_cases.mjs";
 import {
   CONFIRMATION_CHECKPOINTS,
@@ -123,10 +123,10 @@ export function readAutoMaintenanceInputs(dir, config = read(dir, "native-b71-co
   return autoMaintenanceInputs(dir, { config });
 }
 
-export function splashRuntime(dir) {
+export function splashRuntime(dir, profileId = COMPACTION_RUNTIME_PROFILE_ID) {
   const observed = read(dir, "runtime-facts.json");
-  assertRuntimeFacts(observed, COMPACTION_RUNTIME_PROFILE_ID);
-  return { profile: COMPACTION_RUNTIME_PROFILE_ID, observed, facts_sha256: shaFile(path.join(dir, "runtime-facts.json")) };
+  assertRuntimeFacts(observed, profileId);
+  return { profile: profileId, observed, facts_sha256: shaFile(path.join(dir, "runtime-facts.json")) };
 }
 
 
@@ -146,8 +146,34 @@ const R05_FULL_READ_TARGET = Object.freeze({
   work_title: "灰烬手印验证作品", chapter_title: "第2章：灰烬中的手印",
   reading_excerpt: "末页锚点：井底浮现第七枚手印",
 });
-// 作者可见场景唯一登记点；batch、prepare、driver、readConfig 共用，不另建 R06 白名单。
+const BEHAVIOR_SCENARIO_BASE = Object.freeze({
+  mode: "behavior", slice_id: "b71-first-consumer",
+  seed_script: "scripts/seed_author_behavior_states.exs", runtime_profile: RUNTIME_PROFILE_ID,
+});
+// 作者可见场景唯一登记点；行为原话/预期仍只从 corpus 读取，此处仅登记入口与预算。
 const AUTHOR_VISIBLE_SCENARIOS = Object.freeze({
+  "J-R08-SOURCE-HISTORY": {
+    ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F3-R08-HISTORY-SOURCE",
+    budget: Object.freeze({ ...OWNED_SCENARIO_BUDGET, author_sends: 12, scenario_seconds: 1800 }),
+  },
+  "J-R08-QUOTED-REVISION": {
+    ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F3-R08-QUOTED-SOURCE",
+    budget: Object.freeze({ ...OWNED_SCENARIO_BUDGET, author_sends: 4, scenario_seconds: 1200 }),
+  },
+  "J-R08-CONDITION-BRANCH": {
+    ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F3-R08-CONDITION-BRANCH-SOURCE",
+    budget: Object.freeze({ ...OWNED_SCENARIO_BUDGET, author_sends: 3, scenario_seconds: 1200 }),
+  },
+  "J-R08-ASSISTANT-SOURCE": {
+    ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F3-R08-ASSISTANT-REPLY",
+    budget: Object.freeze({ ...OWNED_SCENARIO_BUDGET, author_sends: 2 }),
+  },
+  "J-R08-MISSING-SOURCE": {
+    ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F4-R08-MISSING-SOURCE",
+  },
+  "C-F2-004": { ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F2-004" },
+  "C-F3-R08-SHORT-PAST-SOURCE": { ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F3-R08-SHORT-PAST-SOURCE" },
+  "C-F4-R08-LONG-MISSING-SOURCE": { ...BEHAVIOR_SCENARIO_BASE, case_id: "C-F4-R08-LONG-MISSING-SOURCE" },
   "b87-r08-pending": {
     mode: "pending", slice_id: "b71-authoring-pending",
     seed_script: "scripts/seed_b71_authoring_pending.exs",
@@ -239,7 +265,7 @@ export function validatePreregistrationFile(
   file,
   { dir, provider = "strata",
     model = provider === "splash" ? getRuntimeProfile(COMPACTION_RUNTIME_PROFILE_ID).model : DEFAULT_STRATA_MODEL,
-    requireAuthorVisibleTarget = false, scenarioId = null, b71Live = false } = {},
+    requireAuthorVisibleTarget = false, scenarioId = null, b71Live = false, behaviorCaseId = null } = {},
 ) {
   assert(typeof dir === "string" && dir !== "", "预注册校验缺少批次目录");
   assert(["strata", "splash"].includes(provider), `预注册未知 provider: ${provider}`);
@@ -275,11 +301,6 @@ export function validatePreregistrationFile(
     model,
     `预注册模型必须与冻结模型一致（${model}），实测: ${value.model.model}`,
   );
-  if (provider === "splash") {
-    const profile = assertManifestRuntime(value);
-    assert.equal(profile.id, COMPACTION_RUNTIME_PROFILE_ID, "Splash 必须使用现役 R03 runtime profile");
-    assert(b71Live || (typeof scenarioId === "string" && scenarioId !== ""), "Splash 调用者必须显式绑定 scenarioId");
-  }
   assert(
     Array.isArray(value.scenarios) && value.scenarios.length === 1,
     "预注册 scenarios 必须恰好一项",
@@ -311,18 +332,47 @@ export function validatePreregistrationFile(
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
   if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
   const spec = authorVisibleScenarioSpec(actualScenarioId);
-  if (provider === "splash" && b71Live) {
-    assert(spec?.seed_script, "Splash B71 live 只接受 b82-g2 或已登记的 R05/WR01/WR02 场景");
+  const behavior = spec?.mode === "behavior";
+  let runtimeProfile = null;
+  if (provider === "splash") {
+    const profile = assertManifestRuntime(value);
+    runtimeProfile = spec?.runtime_profile ?? COMPACTION_RUNTIME_PROFILE_ID;
+    assert.equal(profile.id, runtimeProfile, "Splash runtime profile 与冻结场景不符");
+    assert(b71Live || (typeof scenarioId === "string" && scenarioId !== ""), "Splash 调用者必须显式绑定 scenarioId");
+    if (b71Live) assert(spec?.seed_script, "Splash B71 live 只接受已登记场景");
+    if (behavior) {
+      const pressure = expectedRuntimeFacts(profile.id).context_pressure;
+      assert.deepEqual(value.runtime.context_pressure,
+        { window: pressure.window, maintenance_ratio: pressure.maintenance_ratio },
+        "behavior runtime context_pressure 与冻结 profile 不符");
+    }
   }
+  if (behavior && b71Live) assert.equal(behaviorCaseId, spec.case_id,
+    "behavior 预注册需要明确绑定启动 case");
+  if (behaviorCaseId !== null) {
+    assert(behavior, "behavior case 只能绑定已登记的行为预注册");
+    assert.equal(behaviorCaseId, spec.case_id, "behavior 启动 case 与冻结场景不符");
+  }
+  const steps = behavior
+    ? selectLiveCaseSteps(loadLiveCaseCorpus(), spec.case_id, { allowExplore: true })
+    : null;
   const pending = spec?.mode === "pending";
-  const owned = pending || spec?.goal || spec?.mission_kind || (provider === "splash" && actualScenarioId === "b82-g2");  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
-  const authorVisibleTarget = !pending && authorVisibleScenario(actualScenarioId)
+  const owned = pending || behavior || spec?.goal || spec?.mission_kind ||
+    (provider === "splash" && actualScenarioId === "b82-g2");
+  const authorVisibleTarget = !pending && !behavior && authorVisibleScenario(actualScenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
   if (owned) {
     assert.equal(provider, "splash", "冻结场景 provider 必须是 splash");
     assert.equal(scenario.slice_id, spec.slice_id, "冻结场景 slice 绑定不符");
-    if (pending) {
+    if (behavior) {
+      assert.equal(scenario.case_id, spec.case_id, "behavior case 与冻结场景不符");
+      assert.equal(actualScenarioId, steps[0].journey_id ?? steps[0].case_id, "behavior journey/case 身份不符");
+      assert.equal(scenario.message, steps[0].expression, "behavior 首条原文与冻结 case 不符");
+      assert.deepEqual(scenario.steps, steps, "behavior steps 原文、expected、state、sequence 与冻结 corpus 不符");
+      assert.equal(scenario.author_visible_target, undefined, "behavior 目标只由同次 seed 绑定");
+      assert.equal(steps.length, spec.budget.author_sends, "behavior steps 与冻结发送预算不符");
+    } else if (pending) {
       assert(/^[a-f0-9]{16}$/.test(scenario.nonce ?? ""), "pending nonce 必须在启动前冻结为 16 位 hex");
       assert.equal(scenario.message, pendingSourceMessage(scenario.nonce), "pending 作者原文与冻结 nonce 不符");
       assert.equal(scenario.revision_message, PENDING_REVISION_MESSAGE, "pending 修订原文与冻结场景不符");
@@ -335,7 +385,7 @@ export function validatePreregistrationFile(
     }
     assert.equal(scenario.seed?.script, spec.seed_script, "seed 路径与冻结场景不符");
     assert.equal(scenario.seed?.sha256, shaFile(path.join(ROOT, spec.seed_script)), "seed 字节与冻结 SHA 不符");
-    assert.deepEqual(value.budget, spec.budget, `budget 必须绑定 ${spec.budget.author_sends} send/0 retry/900秒 owned 执行`);
+    assert.deepEqual(value.budget, spec.budget, `budget 必须绑定 ${spec.budget.author_sends} send/0 retry/${spec.budget.scenario_seconds}秒 owned 执行`);
   }
   return {
     id: value.id,
@@ -345,6 +395,8 @@ export function validatePreregistrationFile(
     scenario_id: actualScenarioId,
     author_visible_target: authorVisibleTarget,
     ...(owned ? { slice_id: spec.slice_id, seed: scenario.seed, budget: value.budget } : {}),
+    ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}),
+    ...(behavior ? { behavior_case_id: spec.case_id, steps } : {}),
     ...(spec?.goal ? { r05_goal: spec.goal } : {}),
     ...(spec?.mission_kind ? { mission_kind: spec.mission_kind } : {}),
     ...(pending ? { nonce: scenario.nonce, revision_message: scenario.revision_message,
@@ -356,7 +408,7 @@ export function validatePreregistrationFile(
 function checkPreregistration(dir, config) {
   const marker = config.preregistration ?? null;
   const file = path.join(dir, PREREGISTRATION_FILE);
-  if (!marker && !(["live", "pending"].includes(config.journey) && fs.existsSync(file))) return null;
+  if (!marker && !(["live", "pending", "behavior"].includes(config.journey) && fs.existsSync(file))) return null;
   assert(marker, "预注册文件存在但配置缺少 preregistration 标记");
   assert(
     typeof marker === "object" && !Array.isArray(marker),
@@ -369,7 +421,7 @@ function checkPreregistration(dir, config) {
     "native-b71-config.preregistration 缺少冻结模型",
   );
   const record = validatePreregistrationFile(file, { dir, provider: config.provider, model: marker.model,
-    b71Live: true });
+    b71Live: true, behaviorCaseId: config.journey === "behavior" ? config.behavior?.case_id ?? null : null });
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
@@ -377,6 +429,11 @@ function checkPreregistration(dir, config) {
     assert.deepEqual(config.seed, record.seed, "配置 seed 与预注册不一致");
     assert.deepEqual(config.budget, record.budget, "配置 budget 预算与预注册不一致");
     assert.equal(config.slice_id, record.slice_id, "配置 slice 绑定不符");
+  }
+  if (record.steps) {
+    assert.equal(config.journey, "behavior", "冻结 behavior 场景不能借其它 journey 签收");
+    assert.equal(config.behavior?.case_id, record.behavior_case_id, "配置 behavior case 与冻结预注册不一致");
+    assert.deepEqual(config.steps, record.steps, "配置 steps 与冻结预注册不一致");
   }
   if (record.scenario_id === "b87-r08-pending") {
     assert.equal(config.journey, "pending", "冻结 pending 场景不能借其它 journey 签收");
@@ -409,10 +466,20 @@ export function readConfig(dir) {
   // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
   if (sealed.provider === "splash") {
-    assert(["live", "mission", "pending", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
-    assert.deepEqual(sealed.runtime, splashRuntime(dir), "实际 runtime facts 与配置不符");
-    if (["live", "mission", "pending"].includes(sealed.journey)) assert(record, "Splash live/mission/pending 缺少冻结预注册");
+    assert(["live", "mission", "pending", "behavior", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
+    assert.deepEqual(sealed.runtime, splashRuntime(dir, record?.runtime_profile ?? COMPACTION_RUNTIME_PROFILE_ID),
+      "实际 runtime facts 与配置不符");
+    if (["live", "mission", "pending", "behavior"].includes(sealed.journey)) assert(record, "Splash live/mission/pending/behavior 缺少冻结预注册");
+    if (sealed.journey === "behavior") assert(record.steps, "behavior 缺少冻结 steps 预注册");
     if (sealed.journey === "pending") assert.equal(record.scenario_id, "b87-r08-pending", "pending 冻结场景不符");
+  }
+  if (sealed.journey === "behavior") {
+    const steps = selectLiveCaseSteps(loadLiveCaseCorpus(), sealed.behavior?.case_id, { allowExplore: true });
+    assert.deepEqual(sealed.steps, steps, "behavior steps 与冻结 corpus 不一致");
+    assert.equal(sealed.message, steps[0].expression, "behavior 作者输入与冻结 case 不一致");
+    assert(sealed.target?.work_id && sealed.target?.session_id, "behavior 缺少同一初态 work/session");
+    assert.deepEqual(sealed.target, targetFor(dir, { includeSession: true }),
+      "behavior target 与同次 seed work/session 不符");
   }
   if (sealed.journey === "auto-maintenance") {
     assert.equal(sealed.provider, "splash", "R03 auto-maintenance provider 不符");
@@ -456,9 +523,11 @@ function readyFor(dir) {
     ["slice_verify", "streaming_slice_verify", "strata", "splash"].includes(ready.provider),
     `原生批次 provider 必须是 slice_verify/streaming_slice_verify/strata/splash，实测: ${ready.provider}`,
   );
-  // provider=strata 即实模：默认 live（CP3b 协议层）；带 B71_BEHAVIOR_CASE 时切换
-  // behavior journey（B70 作者行为覆盖，输入取冻结 case 原文）。
+  // 实模默认 live；带 B71_BEHAVIOR_CASE 时选择 behavior，输入只取冻结 corpus steps。
   const behaviorCaseId = process.env.B71_BEHAVIOR_CASE ?? null;
+  if (ready.provider === "strata" && behaviorCaseId) {
+    throw new Error("Strata behavior 旧 pilot 入口已退役；请使用已登记的 Splash 冻结预注册");
+  }
   const confirmationMode = process.env.B71_CONFIRMATION_ACTION ?? null;
   const autoMaintenance = process.env.B71_AUTO_MAINTENANCE === "1";
   const memoryDetail = process.env.B71_MEMORY_DETAIL === "1";
@@ -496,7 +565,6 @@ function readyFor(dir) {
     );
     journey = "confirmation";
   } else if (ready.provider === "strata" || ready.provider === "splash") {
-    if (behaviorCaseId) assert.equal(ready.provider, "strata", "behavior provider 必须是 strata");
     journey = behaviorCaseId ? "behavior" : "live";
   } else {
     journey = SLICE_JOURNEYS[ready.slice_id];
@@ -542,21 +610,24 @@ export function prepare(dir) {
   const answerMode = ready.journey === "answer-mode";
   const mission = ready.journey === "mission";
   const missionSpec = mission ? authorVisibleScenarioSpec(ready.slice_id) : null;
-  // B82 冻结输入：只能由普通 live 批次消费批次目录内的同一副本。
+  // 各已登记实模场景消费批次目录内同一冻结副本，不重读外部源或现场编输入。
   const preregistrationFile = path.join(dir, PREREGISTRATION_FILE);
   const hasPreregistration = fs.existsSync(preregistrationFile);
-  const runtime = ready.provider === "splash" ? splashRuntime(dir) : null;
-  if (ready.provider === "splash" && ["live", "mission", "pending"].includes(ready.journey)) {
+  if (ready.provider === "splash" && ["live", "mission", "pending", "behavior"].includes(ready.journey)) {
     assert(hasPreregistration, "Splash live 缺少冻结预注册");
   }
   if (hasPreregistration) {
-    assert(["live", "mission"].includes(ready.journey) || (pending && ready.provider === "splash"),
-      "预注册文件只属于 live/mission 批次或 Splash pending 批次");
+    assert(["live", "mission", "behavior"].includes(ready.journey) || (pending && ready.provider === "splash"),
+      "预注册文件只属于 live/mission/behavior 批次或 Splash pending 批次");
   }
   const preregistration = hasPreregistration
     ? validatePreregistrationFile(preregistrationFile, { dir, provider: ready.provider,
-      model: runtime ? runtime.observed.provider.model : DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget: true,
-      b71Live: !pending, ...(pending ? { scenarioId: "b87-r08-pending" } : {}) })
+      requireAuthorVisibleTarget: true, b71Live: !pending,
+      ...(behavior ? { behaviorCaseId: ready.behavior_case_id } : {}),
+      ...(pending ? { scenarioId: "b87-r08-pending" } : {}) })
+    : null;
+  const runtime = ready.provider === "splash"
+    ? splashRuntime(dir, preregistration?.runtime_profile ?? COMPACTION_RUNTIME_PROFILE_ID)
     : null;
   if (preregistration?.slice_id) assert.equal(ready.slice_id, preregistration.slice_id, "启动 slice 与冻结场景不符");
   if (mission && ready.provider === "slice_verify") {
@@ -570,16 +641,8 @@ export function prepare(dir) {
     : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance || answerMode });
   const nonce = pending ? preregistration?.nonce ?? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
-  let behaviorCase = null;
-  if (behavior) {
-    const caseId = String(ready.behavior_case_id ?? "");
-    assert(
-      PILOT_GROUP_CASE_IDS.includes(caseId),
-      `behavior case 必须是已批准的 pilot 组: ${caseId}`,
-    );
-    behaviorCase = selectLiveCase(loadLiveCaseCorpus(), caseId);
-    write(dir, "behavior-case.json", behaviorCase);
-  }
+  const behaviorSteps = behavior ? preregistration?.steps : null;
+  if (behavior) assert(behaviorSteps, "behavior 预注册缺少完整 steps");
   const inputs = autoMaintenance ? autoMaintenanceInputs(dir, { seal: true }) : null;
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, "native-b71-config.json", {
@@ -601,19 +664,7 @@ export function prepare(dir) {
           },
         }
       : {}),
-    ...(behaviorCase
-      ? {
-          behavior: {
-            case_id: behaviorCase.case_id,
-            target_id: behaviorCase.target_id,
-            state_id: behaviorCase.state_id,
-            split: behaviorCase.split,
-            expression_sha256: behaviorCase.expression_sha256,
-            expected: behaviorCase.expected,
-            persona_id: behaviorCase.persona?.persona_id ?? null,
-          },
-        }
-      : {}),
+    ...(behaviorSteps ? { behavior: { case_id: behaviorSteps[0].case_id }, steps: behaviorSteps } : {}),
     ...(confirmation
       ? { confirmation: { mode: ready.confirmation_mode } }
       : {}),
@@ -630,7 +681,7 @@ export function prepare(dir) {
       : ready.journey === "revision"
         ? ""
         : behavior
-          ? behaviorCase.expression
+          ? behaviorSteps[0].expression
           : answerMode
             ? ANSWER_MODE_REQUEST
             : memoryDetail
@@ -674,11 +725,40 @@ function writeWhyCheckpoint(dir, checkpoint) {
   });
 }
 
-function writeRunCheckpoint(dir, checkpoint, canon, { includeChapterFacts = true, includeWorkFacts = false } = {}) {
+function behaviorStateFacts(dir, target, sessionCapture, sessionCaptureWindow) {
+  assert(target?.work_id && target?.session_id, "behavior state_facts 缺少真实 work/session");
+  const observed = sessionShowCapture([sessionCapture], {
+    workId: target.work_id, sessionId: target.session_id,
+    from: sessionCaptureWindow?.started_at, to: sessionCaptureWindow?.completed_at,
+  });
+  assert(observed.ok, `behavior session capture 无效: ${observed.reason}`);
+  assert.equal(sessionCaptureWindow.body_sha256, observed.record.body_state.sha256,
+    "behavior session capture 原响应 hash 不符");
+  return withDb(dir, (db) => {
+    const memoryCount = Number(all(db, "SELECT COUNT(*) AS c FROM memory_items WHERE work_id = ?",
+      [target.work_id])[0]?.c);
+    assert(Number.isSafeInteger(memoryCount) && memoryCount >= 0, "behavior memory_count 缺少实际计数");
+    return {
+      chapters_rows: all(db, "SELECT * FROM chapters WHERE work_id = ? ORDER BY seq, id", [target.work_id]),
+      drafts_rows: all(db, "SELECT * FROM drafts WHERE work_id = ? ORDER BY id", [target.work_id]),
+      memory_count: memoryCount,
+      pending_artifact_count: observed.pending_artifact_ids.length,
+      pending_artifact_ids: observed.pending_artifact_ids,
+    };
+  });
+}
+
+function writeRunCheckpoint(dir, checkpoint, canon,
+  { includeChapterFacts = true, includeWorkFacts = false, stateTarget = null,
+    sessionCapture = null, sessionCaptureWindow = null } = {}) {
   write(dir, `b71-${checkpoint}.json`, {
     checkpoint,
     db_production_counts: productionTableCounts(dir),
     ...(canon ? { authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts, includeWorkFacts }) } : {}),
+    ...(stateTarget ? {
+      state_facts: behaviorStateFacts(dir, stateTarget, sessionCapture, sessionCaptureWindow),
+      session_capture: sessionCapture, session_capture_window: sessionCaptureWindow,
+    } : {}),
   });
 }
 
@@ -692,7 +772,7 @@ function assertRevisionCheckpointOrder(dir, checkpoint) {
   }
 }
 
-export function capture(dir, checkpoint) {
+export function capture(dir, checkpoint, { sessionCapture = null, sessionCaptureWindow = null } = {}) {
   const config = readConfig(dir);
   const journey = config.journey;
   const mission = journey === "mission";
@@ -703,7 +783,8 @@ export function capture(dir, checkpoint) {
   const autoMaintenance = journey === "auto-maintenance";
   const memoryDetail = journey === "memory-detail";
   const answerMode = journey === "answer-mode";
-  const live = journey === "live" || journey === "behavior";
+  const behavior = journey === "behavior";
+  const live = journey === "live" || behavior;
   const canon = planning || revision || live || confirmation || autoMaintenance || mission;
   if (isWhyCheckpoint(canon, checkpoint)) return writeWhyCheckpoint(dir, checkpoint);
   const allowedCheckpoints = confirmation
@@ -714,16 +795,29 @@ export function capture(dir, checkpoint) {
         ? MEMORY_DETAIL_CHECKPOINTS
         : answerMode
           ? ANSWER_MODE_CHECKPOINTS
-          : RUN_CHECKPOINTS;
+          : behavior
+            ? ["start", ...config.steps.flatMap((_step, index) => [`step-${index}-before`, `step-${index}-after`]), "final"]
+            : RUN_CHECKPOINTS;
   assert(allowedCheckpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   if (checkpoint === "before-revision") {
     assert(revision, "before-revision 只属于修订批次");
   }
   if (revision) assertRevisionCheckpointOrder(dir, checkpoint);
+  if (behavior) {
+    const step = /^step-(\d+)-(before|after)$/u.exec(checkpoint);
+    const previous = step
+      ? step[2] === "after" ? `step-${step[1]}-before`
+        : Number(step[1]) === 0 ? "start" : `step-${Number(step[1]) - 1}-after`
+      : checkpoint === "final" ? "start" : null;
+    if (previous) assert(fs.existsSync(path.join(dir, `b71-${previous}.json`)),
+      `behavior checkpoint ${checkpoint} 必须在 ${previous} 之后采集`);
+  }
   // live/behavior/confirmation 实模：canon 快照只做表级内容签名（不解析章节设计态明细）。
   return writeRunCheckpoint(dir, checkpoint, canon, {
     includeChapterFacts: !(live || confirmation || autoMaintenance),
     includeWorkFacts: mission,
+    stateTarget: behavior ? config.target : null,
+    sessionCapture, sessionCaptureWindow,
   });
 }
 
@@ -738,7 +832,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const record = validatePreregistrationFile(file, { dir, provider,
       scenarioId: scenarioId === "b71-live" ? null : scenarioId,
-      b71Live: scenarioId === "b71-live" });
+      b71Live: scenarioId === "b71-live", behaviorCaseId: process.env.B71_BEHAVIOR_CASE || null });
     console.log(JSON.stringify(record));
   } catch (error) {
     console.error(`[b71-preregistration] ${error.message}`);

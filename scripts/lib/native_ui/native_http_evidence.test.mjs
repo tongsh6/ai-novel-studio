@@ -41,6 +41,17 @@ function capture(overrides = {}) {
   };
 }
 
+
+test("R08 只读指定会话show路径具有明确作用域，不能混用resume或变更动作", () => {
+  const target = { kind: "session_show", work_id: WORK, session_id: SESSION, turn_id: null };
+  const url = `/api/works/${WORK}/sessions/${SESSION}`;
+  assert.deepEqual(httpCaptureTarget("GET", url), target);
+  assert.deepEqual(httpCaptureTarget("GET", url + "/"), target);
+  assert.equal(httpCaptureTarget("POST", url), null);
+  assert.equal(httpCaptureTarget("GET", url + "/activate"), null);
+  assert.equal(httpCaptureTarget("GET", RESUME_PATH).kind, "resume");
+});
+
 test("httpCaptureTarget 只接受明确 GET resume/replay 路径并解析 scope", () => {
   assert.deepEqual(httpCaptureTarget("GET", RESUME_PATH), {
     kind: "resume",

@@ -68,6 +68,35 @@ defmodule NovelDomain.ChapterSummaryTest do
       assert text =~ "（无）"
     end
 
+    @tag :r08_chapter_summary_text_contract
+    test "四栏全部明确（无）是空 sections 的逆变换，不退回整段 plot" do
+      expected_text =
+        "【情节推进】（无）\n" <>
+          "【人物状态与弧光】（无）\n" <>
+          "【伏笔动作】（无）\n" <>
+          "【情绪基调】（无）"
+
+      assert ChapterSummary.render_sections(%{}) == expected_text
+      assert ChapterSummary.parse_sections(expected_text) == %{}
+    end
+
+    @tag :r08_chapter_summary_text_contract
+    test "只识别行首栏目，行内已知或未知标签逐字留在正文" do
+      text = """
+      【情节推进】账页写着“【情绪基调】未定”和“【页码】七”，这些都是正文。
+      【人物状态与弧光】陈九斤仍在守灯。
+      【伏笔动作】湿痕尚未解释。
+      【情绪基调】安静。
+      """
+
+      assert ChapterSummary.parse_sections(text) == %{
+               plot: "账页写着“【情绪基调】未定”和“【页码】七”，这些都是正文。",
+               characters: "陈九斤仍在守灯。",
+               foreshadowing: "湿痕尚未解释。",
+               mood: "安静。"
+             }
+    end
+
     test "four_column? 对普通文本/非字符串为假" do
       refute ChapterSummary.four_column?("一段没有四栏标签的普通文本")
       refute ChapterSummary.four_column?(nil)

@@ -55,7 +55,12 @@ defmodule NovelCommon.RequestIR.Projection.ChatCompletions do
 
   defp project_message(%{role: role} = message)
        when role in ["application_base", "application_notice"] do
-    case Projection.text_of(message.blocks) do
+    text =
+      if role == "application_notice",
+        do: Projection.content_of(message.blocks),
+        else: Projection.text_of(message.blocks)
+
+    case text do
       "" -> []
       text -> [%{role: "user", content: Projection.provenance_header(role) <> text}]
     end

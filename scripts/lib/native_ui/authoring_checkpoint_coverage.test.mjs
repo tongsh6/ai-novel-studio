@@ -42,6 +42,79 @@ function v2Spec(indices = [0, 1, 3]) {
   return spec;
 }
 
+
+function r08RejectedDiscussion() {
+  const spec = discussionMaintenanceFacts();
+  const source = spec.messages[2];
+  const pair = { provider_call_ref: "pcall-real-rejected", provider_run_ref: "prun-real-rejected" };
+  Object.assign(source, pair);
+  const notice = { role: "application_notice", provenance: "application",
+    source_refs: [], versions: {}, ...pair,
+    canonical_ref: { ...source.canonical_ref, run_sequence: 5 },
+    blocks: [{ type: "validation_result", status: "failed", reason_code: "invalid_response_format",
+      detail: { message: "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n请按原要求重做。" },
+      retryable: true, budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 1 } } }] };
+  spec.messages.splice(3, 0, notice);
+  return spec;
+}
+
+test("R08 响应拒收：completed不能使被拒首稿取得讨论覆盖或摘要来源资格", () => {
+  const spec = r08RejectedDiscussion();
+  const before = JSON.stringify(spec);
+  const covered = auditCanonicalCoverage(spec.messages, spec.options);
+  assert.equal(covered.ok, false);
+  assert.deepEqual(covered.retainedMessages, spec.messages);
+  const requested = auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages);
+  assert.equal(requested.ok, false);
+  assert.equal(requested.binding, null);
+  assert.equal(JSON.stringify(spec), before);
+});
+
+test("R08 响应拒收：未压缩时原稿与回执原样保留，零工具仍为零", () => {
+  const spec = r08RejectedDiscussion();
+  const messages = spec.messages.filter(message => message.role !== "checkpoint");
+  const before = JSON.stringify(messages);
+  const result = auditCanonicalCoverage(messages);
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.coveredCallIds, []);
+  assert.deepEqual(result.retainedMessages, messages);
+  assert.equal(JSON.stringify(messages), before);
+});
+
+test("R08 响应拒收：普通notice与旧无回执资料保持未知，不从拒收文字禁摘要", () => {
+  const spec = r08RejectedDiscussion();
+  const notice = spec.messages[3];
+  notice.blocks = [{ type: "text", text: "普通职责通知：这里讨论拒收，不是前文状态。" }];
+  delete notice.provider_call_ref;
+  delete notice.provider_run_ref;
+  assert.equal(auditCanonicalCoverage(spec.messages, spec.options).ok, true);
+  assert.equal(auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages).ok, true);
+  spec.messages.splice(3, 1);
+  assert.equal(auditCanonicalCoverage(spec.messages, spec.options).ok, true);
+  assert.equal(auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages).ok, true);
+});
+
+for (const [name, mutate] of [
+  ["错response引用", rows => { rows[3].provider_call_ref = "other-call"; }],
+  ["跨父turn", rows => { rows[3].canonical_ref.parent_turn_ref = "other-turn"; }],
+  ["跨作品", rows => { rows[3].canonical_ref.work_id = "other-work"; }],
+  ["缺真实response引用", rows => { delete rows[2].provider_run_ref; }],
+  ["重复回执", rows => { rows.splice(4, 0, structuredClone(rows[3])); }],
+  ["跨作者输入", rows => { const author = structuredClone(rows[0]);
+    author.source_refs = [{ ref: "other-author", version: 1 }];
+    author.canonical_ref.run_sequence = 5; rows[3].canonical_ref.run_sequence = 6;
+    rows.splice(3, 0, author); }],
+  ["冒充工具结果", rows => { rows[3].blocks[0].call_id = "fabricated-call"; }],
+]) test("R08 响应拒收：外部覆盖不能因" + name + "而绕过资格证明", () => {
+  const spec = r08RejectedDiscussion();
+  mutate(spec.messages);
+  const messages = spec.messages.filter(message => message.role !== "checkpoint");
+  const result = auditCanonicalCoverage(messages);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.retainedMessages, messages);
+  assert.equal(auditDiscussionRequest(spec.summaryRecord, spec.options.providerRuns[0], spec.messages).ok, false);
+});
+
 test("v2独立完整行片段：原字节、连续与不连续义务，并保持v1历史", () => {
   const spec = v2Spec();
   const audited = auditCanonicalCoverage(spec.messages, spec.options);

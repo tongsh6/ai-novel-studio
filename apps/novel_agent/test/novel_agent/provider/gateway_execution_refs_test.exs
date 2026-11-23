@@ -30,7 +30,7 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
 
         AdapterExecution.materialize_result({:error, error}, ctx)
 
-      valid_response?(text) ->
+      valid_response?(text, prompt) ->
         result = valid_result()
 
         log(
@@ -88,9 +88,26 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsFixtureProvider do
   @impl true
   def projection_target(_state), do: "chat_completions"
 
-  defp valid_response?(text) do
+  defp valid_response?(text, %NovelCommon.RequestIR{messages: messages}) do
     String.contains?(text, "UA01FIXTUREOK") or
-      String.contains?(text, "原生工具响应不符合契约")
+      Enum.any?(messages, fn
+        %{
+          role: "application_notice",
+          provenance: "application",
+          blocks: [
+            %{
+              type: "validation_result",
+              status: "failed",
+              detail: %{"message" => message}
+            }
+          ]
+        }
+        when is_binary(message) ->
+          String.contains?(message, "原生工具响应不符合契约")
+
+        _message ->
+          false
+      end)
   end
 
   defp valid_result do
@@ -296,7 +313,11 @@ defmodule NovelAgent.Provider.GatewayExecutionRefsTest do
         parent_turn_ref: "turn-gateway-execution-refs"
       },
       system: RequestIR.system_envelope(),
-      messages: [RequestIR.message(:user, :author, [RequestIR.text_block(author_text)])],
+      messages: [
+        RequestIR.message(:user, :author, [RequestIR.text_block(author_text)], %{
+          source_refs: [%{ref: "turn-gateway-execution-refs"}]
+        })
+      ],
       tools: [%{name: @tool, input_schema: %{type: "object"}}],
       projection: %{}
     })

@@ -337,22 +337,148 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ "只记录演化事件，不重建主档案"
   end
 
-  test "world_building creation prompt keeps artifact_type-specific domain schema" do
+  @tag :r08_world_body
+  test "world_building creation keeps default domain guidance without requiring prose columns" do
+    for {type, title, dimensions} <- [
+          {:world_setting, "世界设定标题", "设定内容 / 适用范围"},
+          {:foreshadowing_seed, "伏笔标题", "伏笔线索 / 首次出现位置"},
+          {:world_rule_seed, "世界规则标题", "世界规则 / 适用范围"},
+          {:style_rule_seed, "风格规则标题", "风格规则 / 适用文本范围"},
+          {:constraint_seed, "约束标题", "约束内容 / 适用范围"}
+        ] do
+      task =
+        AuthoringTaskFixtures.task(:world_building, %{
+          output_contract:
+            AuthoringTaskFixtures.contract_for(:world_building)
+            |> Map.put(:artifact_type, type)
+        })
+
+      ir = captured_prompt(request("world_building", type, task))
+      prompt = AuthoringTaskFixtures.prompt_text(ir)
+
+      assert_task_prompt(ir, task, "本轮为世界观/设定提案")
+      assert prompt =~ "本次草稿类型：#{type}"
+      assert prompt =~ title
+      assert prompt =~ dimensions
+      assert prompt =~ "本次你承担小说设定与连续性设计助手的角色"
+      refute prompt =~ "逐行包含："
+      refute prompt =~ "缺少上下文支撑的字段写“（待定）”"
+    end
+  end
+
+  @tag :r08_world_body
+  test "R08 新建设定的实际请求尊重明确一句正文，单句与来源说明由原接收门保字节" do
+    words = "生成一条设定候选，正文只放一句话，不加栏目、不扩写；不要保存。"
+    body = "夜航的钟只在满潮时响起一次。"
+    rationale = "这句话由助手拟定，供作者决定是否采纳。"
+    task = AuthoringTaskFixtures.task(:world_building, %{author_words: words, author_goal: words})
+    request = %{request("world_building", :world_setting, task) | creative_brief: words}
+    owner = self()
+
+    execution = %Execution{
+      result_fn: fn ir ->
+        send(owner, {:single_sentence_request, ir})
+
+        {:ok,
+         %{
+           provider_call_ref: "pcall-world-sentence",
+           provider_run_ref: "prun-world-sentence",
+           content: "",
+           tool_calls: [
+             %{
+               id: "world-sentence-call",
+               name: "submit_tentative_artifact",
+               arguments: %{
+                 items: [
+                   %{item_id: "sentence", title: "夜航钟", body: body, rationale: rationale}
+                 ]
+               }
+             }
+           ]
+         }}
+      end
+    }
+
+    assert {%{status: :ok, items: [accepted]}, session} =
+             Real.generate_with_session(request, execution, max_provider_calls: 1)
+
+    assert accepted.body == body
+    assert accepted.rationale == rationale
+    assert session.provider_call_count == 1
+    assert_received {:single_sentence_request, actual}
+    refute_received {:single_sentence_request, _}
+    assert :ok = RequestIR.validate(actual)
+    assert TestProviderPrompt.author_text(actual) == words
+    scope = TestProviderPrompt.scope_content(actual)
+    assert scope["authoring_task"]["kind"] == "world_building"
+    assert scope["authoring_task"]["operation_effect"] == "create_candidate"
+    assert scope["operation"]["revision"] == nil
+    assert scope["operation"]["creative_brief"] == words
+
+    [native] = RequestIR.Tools.tool_specs(actual)
+    item_schema = native.input_schema["properties"]["items"]["items"]
+    assert item_schema["properties"]["body"] == %{"type" => "string", "minLength" => 1}
+    assert item_schema["required"] == ["item_id", "title", "body"]
+
+    instructions = Projection.system_text(actual.system)
+    assert instructions =~ "正文形式与范围服从作者明确要求"
+    assert instructions =~ "不因默认领域维度补栏目或扩写"
+    assert instructions =~ "设定内容 / 适用范围"
+    refute instructions =~ "逐行包含："
+    refute instructions =~ "缺少上下文支撑的字段写“（待定）”"
+  end
+
+  @tag :r08_world_body
+  test "R08 合法单句形式不使作者来源 ref 获得 used_context_refs 资格" do
     task =
       AuthoringTaskFixtures.task(:world_building, %{
-        output_contract:
-          AuthoringTaskFixtures.task(:world_building).output_contract
-          |> Map.put(:artifact_type, :foreshadowing_seed)
+        author_words: "生成一句设定候选，不加栏目，不保存。",
+        author_goal: "生成一句设定候选"
       })
 
-    ir = captured_prompt(request("world_building", "foreshadowing_seed", task))
-    prompt = AuthoringTaskFixtures.prompt_text(ir)
+    body = "旧航标只在无人靠岸时亮起。"
+    author_ref = task.source.ref
 
-    assert_task_prompt(ir, task, "本轮为世界观/设定提案")
-    assert prompt =~ "本次草稿类型：foreshadowing_seed"
-    assert prompt =~ "伏笔标题"
-    assert prompt =~ "伏笔线索 / 首次出现位置"
-    assert prompt =~ "本次你承担小说设定与连续性设计助手的角色"
+    execution = %Execution{
+      result_fn: fn _ir ->
+        {:ok,
+         %{
+           provider_call_ref: "pcall-world-invalid-source",
+           provider_run_ref: "prun-world-invalid-source",
+           content: "",
+           tool_calls: [
+             %{
+               id: "world-invalid-source",
+               name: "submit_tentative_artifact",
+               arguments: %{
+                 items: [%{item_id: "sentence", title: "旧航标", body: body}],
+                 self_report: %{used_context_refs: [author_ref]}
+               }
+             }
+           ]
+         }}
+      end
+    }
+
+    assert {%{status: :error, items: [], errors: [%{code: "used_context_refs_invalid"}]}, session} =
+             Real.generate_with_session(
+               request("world_building", :world_setting, task),
+               execution,
+               max_provider_calls: 1
+             )
+
+    assert session.provider_call_count == 1
+    assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
+    blocks = Enum.flat_map(session.request_ir.messages, & &1.blocks)
+    call = Enum.find(blocks, &(&1.type == "tool_call" and &1.call_id == "world-invalid-source"))
+    arguments = RequestIR.json_value(call.arguments)
+    assert arguments["items"] |> hd() |> Map.fetch!("body") == body
+    assert arguments["self_report"]["used_context_refs"] == [author_ref]
+
+    assert Enum.any?(blocks, fn block ->
+             block.type == "validation_result" and block.call_id == "world-invalid-source" and
+               block.status == "failed" and block.reason_code == "used_context_refs_invalid"
+           end)
   end
 
   test "world_building revision prompt does not reuse new-create template columns" do

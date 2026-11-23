@@ -555,3 +555,102 @@ test("L9 分层反例：派生无真实 pcall / 来源非 model / 已采纳字�
   });
   assert.equal(approvedChanged.checks.mechanism.unadopted_zero_write, false);
 });
+
+function splashMechanism(records, overrides = {}) {
+  return b71LiveModelBehavior({
+    dir: "/tmp/unused",
+    config: { ...config, journey: "behavior", provider: "splash" },
+    llmRecords: records,
+    wire: wire(),
+    startCheckpoint: checkpoint("start"),
+    finalCheckpoint: checkpoint("final"),
+    driverLog: { ...driverLog(), provider: "splash", model: "local/Q4-PLE4" },
+    model: "local/Q4-PLE4",
+    ...overrides,
+  });
+}
+
+test("R08 既有 live 机制直接消费冻结 Splash provider，不借 Strata 调用兜底", () => {
+  const actual = { ...record([system(), appBase(), author(), scope()]), provider: "splash" };
+  const checks = splashMechanism([actual]);
+  assert.deepEqual(checks.failed_mechanism, []);
+  assert.equal(checks.measured.provider, "splash");
+  assert.equal(checks.measured.provider_calls, 1);
+  assert.deepEqual(checks.measured.provider_call_refs, ["pcall_1"]);
+  assert.equal(checks.model, "local/Q4-PLE4");
+  assert.equal(checks.checks.mechanism.author_bytes_exact, true);
+});
+
+test("R08 冻结 Splash 批次只有 Strata 记录时不能取得任何有效调用证明", () => {
+  assert.throws(() => splashMechanism([record([system(), appBase(), author(), scope()])]), /provider|供应商|splash|调用/u);
+});
+
+test("R08 Splash 与原 live 共用作者字节及未采纳零写入硬门", () => {
+  const corrupted = { ...record([system(), appBase(), author(AUTHOR + "被补写"), scope()]), provider: "splash" };
+  const changed = splashMechanism([corrupted], { finalCheckpoint: checkpoint("final", { canonHash: "changed" }) });
+  assert.equal(changed.checks.mechanism.author_bytes_exact, false);
+  assert.equal(changed.checks.mechanism.unadopted_zero_write, false);
+  assert(changed.failed_mechanism.includes("author_bytes_exact"));
+  assert(changed.failed_mechanism.includes("unadopted_zero_write"));
+});
+
+function terminalDecisionRecord() {
+  return { ...record([system(), appBase(), author(), scope()]), provider: "splash",
+    response: { status: 200, usage: { input_tokens: 100, output_tokens: 10 },
+      body: { source: "sse_decoder", tool_calls: [
+        { id: "call-terminal", name: "judgment_decision", arguments: { action: "execute",
+          capability: "prose_writing", dialogue_goal: "生成开场候选", author_reasoning: "按现有正文生成候选。" } },
+      ] } } };
+}
+
+test("R08 真实终局最后工具无后续观察义务时L6未触发，不伪造回流通过", () => {
+  const checks = splashMechanism([terminalDecisionRecord()]);
+  assert.equal(checks.checks.mechanism.observation_reaches_next_request, null);
+  assert(!checks.required_mechanism.includes("observation_reaches_next_request"));
+  assert(!checks.failed_mechanism.includes("observation_reaches_next_request"));
+  assert(checks.not_signed.includes("G2_observation_roundtrip_not_triggered"));
+});
+
+test("R08 缺实际终局时不能只因调用排最后就免除工具闭合证明", () => {
+  const checks = splashMechanism([terminalDecisionRecord()], {
+    wire: [], driverLog: { ...driverLog(), run: { status: "running" } },
+  });
+  assert.equal(checks.checks.mechanism.tool_call_result_binding, false);
+  assert(checks.failed_mechanism.includes("tool_call_result_binding"));
+});
+test("R08 DB停等但尚无公开业务回包时，最后工具不能取得L6豁免", () => {
+  const checks = splashMechanism([terminalDecisionRecord()], {
+    wire: [], driverLog: { ...driverLog(), run: { status: "awaiting_author" } },
+    dbFacts: { agent_run: { id: RUN, parent_turn_ref: TURN, status: "awaiting_author",
+      workspace_id: "test", work_id: "work-live", session_id: "session-live" } },
+  });
+  assert.equal(checks.checks.mechanism.tool_call_result_binding, false);
+  assert.equal(checks.checks.mechanism.observation_reaches_next_request, false);
+  assert(checks.failed_mechanism.includes("tool_call_result_binding"));
+});
+test("R08 question子turn由同run终局绑定，真实发布ask可停等并保留未触发L6", () => {
+  const args = { question: "请选择要续写的章节。", options: [] };
+  const actual = { ...terminalDecisionRecord(), response: { status: 200,
+    usage: { input_tokens: 100, output_tokens: 10 }, body: { source: "sse_decoder",
+      tool_calls: [{ id: "call-question", name: "ask_author", arguments: args }] } } };
+  const questionTurn = `${TURN}:question:one`;
+  const body = { ...turnBody(), turn_id: questionTurn, work_id: "work-live", session_id: "session-live",
+    agent_run: { run_id: RUN, parent_turn_ref: TURN, status: "awaiting_author" },
+    assistant_message: { text: args.question }, adoption_state: { pending: [] },
+    phase: "awaiting_author", next_action: "waiting_for_author",
+    author_question: { question_ref: "question:one", run_id: RUN, source_turn_ref: questionTurn,
+      goal_version: 1, question: args.question, options: [], status: "open", provider_call_ref: "pcall_1" },
+    available_actions: [{ action_type: "author_choice", enabled: true, question_ref: "question:one",
+      target_ref: RUN, source_turn_ref: questionTurn, expected_goal_version: 1, trace_ref: "pcall_1" }] };
+  const checks = splashMechanism([actual], {
+    wire: wire(body), driverLog: { ...driverLog(), run: { status: "awaiting_author" } },
+    dbFacts: { agent_run: { id: RUN, parent_turn_ref: TURN, status: "awaiting_author",
+      workspace_id: "test", work_id: "work-live", session_id: "session-live" },
+      segment_transcript: { messages: [{ role: "assistant", provenance: "model",
+        provider_call_ref: "pcall_1", provider_run_ref: "prun_1",
+        blocks: [{ type: "tool_call", call_id: "call-question", name: "ask_author", arguments: args }] }] } },
+  });
+  assert.equal(checks.checks.mechanism.tool_call_result_binding, true);
+  assert.equal(checks.checks.mechanism.observation_reaches_next_request, null);
+  assert.equal(checks.model_behavior.ask_author, true);
+});

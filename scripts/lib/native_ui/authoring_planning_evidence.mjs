@@ -1,6 +1,6 @@
 // B71：从实际请求与持久 canonical 事实核验计划消费链；本模块无 I/O。
 import { isDeepStrictEqual } from "node:util";
-import { canonicalToolResult, requestFactsFromBody } from "./authoring_request_facts.mjs";
+import { canonicalToolResult, requestFactsFromBody, responseRejectionsOf } from "./authoring_request_facts.mjs";
 const STAGES = Object.freeze([
   "agent_plan_revision",
   "submit_tentative_artifact", "submit_tentative_artifact",
@@ -85,7 +85,7 @@ function parseBody(value, index) {
   };
 }
 
-function parseCanonicalBlock(value, path) {
+function parseCanonicalBlock(value, path, role) {
   const block = requireRecord(value, path);
   requireString(block.type, `${path}.type`);
   if (block.type === "tool_call") {
@@ -93,6 +93,8 @@ function parseCanonicalBlock(value, path) {
     requireString(block.name, `${path}.name`);
   }
   if (["validation_result", "observation"].includes(block.type)) {
+    if (role === "application_notice" && block.type === "validation_result") return block;
+    if (role !== "tool") invalid(path, "a tool result owned by a tool message");
     requireString(block.call_id, `${path}.call_id`);
     requireString(block.status, `${path}.status`);
     return { ...canonicalToolResult(block), detail: optionalRecord(block.detail, `${path}.detail`) };
@@ -105,17 +107,25 @@ function parseCanonicalMessage(value, index) {
   const message = requireRecord(value, path);
   requireString(message.role, `${path}.role`);
   const blocks = requireArray(message.blocks, `${path}.blocks`)
-    .map((block, ordinal) => parseCanonicalBlock(block, `${path}.blocks[${ordinal}]`));
+    .map((block, ordinal) => parseCanonicalBlock(block, `${path}.blocks[${ordinal}]`, message.role));
   return { ...message, blocks };
 }
 
 // 边界只解析一次；调用判定不再用空数组或备用名称掩盖类型错误。
 function parseEvidence(value) {
   const evidence = requireRecord(value, "evidence");
+  const messages = requireArray(evidence.messages, "messages").map(parseCanonicalMessage);
+  const hasResponseReceipt = messages.some(message =>
+    message.role === "application_notice" &&
+      message.blocks.some(block => block.type === "validation_result"));
+  if (hasResponseReceipt &&
+      responseRejectionsOf(messages, optionalRecord(evidence.run, "run")) === null) {
+    invalid("messages", "valid response rejection bindings");
+  }
   return {
     ...evidence,
     bodies: requireArray(evidence.bodies, "bodies").map(parseBody),
-    messages: requireArray(evidence.messages, "messages").map(parseCanonicalMessage),
+    messages,
   };
 }
 
@@ -126,7 +136,9 @@ const canonicalCalls = (messages) => messages.flatMap((message) =>
 );
 
 const canonicalResults = (messages) => messages.flatMap((message) =>
-  message.blocks.filter((block) => ["validation_result", "observation"].includes(block.type)),
+  message.role === "tool"
+    ? message.blocks.filter((block) => ["validation_result", "observation"].includes(block.type))
+    : [],
 );
 
 function requestPrefixPreserved(bodies) {

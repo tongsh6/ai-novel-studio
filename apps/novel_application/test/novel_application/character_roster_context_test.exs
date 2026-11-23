@@ -74,10 +74,13 @@ defmodule NovelApplication.CharacterRosterContextTest do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     complete = fn prompt ->
-      Agent.update(agent, &[prompt | &1])
+      call_index =
+        Agent.get_and_update(agent, fn calls -> {length(calls) + 1, [prompt | calls]} end)
 
       {:ok,
        %{
+         provider_call_ref: "pcall-character-roster-#{call_index}",
+         provider_run_ref: "prun-character-roster-#{call_index}",
          content:
            Jason.encode!([
              %{"item_id" => "c1", "title" => "新角色", "body" => "档案", "rationale" => nil}

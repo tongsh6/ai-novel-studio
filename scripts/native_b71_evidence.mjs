@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { sessionShowCapture } from "./lib/native_ui/native_http_evidence.mjs";
 import { scopeForProviderCall } from "./lib/native_ui/authoring_call_evidence.mjs";
 import {
   LAST_PAGE_ANCHOR,
@@ -231,6 +233,7 @@ export function verifyPlanning(dir) {
   const protocol = planningProtocolEvidence({
     bodies: requestBodiesOf(run.calls.records),
     messages: run.history.transcript.messages,
+    run: run.history.transcript.run,
     planVersion: run.history.record.plan_version,
     replans: run.history.budget.replans,
     providerCalls: run.history.budget.provider_calls,
@@ -592,14 +595,50 @@ function verifyStreamPreview(dir) {
   console.log(JSON.stringify(summary.checks));
 }
 
+
+async function captureBehaviorCheckpoint(dir, checkpoint, config) {
+  const ready = JSON.parse(readTextFile(dir, "native-driver-ready.json"));
+  const origin = new URL(ready.api_url);
+  const ports = ready.owned_ports;
+  assert(origin.protocol === "http:" && origin.hostname === "127.0.0.1" &&
+    Number.isInteger(ports?.backend) && Number(origin.port) === ports.backend,
+  "behavior session capture 缺少同回环后端归属");
+  assert(Number.isInteger(ports.transport) && ports.transport > 0 && ports.transport < 65536,
+    "behavior session capture 缺少已归属 transport 端口");
+  origin.port = String(ports.transport);
+  const { work_id: workId, session_id: sessionId } = config.target;
+  const requestPath = `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}`;
+  const priorRecords = transport(dir).length;
+  const startedAt = new Date().toISOString();
+  const response = await fetch(new URL(requestPath, origin), { method: "GET", signal: AbortSignal.timeout(10_000) });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const completedAt = new Date().toISOString();
+  assert.equal(response.status, 200, "behavior session show HTTP 失败");
+  const records = transport(dir);
+  assert(records.length >= priorRecords, "behavior session capture 原 transport 被截断");
+  const observed = sessionShowCapture(records.slice(priorRecords), {
+    workId, sessionId, from: startedAt, to: completedAt,
+  });
+  assert(observed.ok, `behavior session capture 无效: ${observed.reason}`);
+  const bodyHash = createHash("sha256").update(bytes).digest("hex");
+  assert.equal(observed.record.body_state.sha256, bodyHash, "behavior session capture 原响应字节 hash 不符");
+  assert.deepEqual(JSON.parse(bytes.toString("utf8")), observed.body,
+    "behavior session capture 记录 body 与原响应不符");
+  capture(dir, checkpoint, {
+    sessionCapture: observed.record,
+    sessionCaptureWindow: { started_at: startedAt, completed_at: completedAt, body_sha256: bodyHash },
+  });
+}
+
 const MODES = Object.freeze({
   prepare: (dir) => prepare(dir),
   // 支持一次传多个 checkpoint（cp4b-confirmation-01f 缺陷：final 是第二个参数时被丢弃）。
-  capture: (dir, ...checkpoints) => {
+  capture: async (dir, ...checkpoints) => {
     const config = readConfig(dir);
     assert(checkpoints.length > 0, "capture 需要至少一个 checkpoint");
     for (const checkpoint of checkpoints) {
       if (config.journey === "pending") capturePending(dir, checkpoint);
+      else if (config.journey === "behavior") await captureBehaviorCheckpoint(dir, checkpoint, config);
       else capture(dir, checkpoint);
     }
   },

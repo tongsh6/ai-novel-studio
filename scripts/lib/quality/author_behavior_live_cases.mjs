@@ -118,6 +118,11 @@ export function selectLiveCase(bundle, caseId, { allowExplore = false } = {}) {
       throw caseRecordError(`${caseId}: generated_frozen 必须带 generator/generated_at`);
     }
   }
+  const hasJourney = Object.hasOwn(testCase, "journey_id") || Object.hasOwn(testCase, "sequence");
+  if (hasJourney && (typeof testCase.journey_id !== "string" || testCase.journey_id.trim() === "" ||
+      !Number.isSafeInteger(testCase.sequence) || testCase.sequence < 0)) {
+    throw caseRecordError(`${caseId}: journey_id/sequence 必须共同绑定有序输入`);
+  }
   const stateId = STATE_BY_CASE[caseId] ?? testCase.state_id;
   const state = bundle.stateById.get(stateId);
   if (!state) throw caseRecordError(`${caseId}: 未知 state ${stateId}`);
@@ -145,6 +150,7 @@ export function selectLiveCase(bundle, caseId, { allowExplore = false } = {}) {
     state_id: stateId,
     split: testCase.split,
     tier: testCase.tier ?? null,
+    ...(hasJourney ? { journey_id: testCase.journey_id, sequence: testCase.sequence } : {}),
     provenance: testCase.provenance,
     expression: testCase.expression,
     expression_sha256: sha256(testCase.expression),
@@ -182,6 +188,26 @@ export function selectLiveCase(bundle, caseId, { allowExplore = false } = {}) {
       state_env: stateId,
     },
   };
+}
+
+// 原生连续输入只选择 corpus 的完整顺序；单 case 也消费同一个 steps 数组。
+export function selectLiveCaseSteps(bundle, caseId, options = {}) {
+  const first = selectLiveCase(bundle, caseId, options);
+  if (!first.journey_id) return [first];
+  if (first.sequence !== 0) throw caseRecordError(`${caseId}: journey 必须从 sequence 0 开始`);
+  const rows = [...bundle.caseById.values()]
+    .filter((entry) => entry.journey_id === first.journey_id)
+    .sort((left, right) => left.sequence - right.sequence);
+  const steps = rows.map((entry, index) => {
+    if (entry.sequence !== index) {
+      throw caseRecordError(`${first.journey_id}: steps sequence 必须从 0 连续且不重复`);
+    }
+    return selectLiveCase(bundle, entry.id, options);
+  });
+  if (steps[0]?.case_id !== caseId || steps.some((step) => step.state_id !== first.state_id)) {
+    throw caseRecordError(`${first.journey_id}: steps 必须绑定首 case 和同一初态 state`);
+  }
+  return steps;
 }
 
 export function selectPilotCases(bundle, caseIds = PILOT_CASE_IDS) {

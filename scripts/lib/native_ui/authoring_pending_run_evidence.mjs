@@ -401,7 +401,8 @@ function authorInputBound(phase, record) {
   const text = frameBody(phase.sent)?.text;
   return current.length === 1 && nonBlank(text) &&
     current[0].canonical.text === text && current[0].actual.text === text &&
-    current[0].canonical.sourceRefs.includes(`author_input:${phase.turnId}`);
+    current[0].canonical.sourceRefs.some(source => source !== null && typeof source === "object" &&
+      !Array.isArray(source) && source.ref === phase.turnId);
 }
 
 function phaseAuthorInputBound(phase) {

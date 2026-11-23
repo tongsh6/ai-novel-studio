@@ -112,7 +112,7 @@ defmodule NovelApplication.TranscriptCompaction do
             ) ->
           [candidate]
 
-        MessageCoverage.discussion?(message) and
+        MessageCoverage.discussion?(message, messages, index) and
             not MapSet.member?(
               covered_messages,
               MessageCoverage.key(MessageCoverage.identity(message))
@@ -125,7 +125,7 @@ defmodule NovelApplication.TranscriptCompaction do
     end)
   end
 
-  # 最近 K 在完整时间序列计数；保护集只决定能否覆盖，不改变计数。
+  # 最近 K 在真实工具交换与未被拒收的讨论中计数；拒收原件和回执始终留在历史。
   defp compactable?(%{call_ids: []} = group, messages, owner),
     do: MessageCoverage.eligible?(group, messages, owner)
 

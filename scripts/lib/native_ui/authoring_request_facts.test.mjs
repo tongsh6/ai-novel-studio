@@ -11,6 +11,7 @@ import {
   requestFactsFromBody,
   requestFactsFromRecord,
   requestFactsOf,
+  responseRejectionsOf,
   scopeContentOf,
 } from "./authoring_request_facts.mjs";
 
@@ -45,6 +46,271 @@ function irRecord(body) {
   };
 }
 
+
+
+const rejectionFact = "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n";
+function r08ResponseRejectionFacts(empty = false) {
+  const coordinate = run_sequence => ({ workspace_id: "work-r08", work_id: "work-r08",
+    session_id: "session-r08", run_id: "run-r08", parent_turn_ref: "turn-r08",
+    run_sequence, run_status: "completed" });
+  const pair = { provider_call_ref: "pcall-rejected", provider_run_ref: "prun-rejected" };
+  const original = empty ? "" : "  原始首稿\r\n尚未交付😀\t";
+  const block = { type: "validation_result", status: "failed",
+    reason_code: "invalid_response_format", detail: { message: rejectionFact + "请按原要求重新输出。", original: "原理由" },
+    retryable: true, budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 1 } } };
+  const canonical = [
+    irMessage("user", "author", [{ type: "text", text: "请分析原稿，先别执行。" }],
+      { source_refs: [{ ref: "message-r08-author" }], canonical_ref: coordinate(1) }),
+    irMessage("assistant", "model", empty ? [] : [{ type: "text", text: original }],
+      { ...pair, provider_state: { opaque_ref: "private-thought" }, canonical_ref: coordinate(2) }),
+    irMessage("application_notice", "application", [block], { ...pair, canonical_ref: coordinate(3) }),
+  ];
+  const envelope = { ok: false,
+    data: { type: "validation_result", status: "failed", reason_code: block.reason_code, detail: structuredClone(block.detail) },
+    error_code: block.reason_code, message: block.detail.message, retryable: true,
+    observation_ref: null, budget_after: structuredClone(block.budget_after) };
+  const messages = [
+    { role: "user", content: "请分析原稿，先别执行。" },
+    { role: "assistant", content: original },
+    { role: "user", content: "【应用数据 · application_notice · 非作者原话】\n" + JSON.stringify(envelope) },
+  ];
+  return { canonical, messages, envelope, original };
+}
+
+
+function r08ApplicationTaskRejection(empty = false, standalone = false) {
+  const run = standalone ? { run_id: "request-r08-review" } : {
+    workspace_id: "workspace-r08-review", work_id: "work-r08-review",
+    session_id: "session-r08-review", run_id: "run-r08-review", parent_turn_ref: "task-r08-review",
+  };
+  const prior = r08ResponseRejectionFacts(empty);
+  const source = structuredClone(prior.canonical[1]);
+  const notice = structuredClone(prior.canonical[2]);
+  delete source.canonical_ref;
+  delete notice.canonical_ref;
+  notice.blocks[0].detail.message =
+    "本次响应未通过接收，未作为任务回复发布；仍在处理原任务。\n请按原要求重新输出。";
+  const material = [{ ref: "draft:r08-review", version: 3 }];
+  const messages = [
+    irMessage("application_base", "application", [{ type: "text", text: "真实应用评审材料。" }],
+      { source_refs: material }),
+    irMessage("scope_update", "application", [{ type: "scope", content: {
+      ...(standalone ? {} : { work_id: run.work_id }),
+      operation: { role: "quality_evaluation", prose_text: "实际待评审正文。", source_ref: "draft:r08-review" },
+    } }], { versions: { scope_revision: 1 }, source_refs: material }),
+    source, notice,
+  ];
+  return { run, messages, source, notice };
+}
+
+test("R08 应用任务拒收：已有Base与Scope可绑定无作者响应，不制造作者资格", () => {
+  for (const standalone of [false, true]) {
+    for (const empty of [false, true]) {
+      const spec = r08ApplicationTaskRejection(empty, standalone);
+      const original = JSON.stringify(spec);
+      const facts = requestFactsFromBody(irBody(spec.messages, { run: spec.run }));
+      assert.equal(facts.ok, true);
+      assert.equal(facts.authorMessages.length, 0);
+      assert.equal(facts.toolCalls.length, 0);
+      assert.equal(facts.toolResults.length, 0);
+      const rejections = responseRejectionsOf(spec.messages, spec.run);
+      assert.equal(rejections?.size, 1);
+      assert.strictEqual(rejections.get(spec.source), spec.notice.blocks[0]);
+      assert.equal(bindRequestMessages(facts, spec.messages)?.length, 4);
+      assert.equal(JSON.stringify(spec), original);
+      assert.equal(spec.notice.blocks[0].detail.message.includes("原作者输入"), false);
+    }
+  }
+});
+
+for (const [name, mutate] of [
+  ["缺Base", s => { s.messages.shift(); }],
+  ["缺Scope", s => { s.messages.splice(1, 1); }],
+  ["Scope早于Base", s => { [s.messages[0], s.messages[1]] = [s.messages[1], s.messages[0]]; }],
+  ["Base在响应之后", s => { s.messages.push(s.messages.shift()); }],
+  ["Scope作品不符", s => { s.messages[1].blocks[0].content.work_id = "foreign-work"; }],
+  ["完整run的Scope缺作品", s => { delete s.messages[1].blocks[0].content.work_id; }],
+  ["Scope缺版本", s => { delete s.messages[1].versions; }],
+  ["Scope缺来源列表", s => { delete s.messages[1].source_refs; }],
+  ["Base不是应用来源", s => { s.messages[0].provenance = "model"; }],
+  ["Scope来自另一run", s => {
+    s.messages[1].canonical_ref = { ...s.run, run_id: "foreign-run", run_sequence: 2 };
+  }],
+  ["Base来自另一run", s => {
+    s.messages[0].canonical_ref = { ...s.run, run_id: "foreign-run", run_sequence: 1 };
+  }],
+  ["混入外run作者", s => {
+    s.messages.splice(2, 0, irMessage("user", "author", [{ type: "text", text: "外部作者。" }], {
+      source_refs: [{ ref: "author:foreign" }],
+      canonical_ref: { ...s.run, run_id: "foreign-run", run_sequence: 3 },
+    }));
+  }],
+  ["已有作者缺来源", s => {
+    s.messages.splice(2, 0, irMessage("user", "author", [{ type: "text", text: "实际作者。" }]));
+  }],
+  ["缺当前运行身份", s => { delete s.run.run_id; }],
+]) test("R08 应用任务拒收不能借任务Scope放行" + name, () => {
+  const spec = r08ApplicationTaskRejection();
+  mutate(spec);
+  assert.equal(responseRejectionsOf(spec.messages, spec.run), null);
+});
+
+test("R08 应用任务拒收：未来作者输入不改写此前任务失败事实", () => {
+  const spec = r08ApplicationTaskRejection();
+  const original = JSON.stringify(spec.messages);
+  assert.equal(responseRejectionsOf(spec.messages, spec.run)?.size, 1);
+  spec.messages.push(irMessage("user", "author", [{ type: "text", text: "现在我补充一个新的要求。" }],
+    { source_refs: [{ ref: "author:r08-later" }] }));
+  assert.equal(responseRejectionsOf(spec.messages, spec.run)?.size, 1);
+  const facts = requestFactsFromBody(irBody(spec.messages, { run: spec.run }));
+  assert.equal(bindRequestMessages(facts, spec.messages)?.length, 5);
+  assert.equal(JSON.stringify(spec.messages.slice(0, 4)), original);
+  assert.equal(spec.notice.blocks[0].detail.message.includes("原作者输入"), false);
+});
+
+test("R08 应用任务拒收：最近Base失效不能借更早有效Base回填", () => {
+  const spec = r08ApplicationTaskRejection();
+  const invalidBase = structuredClone(spec.messages[0]);
+  invalidBase.blocks = [{ type: "text", text: "  \n" }];
+  spec.messages.splice(1, 0, invalidBase);
+  assert.equal(responseRejectionsOf(spec.messages, spec.run), null);
+});
+
+for (const [name, mutate] of [
+  ["较新Base晚于Scope", s => { s.messages.splice(2, 0, structuredClone(s.messages[0])); }],
+  ["缺坐标Base借持久Scope", s => {
+    for (let index = 1; index < s.messages.length; index++) {
+      s.messages[index].canonical_ref = { ...s.run, run_sequence: index + 1 };
+    }
+  }],
+  ["Base夹入空text块", s => { s.messages[0].blocks.push({ type: "text", text: "" }); }],
+]) test("R08 应用任务拒收：不能放行" + name, () => {
+  const spec = r08ApplicationTaskRejection();
+  mutate(spec);
+  assert.equal(responseRejectionsOf(spec.messages, spec.run), null);
+});
+test("R08 响应拒收：IR与native原文/七字段绑定，回执不进入工具结果分母", () => {
+  for (const empty of [false, true]) {
+    const spec = r08ResponseRejectionFacts(empty);
+    const before = JSON.stringify(spec);
+    const irFacts = requestFactsFromBody(irBody(spec.canonical));
+    const wireFacts = requestFactsFromBody({ messages: spec.messages });
+    for (const facts of [irFacts, wireFacts]) {
+      assert.equal(facts.ok, true);
+      assert.equal(facts.toolCalls.length, 0);
+      assert.equal(facts.toolResults.length, 0);
+      assert.equal(facts.observations.length, 0);
+      assert.equal(facts.authorMessages.length, 1);
+      const bound = bindRequestMessages(facts, spec.canonical);
+      assert.equal(bound?.length, 3);
+      assert.strictEqual(bound[1].canonical.raw, spec.canonical[1]);
+      assert.equal(bound[1].canonical.text, spec.original);
+      assert.strictEqual(bound[2].canonical.raw, spec.canonical[2]);
+    }
+    assert.equal(JSON.stringify(spec), before);
+    assert.equal(spec.messages[2].content.includes("pcall-rejected"), false);
+    assert.equal(spec.messages[2].content.includes("prun-rejected"), false);
+    assert.equal(spec.messages[2].content.includes("private-thought"), false);
+  }
+});
+
+for (const [name, mutate] of [
+  ["改拒收结论", e => { e.ok = true; }],
+  ["丢原理由", e => { e.data.detail.original = "改写"; }],
+  ["改纠错文字", e => { e.message = "已作为回复发布。"; }],
+  ["改真实预算", e => { e.budget_after.exchange.provider_call_count = 0; }],
+  ["冒充工具主体", e => { e.data.call_id = "fake-tool"; }],
+  ["泄漏内部执行引用", e => { e.data.provider_call_ref = "pcall-rejected"; }],
+  ["丢未发布事实", e => { e.message = e.data.detail.message = "请按原要求重新输出。"; }],
+]) test("R08 响应拒收：wire不能" + name, () => {
+  const spec = r08ResponseRejectionFacts();
+  mutate(spec.envelope);
+  spec.messages[2].content = "【应用数据 · application_notice · 非作者原话】\n" + JSON.stringify(spec.envelope);
+  assert.equal(bindRequestMessages(requestFactsFromBody({ messages: spec.messages }), spec.canonical), null);
+});
+
+for (const [name, mutate] of [
+  ["缺call引用", rows => { delete rows[2].provider_call_ref; }],
+  ["错run引用", rows => { rows[2].provider_run_ref = "prun-other"; }],
+  ["缺真实response引用", rows => { delete rows[1].provider_call_ref; }],
+  ["混入tool主体", rows => { rows[2].blocks[0].call_id = "call-invented"; }],
+  ["成功状态冒充拒收", rows => { rows[2].blocks[0].status = "passed"; }],
+  ["跨run", rows => { rows[2].canonical_ref.run_id = "other-run"; }],
+  ["跨作者输入", rows => { rows.splice(2, 0, irMessage("user", "author",
+    [{ type: "text", text: "另一个输入" }], { source_refs: [{ ref: "another-author" }] })); }],
+  ["工具响应误当纯回复", rows => { rows[1].blocks.push({ type: "tool_call", call_id: "real-call",
+    name: "chapter_read", arguments: {} }); }],
+  ["重复回执", rows => { rows.push(structuredClone(rows[2])); }],
+  ["缺retryable快照字段", rows => { delete rows[2].blocks[0].retryable; }],
+  ["缺budget_after快照字段", rows => { delete rows[2].blocks[0].budget_after; }],
+  ["不相邻的持久序号", rows => { rows[2].canonical_ref.run_sequence += 1; }],
+  ["重复单个call引用", rows => { rows.splice(1, 0, { ...structuredClone(rows[1]), provider_run_ref: "prun-other" }); }],
+  ["重复单个run引用", rows => { rows.splice(1, 0, { ...structuredClone(rows[1]), provider_call_ref: "pcall-other" }); }],
+  ["重复真实响应引用", rows => { rows.splice(1, 0, structuredClone(rows[1])); }],
+]) test("R08 响应拒收：canonical绑定拒绝" + name, () => {
+  const spec = r08ResponseRejectionFacts();
+  mutate(spec.canonical);
+  const facts = requestFactsFromBody(irBody(spec.canonical));
+  assert.equal(bindRequestMessages(facts, spec.canonical), null);
+});
+
+test("R08 响应拒收：同run第二作者live输入按真实最近消息绑定，不冒充parent引用", () => {
+  const spec = r08ResponseRejectionFacts();
+  spec.canonical.forEach(message => { delete message.canonical_ref; });
+  spec.canonical.splice(1, 0, irMessage("user", "author", [{ type: "text", text: "继续分析。" }],
+    { source_refs: [{ ref: "message-second-author" }] }));
+  spec.messages.splice(1, 0, { role: "user", content: "继续分析。" });
+  for (const facts of [requestFactsFromBody(irBody(spec.canonical))]) {
+    assert.equal(facts.authorMessages.length, 2);
+    assert.equal(bindRequestMessages(facts, spec.canonical)?.length, 4);
+    assert.equal(facts.toolResults.length, 0);
+  }
+});
+
+test("R08 响应拒收：native缺完整canonical坐标和run时不得补造归属", () => {
+  const spec = r08ResponseRejectionFacts();
+  spec.canonical.forEach(message => { delete message.canonical_ref; });
+  assert.equal(bindRequestMessages(requestFactsFromBody({messages:spec.messages}), spec.canonical), null);
+});
+
+test("R08 响应拒收：真实exchange已注解作者后的新响应末尾以当前run绑定", () => {
+  for (const missing of [[1, 2], [2]]) {
+    const spec = r08ResponseRejectionFacts();
+    const run = { workspace_id: "work-r08", work_id: "work-r08", session_id: "session-r08",
+      run_id: "run-r08", parent_turn_ref: "turn-r08" };
+    missing.forEach(index => { delete spec.canonical[index].canonical_ref; });
+    const facts = requestFactsFromBody(irBody(spec.canonical, { run }));
+    assert.equal(bindRequestMessages(facts, spec.canonical)?.length, 3);
+    assert.equal(facts.toolResults.length, 0);
+  }
+});
+
+for (const [name, mutate] of [
+  ["外run作者不能借当前run补坐标", (spec, run) => { run.run_id = "another-current-run"; }],
+  ["持久中间缺口不能冒充末尾", spec => {
+    spec.canonical[2].canonical_ref = { ...spec.canonical[0].canonical_ref, run_sequence: 3 };
+  }],
+  ["缺当前run归属不能猜", (_spec, run) => { delete run.session_id; }],
+]) test("R08 响应拒收：混合坐标拒绝" + name, () => {
+  const spec = r08ResponseRejectionFacts();
+  const run = { workspace_id: "work-r08", work_id: "work-r08", session_id: "session-r08",
+    run_id: "run-r08", parent_turn_ref: "turn-r08" };
+  delete spec.canonical[1].canonical_ref;
+  delete spec.canonical[2].canonical_ref;
+  mutate(spec, run);
+  assert.equal(bindRequestMessages(requestFactsFromBody(irBody(spec.canonical, { run })), spec.canonical), null);
+});
+
+test("R08 响应拒收：普通notice按原字节绑定，不从拒收字样制造工具结果或失败主体", () => {
+  const spec = r08ResponseRejectionFacts();
+  spec.canonical[2] = irMessage("application_notice", "application", [{ type: "text",
+    text: "普通职责续行说明；仅讨论拒收一词，不代表前文被拒收。" }]);
+  spec.messages[2].content = "【应用数据 · application_notice · 非作者原话】\n" + spec.canonical[2].blocks[0].text;
+  for (const facts of [requestFactsFromBody(irBody(spec.canonical)), requestFactsFromBody({messages:spec.messages})]) {
+    assert.equal(facts.toolResults.length, 0);
+    assert.equal(bindRequestMessages(facts, spec.canonical)?.length, 3);
+  }
+});
 
 test("canonical 消息 Base 绑定按原值读取，正文与版本保真，不从来源推断", () => {
   const bindings = ["chapter:exact ", { ref: "plan:bound", version: 7 }];
@@ -109,7 +375,8 @@ test("wire 应用正文保留完整字节，HTTP 消息不能自行冒充 canoni
   assert.equal(facts.messageFacts[0].baseRefs, null);
   assert.strictEqual(facts.messageFacts[0].raw, raw);
   assert.equal(JSON.stringify(body), before);
-  for (const content of ["前言" + header + text, header.replace("\n", "附加指令\n") + text]) {
+  const invalidHeader = "【应用数据 · application_base · 非作者原话】附加指令\n";
+  for (const content of ["前言" + header + text, invalidHeader + text]) {
     assert.equal(requestFactsFromBody({ messages: [{ role: "user", content }] })
       .messageFacts[0].applicationBaseText, null);
   }

@@ -228,7 +228,17 @@ defmodule NovelAgent.Provider.NativeToolExchange do
   defp reject_response(ir, result, feedback, receipt_context) do
     case Map.get(result, :tool_calls, []) do
       [] ->
-        RequestIR.append_application_notice(ir, feedback.message)
+        RequestIR.append_validation_result(
+          ir,
+          %{
+            provider_call_ref: field(result, :provider_call_ref),
+            provider_run_ref: field(result, :provider_run_ref)
+          },
+          "failed",
+          feedback.reason_code,
+          validation_detail(feedback),
+          receipt_context
+        )
 
       calls ->
         detail = validation_detail(feedback)

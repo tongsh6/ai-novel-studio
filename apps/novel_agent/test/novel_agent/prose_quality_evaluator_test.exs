@@ -260,6 +260,238 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert calls == results
   end
 
+  @standalone_rejection_fact "本次响应未通过接收，未作为任务回复发布；仍在处理原任务。\n"
+
+  defp standalone_request(id) do
+    %{
+      request()
+      | request_id: id,
+        source_turn_ref: "turn:quality-material",
+        source_ref: "prose:r08-quality",
+        task:
+          AuthoringTaskFixtures.quality_evaluation_task(%{
+            author_words: nil,
+            source: nil,
+            source_refs: ["prose:r08-quality"],
+            scope: %{refs: ["prose:r08-quality"], coverage: :single},
+            materials: [
+              %{kind: :prose, ref: "prose:r08-quality", version: 7, complete?: true}
+            ],
+            operation_effect: :evaluate
+          })
+    }
+  end
+
+  @tag :r08_standalone_response_rejection
+  test "R08 standalone 质量评审拒收有文响应后以真实工具纠正，不伪造作者" do
+    request = standalone_request("qer-r08-standalone-text")
+    assert request.request_ir == nil
+    assert request.run == nil
+    assert request.task.author_words == nil
+    assert request.task.source == nil
+    original = "  尚未按工具契约返回的质量意见。\r\n保留这次原始响应。  "
+
+    rejected = %{
+      content: original,
+      tool_calls: [],
+      provider_call_ref: "pcall-quality-rejected",
+      provider_run_ref: "prun-quality-rejected"
+    }
+
+    accepted = %{
+      content: "",
+      tool_calls: [
+        %{
+          id: "quality-report-second",
+          name: "report_quality_findings",
+          arguments: %{findings: []}
+        }
+      ],
+      provider_call_ref: "pcall-quality-corrected",
+      provider_run_ref: "prun-quality-corrected"
+    }
+
+    test_pid = self()
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        count = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+        send(test_pid, {:standalone_quality_request, count, prompt})
+
+        case count do
+          1 -> {:ok, rejected}
+          2 -> {:ok, accepted}
+          _ -> flunk("standalone 质量纠错不得追加第三次调用")
+        end
+      end
+    }
+
+    assert {%QualityEvaluationResult{status: :ok, findings: []}, session} =
+             ProseQualityEvaluator.evaluate_with_session(request, execution)
+
+    assert session.provider_call_count == 2
+    assert session.provider_call_budget == 2
+    assert Agent.get(counter, & &1) == 2
+    assert_receive {:standalone_quality_request, 1, first}
+    assert_receive {:standalone_quality_request, 2, retry}
+    refute_receive {:standalone_quality_request, _, _}, 10
+    assert Enum.take(retry.messages, length(first.messages)) == first.messages
+    assert TestProviderPrompt.scope_content(retry) == TestProviderPrompt.scope_content(first)
+    assert first.refs.base_refs == [%{ref: "prose:r08-quality", version: 7}]
+
+    scope = Enum.find(first.messages, &(&1.role == "scope_update"))
+
+    assert scope.source_refs == [
+             %{ref: "prose:r08-quality", version: 7},
+             %{ref: "turn:quality-material"}
+           ]
+
+    for ir <- [first, retry, session.request_ir] do
+      assert ir.run == %{run_id: "qer-r08-standalone-text"}
+      refute Enum.any?(ir.messages, &(&1.role == "user" or &1.provenance == "author"))
+    end
+
+    assert [response, notice, corrected] =
+             Enum.drop(session.request_ir.messages, length(first.messages))
+
+    assert response.role == "assistant"
+    assert response.provenance == "model"
+    assert response.blocks == [RequestIR.text_block(original)]
+    assert response.provider_call_ref == "pcall-quality-rejected"
+    assert response.provider_run_ref == "prun-quality-rejected"
+    assert notice.role == "application_notice"
+    assert notice.provenance == "application"
+    assert notice.provider_call_ref == "pcall-quality-rejected"
+    assert notice.provider_run_ref == "prun-quality-rejected"
+    assert [receipt] = notice.blocks
+    assert receipt.type == "validation_result"
+    assert receipt.status == "failed"
+    assert receipt.reason_code == "native_tool_call_required"
+
+    assert receipt.detail["message"] ==
+             @standalone_rejection_fact <>
+               "原生工具响应不符合契约：native_tool_call_required；请只调用 report_quality_findings 一次并满足其参数契约。"
+
+    assert receipt.retryable == true
+
+    assert receipt.budget_after == %{
+             "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 1}
+           }
+
+    refute Map.has_key?(receipt, :call_id)
+    refute Map.has_key?(receipt, :provider_call_ref)
+    refute Map.has_key?(receipt, :provider_run_ref)
+    assert Enum.drop(retry.messages, length(first.messages)) == [response, notice]
+    assert corrected.role == "assistant"
+    assert corrected.provider_call_ref == "pcall-quality-corrected"
+    assert corrected.provider_run_ref == "prun-quality-corrected"
+    assert RequestIR.call_ids(retry.messages) == []
+    assert RequestIR.call_ids(session.request_ir.messages) == ["quality-report-second"]
+    assert :ok = RequestIR.validate(session.request_ir)
+  end
+
+  @tag :r08_standalone_response_rejection
+  test "R08 standalone 质量评审两次空或思考响应有界拒绝，保留无文原件与失败事实" do
+    for {label, private_states} <- [
+          {"empty", [%{}, %{}]},
+          {"thinking",
+           [
+             %{"reasoning_content" => "第一次真实思考，不是任务回复。"},
+             %{"reasoning_content" => "第二次真实思考，也没有可见正文。"}
+           ]}
+        ] do
+      request = standalone_request("qer-r08-standalone-#{label}")
+      assert request.request_ir == nil
+      assert request.run == nil
+      assert request.task.author_words == nil
+      test_pid = self()
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      execution = %Execution{
+        result_fn: fn prompt ->
+          count = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+          send(test_pid, {:standalone_empty_request, label, count, prompt})
+          assert count in [1, 2], "standalone 空响应不得追加第三次调用"
+
+          {:ok,
+           %{
+             content: "",
+             tool_calls: [],
+             provider_state: Enum.at(private_states, count - 1),
+             provider_call_ref: "pcall-quality-#{label}-#{count}",
+             provider_run_ref: "prun-quality-#{label}-#{count}"
+           }}
+        end
+      }
+
+      assert {%QualityEvaluationResult{
+                status: :error,
+                findings: [],
+                error: %{code: "native_tool_call_required"}
+              }, session} = ProseQualityEvaluator.evaluate_with_session(request, execution)
+
+      assert session.provider_call_count == 2
+      assert session.provider_call_budget == 2
+      assert Agent.get(counter, & &1) == 2
+      assert_receive {:standalone_empty_request, ^label, 1, first}
+      assert_receive {:standalone_empty_request, ^label, 2, retry}
+      refute_receive {:standalone_empty_request, ^label, _, _}, 10
+      assert Enum.take(retry.messages, length(first.messages)) == first.messages
+      assert TestProviderPrompt.scope_content(retry) == TestProviderPrompt.scope_content(first)
+
+      for ir <- [first, retry, session.request_ir] do
+        assert ir.run == %{run_id: request.request_id}
+        refute Enum.any?(ir.messages, &(&1.role == "user" or &1.provenance == "author"))
+      end
+
+      assert [
+               %{role: "assistant", provenance: "model", blocks: []} = first_response,
+               %{role: "application_notice", provenance: "application"} = first_notice,
+               %{role: "assistant", provenance: "model", blocks: []} = last_response,
+               %{role: "application_notice", provenance: "application"} = last_notice
+             ] = Enum.drop(session.request_ir.messages, length(first.messages))
+
+      assert [first_response.provider_state, last_response.provider_state] == private_states
+
+      assert Enum.drop(retry.messages, length(first.messages)) == [
+               first_response,
+               first_notice
+             ]
+
+      for {{response, notice}, count} <-
+            Enum.with_index([{first_response, first_notice}, {last_response, last_notice}], 1) do
+        assert response.provider_call_ref == "pcall-quality-#{label}-#{count}"
+        assert response.provider_run_ref == "prun-quality-#{label}-#{count}"
+        assert notice.provider_call_ref == response.provider_call_ref
+        assert notice.provider_run_ref == response.provider_run_ref
+        assert [receipt] = notice.blocks
+        assert receipt.type == "validation_result"
+        assert receipt.status == "failed"
+        assert receipt.reason_code == "native_tool_call_required"
+
+        assert receipt.detail["message"] ==
+                 @standalone_rejection_fact <>
+                   "原生工具响应不符合契约：native_tool_call_required；请只调用 report_quality_findings 一次并满足其参数契约。"
+
+        assert receipt.retryable == (count == 1)
+
+        assert receipt.budget_after == %{
+                 "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => count}
+               }
+
+        refute Map.has_key?(receipt, :call_id)
+        refute Map.has_key?(receipt, :provider_call_ref)
+        refute Map.has_key?(receipt, :provider_run_ref)
+      end
+
+      assert session.provider_result.provider_state == List.last(private_states)
+      assert RequestIR.call_ids(session.request_ir.messages) == []
+      assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
+      assert :ok = RequestIR.validate(session.request_ir)
+    end
+  end
+
   test "prompt is an evaluator prompt (not prose anchors) and never asks to rewrite" do
     test_pid = self()
 

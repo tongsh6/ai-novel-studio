@@ -240,11 +240,50 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
     assert [%{type: "scope", content: content}] = scope.blocks
     assert content["goal"]["source_input_ref"] == source_ref
 
-    assert content["operation"]["author_content_sources"] == [
-             %{"ref" => source_ref, "source_hash" => source_hash}
-           ]
+    assert content["operation"]["author_content_sources"] == [%{"ref" => source_ref}]
 
     refute judgment.author_content_source.ref == request.run.parent_turn_ref
+  end
+
+  @tag :r08_author_sources
+  test "公开目录保留同文不同来源，内部 hash 仍分别绑定真实身份" do
+    raw = "  两条消息有相同原文。\r\n"
+
+    first_input =
+      TestAgenticLoopFixtures.judgment_input()
+      |> Map.put(:author_text, raw)
+      |> Map.put(:source_input_ref, "same-text-first")
+
+    assert {:ok, first_transcript} = JudgmentProtocol.transcript_for_production(first_input)
+
+    next_input =
+      first_input
+      |> Map.put(:source_input_ref, "same-text-second")
+      |> Map.put(:transcript, first_transcript)
+
+    assert {:ok, next_transcript} = JudgmentProtocol.transcript_for_production(next_input)
+    request = JudgmentProtocol.request_for_production(next_input)
+    scope = AuthoringTranscript.current_scope(next_transcript)
+
+    assert scope.content["goal"]["source_input_ref"] == "same-text-second"
+
+    assert scope.content["operation"]["author_content_sources"] == [
+             %{"ref" => "same-text-first"},
+             %{"ref" => "same-text-second"}
+           ]
+
+    authors = Enum.filter(request.messages, &(&1.role == "user" and &1.provenance == "author"))
+    assert Enum.map(authors, & &1.blocks) == List.duplicate([%{type: "text", text: raw}], 2)
+
+    assert Enum.map(authors, & &1.source_refs) == [
+             [%{ref: "same-text-first"}],
+             [%{ref: "same-text-second"}]
+           ]
+
+    for ref <- ["same-text-first", "same-text-second"] do
+      assert {:ok, bound} = AuthorContentRegistration.bind_judgment(registration(ref), request)
+      assert bound.author_content_source == %{ref: ref, source_hash: sha256(raw)}
+    end
   end
 
   test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do

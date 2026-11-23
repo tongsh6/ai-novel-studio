@@ -28,8 +28,26 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert rules =~ "不机械复述输入"
   end
 
+  @tag :r08_gap_contract
+  test "R08 能力缺口只提供有据替代，未知人工或界面能力不作存在性断言" do
+    clauses = [
+      "仅提供本轮可用操作目录或已供应材料证实可行的替代路径",
+      "没有可确认的替代路径时如实说明",
+      "未知的人工操作或界面能力，不能说成可用，也不能断言不存在"
+    ]
+
+    for text <- [AuthoringTaskPolicy.judgment_rules(), AuthoringTaskPolicy.rules()],
+        clause <- clauses do
+      assert text =~ clause
+      assert length(String.split(text, clause)) == 2
+    end
+
+    refute AuthoringTaskPolicy.judgment_rules() =~ "整体缺口说明与最近可行路径"
+    assert AuthoringTaskPolicy.judgment_rules() =~ "不能用近似工具填平"
+  end
+
   test "version and content hash are stable and detect rule text changes" do
-    assert AuthoringTaskPolicy.version() == "b27-task-v5"
+    assert AuthoringTaskPolicy.version() == "b27-task-v6"
     assert AuthoringTaskPolicy.content_hash() == AuthoringTaskPolicy.content_hash()
     assert String.length(AuthoringTaskPolicy.content_hash()) == 64
     # hash 组合了共享真源 hash；共享真源变化必然改变策略 hash

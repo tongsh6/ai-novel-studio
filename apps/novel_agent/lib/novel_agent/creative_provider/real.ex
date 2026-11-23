@@ -542,11 +542,12 @@ defmodule NovelAgent.CreativeProvider.Real do
     数组包含 1 个（必要时至多 2 个取向明显不同的）草稿候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：#{guidance.title}
-    - "body"：#{guidance.body}
-      缺少上下文支撑的字段写“（待定）”，不要编造既有事实。
-    - "rationale"：一句话说明该草稿如何贴合作品背景、当前剧情或后续创作约束（或 null）
+    - "body"：供作者采纳的设定正文。正文形式与范围服从作者明确要求，
+      不因默认领域维度补栏目或扩写。
+    - "rationale"：必要的创作依据、来源说明或不确定性（或 null）；不把作者未要求的说明添进正文。
 
-    草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。
+    默认领域维度（按任务需要参考，不要求逐栏输出）：#{guidance.dimensions}
+    草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容，不编造既有事实。
     """
     |> String.trim()
   end
@@ -577,7 +578,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     %{
       label: "伏笔草稿",
       title: "伏笔标题，以“伏笔：”开头",
-      body: "结构化伏笔正文，逐行包含：伏笔线索 / 首次出现位置 / 推进方式 / 回收方式 / 风险与禁忌"
+      dimensions: "伏笔线索 / 首次出现位置 / 推进方式 / 回收方式 / 风险与禁忌"
     }
   end
 
@@ -585,7 +586,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     %{
       label: "世界规则草稿",
       title: "世界规则标题，以“规则：”或“世界规则：”开头",
-      body: "结构化世界规则正文，逐行包含：世界规则 / 适用范围 / 例外条件 / 对人物选择的压力 / 与既有设定的关系"
+      dimensions: "世界规则 / 适用范围 / 例外条件 / 对人物选择的压力 / 与既有设定的关系"
     }
   end
 
@@ -593,7 +594,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     %{
       label: "风格规则草稿",
       title: "风格规则标题，以“风格规则：”开头",
-      body: "结构化风格规则正文，逐行包含：风格规则 / 适用文本范围 / 禁止事项 / 推荐写法 / 后续复核方式"
+      dimensions: "风格规则 / 适用文本范围 / 禁止事项 / 推荐写法 / 后续复核方式"
     }
   end
 
@@ -601,7 +602,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     %{
       label: "创作约束草稿",
       title: "约束标题，以“约束：”开头",
-      body: "结构化约束正文，逐行包含：约束内容 / 适用范围 / 禁止事项 / 例外条件 / 后续复核方式"
+      dimensions: "约束内容 / 适用范围 / 禁止事项 / 例外条件 / 后续复核方式"
     }
   end
 
@@ -609,7 +610,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     %{
       label: "世界设定草稿",
       title: "世界设定标题，聚焦世界观、组织、地理、能力体系或背景设定",
-      body: "结构化世界设定正文，逐行包含：设定内容 / 适用范围 / 与既有设定的关系 / 对剧情的影响 / 待作者确认处"
+      dimensions: "设定内容 / 适用范围 / 与既有设定的关系 / 对剧情的影响 / 待作者确认处"
     }
   end
 

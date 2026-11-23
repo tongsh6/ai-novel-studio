@@ -229,41 +229,6 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     assert Enum.count(session.request_ir.messages, &(&1.role == "assistant")) == 2
   end
 
-  test "纯文本响应留为真实 assistant，严格模式拒绝并按应用反馈纠错" do
-    first = "第一版文本\n  原样保留。"
-    last = "第二版文本\n  仍然没有工具。"
-    {provider, calls} = scripted_provider([{:ok, first}, {:ok, last}])
-    parser = fn _ -> flunk("完整原生模式不能把无工具文本交给业务解析器") end
-
-    feedback = fn _ ->
-      %{reason_code: "native_plan_required", detail: %{}, message: "请使用计划工具。"}
-    end
-
-    assert {%{status: :error, error: %{code: "native_tool_call_required"}}, session} =
-             NativeToolExchange.run(request_ir(), provider, @tool, parser, &error_result/2,
-               feedback: feedback
-             )
-
-    assert session.provider_call_count == 2
-    assert session.provider_result.content == last
-
-    assistant_texts =
-      for %{role: "assistant", blocks: blocks} <- session.request_ir.messages,
-          %{type: "text", text: text} <- blocks,
-          do: text
-
-    assert assistant_texts == [first, last]
-    assert Enum.count(session.request_ir.messages, &(&1.role == "user")) == 1
-    notices = Enum.filter(session.request_ir.messages, &(&1.role == "application_notice"))
-    assert length(notices) == 2
-    assert Enum.all?(notices, &(&1.blocks == [RequestIR.text_block("请使用计划工具。")]))
-    [_original, retry] = calls.()
-
-    assert Enum.any?(retry.messages, fn message ->
-             message.role == "assistant" and message_text(message) == first
-           end)
-  end
-
   test "validate_result 非 nil 坏类型或错误 arity 在调用前拒绝且历史不新增 assistant" do
     initial = request_ir()
 
@@ -713,12 +678,6 @@ defmodule NovelAgent.Provider.NativeToolExchangeTest do
     for %{role: "tool", blocks: blocks} <- ir.messages,
         %{type: "validation_result"} = block <- blocks,
         do: block
-  end
-
-  defp message_text(%{blocks: blocks}) do
-    blocks
-    |> Enum.filter(&(&1.type == "text"))
-    |> Enum.map_join("", & &1.text)
   end
 
   defp tool_results(ir, call_id) do

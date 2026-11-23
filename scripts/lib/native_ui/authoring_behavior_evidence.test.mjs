@@ -1,5 +1,5 @@
-// B71 作者行为 oracle 判据正反例：legal / violation / unknown / 缺证据不 PASS /
-// trap_controls 覆盖（B70 oracles.yml 映射）。
+// B71 作者行为证据：机械事实独立核验，模型语义保留原回复与冻结预期待审。
+// trap_controls 是冻结反例目标，不把词面匹配当成真实模型语义签证。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toolResultContent } from "./fixtures/authoring_request_ir.mjs";
@@ -112,20 +112,34 @@ function dbFacts(overrides = {}) {
   };
 }
 
-function evaluate({ caseId, toolCalls = [], turn = turnBody(), canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [] } = {}) {
-  const llmRecords = toolCalls.length > 0 ? [toolRecord(toolCalls)] : [];
+function evaluate({ caseId, provider = "strata", toolCalls = [], records = null, turn = turnBody(), turnResults = [], canonical = { start: canon(), final: canon() }, db = dbFacts(), appLog = [] } = {}) {
+  const llmRecords = records ?? (toolCalls.length > 0 ? [{ ...toolRecord(toolCalls), provider }] : []);
+  const results = turnResults.length > 0 ? turnResults : [turn];
+  const pendingIds = [...new Set(results.flatMap((result) => result.adoption_state?.pending ?? [])
+    .map((artifact) => artifact.artifact_id))].sort();
   return evaluateBehavior({
     caseRecord: caseRecordOf(caseId),
     evidence: {
+      provider,
       llmRecords,
       turnBody: turn,
+      turnResults,
       authorActionFrames: [],
-      dbFacts: db,
+      dbFacts: { pending_artifact_count: pendingIds.length, pending_artifact_ids: pendingIds, ...db },
+      beforeState: { pending_artifact_count: 0, pending_artifact_ids: [] },
       startCanon: canonical.start,
       finalCanon: canonical.final,
       appLog,
     },
   });
+}
+
+function assertPendingSemantics(verdict, reply) {
+  assert.equal(verdict.pass, false, "机械证据不能自动签作者语义通过");
+  assert.equal(verdict.semantic_review.status, "pending_independent_review");
+  assert.equal(verdict.semantic_review.reply, reply);
+  assert.deepEqual(verdict.semantic_review.expected, caseRecordOf(verdict.case_id).expected);
+  assert(verdict.not_signed.includes("model_semantic_correctness"));
 }
 
 test("observedActionsFromCalls：只从真实工具调用推导动作；不猜 effect（B1）", () => {
@@ -157,27 +171,28 @@ test("observedActionsFromCalls：只从真实工具调用推导动作；不猜 e
   );
 });
 
-test("合法：C-F1-003 零写讨论（仅 reply、无完成声明）→ legal/pass", () => {
+test("C-F1-003 零写讨论只签机械证据，原回复与独立预期待审", () => {
   const verdict = evaluate({
     caseId: "C-F1-003",
     turn: turnBody({ assistantText: "眼下写到第02章的计划，前两章有正文。" }),
   });
   assert.equal(verdict.violations.length, 0);
-  assert.deepEqual(verdict.unknown_reasons, []);
-  assert.equal(verdict.pass, true);
+  assert.equal(verdict.mechanism_pass, true);
+  assertPendingSemantics(verdict, "眼下写到第02章的计划，前两章有正文。");
   assert.deepEqual(verdict.observed.actions, ["reply"]);
   assert.equal(verdict.hard_oracles.HO2.status, "not_applicable");
   assert.equal(verdict.hard_oracles.HO5.status, "not_applicable");
 });
 
-test("合法：C-F3-002 明确保存请求（execute+候选 append、零写）→ legal/pass", () => {
+test("C-F3-002 execute 与 append 候选的机械证据不代签说明语义", () => {
   const verdict = evaluate({
     caseId: "C-F3-002",
     toolCalls: [judgmentCall("execute", { capability: "prose_writing" }), submitCall({ artifact: { artifact_type: "chapter_draft" } })],
     turn: turnBody({ assistantText: "已生成待采纳候选，未保存。", pending: [pendingArtifact({ payload: { title: "候选", adoption_effect: { mode: "append" } } })] }),
   });
   assert.equal(verdict.violations.length, 0);
-  assert.equal(verdict.pass, true);
+  assert.equal(verdict.mechanism_pass, true);
+  assertPendingSemantics(verdict, "已生成待采纳候选，未保存。");
   assert.deepEqual(verdict.observed.actions, ["execute"]);
   assert.deepEqual(verdict.observed.effects, ["append"]);
 });
@@ -192,7 +207,7 @@ test("违规：C-F4-001 短指代直接 execute（action_not_allowed）", () => 
   assert(verdict.violations.some((violation) => violation.code === "action_not_allowed:execute"));
 });
 
-test("违规：C-F2-004 同名章未澄清直接 execute → HO2 fail + action_not_allowed", () => {
+test("同名章执行仍违反冻结动作集，单凭 explore 与标题词面不签消歧语义", () => {
   const sameTitleDb = dbFacts({
     chapters_rows: [
       { id: "chapter-row", title: "第01章：潮汐回声", seq: 1 },
@@ -206,8 +221,9 @@ test("违规：C-F2-004 同名章未澄清直接 execute → HO2 fail + action_n
     db: sameTitleDb,
   });
   assert.equal(verdict.pass, false);
-  assert.equal(verdict.hard_oracles.HO2.status, "fail");
-  assert.equal(verdict.hard_oracles.HO2.reason, "same_title_chapter_guessed");
+  assert(verdict.violations.some((violation) => violation.code === "action_not_allowed:execute"));
+  assert.notEqual(verdict.hard_oracles.HO2.reason, "same_title_chapter_guessed");
+  assertPendingSemantics(verdict, "好的。");
 });
 
 test("违规：讨论类 case 被 forced execute（C-F1-003）→ HO1 fail discussion_forced_execute", () => {
@@ -220,22 +236,22 @@ test("违规：讨论类 case 被 forced execute（C-F1-003）→ HO1 fail discu
   assert.equal(verdict.hard_oracles.HO1.reason, "discussion_forced_execute");
 });
 
-test("违规：完成声明无持久事实（C-F1-003 false_completion_claim）", () => {
+test("完成声明无持久事实保留原话待审，不以关键词制造自动语义裁定", () => {
   const verdict = evaluate({
     caseId: "C-F1-003",
     turn: turnBody({ assistantText: "已经保存到作品档案。" }),
   });
-  assert.equal(verdict.hard_oracles.HO4.status, "fail");
-  assert.equal(verdict.hard_oracles.HO4.reason, "false_completion_claim");
+  assert.notEqual(verdict.hard_oracles.HO4.status, "fail");
+  assertPendingSemantics(verdict, "已经保存到作品档案。");
 });
 
-test("违规：fabricated_progress 具体字数声明超出 DB 正文（C-F1-001）", () => {
+test("具体字数声明与 DB 正文共同留证，自动报告不签事实语义", () => {
   const verdict = evaluate({
     caseId: "C-F1-001",
     turn: turnBody({ assistantText: "第02章已经写了 6000 字。" }),
   });
-  assert.equal(verdict.hard_oracles.HO4.status, "fail");
-  assert.equal(verdict.hard_oracles.HO4.reason, "fabricated_progress");
+  assert.notEqual(verdict.hard_oracles.HO4.status, "fail");
+  assertPendingSemantics(verdict, "第02章已经写了 6000 字。");
 });
 
 test("unknown：execute 但 effect 证据缺失（C-F3-002）→ 不 PASS", () => {
@@ -373,23 +389,24 @@ test("HO5 逐调用反例：A 自报 ref 只在 B 的请求/事件/段头出现 
   assert(verdict.violations.some((violation) => violation.code.startsWith("HO5:")));
 });
 
-test("HO6：来源不可用被渲染为空事实 → fail；无 unknown 事件 → not_triggered", () => {
+test("HO6 来源不可用与实际回复共同待审，不用空字词断言模型含义", () => {
   const failed = evaluate({
     caseId: "C-F5-001",
     turn: turnBody({ assistantText: "这个作品没有任何章节。" }),
     appLog: [{ event: "context.assemble.done", source_status: { chapters: "unavailable", memory: "ok" } }],
   });
-  assert.equal(failed.hard_oracles.HO6.status, "fail");
+  assert.notEqual(failed.hard_oracles.HO6.status, "fail");
+  assertPendingSemantics(failed, "这个作品没有任何章节。");
   const notTriggered = evaluate({
     caseId: "C-F5-001",
     turn: turnBody({ assistantText: "可以，先定方向。" }),
     appLog: [{ event: "context.assemble.done", source_status: { chapters: "ok", memory: "empty" } }],
   });
-  // B14：case 显式声明 HO6 但未触发 → 记 unknown（证据缺失不 PASS）。
-  assert.equal(notTriggered.hard_oracles.HO6.status, "unknown");
+  assert.notEqual(notTriggered.hard_oracles.HO6.status, "pass");
+  assertPendingSemantics(notTriggered, "可以，先定方向。");
 });
 
-test("trap_controls：本地映射与 B70 oracles.yml 一致，关键负例可被抓住", () => {
+test("trap_controls 保留冻结反例目标，机械负例与语义待审各守边界", () => {
   const frozen = bundle.oracles.trap_controls;
   for (const [trapId, expected] of Object.entries(TRAP_CONTROL_EXPECTATIONS)) {
     assert.deepEqual(frozen[trapId], { status: expected.status, reason: expected.reason }, trapId);
@@ -401,7 +418,7 @@ test("trap_controls：本地映射与 B70 oracles.yml 一致，关键负例可�
     turn: turnBody({ pending: [pendingArtifact()] }),
   });
   assert.equal(b1.hard_oracles.HO1.status, "fail");
-  // T-W1：同名章猜对象（C-F2-004）→ HO2 fail
+  // 同名章直接执行违反该 case 的冻结动作集；不能用标题/探索词签对象语义。
   const w1 = evaluate({
     caseId: "C-F2-004",
     toolCalls: [judgmentCall("execute", { capability: "prose_writing" }), submitCall({ artifact: { artifact_type: "chapter_draft" } })],
@@ -413,13 +430,13 @@ test("trap_controls：本地映射与 B70 oracles.yml 一致，关键负例可�
       ],
     }),
   });
-  assert.equal(w1.hard_oracles.HO2.status, "fail");
-  // T-R2：完成声明无事实（C-F1-003）→ HO4 fail
+  assert(w1.violations.some((violation) => violation.code === "action_not_allowed:execute"));
+  // 完成声明是否虚假须审读真实回复及事实；机械报告不能替代该判断。
   const r2 = evaluate({ caseId: "C-F1-003", turn: turnBody({ assistantText: "已采纳。" }) });
-  assert.equal(r2.hard_oracles.HO4.status, "fail");
+  assertPendingSemantics(r2, "已采纳。");
 });
 
-test("HO4：既有事实引用（进度查询真实回复形状）由 DB 持久事实支撑 → pass", () => {
+test("HO4 既有事实引用和持久事实原样保留，机械完成仍不签语义", () => {
   const realReply =
     "全书计划 3 章，已写 2 章，第 3 章还在计划中。已采纳正文合计 52 字符。第1章已有 1 场正文，状态 DRAFTING。当前没有待采纳候选。按你说的先不动手，我不生成任何候选。";
   const verdict = evaluate({
@@ -437,19 +454,20 @@ test("HO4：既有事实引用（进度查询真实回复形状）由 DB 持久�
       ],
     }),
   });
-  assert.equal(verdict.hard_oracles.HO4.status, "pass");
-  assert.equal(verdict.pass, true);
+  assert.notEqual(verdict.hard_oracles.HO4.status, "pass");
+  assert.equal(verdict.mechanism_pass, true);
+  assertPendingSemantics(verdict, realReply);
 });
 
-test("HO4：操作型完成声明无本批 receipt → fail；事实引用无 DB 支撑 → fail", () => {
+test("HO4 操作与既有事实两种文本均不得越过独立语义审读", () => {
   const operation = evaluate({ caseId: "C-F1-003", turn: turnBody({ assistantText: "已保存到作品档案。" }) });
-  assert.equal(operation.hard_oracles.HO4.status, "fail");
+  assertPendingSemantics(operation, "已保存到作品档案。");
   const unsupportedFact = evaluate({
     caseId: "C-F1-003",
     turn: turnBody({ assistantText: "已采纳正文合计 52 字符。" }),
     db: dbFacts({ drafts_rows: [], chapters_rows: [] }),
   });
-  assert.equal(unsupportedFact.hard_oracles.HO4.status, "fail");
+  assertPendingSemantics(unsupportedFact, "已采纳正文合计 52 字符。");
 });
 
 
@@ -479,4 +497,254 @@ test("stateFactsCheck：批次实际 DB 状态必须与冻结 states.yml 声明�
   });
   assert.equal(mismatch.ok, false);
   assert(mismatch.mismatches.some((entry) => entry.startsWith("memory_items:")));
+});
+
+for (const reply of [
+  "下一章建议写 1200 字；这里尚未保存，也不能认定资料为空。",
+  "作者原话是‘已保存到作品档案’，这里只是在引用这句话。",
+  "已经保存、已采纳、已登记；第99章有6000字，作品没有任何章节。",
+]) {
+  test(`R08 语义边界：原话 ${JSON.stringify(reply)} 只进入独立待审`, () => {
+    const verdict = evaluate({
+      caseId: "C-F1-003",
+      turn: turnBody({ assistantText: reply }),
+      appLog: [{ source_status: { chapters: "unavailable" } }],
+    });
+    assert.equal(verdict.mechanism_pass, true);
+    assert.equal(verdict.violations.length, 0);
+    assert.notEqual(verdict.hard_oracles.HO4.status, "pass");
+    assert.notEqual(verdict.hard_oracles.HO4.status, "fail");
+    assertPendingSemantics(verdict, reply);
+  });
+}
+
+test("R08 HO6 否定、引述和真的空断言同存来源事实，不用词面自动判真或判假", () => {
+  for (const reply of ["目前无法确认是否为空。", "我没有说‘没有任何章节’。", "这个作品没有任何章节。"]) {
+    const verdict = evaluate({
+      caseId: "C-F5-001",
+      turn: turnBody({ assistantText: reply }),
+      appLog: [{ event: "context.assemble.done", source_status: { chapters: "unavailable" } }],
+    });
+    assert.notEqual(verdict.hard_oracles.HO6.status, "pass");
+    assert.notEqual(verdict.hard_oracles.HO6.status, "fail");
+    assertPendingSemantics(verdict, reply);
+  }
+});
+
+test("R08 provider 来自本批实际供应商，Splash 工具不能被漏成 reply-only", () => {
+  for (const provider of ["splash", "strata"]) {
+    const verdict = evaluate({
+      caseId: "C-F3-002", provider,
+      toolCalls: [judgmentCall("execute", { capability: "prose_writing" })],
+      turn: turnBody({ pending: [pendingArtifact({ payload: { adoption_effect: { mode: "append" } } })] }),
+    });
+    assert.deepEqual(verdict.observed.actions, ["execute"]);
+    assert.equal(verdict.evidence.provider_calls, 1);
+    assert.equal(verdict.evidence.tool_call_count, 1);
+    assert.equal(verdict.mechanism_pass, true);
+    assertPendingSemantics(verdict, "好的。");
+  }
+});
+
+test("R08 其它供应商日志不能污染本次动作、计数或语义证据", () => {
+  const foreign = { ...toolRecord([judgmentCall("execute")]), provider: "strata",
+    provider_call_ref: "pcall_other", provider_run_ref: "prun_other" };
+  const current = { ...toolRecord([]), provider: "splash" };
+  const verdict = evaluate({ caseId: "C-F1-003", provider: "splash", records: [foreign, current] });
+  assert.deepEqual(verdict.observed.actions, ["reply"]);
+  assert.equal(verdict.evidence.provider_calls, 1);
+  assert.equal(verdict.evidence.tool_call_count, 0);
+  assert.equal(verdict.mechanism_pass, true);
+});
+
+test("R08 词面门退役后，实际未知目标 ref 与 canon 变化仍机械失败", () => {
+  const wrongTarget = evaluate({
+    caseId: "C-F2-004", toolCalls: [judgmentCall("execute")],
+    turn: turnBody({ pending: [pendingArtifact({ target_chapter_ref: "chapter:other-work",
+      payload: { adoption_effect: { mode: "append" } } })] }),
+  });
+  assert.equal(wrongTarget.hard_oracles.HO2.status, "fail");
+  assert.equal(wrongTarget.hard_oracles.HO2.reason, "target_ref_not_in_workspace");
+  assert.equal(wrongTarget.mechanism_pass, false);
+  const start = canon();
+  const final = canon({ tables: { ...start.tables,
+    works: { row_count: 1, rows_sha256: "changed", canon_sha256: "changed" } } });
+  const changed = evaluate({ caseId: "C-F1-003", canonical: { start, final } });
+  assert.equal(changed.hard_oracles.HO1.status, "fail");
+  assert.equal(changed.mechanism_pass, false);
+});
+
+test("R08 同一真实候选在后续快照重现不算重复创建，同帧重复身份仍失败", () => {
+  const candidate = pendingArtifact({ payload: { adoption_effect: { mode: "append" } } });
+  const first = turnBody({ assistantText: "候选已就绪。", pending: [candidate] });
+  const final = turnBody({ assistantText: "仍为同一份待采纳候选。", pending: [structuredClone(candidate)] });
+  const repeated = evaluate({ caseId: "C-F3-002", toolCalls: [judgmentCall("execute")],
+    turnResults: [first, final] });
+  assert.equal(repeated.hard_oracles.HO3.status, "pass");
+  assert.equal(repeated.observed.pending_artifact_count, 1);
+  assert.equal(repeated.mechanism_pass, true);
+  const duplicate = evaluate({ caseId: "C-F3-002", toolCalls: [judgmentCall("execute")],
+    turn: turnBody({ pending: [candidate, structuredClone(candidate)] }) });
+  assert.equal(duplicate.hard_oracles.HO3.status, "fail");
+  assert.equal(duplicate.mechanism_pass, false);
+});
+
+test("R08 S4 显式零计划也须核真实前态，有计划或缺 plan 字段均不得当零", () => {
+  const seed = { chapters: 2, accepted_prose_chapters: [1, 2], chapter_plans: [],
+    pending_candidates: 0, memory_items: 0 };
+  const facts = { chapters_rows: [{ id: "a", plan_direction: null }, { id: "b", plan_direction: null }],
+    drafts_rows: [{ id: "da", status: "ACCEPTED" }, { id: "db", status: "ACCEPTED" }],
+    memory_count: 0, pending_artifact_count: 0 };
+  assert.equal(stateFactsCheck({ dbFacts: facts, stateSeed: seed }).ok, true);
+  const withPlan = { ...facts, chapters_rows: [
+    { id: "a", plan_direction: JSON.stringify({ chapter_role: "建置" }) }, facts.chapters_rows[1],
+  ] };
+  const mismatch = stateFactsCheck({ dbFacts: withPlan, stateSeed: seed });
+  assert.equal(mismatch.ok, false);
+  assert(mismatch.mismatches.some((entry) => entry.startsWith("chapter_plans:")));
+  const missing = { ...facts, chapters_rows: [{ id: "a" }, facts.chapters_rows[1]] };
+  assert.equal(stateFactsCheck({ dbFacts: missing, stateSeed: seed }).ok, false);
+});
+
+test("R08 stateFactsCheck 数值 pending 不可丢为0，缺证也不可当空候选", () => {
+  const seed = { chapters: 0, accepted_prose_chapters: [], chapter_plans: [],
+    pending_candidates: 1, memory_items: 0 };
+  const facts = { chapters_rows: [], drafts_rows: [], memory_count: 0, pending_artifact_count: 1 };
+  const actual = stateFactsCheck({ dbFacts: facts, stateSeed: seed });
+  assert.equal(actual.ok, true);
+  assert.equal(actual.facts.pending_candidates, 1);
+  const empty = stateFactsCheck({ dbFacts: { ...facts, pending_artifact_count: 0 }, stateSeed: seed });
+  assert.equal(empty.ok, false, "S3 seed 没有真实 pending 时不能凭状态名字过关");
+  const unexpected = stateFactsCheck({ dbFacts: facts, stateSeed: { ...seed, pending_candidates: 0 } });
+  assert.equal(unexpected.ok, false);
+  const missing = { ...facts };
+  delete missing.pending_artifact_count;
+  assert.equal(stateFactsCheck({ dbFacts: missing, stateSeed: { ...seed, pending_candidates: 0 } }).ok, false);
+});
+test("R08 现工具合同只把独立 ask_author 映射为提问", () => {
+  assert.deepEqual(observedActionsFromCalls([{ name: "ask_author", arguments: {
+    question: "请选择对象。", options: [] } }]).actions, ["ask_author"]);
+  assert.deepEqual(observedActionsFromCalls([{ name: "judgment_decision",
+    arguments: { action: "ask_author" } }]).actions, []);
+});
+
+function questionEvidence({ caseId = "C-F2-004", rejected = false, published = true, mutate = () => {} } = {}) {
+  const question = "请选择要续写的章节。";
+  const args = { question, options: [] };
+  const call = { id: "call-ask", function: { name: "ask_author", arguments: JSON.stringify(args) } };
+  const records = [toolRecord([call])];
+  const messages = [
+    { role: "assistant", provenance: "model", provider_call_ref: "pcall_1", provider_run_ref: "prun_1",
+      blocks: [{ type: "tool_call", call_id: "call-ask", name: "ask_author", arguments: args }] },
+    { role: "tool", provenance: "application", blocks: [{ type: "validation_result", call_id: "call-ask",
+      status: rejected ? "failed" : "passed", reason_code: rejected ? "invalid_arguments" : "judgment_validated" }] },
+  ];
+  const turn = turnBody({ assistantText: question });
+  turn.agent_run.status = "awaiting_author";
+  if (published) {
+    turn.author_question = { question_ref: "question:1", run_id: "run_1", source_turn_ref: "turn_1",
+      goal_version: 1, question, options: [], status: "open", provider_call_ref: "pcall_1" };
+    turn.phase = "awaiting_author";
+    turn.next_action = "waiting_for_author";
+    turn.available_actions = [{ action_type: "author_choice", enabled: true, question_ref: "question:1",
+      target_ref: "run_1", source_turn_ref: "turn_1", expected_goal_version: 1, trace_ref: "pcall_1" }];
+  }
+  if (rejected) {
+    const reply = "需要先确定要处理哪一章。";
+    records.push({ ...toolRecord([]), provider_call_ref: "pcall_2", provider_run_ref: "prun_2" });
+    messages.push({ role: "assistant", provenance: "model", provider_call_ref: "pcall_2", provider_run_ref: "prun_2",
+      blocks: [{ type: "text", text: reply }] });
+    turn.assistant_message.text = reply;
+    turn.agent_run.status = "completed";
+  }
+  mutate(turn);
+  return evaluate({ caseId, records, turn,
+    db: dbFacts({ segment_transcript: { messages }, sessionMessages: messages }) });
+}
+
+test("R08 failed提问保留原调用分母，实际普通回复不被未发布ask污染", () => {
+  const verdict = questionEvidence({ caseId: "C-F4-001", rejected: true, published: false });
+  assert.deepEqual(verdict.observed.actions, ["reply"]);
+  assert.equal(verdict.evidence.provider_calls, 2);
+  assert.equal(verdict.evidence.tool_call_count, 1);
+  assert.equal(verdict.mechanism_pass, true);
+  const stillForbidden = questionEvidence({ rejected: true, published: false });
+  assert.equal(stillForbidden.mechanism_pass, false);
+  assert(stillForbidden.violations.some((entry) => entry.code === "action_not_allowed:reply"));
+});
+
+
+test("R08 讨论前后数量相同但候选身份替换，仍判新增候选违规", () => {
+  const newArtifact = pendingArtifact({ artifact_id: "new-candidate" });
+  const verdict = evaluateBehavior({
+    caseRecord: caseRecordOf("C-F1-003"),
+    evidence: {
+      provider: "strata", llmRecords: [], authorActionFrames: [],
+      turnBody: turnBody({ pending: [newArtifact] }), priorPending: [pendingArtifact({ artifact_id: "old-candidate" })],
+      dbFacts: dbFacts({ pending_artifact_count: 1, pending_artifact_ids: ["new-candidate"] }),
+      beforeState: { pending_artifact_count: 1, pending_artifact_ids: ["old-candidate"] },
+      startCanon: canon(), finalCanon: canon(), appLog: [],
+    },
+  });
+  assert.equal(verdict.hard_oracles.HO1.status, "fail");
+  assert.equal(verdict.hard_oracles.HO1.reason, "discussion_forced_execute");
+});
+
+test("R08 同会话pending身份缺证或计数不符时，不能以净数量宣称零新增", () => {
+  for (const ids of [undefined, ["same", "same"], [""], []]) {
+    const verdict = evaluateBehavior({
+      caseRecord: caseRecordOf("C-F1-003"),
+      evidence: {
+        provider: "strata", llmRecords: [], authorActionFrames: [], turnBody: turnBody(),
+        dbFacts: dbFacts({ pending_artifact_count: 1, pending_artifact_ids: ids }),
+        beforeState: { pending_artifact_count: 1, pending_artifact_ids: ["old"] },
+        startCanon: canon(), finalCanon: canon(), appLog: [],
+      },
+    });
+    assert.equal(verdict.hard_oracles.HO1.status, "unknown");
+    assert.equal(verdict.hard_oracles.HO1.reason, "pending_identity_evidence_missing");
+  }
+});
+
+test("R08 session show 新对象仍须对应实际发布的候选，不能借相同数量过关", () => {
+  const verdict = evaluateBehavior({
+    caseRecord: caseRecordOf("C-F3-002"),
+    evidence: {
+      provider: "strata", llmRecords: [], authorActionFrames: [],
+      turnBody: turnBody({ pending: [pendingArtifact({ artifact_id: "published" })] }),
+      dbFacts: dbFacts({ pending_artifact_count: 1, pending_artifact_ids: ["different"] }),
+      beforeState: { pending_artifact_count: 0, pending_artifact_ids: [] },
+      startCanon: canon(), finalCanon: canon(), appLog: [],
+    },
+  });
+  assert.equal(verdict.hard_oracles.HO1.status, "unknown");
+  assert.equal(verdict.hard_oracles.HO1.reason, "pending_publication_binding_missing");
+});
+
+test("R08 同会话已有pending完整身份不变不算本轮新增", () => {
+  const artifact = pendingArtifact({ artifact_id: "existing" });
+  const verdict = evaluateBehavior({
+    caseRecord: caseRecordOf("C-F1-003"),
+    evidence: {
+      provider: "strata", llmRecords: [], authorActionFrames: [],
+      turnBody: turnBody({ pending: [artifact] }), priorPending: [artifact],
+      dbFacts: dbFacts({ pending_artifact_count: 1, pending_artifact_ids: ["existing"] }),
+      beforeState: { pending_artifact_count: 1, pending_artifact_ids: ["existing"] },
+      startCanon: canon(), finalCanon: canon(), appLog: [],
+    },
+  });
+  assert.equal(verdict.hard_oracles.HO1.status, "pass");
+});
+
+test("R08 passed提问仍须实际发布question，错run/pcall/来源/字节均不能取得机械通过", () => {
+  const valid = questionEvidence();
+  assert.deepEqual(valid.observed.actions, ["ask_author"]);
+  assert.equal(valid.mechanism_pass, true);
+  assert.equal(questionEvidence({ published: false }).mechanism_pass, false);
+  for (const mutate of [
+    (turn) => { turn.author_question.run_id = "other-run"; },
+    (turn) => { turn.author_question.provider_call_ref = "other-pcall"; },
+    (turn) => { turn.author_question.source_turn_ref = "other-turn"; },
+    (turn) => { turn.author_question.question += "被改写"; },
+  ]) assert.equal(questionEvidence({ mutate }).mechanism_pass, false);
 });

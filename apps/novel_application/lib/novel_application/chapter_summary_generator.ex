@@ -119,24 +119,27 @@ defmodule NovelApplication.ChapterSummaryGenerator do
     {instructions, material}
   end
 
-  # 按四栏标签解析模型输出；部分栏缺失时保留已解析栏（render 时补「（无）」）。
-  # 完全没有任何四栏标签 → 诚实失败，绝不把整段输出/整章原文当摘要。
+  # 接收门只核四栏文本形状；正文提取与明确「（无）」的语义仍由 Domain 唯一负责。
   defp parse_sections(text) do
-    case ChapterSummary.parse_sections(text) do
-      sections when map_size(sections) == 0 ->
-        {:error, :summary_sections_unparseable}
-
-      sections ->
-        if any_section_label?(text),
-          do: {:ok, sections},
-          else: {:error, :summary_sections_unparseable}
-    end
+    if complete_section_lines?(text),
+      do: {:ok, ChapterSummary.parse_sections(text)},
+      else: {:error, :summary_sections_unparseable}
   end
 
-  defp any_section_label?(text) do
-    ChapterSummary.section_labels()
-    |> Map.values()
-    |> Enum.any?(&String.contains?(text, "【#{&1}】"))
+  defp complete_section_lines?(text) do
+    labels = ChapterSummary.section_labels()
+    order = ChapterSummary.section_order()
+    lines = String.split(text, ~r/\r?\n/u)
+    lines = if List.last(lines) == "", do: Enum.drop(lines, -1), else: lines
+
+    length(lines) == length(order) and
+      Enum.all?(Enum.zip(lines, order), fn {line, key} ->
+        prefix = "【#{labels[key]}】"
+        line = String.trim(line)
+
+        String.starts_with?(line, prefix) and
+          String.trim(String.replace_prefix(line, prefix, "")) != ""
+      end)
   end
 
   defp normalize(value) when is_binary(value), do: String.trim(value)

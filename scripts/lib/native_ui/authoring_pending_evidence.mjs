@@ -277,9 +277,11 @@ function knownArtifactContext(artifact, knownArtifacts, { itemTitle, itemBody })
 
 // 只把另一 artifact 的实际 item 视为外来内容；不丢弃同组兄弟，也不改写原 artifact。
 function foreignItemAt(nodes, contains, artifacts) {
+  const local = nodes.filter(contains);
   for (const artifact of artifacts) {
-    const found = artifact.payload.items.find((item) => nodes.some((node) => contains(node) &&
-      (nodeText(node) === item.title || nodeText(node) === item.body)));
+    const found = artifact.payload.items.find((item) => candidateScopes(local,
+      local.filter((node) => nodeText(node) === item.title),
+      local.filter((node) => nodeText(node) === item.body)).length > 0);
     if (found) return found;
   }
   return null;
@@ -303,7 +305,41 @@ function selectedButton(buttons, scopePath, itemScopePath) {
   return { ok: true, button: buttons[0], scope_path: scopePath, item_path: itemScopePath };
 }
 
-function locateOwnedButton(nodes, { itemTitle, itemBody, authorBoundary, label, matcher }, foreignArtifacts = []) {
+// 扁平多卡只在完整条目与独立动作都可核对时分段；缺边界仍保持原拒绝。
+function flatArtifactSpan(nodes, block, artifact, foreignArtifacts) {
+  const local = nodes.filter((node) => inMessageBlock(node, block));
+  const rootOf = (node) => ancestors(node.path).find((value) => parentPath(value) === block.level);
+  const groups = [];
+  for (const candidate of [artifact, ...foreignArtifacts]) {
+    const items = candidate.payload.items.map((item) => locatePendingItem(local, {
+      itemTitle: item.title, itemBody: item.body,
+    }));
+    const found = items.filter((item) => item.ok);
+    if (found.length === 0) continue;
+    if (found.length !== items.length) return null;
+    const positions = found.map((item) => block.paths.indexOf(rootOf(item.scope)));
+    if (positions.some((index) => index < 0)) return null;
+    groups.push({ artifactId: candidate.artifact_id, positions,
+      first: Math.min(...positions), last: Math.max(...positions) });
+  }
+  groups.sort((left, right) => left.first - right.first);
+  if (groups.some((group, index) => index > 0 && group.first <= groups[index - 1].last)) return null;
+  let selected = null;
+  for (const [index, group] of groups.entries()) {
+    const span = { level: block.level,
+      paths: block.paths.slice(group.first, groups[index + 1]?.first ?? block.paths.length) };
+    const itemRoots = new Set(group.positions.map((position) => block.paths[position]));
+    if (local.some((node) => node.subrole === "AXDocumentArticle" && inMessageBlock(node, span) &&
+      !itemRoots.has(rootOf(node)))) return null;
+    const actions = local.filter((node) => node.role === "AXButton" && inMessageBlock(node, span) &&
+      block.paths.indexOf(rootOf(node)) >= group.last);
+    if (actions.length === 0) return null;
+    if (group.artifactId === artifact.artifact_id) selected = span;
+  }
+  return selected;
+}
+
+function locateOwnedButton(nodes, { itemTitle, itemBody, authorBoundary, artifact, label, matcher }, foreignArtifacts = []) {
   const item = locatePendingItem(nodes, { itemTitle, itemBody });
   if (!item.ok) return item;
   const bounded = itemMessageBlock(nodes, item.scope.path, authorBoundary);
@@ -318,8 +354,10 @@ function locateOwnedButton(nodes, { itemTitle, itemBody, authorBoundary, label, 
   if (buttons.length > 0) return selectedButton(buttons, boundary, item.scope.path);
   // 扁平 article 与动作是同级兄弟；只查同一已冻结作者块，不再上升到外层/root。
   const foreign = foreignItemAt(nodes, (node) => inMessageBlock(node, block), foreignArtifacts);
-  if (foreign) return { ok: false, reason: "foreign_item_in_block", foreign: foreign.title };
-  return selectedButton(nodes.filter(match), block.paths[0], item.scope.path);
+  const span = foreign ? flatArtifactSpan(nodes, block, artifact, foreignArtifacts) : block;
+  if (!span) return { ok: false, reason: "foreign_item_in_block", foreign: foreign.title };
+  return selectedButton(nodes.filter((node) => inMessageBlock(node, span) && match(node)),
+    span.paths[0], item.scope.path);
 }
 
 function locateArtifactButton(nodes, options, matcher) {

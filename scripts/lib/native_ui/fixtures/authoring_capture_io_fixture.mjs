@@ -1,6 +1,6 @@
 // B71 capture 证据族唯一的真实 SQLite fixture owner。
 //
-// 只服务 `../authoring_capture_evidence_io.test.mjs`：12 表是 prepare/capture 实际
+// 只服务 `../authoring_capture_evidence_io.test.mjs`：13 表是 prepare/capture 实际
 // 读取的投影（`targetFor`/`planningCanonSnapshot`/`productionTableCounts`），不声称
 // 可启动完整生产应用；种子对应既有合成批次，不读取作者源数据。默认批次与
 // `works` 无主键 + 重复行的负例是不同 DB 规格，按 A2 规则各自物化，不合并模板。
@@ -16,7 +16,10 @@ export const CAPTURE_DB_REL = "database/ai_novel_studio_test.sqlite3";
 const STATIC_TABLES_SQL = `
     CREATE TABLE workspaces (id TEXT PRIMARY KEY);
     CREATE TABLE work_sessions (id TEXT PRIMARY KEY);
-    CREATE TABLE drafts (id TEXT PRIMARY KEY);
+    CREATE TABLE drafts (id TEXT PRIMARY KEY, work_id TEXT, chapter_id TEXT, status TEXT, text TEXT);
+    CREATE TABLE agent_runs (
+      id TEXT PRIMARY KEY, work_id TEXT, session_id TEXT, pending_artifact_refs TEXT DEFAULT '[]'
+    );
     CREATE TABLE chapters (
       id TEXT PRIMARY KEY, work_id TEXT, volume_id TEXT, title TEXT, seq INTEGER,
       status TEXT, inserted_at TEXT, updated_at TEXT, summary TEXT, plan_direction TEXT
@@ -35,7 +38,7 @@ const STATIC_TABLES_SQL = `
     );
 `;
 
-// 负例「重名作品」只放宽 works 主键并插入重复行，其余 11 表与正例同规格。
+// 负例「重名作品」只放宽 works 主键并插入重复行，其余 12 表与正例同规格。
 function captureSchemaSql({ duplicateWork = false } = {}) {
   return `
     CREATE TABLE works (id TEXT${duplicateWork ? "" : " PRIMARY KEY"}, title TEXT);
@@ -95,7 +98,7 @@ function seedDatabase(file, { schema, facts }) {
 }
 
 /**
- * capture 批次的 12 表模板规格：同一规格（duplicateWork）在 run 内只物化一次。
+ * capture 批次的 13 表模板规格：同一规格（duplicateWork）在 run 内只物化一次。
  * 返回的列表即发布 payload 的完整文件集合；config/ready/seed/预注册等小文件属于
  * case 上下文，由 IO 测试在隔离副本上写。
  */

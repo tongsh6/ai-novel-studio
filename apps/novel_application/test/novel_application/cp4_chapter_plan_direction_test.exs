@@ -72,10 +72,13 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     complete = fn prompt ->
-      Agent.update(agent, &[prompt | &1])
+      call_index =
+        Agent.get_and_update(agent, fn calls -> {length(calls) + 1, [prompt | calls]} end)
 
       {:ok,
        %{
+         provider_call_ref: "pcall-chapter-plan-#{call_index}",
+         provider_run_ref: "prun-chapter-plan-#{call_index}",
          content:
            Jason.encode!([
              %{"item_id" => "cp4-item", "title" => "正文草稿", "body" => "正文", "rationale" => nil}

@@ -520,6 +520,22 @@ defmodule NovelApplication.SessionMessageReadTest do
 
     assert bound.author_content_source == %{ref: source_ref, source_hash: sha256(original)}
 
+    assert {:ok, transcript} = AuthoringTranscript.from_request_ir(request)
+
+    projected =
+      JudgmentProtocol.request_for_production(%{
+        author_text: "登记已回查的作者原文。",
+        source_input_ref: "input:r08-registration-reader",
+        transcript: transcript,
+        scope: %{work_id: context.work.id},
+        options: [plan_run: request.run]
+      })
+
+    assert observation_blocks(projected) == observation_blocks(request)
+
+    assert TestProviderPrompt.scope_content(projected)["operation"]["author_content_sources"] ==
+             [%{"ref" => "input:r08-registration-reader"}, %{"ref" => source_ref}]
+
     assert {:error, {:author_content_registration_invalid, :source_not_available}} =
              AuthorContentRegistration.bind_judgment(
                registration("turn-r08-page-source"),
@@ -654,6 +670,7 @@ defmodule NovelApplication.SessionMessageReadTest do
 
             [observed] ->
               assert observed.content["summary"] == original
+              assert observed.content["source_hash"] == sha256(original)
               assert observed.content["facts"]["source_refs"] == [%{"ref" => source_ref}]
 
               TestAgenticLoopFixtures.judgment_call("register_author_content", %{
@@ -701,7 +718,7 @@ defmodule NovelApplication.SessionMessageReadTest do
              TestProviderPrompt.scope_content(final_request)["operation"][
                "author_content_sources"
              ],
-             &(&1 == %{"ref" => source_ref, "source_hash" => sha256(original)})
+             &(&1 == %{"ref" => source_ref})
            )
 
     refute Enum.any?(final_request.messages, fn message ->

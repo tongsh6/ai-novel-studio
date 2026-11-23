@@ -934,13 +934,15 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     end)
   end
 
-  # 无原生 tool_call 时纠错回执就是 application_notice 的文本块（现役注入形态）；
-  # 只读实际请求里的消息字节，不再依赖旧桥标记字符串。
-  defp feedback_from_message(%{role: "application_notice"} = message) do
-    case NovelApplication.TestAgenticLoopFixtures.message_text(message) do
-      "" -> nil
-      text -> text
-    end
+  # 无原生 tool_call 的拒收使用 application_notice 中的 typed failed 回执。
+  defp feedback_from_message(%{role: "application_notice", blocks: blocks}) do
+    Enum.find_value(blocks, fn
+      %{type: "validation_result", status: "failed", detail: detail} ->
+        Map.get(detail, "message")
+
+      _block ->
+        nil
+    end)
   end
 
   defp feedback_from_message(_message), do: nil
@@ -1150,8 +1152,18 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       send(test_pid, {:plan_prompt, n, prompt})
 
       case n do
-        1 -> {:ok, %{content: "这是文本而不是工具调用。", tool_calls: [], provider_output: nil}}
-        _ -> {:ok, provider_result("")}
+        1 ->
+          {:ok,
+           %{
+             content: "这是文本而不是工具调用。",
+             tool_calls: [],
+             provider_output: nil,
+             provider_call_ref: "pcall-plan-missing-tool-#{n}",
+             provider_run_ref: "prun-plan-missing-tool-#{n}"
+           }}
+
+        _ ->
+          {:ok, provider_result("")}
       end
     end
 

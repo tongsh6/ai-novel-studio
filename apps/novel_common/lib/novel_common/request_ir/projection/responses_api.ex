@@ -115,7 +115,12 @@ defmodule NovelCommon.RequestIR.Projection.ResponsesAPI do
   defp project_message(_message), do: []
 
   defp message_item(role, blocks, provenance) do
-    case Projection.text_of(blocks) do
+    text =
+      if provenance == "application_notice",
+        do: Projection.content_of(blocks),
+        else: Projection.text_of(blocks)
+
+    case text do
       "" ->
         []
 

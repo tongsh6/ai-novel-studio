@@ -41,6 +41,168 @@ defmodule NovelApplication.AuthoringTranscriptCodecTest do
     }
   end
 
+  @r08_response_fact "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n"
+
+  @tag :r08_response_rejection
+  test "R08 application append 与 RequestIR 共用同一响应拒收形态及纠错前缀" do
+    expected = response_rejection_transcript("  原始首稿。\r\n", %{})
+    initial = %{expected | messages: Enum.drop(expected.messages, -1)}
+
+    actual =
+      AuthoringTranscript.append_validation(
+        initial,
+        %{provider_call_ref: "pcall-r08-codec", provider_run_ref: "prun-r08-codec"},
+        "failed",
+        "author_visible_narrative_invalid",
+        %{message: "只纠正原说明。", reason: "invalid_narrative"},
+        %{
+          retryable: true,
+          budget_after: %{exchange: %{provider_call_budget: 2, provider_call_count: 1}}
+        }
+      )
+
+    assert actual == expected
+    assert Enum.take(actual.messages, length(initial.messages)) == initial.messages
+    assert {:ok, ir} = AuthoringTranscript.to_request_ir(actual)
+    assert {:ok, []} = RequestIR.pending_call_ids(ir)
+    assert actual.call_ids == []
+    assert List.last(actual.messages).role == "application_notice"
+  end
+
+  @tag :r08_response_rejection
+  test "R08 JSON checkpoint 恢复保留有文及空响应、私有状态与拒收事实，不引入 nil 工具索引" do
+    for {text, private} <- [
+          {"  原文 e\u0301 👩‍💻。\r\n末行  ", %{}},
+          {"",
+           %{
+             "reasoning_content" => "r08-private-reasoning",
+             "opaque" => [%{"id" => "opaque-r08"}]
+           }}
+        ] do
+      original = response_rejection_transcript(text, private)
+      assert {:ok, before} = AuthoringTranscript.to_request_ir(original)
+
+      checkpoint =
+        original |> AuthoringCheckpoint.checkpoint() |> Jason.encode!() |> Jason.decode!()
+
+      assert {:ok, restored} = AuthoringTranscript.restore(checkpoint)
+      assert restored.messages == original.messages
+      assert restored.call_ids == []
+      assert {:ok, after_restore} = AuthoringTranscript.to_request_ir(restored)
+      assert after_restore == before
+      assert {:ok, []} = RequestIR.pending_call_ids(after_restore)
+
+      assert [assistant] = Enum.filter(restored.messages, &(&1.role == "assistant"))
+      assert assistant.blocks == if(text == "", do: [], else: [RequestIR.text_block(text)])
+      assert assistant.provider_state == private
+      assert assistant.provider_call_ref == "pcall-r08-codec"
+      assert List.last(restored.messages).provider_run_ref == "prun-r08-codec"
+      [receipt] = List.last(restored.messages).blocks
+      assert receipt.detail["message"] == @r08_response_fact <> "只纠正原说明。"
+      refute Map.has_key?(receipt, :call_id)
+
+      assert restored |> AuthoringCheckpoint.checkpoint() |> Jason.encode!() |> Jason.decode!() ==
+               checkpoint
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = Projection.project(after_restore, target)
+        assert {:ok, ^body} = Projection.project(before, target)
+        encoded = Jason.encode!(body)
+
+        for internal <- [
+              "pcall-r08-codec",
+              "prun-r08-codec",
+              "r08-private-reasoning",
+              "opaque-r08"
+            ] do
+          refute encoded =~ internal
+        end
+
+        assert encoded =~ "未作为作者回复发布"
+      end
+    end
+  end
+
+  @tag :r08_response_rejection
+  test "R08 持久 JSON 错绑与双主体不能恢复，旧 text notice 不按词面补标" do
+    valid = response_rejection_transcript("同一首稿", %{})
+    checkpoint = valid |> AuthoringCheckpoint.checkpoint() |> Jason.encode!() |> Jason.decode!()
+    messages = checkpoint["transcript"]["messages"]
+    notice = List.last(messages)
+    [block] = notice["blocks"]
+
+    for bad_notice <- [
+          Map.delete(notice, "provider_call_ref"),
+          Map.put(notice, "provider_run_ref", "wrong-run"),
+          Map.put(notice, "blocks", [Map.put(block, "call_id", nil)]),
+          Map.put(notice, "blocks", [Map.put(block, "status", "passed")])
+        ] do
+      broken =
+        put_in(checkpoint, ["transcript", "messages"], List.replace_at(messages, -1, bad_notice))
+
+      assert {:error, _} = AuthoringTranscript.restore(broken)
+    end
+
+    ordinary =
+      RequestIR.message(:application_notice, :application, [
+        RequestIR.text_block("旧纠错文字：未通过接收；历史是否发布仍未知。")
+      ])
+
+    unknown = %{valid | messages: List.replace_at(valid.messages, -1, ordinary)}
+
+    assert {:ok, restored} =
+             unknown
+             |> AuthoringCheckpoint.checkpoint()
+             |> Jason.encode!()
+             |> Jason.decode!()
+             |> AuthoringTranscript.restore()
+
+    assert restored.messages == unknown.messages
+    assert List.last(restored.messages).blocks == ordinary.blocks
+    refute Map.has_key?(List.last(restored.messages), :provider_call_ref)
+    refute Enum.any?(List.last(restored.messages).blocks, &(&1.type == "validation_result"))
+  end
+
+  defp response_rejection_transcript(text, private) do
+    initial = base_transcript()
+
+    initial = %{
+      initial
+      | run:
+          Map.merge(initial.run, %{
+            session_id: "session-1",
+            parent_turn_ref: "author_turn:turn-1"
+          }),
+        tools: [
+          %{
+            "name" => "read_character",
+            "description" => "读取角色",
+            "input_schema" => %{"type" => "object"}
+          }
+        ]
+    }
+
+    refs = %{provider_call_ref: "pcall-r08-codec", provider_run_ref: "prun-r08-codec"}
+
+    source =
+      AuthoringTranscript.append_provider_result(
+        initial,
+        Map.merge(refs, %{content: text, tool_calls: [], provider_state: private})
+      )
+
+    receipt = %{
+      type: "validation_result",
+      status: "failed",
+      reason_code: "author_visible_narrative_invalid",
+      detail: %{"message" => @r08_response_fact <> "只纠正原说明。", "reason" => "invalid_narrative"},
+      retryable: true,
+      budget_after: %{"exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 1}}
+    }
+
+    notice = RequestIR.message(:application_notice, :application, [receipt], refs)
+    %{source | messages: source.messages ++ [notice]}
+  end
+
   test "R07 两种结果窗口经 JSON 恢复保持，后续 Scope 不重写历史回执" do
     validation_context = %{
       retryable: true,

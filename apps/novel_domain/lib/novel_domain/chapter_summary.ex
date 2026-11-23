@@ -97,33 +97,34 @@ defmodule NovelDomain.ChapterSummary do
   从 canonical `summary_text` 解析回四栏 map（`render_sections/1` 的逆变换）。
 
   确定性标签解析：只认识【标签】前缀行，未知标签忽略、缺栏键缺席（不伪造）、
-  「（无）」占位还原为缺席。无任何标签时整段归 :plot（与生成侧兜底同语义）。
+  「（无）」占位还原为缺席；已识别栏目全无值时返回空 map。
+  无任何已知标签时整段归 :plot（与生成侧兜底同语义）。
   五本账等按维度消费（M3）与探索面结构化渲染统一走本入口。
   """
   @spec parse_sections(String.t() | nil) :: %{atom() => String.t()}
   def parse_sections(text) when is_binary(text) do
     by_label = Map.new(@section_labels, fn {key, label} -> {label, key} end)
 
-    sections =
+    {sections, recognized_label?} =
       text
-      |> String.split("【", trim: true)
-      |> Enum.reduce(%{}, &parse_chunk(&1, &2, by_label))
+      |> String.split(~r/^\h*【/mu, trim: true)
+      |> Enum.reduce({%{}, false}, &parse_chunk(&1, &2, by_label))
 
-    case {map_size(sections), String.trim(text)} do
-      {0, ""} -> %{}
-      {0, trimmed} -> %{plot: trimmed}
-      _ -> sections
+    case {recognized_label?, String.trim(text)} do
+      {false, ""} -> %{}
+      {false, trimmed} -> %{plot: trimmed}
+      {true, _} -> sections
     end
   end
 
   def parse_sections(_text), do: %{}
 
-  defp parse_chunk(chunk, acc, by_label) do
+  defp parse_chunk(chunk, {sections, recognized_label?}, by_label) do
     with [label, body] <- String.split(chunk, "】", parts: 2),
          key when not is_nil(key) <- Map.get(by_label, String.trim(label)) do
-      put_section(acc, key, String.trim(body))
+      {put_section(sections, key, String.trim(body)), true}
     else
-      _ -> acc
+      _ -> {sections, recognized_label?}
     end
   end
 

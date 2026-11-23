@@ -1,8 +1,13 @@
 defmodule NovelApplication.JudgmentToolContractTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
+  alias NovelApplication.JudgmentProtocol
   alias NovelApplication.JudgmentToolContract
+  alias NovelApplication.TestAgenticLoopFixtures, as: Fixtures
   alias NovelCommon.Contracts.ToolArgumentSchema
+  alias NovelCommon.RequestIR
+  alias NovelCommon.RequestIR.Projection
 
   @moduletag :r05_explore_contract
 
@@ -176,8 +181,135 @@ defmodule NovelApplication.JudgmentToolContractTest do
     end
   end
 
+  @tag :r08_gap_contract
+  test "R08 两个生产判断 profile 的规则与缺口工具两处说明供应同一有据替代边界" do
+    clauses = [
+      "仅提供本轮可用操作目录或已供应材料证实可行的替代路径",
+      "没有可确认的替代路径时如实说明",
+      "未知的人工操作或界面能力，不能说成可用，也不能断言不存在"
+    ]
+
+    judgment_input = Fixtures.judgment_input()
+
+    continuation_input =
+      Map.merge(judgment_input, %{
+        deviation_summary: "当前产出尚未实现目标效果",
+        observation_block: "当前已知材料尚未确认可用替代路径"
+      })
+
+    for {profile, input} <- [judgment: judgment_input, continuation: continuation_input] do
+      ir = JudgmentProtocol.request_for_production(input, profile)
+      assert :ok = RequestIR.validate(ir)
+      gap = Enum.find(RequestIR.Tools.tool_specs(ir), &(&1.name == "report_capability_gap"))
+      schema = RequestIR.json_value(gap.input_schema)
+      reasoning = schema["properties"]["author_reasoning"]["description"]
+
+      for surface <- [Projection.system_text(ir.system), gap.description, reasoning],
+          clause <- clauses do
+        assert surface =~ clause
+        assert length(String.split(surface, clause)) == 2
+      end
+
+      refute gap.description =~ "说明缺失效果与最近可行路径"
+      refute reasoning =~ "缺少的效果及最近可行路径"
+      assert gap.description =~ "不派发近似工具"
+      assert gap.description =~ "不以 ask_author 代替"
+      assert reasoning =~ "不把建议说成已执行"
+    end
+  end
+
+  @tag :r08_gap_contract
+  test "R08 未确认替代时省略或空列表仍经原 schema 与真实判断接收" do
+    base = %{
+      dialogue_goal: "核对作者要求的实际效果",
+      missing_effect: "当前材料尚未证明有可用操作完成该效果",
+      author_reasoning: "当前无法确认可行替代路径，也不能据此判定界面没有该能力。"
+    }
+
+    for arguments <- [base, Map.put(base, :alternative_operation_refs, [])] do
+      for profile <- [:judgment, :continuation] do
+        gap =
+          Enum.find(JudgmentToolContract.tools(profile), &(&1.name == "report_capability_gap"))
+
+        refute "alternative_operation_refs" in gap.input_schema.required
+        assert ToolArgumentSchema.valid?(arguments, gap.input_schema)
+
+        assert :ok =
+                 JudgmentToolContract.validate(
+                   [%{name: "report_capability_gap", arguments: arguments}],
+                   profile
+                 )
+      end
+
+      call = Fixtures.judgment_call("report_capability_gap", arguments)
+      ref = "gap-empty-#{System.unique_integer([:positive])}"
+      response = Fixtures.judgment_response("", [call], ref)
+      execution = %Execution{result_fn: fn _request -> {:ok, response} end}
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(execution, %{}, Fixtures.judgment_input())
+
+      assert judgment.action == "capability_gap"
+      assert judgment.narrative == base.author_reasoning
+      assert judgment.provider_call_count == 1
+    end
+  end
+
+  @tag :r08_gap_contract
+  test "R08 不在本轮目录的替代引用仍被原判断门拒绝，原调用与纠错保留" do
+    {:ok, requests} = Agent.start_link(fn -> [] end)
+
+    arguments = %{
+      dialogue_goal: "核对作者要求的实际效果",
+      missing_effect: "缺少目标效果",
+      author_reasoning: "当前无法确认可行替代路径。",
+      alternative_operation_refs: ["unlisted_operation"]
+    }
+
+    execution = %Execution{
+      result_fn: fn request ->
+        ordinal =
+          Agent.get_and_update(requests, fn previous ->
+            {length(previous) + 1, previous ++ [request]}
+          end)
+
+        call =
+          Fixtures.judgment_call("report_capability_gap", arguments)
+          |> Map.put(:id, "gap-invalid-#{ordinal}")
+
+        {:ok, Fixtures.judgment_response("", [call], "gap-provider-#{ordinal}")}
+      end
+    }
+
+    assert {:error, {:judgment_protocol_violation, {:invalid_alternative_operation_refs, detail}},
+            state} =
+             JudgmentProtocol.request_judgment(
+               execution,
+               %{},
+               Fixtures.judgment_input(capabilities: ["world_building"])
+             )
+
+    assert detail.unavailable_refs == ["unlisted_operation"]
+    assert "world_building" in detail.allowed_operation_refs
+    assert state.provider_call_count == 2
+    [first, correction] = Agent.get(requests, & &1)
+    assert Enum.take(correction.messages, length(first.messages)) == first.messages
+    blocks = Enum.flat_map(correction.messages, & &1.blocks)
+
+    original =
+      Enum.find(blocks, &(&1.type == "tool_call" and &1.call_id == "gap-invalid-1"))
+
+    assert RequestIR.json_value(original.arguments)["alternative_operation_refs"] ==
+             ["unlisted_operation"]
+
+    assert Enum.any?(blocks, fn block ->
+             block.type == "validation_result" and block.call_id == "gap-invalid-1" and
+               block.status == "failed"
+           end)
+  end
+
   test "原文登记参数显式选择真实来源 ref，固定合同不嵌入动态来源枚举" do
-    assert JudgmentToolContract.version() == "b26-tools-v7"
+    assert JudgmentToolContract.version() == "b26-tools-v8"
 
     tool =
       Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "register_author_content"))

@@ -15,6 +15,7 @@ defmodule NovelCommon.RequestIR do
 
   alias NovelCommon.CapabilityProfile
   alias NovelCommon.RequestIR.Compaction
+  alias NovelCommon.RequestIR.MessageCoverage
   alias NovelCommon.RequestIR.Observation
   alias NovelCommon.RequestIR.Scope
   alias NovelCommon.RequestIR.SystemEnvelope
@@ -26,7 +27,8 @@ defmodule NovelCommon.RequestIR do
   @forbidden_tool_names ~w(adopt canon_write accept_candidate confirm_candidate self_approve)
   @run_fields ~w(run_id work_id workspace_id session_id parent_turn_ref profile_ref goal)a
   @goal_fields ~w(text source_ref version)a
-  @execution_ref_keys ~w(provider_call_ref provider_run_ref)a
+  @response_rejection_fact "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n"
+  @application_response_rejection_fact "本次响应未通过接收，未作为任务回复发布；仍在处理原任务。\n"
 
   @required_capabilities [
     :native_multi_turn,
@@ -306,6 +308,7 @@ defmodule NovelCommon.RequestIR do
       true ->
         with :ok <- SystemEnvelope.validate(ir.system),
              :ok <- validate_messages(ir.messages),
+             :ok <- MessageCoverage.validate_response_validations(ir.messages, ir.run),
              :ok <- Scope.validate_bindings(ir),
              :ok <- validate_tools(ir.tools),
              :ok <- validate_call_bindings(ir.messages),
@@ -344,7 +347,7 @@ defmodule NovelCommon.RequestIR do
         {:error, :invalid_checkpoint_message}
 
       true ->
-        with :ok <- validate_execution_refs(message),
+        with {:ok, _refs} <- MessageCoverage.execution_refs(message),
              :ok <- validate_blocks(blocks),
              do: Scope.validate_owner(message)
     end
@@ -352,18 +355,8 @@ defmodule NovelCommon.RequestIR do
 
   defp validate_message(_message), do: {:error, :malformed_message}
 
-  # 执行引用是可选内部事实：缺失表示未经过执行边界，存在则必须是有效 UTF8、
-  # 真正非空白的字符串。原值不 trim、不 coerce；错误只回固定 reason 与字段名，
-  # 不把任意坏 map/二进制 payload 带进异常或校验结果。
-  defp validate_execution_refs(message) do
-    case collect_execution_refs(message) do
-      {:ok, _refs} -> :ok
-      error -> error
-    end
-  end
-
   defp execution_refs(result) do
-    case collect_execution_refs(result) do
+    case MessageCoverage.execution_refs(result) do
       {:ok, refs} ->
         refs
 
@@ -371,29 +364,6 @@ defmodule NovelCommon.RequestIR do
         raise ArgumentError, "invalid execution ref field: #{key}"
     end
   end
-
-  defp collect_execution_refs(map) do
-    Enum.reduce_while(@execution_ref_keys, {:ok, %{}}, fn key, {:ok, refs} ->
-      case field(map, key) do
-        nil -> {:cont, {:ok, refs}}
-        ref -> reduce_execution_ref(ref, key, refs)
-      end
-    end)
-  end
-
-  defp reduce_execution_ref(ref, key, refs) do
-    if valid_execution_ref?(ref) do
-      {:cont, {:ok, Map.put(refs, key, ref)}}
-    else
-      {:halt, {:error, {:invalid_execution_ref, key}}}
-    end
-  end
-
-  defp valid_execution_ref?(ref) when is_binary(ref) do
-    String.valid?(ref) and String.trim(ref) != ""
-  end
-
-  defp valid_execution_ref?(_ref), do: false
 
   defp validate_blocks([]), do: :ok
 
@@ -476,6 +446,13 @@ defmodule NovelCommon.RequestIR do
        when is_binary(call_id) and call_id != "" and is_binary(reason) and
               status in ["passed", "failed"] do
     :ok
+  end
+
+  defp validate_validation_block(%{status: "failed", reason_code: reason} = block)
+       when is_binary(reason) and reason != "" do
+    if Map.has_key?(block, :call_id),
+      do: {:error, :invalid_validation_result_block},
+      else: :ok
   end
 
   defp validate_validation_block(_block), do: {:error, :invalid_validation_result_block}
@@ -589,7 +566,7 @@ defmodule NovelCommon.RequestIR do
   end
 
   defp result_call_ids(messages) do
-    for message <- messages,
+    for %{role: "tool"} = message <- messages,
         block <- Map.get(message, :blocks, []),
         Map.get(block, :type) in ["observation", "validation_result"],
         do: Map.get(block, :call_id)
@@ -783,22 +760,56 @@ defmodule NovelCommon.RequestIR do
       when is_map(content) and is_list(base_refs),
       do: Scope.append_update(ir, content, versions, source_refs, base_refs)
 
-  @doc "追加真实工具校验结果，保留 call_id 关联。"
-  @spec append_validation_result(t(), String.t(), String.t(), String.t(), map(), map()) :: t()
+  @doc "真实校验结果：string 主体关联工具；响应引用 map 只记录发布前拒收。"
+  @spec append_validation_result(t(), String.t() | map(), String.t(), String.t(), map(), map()) ::
+          t()
   def append_validation_result(
         %__MODULE__{} = ir,
-        call_id,
+        subject,
         status,
         reason,
         detail \\ %{},
         receipt_context \\ %{}
       ) do
-    message =
-      message(:tool, :tool_result, [
-        validation_result_block(call_id, status, reason, detail, receipt_context)
-      ])
+    notice =
+      if is_map(subject) do
+        if status != "failed" or map_size(subject) != 2,
+          do: raise(ArgumentError, "invalid response validation subject")
 
-    %{ir | messages: ir.messages ++ [message]}
+        refs = execution_refs(subject)
+        block = validation_result_block(nil, status, reason, detail, receipt_context)
+
+        fact =
+          if MessageCoverage.author_input_present?(ir.messages),
+            do: @response_rejection_fact,
+            else: @application_response_rejection_fact
+
+        detail =
+          Map.update(
+            block.detail,
+            "message",
+            fact,
+            &(fact <> &1)
+          )
+
+        block = block |> Map.delete(:call_id) |> Map.put(:detail, detail)
+        message(:application_notice, :application, [block], refs)
+      else
+        message(:tool, :tool_result, [
+          validation_result_block(subject, status, reason, detail, receipt_context)
+        ])
+      end
+
+    updated = %{ir | messages: ir.messages ++ [notice]}
+
+    if is_map(subject) do
+      case MessageCoverage.validate_response_validations(updated.messages, ir.run) do
+        :ok -> updated
+        {:error, reason} -> raise ArgumentError, "invalid response validation: #{inspect(reason)}"
+      end
+    else
+      updated
+    end
   end
 
   @doc "追加无工具响应的应用协议反馈，不冒充作者输入。"

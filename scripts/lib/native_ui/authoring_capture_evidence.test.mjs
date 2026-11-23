@@ -3,7 +3,7 @@
 // 不建目录/DB、不启动子进程。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorVisibleScenario } from "./authoring_capture_evidence.mjs";
+import { authorVisibleScenario, authorVisibleScenarioSpec } from "./authoring_capture_evidence.mjs";
 import { validateAuthorInputs } from "./request_cost_manifest.mjs";
 import { R05_CASES, R06_CASES } from "./fixtures/authoring_capture_facts.mjs";
 
@@ -54,5 +54,28 @@ test("冻结作者输入可显式5条，默认20不变，义务检查不越界",
   for (const outside of [4, 6]) {
     input.turns[4].obligations[0].review_at_turns = [outside];
     assert.throws(() => validateAuthorInputs(input, { expectedCount: 5 }), /义务检查轮次非法/);
+  }
+});
+
+test("R08 条件分支只登记独立三步首 selector、原 seed 与 R01 有限预算", () => {
+  const id = "J-R08-CONDITION-BRANCH";
+  assert.equal(authorVisibleScenario(id), "behavior");
+  assert.deepEqual(authorVisibleScenarioSpec(id), {
+    mode: "behavior",
+    slice_id: "b71-first-consumer",
+    seed_script: "scripts/seed_author_behavior_states.exs",
+    runtime_profile: "b87-r01-controlled-splash-high",
+    case_id: "C-F3-R08-CONDITION-BRANCH-SOURCE",
+    budget: {
+      batches: 1, author_sends: 3, manual_retries: 0, scenario_seconds: 1200,
+      input_timeout_ms: 120000, turn_timeout_ms: 360000,
+    },
+  });
+  const original = authorVisibleScenarioSpec("J-R08-QUOTED-REVISION");
+  assert.equal(original.case_id, "C-F3-R08-QUOTED-SOURCE");
+  assert.equal(original.budget.author_sends, 4);
+  assert.equal(original.budget.scenario_seconds, 1200);
+  for (const unknown of ["C-F3-R08-CONDITION-BRANCH-TRUE", "J-R08-CONDITION-BRANCH-copy"]) {
+    assert.equal(authorVisibleScenarioSpec(unknown), null);
   }
 });

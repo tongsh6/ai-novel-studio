@@ -30,9 +30,29 @@ function recordBoundary(bytes) {
   }
   return null;
 }
-function hasContent(record) {
-  const data = record.toString("utf8").split(/\r?\n/u)
+function recordData(record) {
+  return record.toString("utf8").split(/\r?\n/u)
     .filter(line => line.startsWith("data:")).map(line => line.slice(5).replace(/^ /u, "")).join("\n");
+}
+
+// Inspection consumes the same closed-record/data extraction as the gate, without forwarding or mutation.
+export function closedSseData(bytes) {
+  assert(Buffer.isBuffer(bytes), "sse_copy_bytes_required");
+  new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const data = [];
+  let remaining = bytes;
+  while (remaining.length > 0) {
+    const boundary = recordBoundary(remaining);
+    assert(boundary !== null && boundary <= MAX_RECORD, "sse_copy_incomplete_record");
+    const value = recordData(remaining.subarray(0, boundary));
+    if (value) data.push(value);
+    remaining = remaining.subarray(boundary);
+  }
+  return data;
+}
+
+function hasContent(record) {
+  const data = recordData(record);
   if (!data || data === "[DONE]") return false;
   const body = JSON.parse(data);
   assert(!body.choices?.some(choice => choice.finish_reason != null &&

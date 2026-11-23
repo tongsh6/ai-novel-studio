@@ -447,7 +447,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
     assert judgment.provider_call_count == 2
     assert judgment.question == question
     assert judgment.options == options
-    assert judgment.narrative_source.provider_call_ref == "call-role-labels-second"
+    assert judgment.narrative_source.provider_call_ref == "pcall-role-observed-2"
 
     result =
       NovelApplication.AuthorQuestion.attach(
@@ -631,13 +631,31 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
 
   defp role_execution(responses) do
     key = make_ref()
-    Process.put(key, responses)
+    Process.put(key, {responses, 0})
 
     %Execution{
       result_fn: fn _request ->
-        [response | rest] = Process.get(key)
-        Process.put(key, rest)
-        {:ok, response}
+        {[response | rest], previous} = Process.get(key)
+        sequence = previous + 1
+        Process.put(key, {rest, sequence})
+
+        case response do
+          {:error, _reason} = error ->
+            error
+
+          response ->
+            refs = %{
+              provider_call_ref: "pcall-role-observed-#{sequence}",
+              provider_run_ref: "prun-role-observed-#{sequence}"
+            }
+
+            response =
+              response
+              |> Map.merge(refs)
+              |> Map.update!(:provider_output, &Map.merge(&1, refs))
+
+            {:ok, response}
+        end
       end
     }
   end

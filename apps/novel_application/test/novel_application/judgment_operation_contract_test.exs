@@ -34,7 +34,11 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
     assert :ok =
              AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
-               "run-gap-current" => result.provider_output
+               "prun-judgment-operation-1" => %{
+                 result.provider_output
+                 | provider_call_ref: "pcall-judgment-operation-1",
+                   provider_run_ref: "prun-judgment-operation-1"
+               }
              })
   end
 
@@ -69,7 +73,11 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
       assert :ok =
                AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
-                 "run-gap-corrected" => second.provider_output
+                 "prun-judgment-operation-2" => %{
+                   second.provider_output
+                   | provider_call_ref: "pcall-judgment-operation-2",
+                     provider_run_ref: "prun-judgment-operation-2"
+                 }
                })
 
       assert_receive {:provider_request, first_request}
@@ -339,7 +347,20 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
     assert state.provider_call_count == 2
     assert blocks(state.judgment_transcript, "tool_call") == []
-    assert blocks(state.judgment_transcript, "validation_result") == []
+
+    assert [first, terminal] =
+             Enum.filter(state.judgment_transcript.messages, fn message ->
+               Enum.any?(message.blocks, &(&1.type == "validation_result"))
+             end)
+
+    for notice <- [first, terminal] do
+      assert notice.role == "application_notice"
+      assert [%{type: "validation_result", status: "failed"} = receipt] = notice.blocks
+      refute Map.has_key?(notice, :call_id)
+      refute Map.has_key?(receipt, :call_id)
+    end
+
+    refute Enum.any?(state.judgment_transcript.messages, &(&1.role == "tool"))
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
     refute_receive {:provider_request, _third}, 10
@@ -449,14 +470,32 @@ defmodule NovelApplication.JudgmentOperationContractTest do
   defp execution(results) do
     test = self()
     key = make_ref()
-    Process.put(key, results)
+    Process.put(key, {results, 0})
 
     %Execution{
       result_fn: fn request ->
         send(test, {:provider_request, request})
-        [result | remaining] = Process.get(key)
-        Process.put(key, remaining)
-        {:ok, result}
+        {[result | remaining], previous} = Process.get(key)
+        sequence = previous + 1
+        Process.put(key, {remaining, sequence})
+
+        case result do
+          {:error, _reason} = error ->
+            error
+
+          response ->
+            refs = %{
+              provider_call_ref: "pcall-judgment-operation-#{sequence}",
+              provider_run_ref: "prun-judgment-operation-#{sequence}"
+            }
+
+            response =
+              response
+              |> Map.merge(refs)
+              |> Map.update!(:provider_output, &Map.merge(&1, refs))
+
+            {:ok, response}
+        end
       end
     }
   end

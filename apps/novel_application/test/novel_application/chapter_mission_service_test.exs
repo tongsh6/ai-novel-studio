@@ -152,11 +152,26 @@ defmodule NovelApplication.ChapterMissionServiceTest do
       attempt = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
 
       if attempt == 2 do
-        [_first | rest] = prompt.messages
-        assert Enum.any?(rest, &(text(&1) =~ "上一次输出无法使用"))
+        assert Enum.any?(prompt.messages, fn
+                 %{
+                   role: "application_notice",
+                   blocks: [%{type: "validation_result", status: "failed", detail: detail}]
+                 } ->
+                   detail["message"] =~ "上一次输出无法使用"
+
+                 _message ->
+                   false
+               end)
       end
 
-      {:ok, %{content: "我直接写正文了。", provider_call_id: "pc-bad-#{attempt}", tool_calls: []}}
+      {:ok,
+       %{
+         content: "我直接写正文了。",
+         provider_call_id: "pc-bad-#{attempt}",
+         provider_call_ref: "pc-bad-#{attempt}",
+         provider_run_ref: "prun-mission-bad-#{attempt}",
+         tool_calls: []
+       }}
     end
 
     assert {:error, {:native_tool_call_required, "chapter_mission"}, %{provider_call_count: 2}} =

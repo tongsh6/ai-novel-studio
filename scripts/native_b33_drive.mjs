@@ -9,15 +9,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { adoptionMaintenanceOutcome, selectB33PendingArtifact } from "./native_b33_evidence.mjs";
 import { readJson } from "./lib/native_ui/driver.mjs";
 import { readStrataState } from "./lib/native_ui/strata_lifecycle.mjs";
 import { CARD } from "../frontend/src/lib/copy.ts";
-import { broadcastFrames, requestIdentity, requestReplies } from "./lib/native_ui/scenario_evidence.mjs";
+import { broadcastFrames, logs, requestIdentity, requestReplies } from "./lib/native_ui/scenario_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import { authorBoundary, countAxAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
 import {
-  actionAck, actionFrame, actionResult, isPendingWaitMiss, locateScopedButton, selectPendingAction,
+  actionAck, actionFrame, actionLabelsFor, actionResult, actionTurnResult, isPendingWaitMiss, locateScopedButton, selectPendingAction,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
+import { revealItem } from "./lib/native_ui/authoring_pending_driver.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
@@ -86,6 +88,7 @@ async function sendAuthorInput(text, label, config) {
     message, turnId, runId, baselineAuthorCount,
     identity: {
       topic: request.topic, turnId, runId, workId: body.work_id,
+      workspaceId: request.topic.startsWith("workspace:") ? request.topic.slice("workspace:".length) : null,
       sessionId: body.session_id, since: message.at,
     },
   };
@@ -130,35 +133,36 @@ function pendingOf(turnResult) {
   return turnResult?.adoption_state?.pending ?? [];
 }
 
-async function adoptPending(turnResult, identity, scenario, baselineAuthorCount, timeoutMs) {
+export async function adoptPending(
+  turnResult, identity, scenario, baselineAuthorCount, timeoutMs,
+  { driver = harness, readStart = () => readJson(path.join(dir, "b33-start.json")) } = {},
+) {
   const label = scenario.id;
   const pending = pendingOf(turnResult);
-  if (pending.length !== 1) throw new Error(`pending_target_not_unique:${label}:${pending.length}`);
-  const artifact = pending[0];
+  const { unique, artifact } = selectB33PendingArtifact(turnResult, {
+    wire: driver.transport(), identity, scenario, start: readStart(),
+  });
+  if (!unique) throw new Error(`pending_target_not_unique:${label}:${pending.length}`);
   const artifactId = artifact.artifact_id;
   const action = selectPendingAction(turnResult, { artifactId, actionType: "accept" });
   const item = artifact.payload?.items?.[0];
   if (!item) throw new Error(`pending_item_missing:${label}`);
-  const nodes = harness.dumpNodes();
+  const buttonLabel = artifact.artifact_type === "chapter_structure_change_plan"
+    ? CARD.tentativeArtifact.acceptLabel
+    : actionLabelsFor(artifact, turnResult).accept;
+  await revealItem(driver, item.title, item.body);
+  const nodes = driver.dumpNodes();
   const boundary = authorBoundary(nodes, scenario.input, baselineAuthorCount);
-  const located = [
-    CARD.tentativeArtifact.acceptLabel,
-    CARD.tentativeArtifact.acceptProseLabel,
-  ].map((buttonLabel) => ({
-    label: buttonLabel,
-    result: locateScopedButton(nodes, {
-      itemTitle: item.title, itemBody: item.body, artifact, knownArtifacts: pending,
-      authorBoundary: boundary, label: buttonLabel,
-    }),
-  }));
-  const matches = located.filter((entry) => entry.result.ok);
-  if (matches.length !== 1 || located.some((entry) => entry.result.reason === "action_ambiguous")) {
-    throw new Error(`adopt_button_not_unique:${label}:${JSON.stringify(located)}`);
+  const chosen = { label: buttonLabel, result: locateScopedButton(nodes, {
+    itemTitle: item.title, itemBody: item.body, artifact, knownArtifacts: pending,
+    authorBoundary: boundary, label: buttonLabel,
+  }) };
+  if (!chosen.result.ok) {
+    throw new Error(`adopt_button_not_unique:${label}:${JSON.stringify([chosen])}`);
   }
-  const chosen = matches[0];
   const startedAt = nowIso();
-  harness.safeClick(chosen.result.button, `${label}:adopt:${chosen.label}`);
-  const waitFor = (reader, suffix) => harness.pollWire((wire) => {
+  driver.safeClick(chosen.result.button, `${label}:adopt:${chosen.label}`);
+  const waitFor = (reader, suffix) => driver.pollWire((wire) => {
     try { return reader(wire); }
     catch (error) {
       if (isPendingWaitMiss(error)) return null;
@@ -173,10 +177,46 @@ async function adoptPending(turnResult, identity, scenario, baselineAuthorCount,
     actionResult(wire, {
       topic: identity.topic, since: send.at, action, actionStatus: "accepted",
     }), "action_result");
+  await waitFor((wire) => actionTurnResult(wire, {
+    topic: identity.topic, since: send.at, parentTurnRef: turnResult.turn_id,
+  }), "adoption_turn_result");
   return {
     artifact_id: artifactId, button: chosen.label, clicked_at: startedAt,
     send: frameBody(send), ack: frameBody(ack.reply), receipt: frameBody(receipt), at: nowIso(),
   };
+}
+
+export async function waitAdoptionMaintenance(
+  turnResult, identity, scenario, deadline,
+  { driver = harness, readStart = () => readJson(path.join(dir, "b33-start.json")),
+    readRecords = () => logs(path.join(dir, "app-log")), now = Date.now } = {},
+) {
+  const selection = selectB33PendingArtifact(turnResult, {
+    wire: driver.transport(), identity, scenario, start: readStart(),
+  });
+  if (!selection.unique || selection.artifact?.artifact_type !== "prose_fragment") {
+    throw new Error("maintenance_source_not_selected:" + scenario.id);
+  }
+  const action = selectPendingAction(turnResult, { artifactId: selection.artifact.artifact_id, actionType: "accept" });
+  const wire = driver.transport();
+  const sent = actionFrame(wire, { topic: identity.topic, since: selection.terminal.record.at, action });
+  actionAck(wire, sent, { actionStatus: "accepted" });
+  const receipt = frameBody(actionResult(wire, {
+    topic: identity.topic, since: sent.at, action, actionStatus: "accepted",
+  }));
+  const projection = receipt.persistence?.reading_projection;
+  if (!projection || selection.artifact.target_chapter_ref !== "chapter:" + projection.chapter_id ||
+      receipt.persistence?.persisted !== true || !projection.source_revision_ref) {
+    throw new Error("maintenance_projection_not_bound:" + scenario.id);
+  }
+  return driver.runStep("maintenance", "summary_ledger:" + scenario.id, () => {
+    const remaining = deadline - now();
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error("maintenance_turn_budget_exhausted:" + scenario.id);
+    return driver.pollWire(() => adoptionMaintenanceOutcome(readRecords(), {
+      workId: identity.workId, chapterId: projection.chapter_id,
+      since: sent.at, until: new Date(Math.min(now(), deadline)).toISOString(),
+    }), remaining, "summary_ledger:" + scenario.id);
+  });
 }
 
 async function runScenario(config, scenario) {
@@ -187,8 +227,12 @@ async function runScenario(config, scenario) {
   const pending = pendingOf(turnResult);
   let adoption = null;
   if (scenario.adopt && finalKind === "turn_result") {
+    runEvidenceMode(EVIDENCE, "capture", dir, [label + "-before-adoption"]);
     adoption = await harness.runStep("adoption", `adopt:${label}`, () =>
       adoptPending(turnResult, identity, scenario, baselineAuthorCount, config.budget.ack_timeout_ms),
+    );
+    if (scenario.id === "S4") await waitAdoptionMaintenance(
+      turnResult, identity, scenario, Date.parse(message.at) + config.budget.turn_timeout_ms,
     );
   }
   harness.capture(`${label}-after`);
@@ -209,7 +253,7 @@ async function runScenario(config, scenario) {
     pending_count: pending.length,
     pending: pending.map((entry) => ({
       artifact_id: entry.artifact_id ?? null,
-      object_kind: entry.payload?.object_kind ?? entry.payload?.artifact_type ?? null,
+      object_kind: entry.artifact_type ?? entry.payload?.object_kind ?? null,
       item_count: entry.payload?.item_count ?? entry.payload?.items?.length ?? null,
     })),
     adoption,

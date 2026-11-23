@@ -552,7 +552,17 @@ defmodule NovelApplication.JudgmentProtocol do
 
     case pending_call_ids(transcript) do
       [] ->
-        AuthoringTranscript.append_application_notice(transcript, correction_content(reason))
+        %{role: "assistant", provenance: "model"} = response = List.last(transcript.messages)
+        subject = Map.take(response, [:provider_call_ref, :provider_run_ref])
+
+        AuthoringTranscript.append_validation(
+          transcript,
+          subject,
+          "failed",
+          validation_reason_code(reason),
+          detail,
+          receipt_context
+        )
 
       ids ->
         close_calls(
@@ -745,7 +755,7 @@ defmodule NovelApplication.JudgmentProtocol do
       pending_artifact_targets: Keyword.get(options, :pending_artifact_targets, %{}),
       adopted_content_targets: Keyword.get(options, :adopted_content_targets, %{}),
       registered_sources: Keyword.get(options, :registered_sources, []),
-      author_content_sources: author_sources,
+      author_content_sources: Enum.map(author_sources, &Map.take(&1, [:ref])),
       exploration: %{
         allowed: Keyword.get(options, :explore, false),
         tools: Keyword.get(options, :explore_tools, []),

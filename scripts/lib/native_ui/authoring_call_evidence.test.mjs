@@ -24,7 +24,7 @@ import {
   sseBase,
   sseExchange,
 } from "./fixtures/authoring_call_fixture.mjs";
-import { joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, joinNativeCallEvidence, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
 
@@ -43,6 +43,45 @@ const sseResult = (patch = {}) => {
   value.transcript = { run: scope(), ...value.transcript };
   return joinNativeCallEvidence(value);
 };
+
+
+test("R08 响应拒收：真实调用绑定透传IR的当前run，已注解作者后的新tail可完整配对", () => {
+  const run = { workspace_id: "workspace-r08", work_id: "work-r08", session_id: "session-r08",
+    run_id: "run-r08", parent_turn_ref: "parent-r08" };
+  const message = (role, provenance, blocks, sequence, extra = {}) => ({
+    role, provenance, blocks, source_refs: [], versions: {},
+    canonical_ref: { ...run, run_sequence: sequence, run_status: "completed" }, ...extra,
+  });
+  const response = { provider_call_ref: "pcall-r08-first", provider_run_ref: "prun-r08-first" };
+  const receipt = { type: "validation_result", status: "failed", reason_code: "invalid_response_format",
+    detail: { message: "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n请按原要求重做。" },
+    retryable: true, budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 1 } } };
+  const canonical = [
+    message("user", "author", [{ type: "text", text: "继续分析。" }], 1,
+      { source_refs: [{ ref: "author-message-second" }] }),
+    message("assistant", "model", [{ type: "text", text: "原稿\r\n" }], 2, response),
+    message("application_notice", "application", [receipt], 3, response),
+    message("assistant", "model", [{ type: "text", text: "纠正后的真实回复。" }], 4,
+      { provider_call_ref: "pcall-r08-next", provider_run_ref: "prun-r08-next" }),
+  ];
+  for (const missing of [[1, 2], [2]]) {
+    const actual = structuredClone(canonical.slice(0, 3));
+    missing.forEach(index => { delete actual[index].canonical_ref; });
+    const record = { provider: "slice_verify", request_format: "authoring-request-ir/v1",
+      provider_call_ref: "pcall-r08-next", provider_run_ref: "prun-r08-next",
+      request_body: { ir_version: "authoring-request-ir/v1", run, messages: actual, tools: [], refs: {}, projection: {} } };
+    const before = JSON.stringify({record,canonical});
+    const bound = canonicalRequestBindingsForProviderCall(record, {run,messages:canonical});
+    assert.equal(bound?.length, 3);
+    assert.equal(bound[1].actual.text, "原稿\r\n");
+    assert.strictEqual(bound[2].canonical.raw, canonical[2]);
+    assert.equal(JSON.stringify({record,canonical}), before);
+    for (const bad of [{...run,run_id:"foreign-run"}, {...run,session_id:undefined}]) {
+      const changed = structuredClone(record); changed.request_body.run = bad;
+      assert.equal(canonicalRequestBindingsForProviderCall(changed, {run,messages:canonical}), null);
+    }
+  }
+});
 
 test("真实流失败后成功：持久失败事实绑定两次调用，不把占位当成功", () => {
   const value = sseBase();

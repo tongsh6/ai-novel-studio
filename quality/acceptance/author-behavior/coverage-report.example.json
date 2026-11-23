@@ -4,14 +4,14 @@
   "corpus": {
     "targets": 5,
     "states": 4,
-    "cases": 29,
+    "cases": 53,
     "splits": {
       "dev": 10,
       "regression": 4,
       "holdout": 4,
-      "explore": 11
+      "explore": 35
     },
-    "corpus_sha": "8cc1f08816d8de72f99178e61047efa662ab0bdf9a1a1f73d98cff525b0b4514"
+    "corpus_sha": "93d6af74d57970594918e948dabd6cbb69d5600939bf73f622816e9f9d12d1b4"
   },
   "coverage": {
     "targets": [
@@ -45,10 +45,11 @@
       },
       {
         "target_id": "F3-world-foreshadow-boundary",
-        "cases": 14,
+        "cases": 35,
         "states": [
           "S1-partial-multichapter",
-          "S3-pending-candidate-context"
+          "S3-pending-candidate-context",
+          "S2-empty-skeleton"
         ],
         "splits": [
           "dev",
@@ -59,7 +60,7 @@
       },
       {
         "target_id": "F4-delegation-or-short-reference",
-        "cases": 3,
+        "cases": 6,
         "states": [
           "S1-partial-multichapter",
           "S2-empty-skeleton",
@@ -67,7 +68,8 @@
         ],
         "splits": [
           "dev",
-          "holdout"
+          "holdout",
+          "explore"
         ]
       },
       {

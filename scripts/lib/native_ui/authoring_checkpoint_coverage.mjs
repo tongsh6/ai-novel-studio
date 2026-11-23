@@ -2,7 +2,7 @@
 // 不读 DB/文件，不调用产品 selector/projector；失败保留原始历史，不代签语义完整。
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { requestFactsFromRecord, responseRejectionsOf } from "./authoring_request_facts.mjs";
 
 const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function decodeJson(value, label) {
@@ -168,6 +168,8 @@ function discussionOwnerKeys(run) {
 
 function discussionRequestSources(keys, run, messages) {
   coverageAssert(Array.isArray(messages), "discussion_request_history_missing");
+  const rejected = responseRejectionsOf(messages);
+  coverageAssert(rejected !== null, "response_validation_binding_invalid");
   const currentAuthors = messages.map((message, index) => ({ message, index })).filter(({ message }) =>
     message.role === "user" && message.provenance === "author" && message.canonical_ref?.run_id === run.agent_run_id);
   // 本成本入口每个 root 对应一条冻结输入；多作者回合缺调用时点证据时拒绝猜最后一条。
@@ -188,7 +190,7 @@ function discussionRequestSources(keys, run, messages) {
     coverageAssert(matches.length === 1, "discussion_request_source_unknown_or_ambiguous");
     const source = matches[0];
     coverageAssert(source.index > previousIndex && source.index < currentAuthors[0].index &&
-      isDiscussion(source.message) && sameScopeOwner(source.message.canonical_ref, run) &&
+      isDiscussion(source.message) && !rejected.has(source.message) && sameScopeOwner(source.message.canonical_ref, run) &&
       source.message.canonical_ref.run_status === "completed", "discussion_request_source_protected_or_out_of_order");
     previousIndex = source.index;
     return source;
@@ -270,6 +272,8 @@ function auditDiscussion(block, selected, owner, prior, options) {
 export function auditCanonicalCoverage(messages, options = {}) {
   const coveredCalls = new Set(), coveredMessages = new Set(), checkpoints = [];
   try {
+    const rejected = responseRejectionsOf(messages, options.run);
+    coverageAssert(rejected !== null, "response_validation_binding_invalid");
     messages.forEach((checkpoint, checkpointIndex) => {
       if (checkpoint.role !== "checkpoint") return;
       const prior = messages.slice(0, checkpointIndex);
@@ -324,7 +328,7 @@ export function auditCanonicalCoverage(messages, options = {}) {
             (identity.run_id === owner.run_id && pastOwnerTurn(source) || foreignCompleted) &&
             prior.slice(source.index + 1).some((message) =>
               message.role === "scope_update" && message.canonical_ref?.run_id === owner.run_id);
-          coverageAssert(replaceableScope || (isDiscussion(source.message) && foreignCompleted),
+          coverageAssert(replaceableScope || (isDiscussion(source.message) && !rejected.has(source.message) && foreignCompleted),
             "checkpoint_protected_message");
           coveredMessages.add(key);
           return source;
@@ -350,7 +354,8 @@ export function auditCanonicalCoverage(messages, options = {}) {
             call.source.name !== "ask_author", "checkpoint_protected_exchange");
           for (const message of prior) {
             const ids = messageBlocks(message).filter((source) =>
-              ["tool_call", "observation", "validation_result"].includes(source.type)).map((source) => source.call_id);
+              ["tool_call", "observation", "validation_result"].includes(source.type) &&
+              typeof source.call_id === "string" && source.call_id.trim() !== "").map((source) => source.call_id);
             coverageAssert(!ids.includes(id) || ids.every((value) => calls.includes(value)), "checkpoint_partial_exchange_group");
           }
           coveredCalls.add(id);
@@ -374,7 +379,8 @@ export function auditCanonicalCoverage(messages, options = {}) {
     const retainedMessages = messages.filter((message) => {
       if (coveredMessages.has(coordinateKey(message.canonical_ref))) return false;
       const ids = messageBlocks(message).filter((block) =>
-        ["tool_call", "observation", "validation_result"].includes(block.type)).map((block) => block.call_id);
+        ["tool_call", "observation", "validation_result"].includes(block.type) &&
+        typeof block.call_id === "string" && block.call_id.trim() !== "").map((block) => block.call_id);
       return ids.length === 0 || !ids.every((id) => coveredCalls.has(id));
     });
     return { ok: true, reason: null, coveredCallIds: [...coveredCalls],

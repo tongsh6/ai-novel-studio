@@ -1,6 +1,6 @@
 // 外部 HTTP 代理的纯取证判据：只认实际 capture 的完整 JSON body。
 //
-// 代理只对真实 resume、turn replay/activity 与按 turn 定位的 transcript 页记录 body；这里不把仅 status=200、
+// 代理只对真实 session show/resume、turn replay/activity 与按 turn 定位的 transcript 页记录 body；这里不把仅 status=200、
 // 截断/超限、非法 JSON、不支持的压缩编码或错 work/session/turn 的回包当证据。
 //
 // 真实 WorkSessionsController.serialize_snapshot 对 resume 无条件输出
@@ -38,6 +38,8 @@ export function httpCaptureTarget(method, url) {
   if (resume) {
     return { kind: "resume", work_id: decode(resume[1]), session_id: null, turn_id: null };
   }
+  const session = /^\/api\/works\/([^/]+)\/sessions\/([^/]+)\/?$/u.exec(pathname);
+  if (session) return { kind: "session_show", work_id: decode(session[1]), session_id: decode(session[2]), turn_id: null };
   const replay =
     /^\/api\/works\/([^/]+)\/sessions\/([^/]+)\/turns\/([^/]+)\/(replay|agent-run-activity)\/?$/u.exec(pathname);
   if (replay) {
@@ -92,6 +94,7 @@ function completeJsonCapture(record) {
 function capturePathFor(expected) {
   if (expected.kind === "resume") return resumePathFor(expected.work_id);
   const sessionPath = `/api/works/${encodeURIComponent(expected.work_id)}/sessions/${encodeURIComponent(expected.session_id)}`;
+  if (expected.kind === "session_show") return sessionPath;
   return expected.kind === "transcript_page"
     ? `${sessionPath}/transcript`
     : `${sessionPath}/turns/${encodeURIComponent(expected.turn_id)}/${expected.kind === "agent_activity" ? "agent-run-activity" : "replay"}`;
@@ -136,6 +139,34 @@ function captureFor(records, expected, from, to) {
     return { ok: false, reason: "capture_scope_mismatch", candidates };
   }
   return { ok: true, reason: null, record, body: record.body, candidates };
+}
+
+
+export function sessionShowCapture(records, { workId, sessionId, from, to } = {}) {
+  if (!nonBlank(workId) || !nonBlank(sessionId)) return { ok: false, reason: "scope_missing" };
+  if (![from, to].every((value) => nonBlank(value) && Number.isFinite(Date.parse(value))) || from > to)
+    return { ok: false, reason: "capture_window_missing" };
+  const expected = { kind: "session_show", work_id: workId, session_id: sessionId, turn_id: null };
+  const captured = captureFor(records, expected, from, to);
+  if (!captured.ok) return captured;
+  const { record, body } = captured;
+  if (!nonBlank(record.request_id) || record.body_state.truncated !== false ||
+      !/^[0-9a-f]{64}$/u.test(record.body_state.sha256 ?? ""))
+    return { ...captured, ok: false, reason: "capture_incomplete" };
+  if (!sameCaptureScope({ scope: record.response_scope }, expected) ||
+      body.work?.id !== workId || body.session?.id !== sessionId || body.session?.work_id !== workId)
+    return { ...captured, ok: false, reason: "capture_response_scope_mismatch" };
+  if (body.session.status !== "ACTIVE" || body.read_only !== false)
+    return { ...captured, ok: false, reason: "session_not_active" };
+  if (![body.pending_adoptions, body.pending_adoption_turn_results, body.resolved_adoptions].every(Array.isArray))
+    return { ...captured, ok: false, reason: "pending_projection_missing" };
+  const pending = body.pending_adoptions, resolved = body.resolved_adoptions;
+  const ids = pending.map((entry) => entry?.artifact_id), resolvedIds = resolved.map((entry) => entry?.artifact_id);
+  if (!pending.every((entry) => isObject(entry) && entry.adoption_status === "TENTATIVE") ||
+      ![...ids, ...resolvedIds].every(nonBlank) || new Set(ids).size !== ids.length ||
+      new Set(resolvedIds).size !== resolvedIds.length || ids.some((id) => resolvedIds.includes(id)))
+    return { ...captured, ok: false, reason: "pending_identity_invalid" };
+  return { ...captured, pending_artifact_ids: [...ids].sort() };
 }
 
 export function resumeCapture(records, { workId, from, to } = {}) {

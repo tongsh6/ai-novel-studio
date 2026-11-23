@@ -469,6 +469,7 @@ async function rawWaitCandidateCard({ pending, turn, label, timeoutMs = CANDIDAT
   return pollAx(
     (_text, nodes) => b29NativeItemVisible({
       title: items[0].title, body: items[0].body, actionLabel: "保存到作品",
+      artifact: pending, knownArtifacts: turn.turnResult.adoption_state.pending,
       nativeView: { nodes, message: turn.authorMessage, baselineAuthorCount: turn.baselineAuthorCount,
         workTitle: WORK_TITLE },
     }), timeoutMs, `candidate:${label}`,

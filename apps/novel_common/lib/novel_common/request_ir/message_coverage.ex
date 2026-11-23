@@ -7,9 +7,12 @@ defmodule NovelCommon.RequestIR.MessageCoverage do
   """
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
+  alias NovelCommon.RequestIR.Scope
 
   @selector_keys ~w(run_id run_sequence role source_refs versions)a
   @identity_keys ~w(run_id workspace_id work_id session_id parent_turn_ref)a
+  @execution_ref_keys ~w(provider_call_ref provider_run_ref)a
+  @response_result_keys ~w(type status reason_code detail retryable budget_after)a
 
   def annotate(messages, run) do
     owner = field(run, :run_id)
@@ -117,8 +120,8 @@ defmodule NovelCommon.RequestIR.MessageCoverage do
       end)
   end
 
-  def eligible?(%{message: message}, _messages, owner) do
-    discussion?(message) and
+  def eligible?(%{message: message, index: index}, messages, owner) do
+    discussion?(message, messages, index) and
       get_in(message, [:canonical_ref, :run_status]) == "completed" and
       get_in(message, [:canonical_ref, :run_id]) != owner
   end
@@ -128,9 +131,260 @@ defmodule NovelCommon.RequestIR.MessageCoverage do
 
   def discussion?(_message), do: false
 
+  def discussion?(message, messages, index),
+    do: discussion?(message) and response_validation(messages, index) == {:ok, nil}
+
+  @doc "无工具响应拒收的唯一绑定判据；缺回执保持未知，坏回执明确失败。"
+  def response_validation(messages, index, run \\ %{})
+
+  def response_validation(messages, index, run)
+      when is_list(messages) and is_integer(index) and index >= 0 do
+    with true <- index < length(messages),
+         :ok <- validate_response_validations(messages, run) do
+      case Enum.at(messages, index + 1) do
+        %{role: "application_notice", blocks: [%{type: "validation_result"} = block]} ->
+          {:ok, block}
+
+        _ ->
+          {:ok, nil}
+      end
+    else
+      false -> {:error, :response_validation_source_missing}
+      error -> error
+    end
+  end
+
+  def response_validation(_messages, _index, _run),
+    do: {:error, :response_validation_source_missing}
+
+  @doc "仅检测作者槽位是否存在；不据此授予作者来源资格。"
+  def author_input_present?(messages),
+    do: Enum.any?(messages, &(&1.role == "user" or &1.provenance == "author"))
+
+  @doc "RequestIR 与原文回查共用结构回执校验，不从自由文字推断接收状态。"
+  def validate_response_validations(messages, run) do
+    messages
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {message, index}, :ok ->
+      validation =
+        if response_result?(message),
+          do: bind_response_validation(messages, index, run),
+          else: :ok
+
+      case validation do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc "收集现有执行引用；保持缺失未知及原字段错误，不修剪或制造身份。"
+  def execution_refs(map) when is_map(map) do
+    Enum.reduce_while(@execution_ref_keys, {:ok, %{}}, fn key, {:ok, refs} ->
+      ref = Map.get(map, key, Map.get(map, to_string(key)))
+
+      cond do
+        is_nil(ref) -> {:cont, {:ok, refs}}
+        valid_identity?(ref) -> {:cont, {:ok, Map.put(refs, key, ref)}}
+        true -> {:halt, {:error, {:invalid_execution_ref, key}}}
+      end
+    end)
+  end
+
+  defp bind_response_validation(_messages, 0, _run),
+    do: {:error, :response_validation_source_missing}
+
+  defp bind_response_validation(messages, index, run) do
+    source = Enum.at(messages, index - 1)
+    notice = Enum.at(messages, index)
+
+    with true <- pure_response?(source) and valid_response_notice?(notice),
+         {:ok, refs} <- execution_refs(source),
+         true <- map_size(refs) == 2,
+         {:ok, ^refs} <- execution_refs(notice),
+         true <- unique_response_refs?(messages, refs),
+         true <- current_tail?(messages, index - 1),
+         {:ok, owner} <- response_owner(source, run),
+         {:ok, ^owner} <- response_owner(notice, run),
+         true <- follows_source?(source, notice),
+         true <- response_context?(messages, index - 1, owner, source, run) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_response_validation_binding}
+    end
+  end
+
+  defp pure_response?(%{role: "assistant", provenance: "model", blocks: blocks})
+       when is_list(blocks) do
+    Enum.all?(
+      blocks,
+      &match?(%{type: "text", text: text} when is_binary(text) and text != "", &1)
+    )
+  end
+
+  defp pure_response?(_message), do: false
+
+  defp response_result?(message) do
+    Enum.any?(Map.get(message, :blocks, []), fn block ->
+      Map.get(block, :type) == "validation_result" and
+        (message.role != "tool" or not valid_identity?(Map.get(block, :call_id)))
+    end)
+  end
+
+  defp valid_response_notice?(
+         %{
+           role: "application_notice",
+           provenance: "application",
+           blocks: [%{type: "validation_result", status: "failed", reason_code: reason} = block]
+         } = notice
+       ) do
+    Enum.sort(Map.keys(block)) == Enum.sort(@response_result_keys) and
+      valid_identity?(reason) and is_map(block.detail) and
+      valid_identity?(field(block.detail, :message)) and
+      (is_nil(block.retryable) or is_boolean(block.retryable)) and
+      (is_nil(block.budget_after) or is_map(block.budget_after)) and
+      not Map.has_key?(notice, :call_id)
+  end
+
+  defp valid_response_notice?(_message), do: false
+
+  defp unique_response_refs?(messages, refs) do
+    Enum.all?(@execution_ref_keys, fn key ->
+      value = Map.fetch!(refs, key)
+
+      responses =
+        Enum.count(messages, &(Map.get(&1, :role) == "assistant" and field(&1, key) == value))
+
+      receipts =
+        Enum.count(messages, fn message ->
+          message.role == "application_notice" and response_result?(message) and
+            field(message, key) == value
+        end)
+
+      responses == 1 and receipts == 1
+    end)
+  end
+
+  # 当前 IR 的新响应可以位于已注解历史之后；缺坐标不能借外 run 身份。
+  defp current_tail?(messages, source_index) do
+    messages
+    |> Enum.drop(source_index)
+    |> Enum.reduce_while(false, fn message, unannotated ->
+      if Map.has_key?(message, :canonical_ref) and unannotated,
+        do: {:halt, :invalid_tail},
+        else: {:cont, unannotated or not Map.has_key?(message, :canonical_ref)}
+    end)
+    |> Kernel.!=(:invalid_tail)
+  end
+
+  defp response_owner(message, run) do
+    case Map.fetch(message, :canonical_ref) do
+      {:ok, ref} when is_map(ref) ->
+        if Enum.all?(@identity_keys, &valid_identity?(field(ref, &1))) and
+             is_integer(field(ref, :run_sequence)) and field(ref, :run_sequence) > 0,
+           do: {:ok, Map.new(@identity_keys, &{&1, field(ref, &1)})},
+           else: {:error, :response_validation_owner_invalid}
+
+      :error ->
+        if valid_identity?(field(run, :run_id)),
+          do: {:ok, Map.new(@identity_keys, &{&1, field(run, &1)})},
+          else: {:error, :response_validation_owner_missing}
+
+      _ ->
+        {:error, :response_validation_owner_invalid}
+    end
+  end
+
+  defp follows_source?(source, notice) do
+    case {Map.get(source, :canonical_ref), Map.get(notice, :canonical_ref)} do
+      {%{run_sequence: first}, %{run_sequence: second}} -> second == first + 1
+      _ -> true
+    end
+  end
+
+  defp response_context?(messages, source_index, owner, source, run) do
+    author =
+      messages
+      |> Enum.take(source_index)
+      |> Enum.filter(fn message ->
+        message.role == "user" and message.provenance == "author" and
+          response_owner(message, run) == {:ok, owner}
+      end)
+      |> List.last()
+
+    case author do
+      %{source_refs: [ref]} ->
+        valid_identity?(field(ref, :ref)) and earlier_in_run?(author, source)
+
+      nil ->
+        application_task?(messages, source_index, owner, source, run)
+
+      _ ->
+        false
+    end
+  end
+
+  defp application_task?(messages, source_index, owner, source, run) do
+    prior = Enum.take(messages, source_index)
+    indexed = Enum.with_index(prior)
+
+    with false <- author_input_present?(prior),
+         {%{provenance: "application", blocks: [%{type: "scope"} = block]} = scope, scope_index} <-
+           indexed
+           |> Enum.reverse()
+           |> Enum.find(fn {message, _} ->
+             message.role == "scope_update" and response_owner(message, run) == {:ok, owner}
+           end),
+         {%{provenance: "application", blocks: [_ | _]} = base, base_index} <-
+           indexed
+           |> Enum.reverse()
+           |> Enum.find(fn {message, _} ->
+             message.role == "application_base" and response_owner(message, run) == {:ok, owner}
+           end),
+         true <- base_index < scope_index,
+         true <-
+           Enum.all?(
+             base.blocks,
+             &match?(%{type: "text", text: text} when is_binary(text) and text != "", &1)
+           ),
+         true <- valid_identity?(Projection.text_of(base.blocks)),
+         true <- task_metadata?(base) and task_metadata?(scope),
+         :ok <- Scope.validate_block(block),
+         true <- field(block.content, :work_id) == owner.work_id,
+         true <- earlier_in_run?(base, scope) and earlier_in_run?(scope, source),
+         true <- current_tail?(messages, base_index) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp task_metadata?(%{source_refs: refs, versions: versions} = message)
+       when is_list(refs) and is_map(versions) do
+    Enum.all?(refs, &is_map/1) and
+      Scope.validate_owner(message) == :ok and
+      Scope.validate_scope_metadata(message, %{base_refs: Map.get(message, :base_refs, [])}) ==
+        :ok
+  end
+
+  defp task_metadata?(_message), do: false
+
+  defp earlier_in_run?(author, source) do
+    case {Map.get(author, :canonical_ref), Map.get(source, :canonical_ref)} do
+      {%{run_sequence: first}, %{run_sequence: second}} -> first < second
+      _ -> true
+    end
+  end
+
+  defp valid_identity?(value) when is_binary(value),
+    do: String.valid?(value) and String.trim(value) != ""
+
+  defp valid_identity?(_value), do: false
+
   def discussion_sources(messages, selected) do
     selected
-    |> Enum.filter(&discussion?(&1.message))
+    |> Enum.filter(&discussion?(&1.message, messages, &1.index))
     |> Enum.with_index()
     |> Enum.map(fn {%{message: message, index: index}, source_index} ->
       author = author_for(messages, message, index)

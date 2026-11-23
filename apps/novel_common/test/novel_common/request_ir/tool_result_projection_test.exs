@@ -184,6 +184,187 @@ defmodule NovelCommon.RequestIR.ToolResultProjectionTest do
     end
   end
 
+  @r08_rejection_fact "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n"
+  @r08_raw "  首稿原文字节。\r\n末行  "
+
+  describe "R08 无工具拒收沿同一七字段投影" do
+    @tag :r08_response_rejection
+    test "三 wire 同时保留原始 assistant 和完整拒收事实，不泄漏内部身份或伪造工具" do
+      request = response_rejection_request()
+      assert :ok = RequestIR.validate(request)
+      expected = response_rejection_payload()
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = Projection.project(request, target)
+        units = response_wire_units(body, target)
+
+        assert Enum.filter(units, fn {role, _} -> role == "assistant" end) == [
+                 {"assistant", @r08_raw}
+               ]
+
+        assert response_notice_payload(units) == expected
+
+        assert Map.keys(response_notice_payload(units)) |> Enum.sort() ==
+                 ~w(budget_after data error_code message observation_ref ok retryable)
+
+        encoded = Jason.encode!(body)
+
+        for private <- [
+              "pcall-r08-wire",
+              "prun-r08-wire",
+              "private-r08-reasoning",
+              "\"call_id\"",
+              "\"tool_call_id\"",
+              "\"tool_use_id\""
+            ] do
+          refute encoded =~ private
+        end
+
+        refute encoded =~ "\"function_call\""
+        refute encoded =~ "\"function_call_output\""
+        refute encoded =~ "\"tool_result\""
+      end
+    end
+
+    @tag :r08_response_rejection
+    test "普通 text notice 保持逐字投影，即使正文引用未通过接收也不生成状态" do
+      request = response_rejection_request()
+      text = "  职责续行：原文中的「未通过接收」只是讨论材料。\r\n"
+      notice = RequestIR.message(:application_notice, :application, [RequestIR.text_block(text)])
+      request = %{request | messages: List.replace_at(request.messages, -1, notice)}
+      assert :ok = RequestIR.validate(request)
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = Projection.project(request, target)
+
+        assert List.last(response_wire_units(body, target)) ==
+                 {"user", "【应用数据 · application_notice · 非作者原话】\n" <> text}
+
+        refute Jason.encode!(body) =~ "\"validation_result\""
+      end
+    end
+
+    @tag :r08_response_rejection
+    test "共存的原生结果仍有唯一 call_id，后来 Scope 不重写响应拒收的实际窗口" do
+      request = response_rejection_request()
+
+      {request, _} =
+        RequestIR.append_assistant_result(request, %{
+          content: "",
+          tool_calls: [%{id: "call-result", name: "read_character", arguments: %{}}],
+          provider_call_ref: "pcall-real-tool",
+          provider_run_ref: "prun-real-tool"
+        })
+
+      request =
+        request
+        |> RequestIR.append_validation_result(
+          "call-result",
+          "passed",
+          "judgment_validated",
+          %{execution_authorized: false},
+          %{retryable: false}
+        )
+        |> RequestIR.append_scope_update(%{
+          work_id: "work-1",
+          operation: %{runtime: %{budget: %{provider_calls: 99}}}
+        })
+
+      assert :ok = RequestIR.validate(request)
+      assert RequestIR.call_ids(request.messages) == ["call-result"]
+      assert {:ok, []} = RequestIR.pending_call_ids(request)
+
+      for target <- ~w(chat_completions responses_api anthropic_messages) do
+        assert {:ok, body} = Projection.project(request, target)
+
+        assert response_notice_payload(response_wire_units(body, target)) ==
+                 response_rejection_payload()
+
+        native = result_payload(request, target)
+        assert native["ok"] == true
+        assert native["data"]["detail"] == %{"execution_authorized" => false}
+        assert native["retryable"] == false
+        assert native["budget_after"] == nil
+      end
+    end
+  end
+
+  defp response_rejection_request do
+    base = result_request(RequestIR.validation_result_block("call-result", "passed", "unused"))
+    refs = %{provider_call_ref: "pcall-r08-wire", provider_run_ref: "prun-r08-wire"}
+    payload = response_rejection_payload()
+
+    block = %{
+      type: "validation_result",
+      status: "failed",
+      reason_code: payload["error_code"],
+      detail: payload["data"]["detail"],
+      retryable: payload["retryable"],
+      budget_after: payload["budget_after"]
+    }
+
+    %{
+      base
+      | run:
+          Map.merge(base.run, %{
+            workspace_id: "ws-1",
+            session_id: "session-1",
+            parent_turn_ref: "author_turn:turn-1"
+          }),
+        messages:
+          Enum.take(base.messages, 2) ++
+            [
+              RequestIR.message(
+                :assistant,
+                :model,
+                [RequestIR.text_block(@r08_raw)],
+                Map.put(refs, :provider_state, %{"reasoning_content" => "private-r08-reasoning"})
+              ),
+              RequestIR.message(:application_notice, :application, [block], refs)
+            ]
+    }
+  end
+
+  defp response_rejection_payload do
+    message = @r08_rejection_fact <> "只纠正本次协议，不改变作者目标。"
+
+    %{
+      "ok" => false,
+      "data" => %{
+        "type" => "validation_result",
+        "status" => "failed",
+        "reason_code" => "native_tool_call_required",
+        "detail" => %{"message" => message, "reason" => "missing_tool"}
+      },
+      "error_code" => "native_tool_call_required",
+      "message" => message,
+      "retryable" => true,
+      "observation_ref" => nil,
+      "budget_after" => %{
+        "exchange" => %{"provider_call_budget" => 2, "provider_call_count" => 1}
+      }
+    }
+  end
+
+  defp response_notice_payload(units) do
+    prefix = "【应用数据 · application_notice · 非作者原话】\n"
+
+    assert [{"user", text}] =
+             Enum.filter(units, fn {_role, text} -> String.starts_with?(text, prefix) end)
+
+    text |> String.replace_prefix(prefix, "") |> Jason.decode!()
+  end
+
+  defp response_wire_units(body, "chat_completions"),
+    do: for(%{role: role, content: text} <- body.messages, is_binary(text), do: {role, text})
+
+  defp response_wire_units(body, target) when target in ["responses_api", "anthropic_messages"] do
+    for message <- Map.get(body, :input, Map.get(body, :messages, [])),
+        %{type: type, text: text} <- Map.get(message, :content, []),
+        type in ["text", "input_text", "output_text"],
+        do: {message.role, text}
+  end
+
   defp result_request(block) do
     base_refs = [%{ref: "work:work-1", version: 3}]
 

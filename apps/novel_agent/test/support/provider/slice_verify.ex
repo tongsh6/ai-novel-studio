@@ -13,6 +13,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.Usage
+  alias NovelAgent.Test.Provider.SliceVerifyPendingRevision
   alias NovelAgent.Test.Support.PendingDialogueInput
   alias NovelAgent.Test.WireToolFacts
   alias NovelCommon.RequestIR
@@ -2734,18 +2735,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       chapter_revision_prompt?(materials) ->
         chapter_revision_items(materials, brief, context)
 
-      String.starts_with?(brief, "修订下面已有候选") ->
-        original = context |> String.split("：\n", parts: 2) |> List.last()
-        body = String.replace(original, "沈砚", "林渡")
-
-        [
-          %{
-            item_id: "revision_#{:erlang.phash2(materials)}",
-            title: "旧书铺修订稿",
-            body: body,
-            rationale: "按作者要求修改名字，原稿保留。"
-          }
-        ]
+      # pending 修订消费当前结构化任务，简述中的引用不改变任务类型。
+      SliceVerifyPendingRevision.matches?(materials) ->
+        SliceVerifyPendingRevision.items(materials, context)
 
       # Q1c：已采纳设定的修订候选。只替换作者点名的年龄，保留原文其余字节与 nonce；
       # revision_of / supersedes_ref 由 application 绑定，provider 不伪造链字段。
@@ -2776,27 +2768,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         [character_evolution_item(brief, context)]
 
       true ->
-        text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
-        fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
+        default_creative_content_items(recognition, materials, brief, context)
+    end
+  end
 
-        item =
-          %{
-            item_id: "slice_item_#{fingerprint}_1",
-            title: creative_title(materials, brief, fingerprint),
-            body: creative_body(materials, brief, context),
-            rationale: creative_rationale(recognition, brief)
-          }
-          |> maybe_put_narrative_role(materials, brief)
+  defp default_creative_content_items(recognition, materials, brief, context) do
+    text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
+    fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
 
-        if prose_fragment_prompt?(materials) do
-          %{
-            items: [item],
-            companion_artifacts: prose_companion_artifacts(brief, fingerprint),
-            self_report: creative_self_report(context, materials)
-          }
-        else
-          [item]
-        end
+    item =
+      %{
+        item_id: "slice_item_#{fingerprint}_1",
+        title: creative_title(materials, brief, fingerprint),
+        body: creative_body(materials, brief, context),
+        rationale: creative_rationale(recognition, brief)
+      }
+      |> maybe_put_narrative_role(materials, brief)
+
+    if prose_fragment_prompt?(materials) do
+      %{
+        items: [item],
+        companion_artifacts: prose_companion_artifacts(brief, fingerprint),
+        self_report: creative_self_report(context, materials)
+      }
+    else
+      [item]
     end
   end
 

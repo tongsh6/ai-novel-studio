@@ -540,6 +540,128 @@ function admissionFacts() {
   return s;
 }
 
+// 实际准入入口固定保留最近 4 项。三个完整工具调用占三项，剩余一项必须
+// 保护最近有效讨论；失败响应原件仍保留，但不能挤掉这一个讨论保护位。
+function rejectedAdmissionFacts({ selected = "older", rejectionBeforeRecent = false, ordinaryNotice = false } = {}) {
+  const scenario = v2RecoveryFacts();
+  const before = scenario.facts.before;
+  const current = scenario.facts.afterFailure;
+  const rows = structuredClone(before.authoring_session_messages);
+  const template = rows[0];
+  const authorText = "讨论第二件事，先不要执行。";
+  const recentText = "最近的正常讨论。";
+  const rejectedText = "  未被接收的实际末稿。\r\n";
+  const refs = { provider_call_ref: "pcall-r08-mixed-rejected", provider_run_ref: "prun-r08-mixed-rejected" };
+  const append = (role, provenance, blocks, extra = {}) => {
+    const position = rows.length + 1;
+    const row = {
+      ...template, id: "r08-mixed-row-" + position, sequence: position, run_sequence: position, role,
+      message: JSON.stringify({ role, provenance, blocks, source_refs: [], versions: {}, ...extra }),
+    };
+    rows.push(row);
+    return row;
+  };
+  append("user", "author", [{ type: "text", text: authorText }],
+    { source_refs: [{ ref: "turn-source-d-second", version: 1 }] });
+  let rejected;
+  const appendRejection = () => {
+    rejected = append("assistant", "model", [{ type: "text", text: rejectedText }], refs);
+    append("application_notice", "application", ordinaryNotice
+      ? [{ type: "text", text: "普通职责续行；不补写接收结论。" }]
+      : [{
+        type: "validation_result", status: "failed", reason_code: "invalid_narrative",
+        detail: { message: "本次响应未通过接收，未作为作者回复发布；仍在处理原作者输入。\n只纠正实际首稿。" },
+        retryable: false, budget_after: { exchange: { provider_call_budget: 2, provider_call_count: 2 } },
+      }], ordinaryNotice ? {} : refs);
+  };
+  if (rejectionBeforeRecent) appendRejection();
+  const recent = append("assistant", "model", [{ type: "text", text: recentText }]);
+  const callIds = ["r08-mixed-call-1", "r08-mixed-call-2", "r08-mixed-call-3"];
+  append("assistant", "model", callIds.map((callId, index) => ({
+    type: "tool_call", call_id: callId, name: "read_chapter",
+    arguments: { chapter_ref: "chapter-" + (index + 1) },
+  })), { provider_call_ref: "pcall-r08-mixed-tools", provider_run_ref: "prun-r08-mixed-tools" });
+  for (const callId of callIds) append("tool", "tool_result", [{
+    type: "observation", call_id: callId, status: "ok", content: { summary: "已返回该章实际观察。" },
+    source_refs: [], versions: {}, coverage: {}, omissions: [], next_offset: null,
+  }]);
+  if (!rejectionBeforeRecent) appendRejection();
+  for (const row of rows)
+    row.inserted_at = "2026-11-04T10:05:00." + String(row.sequence).padStart(6, "0") + "Z";
+  before.authoring_session_messages = structuredClone(rows);
+  const activeRows = current.authoring_session_messages.filter(row => row.run_id === "failed-d");
+  activeRows.forEach((row, index) => {
+    row.sequence = rows.length + index + 1;
+    row.inserted_at = "2026-11-04T10:06:08." + String(row.sequence).padStart(6, "0") + "Z";
+  });
+  current.authoring_session_messages = [...structuredClone(rows), ...activeRows];
+  const selectedRow = { older: rows.find(row => row.run_sequence === 4), recent, rejected }[selected];
+  const key = "authoring-session-source/v1:" + JSON.stringify([
+    "work-discussion", "work-discussion", "session-discussion", "source-d", selectedRow.run_sequence,
+  ]);
+  const admission = current.provider_runs[0];
+  admission.inserted_at = "2026-11-04T10:06:09.000001Z";
+  admission.status = "running";
+  admission.owner_refs.discussion_source_keys = [key];
+  admission.operation_checkpoint.plan.covers = {
+    call_ids: [], message_refs: [{
+      run_id: "source-d", run_sequence: selectedRow.run_sequence, role: "assistant", source_refs: [], versions: {},
+    }], turn_range: selected === "older" ? "turn-source-d" : "turn-source-d-second",
+  };
+  admission.operation_checkpoint.plan.source_refs = [
+    { ref: "session_message:source-d:" + selectedRow.run_sequence, version: 1 },
+  ];
+  delete admission.operation_checkpoint.response_text;
+  current.provider_outputs = [];
+  const fragments = selected === "older"
+    ? [{ fragment_index: 0, text: "暂定方案\r\n" }, { fragment_index: 1, text: "仍欠风险表\r" },
+      { fragment_index: 2, text: "请作者确认\n" }, { fragment_index: 3, text: "末行" }]
+    : [{ fragment_index: 0, text: selected === "recent" ? recentText : rejectedText }];
+  scenario.records[0].request.body.messages[1].content =
+    "【应用数据 · application_base · 非作者原话】\n" + JSON.stringify({
+      material_kind: "quoted_discussion_sources",
+      sources: [{ source_index: 0, source: { run_id: "source-d", run_sequence: selectedRow.run_sequence },
+        author_text: selected === "older" ? "  比较双视角与单视角；先别执行，仍欠风险表。\r\n" : authorText,
+        fragments }],
+    });
+  return { scenario, key, rejectedText, callIds };
+}
+
+function freezeRejectedAdmission({ scenario }) {
+  return freezeSummaryAdmission(scenario.facts.before, scenario.facts.afterFailure,
+    scenario.records, "failed-d", scenario.facts.scope);
+}
+
+test("R08 响应拒收准入：实际 K=4 留一讨论位，较早 A 可压且完整工具图/拒收原件不变", () => {
+  const fixture = rejectedAdmissionFacts();
+  const original = structuredClone(fixture.scenario);
+  const frozen = freezeRejectedAdmission(fixture);
+  assert.deepEqual(frozen.source_keys, [fixture.key]);
+  assert.deepEqual(fixture.scenario, original);
+  const messages = fixture.scenario.facts.before.authoring_session_messages.map(row => JSON.parse(row.message));
+  assert.deepEqual(messages.flatMap(message => message.blocks.filter(block => block.type === "tool_call")
+    .map(block => block.call_id)), fixture.callIds);
+  assert.deepEqual(messages.filter(message => message.role === "tool").flatMap(message =>
+    message.blocks.map(block => block.call_id)), fixture.callIds);
+  assert(messages.some(message => message.role === "assistant" && message.blocks[0]?.text === fixture.rejectedText));
+  assert(messages.some(message => message.role === "application_notice" && message.blocks[0]?.type === "validation_result"));
+});
+
+test("R08 响应拒收准入：失败末稿 C 不得挤占最后一位，让最近有效讨论 B 被错误压缩", () => {
+  const fixture = rejectedAdmissionFacts({ selected: "recent" });
+  assert.throws(() => freezeRejectedAdmission(fixture), /admission_source_protected_or_missing/);
+});
+
+test("R08 响应拒收准入：拒收稿退出最近四项后仍不得成为摘要来源", () => {
+  const fixture = rejectedAdmissionFacts({ selected: "rejected", rejectionBeforeRecent: true });
+  assert.throws(() => freezeRejectedAdmission(fixture), /admission_source_protected_or_missing/);
+});
+
+test("R08 响应拒收准入：普通通知不补标拒收，正常 C 仍按原讨论规则计数", () => {
+  const fixture = rejectedAdmissionFacts({ selected: "recent", ordinaryNotice: true });
+  assert.deepEqual(freezeRejectedAdmission(fixture).source_keys, [fixture.key]);
+});
+
 test("首份准入冻结完整来源：原快照、scope、永久claim和计划任一不符即失败", () => {
   const freeze=s=>freezeSummaryAdmission(s.facts.before,s.facts.afterFailure,s.records,"failed-d",s.facts.scope);
   const original=admissionFacts(), frozen=freeze(original);

@@ -740,7 +740,7 @@ export function canonicalRequestBindingsForProviderCall(record, transcript) {
   if (!facts.ok) return null;
   let actualMessages = facts.messageFacts;
   if (facts.format === AUTHORING_REQUEST_IR) {
-    const requestCoverage = auditCanonicalCoverage(facts.messages);
+    const requestCoverage = auditCanonicalCoverage(facts.messages, { run: facts.run });
     if (!requestCoverage.ok) return null;
     const retained = new Set(requestCoverage.retainedMessages);
     actualMessages = actualMessages.filter(message => retained.has(message.raw));

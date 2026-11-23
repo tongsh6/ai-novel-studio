@@ -73,7 +73,7 @@ states:
       kind: synthetic_work
       chapters: 2
       accepted_prose_chapters: [1, 2]
-      chapter_plans: [1, 2]
+      chapter_plans: []
       pending_candidates: 0
       memory_items: 0
     fixture:
@@ -81,6 +81,6 @@ states:
     dimensions:
       has_chapters: true
       has_accepted_prose: true
-      has_chapter_plan: true
+      has_chapter_plan: false
       has_pending_candidate: false
       has_world_facts: false

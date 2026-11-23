@@ -267,7 +267,21 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   end
 
   test "完整原生模式拒绝 JSON 文本响应且最后一次失败可恢复" do
-    execution = %Execution{result_fn: fn _ -> {:ok, %{content: @good_json}} end}
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    execution = %Execution{
+      result_fn: fn _ ->
+        sequence = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+
+        {:ok,
+         %{
+           content: @good_json,
+           provider_call_ref: "pcall-bound-native-#{sequence}",
+           provider_run_ref: "prun-bound-native-#{sequence}"
+         }}
+      end
+    }
+
     bound = %{@request | run: %{run_id: "bound-native-run", work_id: "bound-work"}}
     assert {%{status: :error}, session} = Real.generate_with_session(bound, execution)
     refute Map.has_key?(session.request_ir.projection, :finite_mode)

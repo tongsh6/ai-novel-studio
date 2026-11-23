@@ -1,4 +1,4 @@
-// B71 CP3b 实模（真实 provider=strata）行为的原生证据判据。
+// B71 CP3b 实模行为的原生证据判据；供应商由同次冻结配置决定。
 //
 // 真实模型行为不确定：驱动只负责像用户一样操作与等待终局，本模块只验证「结构事实」：
 // canonical IR wire 投影结构、无 giant user、无 user/user 伪纠错、追加式前缀、
@@ -53,6 +53,7 @@ import {
   recordResponseToolCalls,
   recordUsageFacts,
   summarizeModelBehavior,
+  wireTerminal,
 } from "./live_run_wait.mjs";
 import { liveRefsCheck } from "./authoring_live_refs.mjs";
 import { readBatchAuthoringHistory, readRunRefFacts } from "./authoring_history_evidence.mjs";
@@ -354,16 +355,45 @@ export function liveZeroWriteLayers({ startCanon, finalCanon, startCounts, final
 
 // L1–L12：真实 provider 记录的纯判据。返回 mechanism 必过项、model_behavior 事实与
 // not_signed 切片；未触发项为 null，不以“未发生”冒充成立。
+// 作者问题的已发布合同；正文/选项与实际 ask 工具字节的比对由同一函数完成。
+export function publishedAuthorQuestion(body, { calls = null } = {}) {
+  const question = body?.author_question;
+  if (!isObject(question) || question.status !== "open" || !nonBlank(question.question_ref) ||
+      question.run_id !== body?.agent_run?.run_id || question.source_turn_ref !== body?.turn_id ||
+      !Number.isInteger(question.goal_version) || question.goal_version < 1 ||
+      !nonBlank(question.question) || !Array.isArray(question.options) ||
+      !nonBlank(question.provider_call_ref) || body.phase !== "awaiting_author" ||
+      body.next_action !== "waiting_for_author" || body.assistant_message?.text !== question.question) return false;
+  const actions = Array.isArray(body.available_actions) ? body.available_actions : [];
+  if (!actions.some((action) => action.action_type === "author_choice" && action.enabled === true &&
+      action.question_ref === question.question_ref && action.target_ref === question.run_id &&
+      action.source_turn_ref === question.source_turn_ref && action.expected_goal_version === question.goal_version &&
+      action.trace_ref === question.provider_call_ref)) return false;
+  if (calls === null) return true;
+  const matching = calls.filter((call) => call.name === "ask_author" &&
+    call.provider_call_ref === question.provider_call_ref);
+  return matching.length === 1 && matching[0].arguments?.question === question.question &&
+    isDeepStrictEqual(matching[0].arguments?.options, question.options);
+}
+
 export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheckpoint, finalCheckpoint, driverLog, dbFacts = null, model = DEFAULT_LIVE_MODEL }) {
   const authorText = String(config?.message ?? "");
   const records = Array.isArray(llmRecords) ? llmRecords : [];
-  const strataRecords = records.filter((record) => record?.provider === "strata");
-  assert(strataRecords.length > 0, "live verifier 需要至少一条 provider=strata 的真实调用记录");
+  const provider = config?.provider;
+  assert(["strata", "splash"].includes(provider), `live verifier 未知 provider: ${provider}`);
+  const providerRecords = records.filter((record) => record?.provider === provider);
+  assert(providerRecords.length > 0, `live verifier 需要至少一条 provider=${provider} 的真实调用记录`);
 
-  const turnIds = [...new Set(strataRecords.map((record) => record.turn_id).filter(nonBlank))];
-  const requestMessages = strataRecords.map((record) => ({ record, messages: messagesOf(record), turnId: record.turn_id }));
+  const turnIds = [...new Set(providerRecords.map((record) => record.turn_id).filter(nonBlank))];
+  const requestMessages = providerRecords.map((record) => ({ record, messages: messagesOf(record), turnId: record.turn_id }));
   const wireRecords = Array.isArray(wire) ? wire : [];
-  const turnResultRecords = wireRecords.filter(
+  const run = dbFacts?.agent_run ?? null;
+  const terminal = run ? wireTerminal(wireRecords, {
+    turnId: run.parent_turn_ref, runId: run.id, runRow: run,
+    topic: driverLog?.turn?.topic ?? `workspace:${run.workspace_id}`,
+    workId: run.work_id, sessionId: run.session_id, resultPosition: "last",
+  }) : null;
+  const turnResultRecords = run ? terminal?.results ?? [] : wireRecords.filter(
     (record) => record?.direction === "received" && frameEvent(record) === "turn_result" && turnIds.includes(String(frameBody(record)?.turn_id ?? "")),
   );
   const turnBodies = turnResultRecords.map((record) => frameBody(record) ?? {});
@@ -409,7 +439,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
 
   // L4 追加式前缀：同一创作 run（含 <turn>:agent:N step turn）的连续真实请求，
   // 后续请求 messages 必须严格以先前为前缀。
-  const runs = runSequences(strataRecords);
+  const runs = runSequences(providerRecords);
   const l4Failures = [];
   for (const [runKey, ordered] of runs) {
     const messagesList = ordered.map((record) => messagesOf(record));
@@ -468,19 +498,25 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     });
   }
   const toolBindings = [...toolBinding.values()];
-  // 真实 agent 边界：run 内最后一次请求发出的工具调用不会再有「后续真实请求」——
-  // 其结果由 run 终局（completed）与产品链处理证明，不要求回放到下一次模型请求；
-  // 其余所有调用都必须按 call_id 绑定 tool result 并出现在后续请求中。
+  // 只有真实已交付终局可以免除最后调用的后续请求义务；位次本身不证明闭合。
+  // behavior 消费绑定的持久 run；纯机制调用者仍须同时给业务回包与真实状态见证。
+  const closedStatuses = ["completed", "awaiting_author", "needs_confirmation"];
+  const delivered = terminal?.status === "completed" ? terminal.results.length > 0 :
+    terminal?.results?.some((record) => publishedAuthorQuestion(frameBody(record), { calls:
+      assistantCalls(dbFacts?.segment_transcript).map((call) => ({ ...call, provider_call_ref: call.pcall })) })) ?? false;
+  const terminalClosed = run
+    ? closedStatuses.includes(terminal?.status) && delivered
+    : closedStatuses.includes(driverLog?.run?.status) &&
+      turnBodies.some((body) => body?.agent_run?.status === driverLog.run.status &&
+        (driverLog.run.status === "completed" || publishedAuthorQuestion(body)));
   for (const binding of toolBindings) {
-    binding.terminal_without_replay = binding.last_request_in_run && !binding.bound_in_later_request;
+    binding.terminal_without_replay =
+      terminalClosed && binding.last_request_in_run && !binding.bound_in_later_request;
   }
   const nonTerminalBindings = toolBindings.filter((entry) => !entry.terminal_without_replay);
   const l5 = toolBinding.size === 0 ? null : nonTerminalBindings.every((entry) => entry.bound_in_later_request);
-  const l6 =
-    toolBinding.size === 0
-      ? null
-      : nonTerminalBindings.length > 0 &&
-        nonTerminalBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
+  const l6 = nonTerminalBindings.length === 0 ? null :
+    nonTerminalBindings.every((entry) => entry.bound_in_later_request && entry.observation_length > 0);
 
   // L7 逐调用 used_refs ⊆ 同次 Base ∪ 同次 observation（VS-00L §7 G2/§16.9）：
   // canonical assistant(model) 的 self_report 按顶层 pcall+prun 配对唯一真实
@@ -488,7 +524,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
   // 成功 observation 读取；checkpoint/notice/作者原文不授信，段头 used_refs、
   // decision_traces、agent_events 不参与正判，无法配对/解析记 null（不假过）。
   const refsCheck = liveRefsCheck({
-    llmRecords: strataRecords,
+    llmRecords: providerRecords,
     transcript: dbFacts?.segment_transcript ?? null,
     sessionMessages: dbFacts?.sessionMessages ?? null,
   });
@@ -511,13 +547,13 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     startCounts: startCheckpoint.db_production_counts ?? {},
     finalCounts: finalCheckpoint.db_production_counts ?? {},
     dbFacts,
-    strataRecords,
+    strataRecords: providerRecords,
     pendingArtifacts,
   });
   const l9 = zeroWrite.ok;
 
   // L10 usage：每次真实调用都有 usage（prompt/completion 或 provider 原生字段）。
-  const usage = strataRecords.map((record) => ({ provider_call_ref: record.provider_call_ref ?? null, ...recordUsageFacts(record) }));
+  const usage = providerRecords.map((record) => ({ provider_call_ref: record.provider_call_ref ?? null, ...recordUsageFacts(record) }));
   const l10 = usage.every((entry) => entry.present === true);
 
   // L11 Why 零 Provider：仅当驱动真实打开 Why 时判定。
@@ -530,7 +566,7 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
 
   const behavior = summarizeModelBehavior({
     turnBody,
-    llmRecords: strataRecords,
+    llmRecords: providerRecords,
     runStatus: driverLog?.run?.status ?? null,
   });
 
@@ -557,13 +593,14 @@ export function b71LiveModelBehavior({ dir, config, llmRecords, wire, startCheck
     required_mechanism: required.map(([key]) => key),
     failed_mechanism: failed,
     model_behavior: behavior,
-    not_signed: notSignedSlices(behavior),
+    not_signed: [...new Set([...notSignedSlices(behavior),
+      ...(l6 === null ? ["G2_observation_roundtrip_not_triggered"] : [])])],
     measured: {
-      provider: "strata",
+      provider,
       model,
       turn_ids: turnIds,
-      provider_calls: strataRecords.length,
-      provider_call_refs: strataRecords.map((record) => record.provider_call_ref ?? null).filter(Boolean),
+      provider_calls: providerRecords.length,
+      provider_call_refs: providerRecords.map((record) => record.provider_call_ref ?? null).filter(Boolean),
       request_message_counts: requestMessages.map((entry) => entry.messages.length),
       tool_calls_verified: toolBinding.size,
       replay_only_tool_calls: replayOnlyCalls,
@@ -600,7 +637,7 @@ function readJsonIfExists(file) {
 // scope 只取 readBatchAuthoringHistory 已精确绑定的 run 身份；对账要求全部既有
 // checks 成立（缺响应/错属/占位都不签），且只有对账后的 records 才能进入
 // b71LiveModelBehavior 签证。G2 分页是否发生与页级使用仍由专项 gate 判定。
-function reconcileNativeCalls(dir, config, history, records) {
+export function reconcileNativeCalls(dir, config, history, records) {
   if (!config.preregistration) return null;
   const calls = bindNativeCalls(dir, history.transcript.run, history, records);
   assertAllChecks(calls.checks, "B82 §16.9 逐调用对账");

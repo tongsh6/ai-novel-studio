@@ -1,6 +1,7 @@
 // R03 B29：独立 seed/作者字节/动作前事实，不启动模型、产品或原生窗口。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { createHash } from "node:crypto";
 import * as evidence from "./lib/native_ui/authoring_character_candidate_evidence.mjs";
 import { loadForbiddenTokens } from "./lib/author_visible/leak_scan.mjs";
@@ -330,6 +331,72 @@ function nativeCandidateView() {
     node("0/1/1/6", "AXButton", { title: "保存到作品", enabled: true, frame: [20, 430, 140, 30] }),
   ] };
 }
+
+function driverCandidateCardFixture() {
+  const { candidate, knownArtifacts } = displayedCandidate();
+  const view = nativeCandidateView();
+  view.nodes.find((node) => node.role === "AXPopUpButton").title = nativeEvidence.WORK_TITLE;
+  return { pending: candidate, nodes: view.nodes, turn: {
+    authorMessage: INPUT, baselineAuthorCount: 0,
+    turnResult: { adoption_state: { pending: knownArtifacts } },
+  } };
+}
+
+async function runActualDriverCandidatePredicate({ pending, turn, nodes }) {
+  // driver 顶层会启动原生流程；只装载唯一完整函数，保持真实调用点和真实归属 helper。
+  const source = fs.readFileSync(new URL("./native_b29_drive.mjs", import.meta.url), "utf8");
+  assert.equal([...source.matchAll(/^async function rawWaitCandidateCard\b/gm)].length, 1);
+  const match = source.match(/^async function rawWaitCandidateCard\([^\n]*\) \{[\s\S]*?^\}/m);
+  assert.ok(match, "rawWaitCandidateCard 必须以完整函数存在");
+  let polls = 0;
+  const waitCandidate = runInNewContext(`(${match[0]})`, {
+    WORK_TITLE: nativeEvidence.WORK_TITLE,
+    b29NativeItemVisible: evidence.b29NativeItemVisible,
+    pollAx(predicate, timeoutMs, label) {
+      polls += 1;
+      assert.equal(timeoutMs, 17);
+      assert.equal(label, "candidate:independent-role");
+      return predicate(flatText(nodes), nodes);
+    },
+  }, { filename: "native_b29_drive.mjs", timeout: 1000 });
+  assert.equal(waitCandidate.name, "rawWaitCandidateCard");
+  const result = await waitCandidate({ pending, turn, label: "independent-role", timeoutMs: 17 });
+  assert.equal(polls, 1);
+  return result;
+}
+
+test("R08 B29 driver 候选归属：真实可见候选按同次完整 pending 集合通过", async () => {
+  const input = driverCandidateCardFixture();
+  assert.equal(evidence.b29RoleCandidateVisible({
+    ...displayedCandidate(), nativeView: {
+      nodes: input.nodes, message: INPUT, baselineAuthorCount: 0, workTitle: nativeEvidence.WORK_TITLE,
+    },
+  }), true);
+  assert.equal(await runActualDriverCandidatePredicate(input), true);
+});
+
+test("R08 B29 driver 候选归属：缺身份、同文异候选、错文字和作者边界均拒绝", async () => {
+  for (const [label, alter] of [
+    ["missing known", (v) => { delete v.turn.turnResult.adoption_state.pending; }],
+    ["empty known", (v) => { v.turn.turnResult.adoption_state.pending = []; }],
+    ["missing artifact id", (v) => { delete v.pending.artifact_id; }],
+    ["foreign same text", (v) => { v.turn.turnResult.adoption_state.pending.push(
+      { ...clone(v.pending), artifact_id: "foreign-role" }); }],
+    ["wrong source", (v) => { v.turn.turnResult.adoption_state.pending = [
+      { ...clone(v.pending), source_tool_result_ref: "foreign-result" }]; }],
+    ["wrong title", (v) => { v.pending.payload.items[0].title = "另一位沈砚"; }],
+    ["wrong body", (v) => { v.pending.payload.items[0].body = "另一份角色修订"; }],
+    ["old author", (v) => { v.turn.baselineAuthorCount = 1; }],
+    ["foreign work", (v) => { v.nodes.find((n) => n.role === "AXPopUpButton").title = "另一作品"; }],
+    ["disabled save", (v) => { v.nodes.find((n) => n.title === "保存到作品").enabled = false; }],
+    ["foreign button", (v) => { v.nodes.find((n) => n.title === "保存到作品").path = "0/2/0"; }],
+  ]) {
+    const input = driverCandidateCardFixture();
+    alter(input);
+    assert.equal(await runActualDriverCandidatePredicate(input), false, label);
+  }
+});
+
 test("当前作者的真实单候选与保存入口在实际视口内", () => {
   assert.equal(evidence.b29RoleCandidateVisible({ ...displayedCandidate(), nativeView: nativeCandidateView() }), true);
 });
@@ -440,7 +507,7 @@ test("只排除原call已失败闭合的execute，接受的纠正决定仍唯一
   withModelText.records[2].response.body.content = originalText;
   withModelText.records.at(-1).request.body.messages.at(-2).content = originalText;
   assert.equal(evaluate(withModelText).ok, true);
-  withModelText.records.at(-1).request.body.messages.at(-2).content = originalText.replace("\n", " ");
+  withModelText.records.at(-1).request.body.messages.at(-2).content = "FAILED_MODEL_82d1 正在核对角色。";
   assert.equal(check(withModelText, "model_execute_matches_source"), false);
   const unknownCapability = clone(input);
   const invalidArgs = { ...args, capability: "unknown_role_operation" };

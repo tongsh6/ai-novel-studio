@@ -49,6 +49,7 @@ import {
   NATIVE_CHAT_WIRE,
   checkpointSelectionsFromFacts as wireCheckpoints,
   requestFactsFromRecord,
+  responseRejectionsOf,
 } from "./authoring_request_facts.mjs";
 const list = (value) => (Array.isArray(value) ? value : []);
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -138,11 +139,13 @@ export function firstSummaryAdmission(before, current, runId) {
 // 独立按契约计数：完整工具组每个闭合调用一项、纯讨论一项，整组不可拆。
 // 输入是共同 coverage 审计后的真实未覆盖序列，不调用产品 planner。
 export function requireMixedProtection(retained, keys, ownerId) {
+  const rejected = responseRejectionsOf(retained);
+  assert(rejected !== null, "admission_response_validation_binding_invalid");
   const currentAuthor = retained.findLastIndex((row) => row.role === "user" &&
     row.provenance === "author" && row.canonical_ref?.run_id === ownerId);
   assert(currentAuthor >= 0, "admission_current_author_missing");
   const results = retained.flatMap((row,index) => (row.blocks ?? [])
-    .filter((block) => ["observation","validation_result"].includes(block.type))
+    .filter((block) => row.role === "tool" && ["observation","validation_result"].includes(block.type))
     .map((block) => ({row,index,block})));
   const groups = retained.flatMap((row,index) => {
     const calls = (row.blocks ?? []).filter((block) => block.type === "tool_call").map((block) => block.call_id);
@@ -153,7 +156,7 @@ export function requireMixedProtection(retained, keys, ownerId) {
     });
     if (calls.length && new Set(calls).size === calls.length && row.role === "assistant" && closed)
       return [{row,index,weight:calls.length}];
-    return pureDiscussion(row) ? [{row,index,weight:1}] : [];
+    return pureDiscussion(row) && !rejected.has(row) ? [{row,index,weight:1}] : [];
   });
   const protectedRows = new Set();
   let count = 0;
@@ -163,7 +166,7 @@ export function requireMixedProtection(retained, keys, ownerId) {
   }
   for (const key of keys) {
     const sources = retained.filter((row) => row.canonical_ref && admissionSourceKey(row.canonical_ref) === key);
-    assert(sources.length === 1 && pureDiscussion(sources[0]) && !protectedRows.has(sources[0]) &&
+    assert(sources.length === 1 && pureDiscussion(sources[0]) && !rejected.has(sources[0]) && !protectedRows.has(sources[0]) &&
       retained.indexOf(sources[0]) < currentAuthor, "admission_source_protected_or_missing");
   }
 }

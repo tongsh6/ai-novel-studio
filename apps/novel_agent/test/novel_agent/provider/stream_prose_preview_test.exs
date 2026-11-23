@@ -116,8 +116,8 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
   end
 
   test "cancellation during synchronous consumption halts before another wire chunk" do
-    {:ok, token} = CancellationToken.start_link()
-    on_exit(fn -> if Process.alive?(token), do: Agent.stop(token) end)
+    token =
+      start_supervised!(Supervisor.child_spec({CancellationToken, %{}}, restart: :temporary))
 
     sink = fn {_status, facts} ->
       if Enum.any?(facts.events, &(&1.event_type == :chunk)) do
@@ -136,8 +136,9 @@ defmodule NovelAgent.Provider.StreamProsePreviewTest do
   end
 
   test "cancelled EOF does not publish a buffered frame and retains the accepted prefix" do
-    {:ok, token} = CancellationToken.start_link()
-    on_exit(fn -> if Process.alive?(token), do: GenServer.stop(token) end)
+    token =
+      start_supervised!(Supervisor.child_spec({CancellationToken, %{}}, restart: :temporary))
+
     owner = self()
 
     sink = fn {_status, facts} ->

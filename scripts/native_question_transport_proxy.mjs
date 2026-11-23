@@ -59,11 +59,11 @@ function parseCapturedJson(buffer) {
 }
 
 function responseScope(target, body) {
-  if (target.kind === "resume") {
+  if (target.kind === "resume" || target.kind === "session_show") {
     return {
       kind: target.kind,
       work_id: body?.work?.id ?? null,
-      session_id: body?.active_session?.id ?? null,
+      session_id: (target.kind === "resume" ? body?.active_session?.id : body?.session?.id) ?? null,
       turn_id: null,
     };
   }

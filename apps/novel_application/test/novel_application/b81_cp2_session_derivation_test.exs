@@ -22,6 +22,7 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelApplication.AuthorContentRegistration
   alias NovelApplication.AuthoringSessionHistory
   alias NovelApplication.AuthoringTranscript
   alias NovelApplication.ChapterMissionService
@@ -155,8 +156,15 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
       :crypto.hash(:sha256, @second_author_text) |> Base.encode16(case: :lower)
 
     assert Enum.sort_by(scope["operation"]["author_content_sources"], & &1["ref"]) == [
-             %{"ref" => "author-turn-2", "source_hash" => current_hash},
-             %{"ref" => "turn-run-cp2-1", "source_hash" => historical_hash}
+             %{"ref" => "author-turn-2"},
+             %{"ref" => "turn-run-cp2-1"}
+           ]
+
+    assert {:ok, internal_sources} = AuthorContentRegistration.author_sources(request)
+
+    assert Enum.sort_by(internal_sources, & &1.ref) == [
+             %{ref: "author-turn-2", source_hash: current_hash},
+             %{ref: "turn-run-cp2-1", source_hash: historical_hash}
            ]
 
     # 历史观察来源与前后两轮 Base refs 共同进入 IR refs（I-ART-9 与审计回查依据）。

@@ -1,13 +1,20 @@
-// B71 capture 邻接 IO：真实 12 表 SQLite 批次上的 prepare/capture/readConfig 与
+// B71 capture 邻接 IO：真实 13 表 SQLite 批次上的 prepare/capture/readConfig 与
 // 冻结预注册校验。DB 模板由 `fixtures/authoring_capture_io_fixture.mjs` 在 run 内
 // 物化一次（只读共享）；需要写 config/seed/证据文件或运行 prepare/capture 的 case
 // 取 `withWorkingCopy` 隔离副本。作者可见场景选择本身是纯判定，留在邻接
 // `authoring_capture_evidence.test.mjs`，不建目录/DB。
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
 import fs from "node:fs";
+import http from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
+import { main as evidenceMain } from "../../native_b71_evidence.mjs";
+import { createQuestionTransportProxy } from "../../native_question_transport_proxy.mjs";
 import {
   capture,
   prepare,
@@ -16,8 +23,8 @@ import {
   validatePreregistrationFile,
 } from "./authoring_capture_evidence.mjs";
 import { pendingSourceMessage } from "./authoring_pending_evidence.mjs";
-import { shaFile } from "./scenario_evidence.mjs";
-import { materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
+import { sha256, shaFile } from "./scenario_evidence.mjs";
+import { createWorkingCopy, materializeFixture, openTestRunScope, withWorkingCopy } from "../test_env.mjs";
 import {
   CHAPTER,
   DEFAULT_LIVE_MESSAGE,
@@ -32,7 +39,8 @@ import {
   SESSION,
   WORK,
 } from "./fixtures/authoring_capture_facts.mjs";
-import { captureFixtureSpec } from "./fixtures/authoring_capture_io_fixture.mjs";
+import { CAPTURE_DB_REL, captureFixtureSpec } from "./fixtures/authoring_capture_io_fixture.mjs";
+import { loadLiveCaseCorpus, selectLiveCase } from "../quality/author_behavior_live_cases.mjs";
 
 let runScope;
 
@@ -369,12 +377,12 @@ test("预注册作者输入为空、模型/目录不符时 prepare 失败且不�
   }
 });
 
-test("预注册文件只属于 live 或已登记使命批次", () => {
+test("预注册文件拒绝未登记的修订入口", () => {
   withWorkingCopy(template(), (copy) => {
     ready(copy.dir);
     seed(copy.dir);
     preregistration(copy.dir);
-    assert.throws(() => prepare(copy.dir), /只属于 live\/mission 批次/);
+    assert.throws(() => prepare(copy.dir), /只属于 live\/mission\/behavior 批次/);
     assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
   });
 });
@@ -563,7 +571,7 @@ test("G2 Splash 冻结 provider/model/runtime 必须与实际 route 和唯一 re
   for (const [options, pattern] of [
     [{ provider: "strata" }, /provider/],
     [{ model: "wrong-model" }, /模型|model/],
-    [{ scenarioId: "b82-g3" }, /b82-g2/],
+    [{ scenarioId: "b82-g3" }, /只接受已登记场景/],
     [{ modelFields: { thinking: "enabled", reasoning_effort: "high", max_tokens: 32000,
       timeout_ms: 300000, context_window: 32000 } }, /context_window/],
     [{ runtime: { profile: "b87-r03-splash-product-maintenance-budget",
@@ -606,7 +614,7 @@ test("同一预注册读取 owner 由 G2/B29 caller 显式绑定场景，不能�
     assert.throws(() => validatePreregistrationFile(file, { dir, provider: "splash" }), /显式绑定/);
     assert.throws(() => validatePreregistrationFile(file, { dir, provider: "splash", scenarioId: "b82-g2" }), /b82-g2/);
     splashReady(dir);
-    assert.throws(() => prepare(dir), /b82-g2/);
+    assert.throws(() => prepare(dir), /只接受已登记场景/);
     assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -1022,4 +1030,547 @@ test("R08 pending 现 batch 接受 Splash route 并在缺预注册处停下，St
     assert.equal(result.status, 64);
     assert.match(result.stderr, expected);
   }
+});
+
+const R08_BEHAVIOR_GROUPS = [
+  { selector: "C-F3-R08-HISTORY-SOURCE", journey: "J-R08-SOURCE-HISTORY", sends: 12, seconds: 1800 },
+  { selector: "C-F3-R08-QUOTED-SOURCE", journey: "J-R08-QUOTED-REVISION", sends: 4, seconds: 1200 },
+  { selector: "C-F3-R08-ASSISTANT-REPLY", journey: "J-R08-ASSISTANT-SOURCE", sends: 2, seconds: 900 },
+  { selector: "C-F4-R08-MISSING-SOURCE", journey: "J-R08-MISSING-SOURCE", sends: 1, seconds: 900 },
+  { selector: "C-F2-004", journey: null, sends: 1, seconds: 900 },
+  { selector: "C-F3-R08-SHORT-PAST-SOURCE", journey: null, sends: 1, seconds: 900 },
+  { selector: "C-F4-R08-LONG-MISSING-SOURCE", journey: null, sends: 1, seconds: 900 },
+  { selector: "C-F3-R08-CONDITION-BRANCH-SOURCE", journey: "J-R08-CONDITION-BRANCH", sends: 3, seconds: 1200 },
+];
+
+function behaviorPreregistration(dir, group) {
+  const corpus = loadLiveCaseCorpus();
+  const selected = corpus.caseById.get(group.selector);
+  const raw = group.journey
+    ? [...corpus.caseById.values()].filter((entry) => entry.journey_id === group.journey)
+      .sort((left, right) => left.sequence - right.sequence)
+    : [selected];
+  const steps = raw.map((entry) => ({
+    ...selectLiveCase(corpus, entry.id, { allowExplore: true }),
+    ...(entry.journey_id ? { journey_id: entry.journey_id, sequence: entry.sequence } : {}),
+  }));
+  const value = {
+    id: "r08-behavior-test",
+    model: { provider: "splash", model: "local/Q4-PLE4", thinking: "enabled",
+      reasoning_effort: "high", max_tokens: 32000, timeout_ms: 300000, context_window: 262144 },
+    runtime: { profile: "b87-r01-controlled-splash-high",
+      context_pressure: { window: 262144, maintenance_ratio: 0.70 },
+      auto_maintenance: { enabled: true, keep_recent_items: 4 }, sync_summary_maintenance: false },
+    budget: { batches: 1, author_sends: group.sends, manual_retries: 0,
+      input_timeout_ms: 120000, turn_timeout_ms: 360000, scenario_seconds: group.seconds },
+    scenarios: [{
+      id: group.journey ?? group.selector, slice_id: "b71-first-consumer",
+      case_id: group.selector, message: selected.expression, steps,
+      seed: { script: "scripts/seed_author_behavior_states.exs",
+        sha256: shaFile(path.resolve("scripts/seed_author_behavior_states.exs")) },
+      evidence: { dir },
+    }],
+  };
+  writeJson(dir, "preregistration.json", value);
+  return value;
+}
+
+function withBehavior(copy, group, fn) {
+  const saved = Object.fromEntries(["B71_BEHAVIOR_CASE", "B71_AUTO_MAINTENANCE",
+    "B71_CONFIRMATION_ACTION", "B71_ANSWER_MODE", "B71_MEMORY_DETAIL"].map((key) => [key, process.env[key]]));
+  try {
+    for (const key of Object.keys(saved)) delete process.env[key];
+    process.env.B71_BEHAVIOR_CASE = group.selector;
+    splashReady(copy.dir);
+    writeJson(copy.dir, "runtime-facts.json", { ...splashRuntimeFacts(),
+      context_pressure: { provider: "splash", window: 262144, maintenance_ratio: 0.70 } });
+    seedLive(copy.dir);
+    return fn(behaviorPreregistration(copy.dir, group));
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("R08 behavior 已登记组直接冻结现 corpus steps、单work/session、原话和完整预期", () => {
+  for (const group of R08_BEHAVIOR_GROUPS) {
+    withWorkingCopy(template(), (copy) => withBehavior(copy, group, (manifest) => {
+      prepare(copy.dir);
+      const config = readConfig(copy.dir);
+      assert.equal(config.journey, "behavior");
+      assert.equal(config.provider, "splash");
+      assert.equal(config.runtime.profile, "b87-r01-controlled-splash-high");
+      assert.equal(config.runtime.observed.context_pressure.window, 262144);
+      assert.equal(config.target.work_id, WORK);
+      assert.equal(config.target.session_id, SESSION);
+      assert.equal(config.message, manifest.scenarios[0].message);
+      assert.deepEqual(config.steps, manifest.scenarios[0].steps);
+      assert.equal(config.steps.length, group.sends);
+      assert.equal(new Set(config.steps.map((step) => step.state_id)).size, 1);
+      assert.deepEqual(config.budget, manifest.budget);
+      assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+      assert.equal(config.preregistration.sha256, shaFile(path.join(copy.dir, "preregistration.json")));
+      assert.equal(fs.existsSync(path.join(copy.dir, "strata-slot.json")), false);
+      assert.equal(fs.existsSync(path.join(copy.dir, "behavior-case.json")), false);
+    }));
+  }
+});
+
+test("R08 behavior 启动前拒绝改字节、改expected、换序、漏步、重复步和预算", () => {
+  const group = R08_BEHAVIOR_GROUPS[1];
+  const mutations = [
+    (v) => { v.scenarios[0].case_id = "C-F3-R08-HISTORY-SOURCE"; },
+    (v) => { v.scenarios[0].id = "C-F1-003"; },
+    (v) => { v.scenarios[0].steps[0].expression += "被补写"; },
+    (v) => { v.scenarios[0].steps[1].expected.allowed_actions = ["reply"]; },
+    (v) => { v.scenarios[0].steps.reverse(); },
+    (v) => { v.scenarios[0].steps.pop(); },
+    (v) => { v.scenarios[0].steps[1] = structuredClone(v.scenarios[0].steps[0]); },
+    (v) => { v.scenarios[0].steps[1].state_id = "S1-partial-multichapter"; },
+    (v) => { v.scenarios[0].seed.sha256 = "0".repeat(64); },
+    (v) => { v.budget.author_sends += 1; },
+    (v) => { v.budget.manual_retries = 1; },
+    (v) => { v.model.reasoning_effort = "low"; },
+    (v) => { v.model.max_tokens = 4096; },
+    (v) => { v.runtime.profile = "b87-r03-splash-product-maintenance-budget"; },
+  ];
+  for (const mutate of mutations) {
+    withWorkingCopy(template(), (copy) => withBehavior(copy, group, (manifest) => {
+      mutate(manifest);
+      writeJson(copy.dir, "preregistration.json", manifest);
+      assert.throws(() => prepare(copy.dir), /冻结|case|steps|step|原文|expected|seed|预算|budget|runtime|profile|model|sequence|顺序/u);
+      assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
+    }));
+  }
+});
+
+test("R08 behavior readConfig 不能信任被改写的steps、预算或供应商副本", () => {
+  withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[0], () => {
+    prepare(copy.dir);
+    const original = readConfig(copy.dir);
+    for (const mutate of [
+      (v) => { v.steps[0].expression = "替换作者原文"; },
+      (v) => { v.steps[11].expected.allowed_actions = ["reply"]; },
+      (v) => { v.steps.reverse(); },
+      (v) => { v.budget.author_sends = 1; },
+      (v) => { v.provider = "strata"; },
+    ]) {
+      const forged = structuredClone(original);
+      mutate(forged);
+      writeJson(copy.dir, "native-b71-config.json", forged);
+      assert.throws(() => readConfig(copy.dir), /冻结|预注册|steps|step|case|原文|budget|provider|供应商/u);
+    }
+  }));
+});
+
+test("R08 behavior 现batch在缺预注册处停止，Splash不得被旧Strata限定拒绝", () => {
+  const env = { ...process.env, B71_PROVIDER: "splash", B71_SLICE: "b71-first-consumer",
+    B71_BEHAVIOR_CASE: "C-F3-R08-HISTORY-SOURCE", B71_LIVE_PREREGISTRATION: "",
+    B71_AUTO_MAINTENANCE: "", B71_CONFIRMATION_ACTION: "", B71_ANSWER_MODE: "", B71_MEMORY_DETAIL: "" };
+  const result = spawnSync("bash", ["scripts/native_b71_batch.sh", "r08-behavior-preflight-only"],
+    { encoding: "utf8", env });
+  assert.equal(result.status, 64);
+  assert.match(result.stderr, /必须提供冻结的 B71_LIVE_PREREGISTRATION/);
+  assert.doesNotMatch(result.stderr, /只接受 B71_PROVIDER=strata/);
+});
+
+
+async function listenSessionCaptureServer(server) {
+  const listening = once(server, "listening");
+  server.listen(0, "127.0.0.1");
+  await listening;
+  return server.address().port;
+}
+
+async function closeSessionCaptureServer(server, stop) {
+  const closed = server.listening ? once(server, "close") : null;
+  stop();
+  server.closeAllConnections();
+  if (closed) await closed;
+}
+
+for (const { encoding, corruptRecordedBody = false } of [
+  { encoding: "identity" },
+  { encoding: "gzip" },
+  { encoding: "identity", corruptRecordedBody: true },
+]) {
+  const name = corruptRecordedBody
+    ? "R08 capture CLI 拒绝落盘body被替换但原响应hash未变"
+    : `R08 capture CLI 经真实transport读取${encoding}原响应并保留session证据`;
+  test(name,
+    { timeout: 30_000 }, async () => {
+      const copy = createWorkingCopy(template());
+      let upstream, proxy;
+      let bodyMutationApplied = false, bodyMutationFailure = null;
+      try {
+        withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => prepare(copy.dir));
+        const body = {
+          work: { id: WORK },
+          session: { id: SESSION, work_id: WORK, status: "ACTIVE" },
+          read_only: false,
+          transcript: [],
+          transcript_page: { returned_count: 0, has_more: true },
+          pending_adoptions: [
+            { artifact_id: "as_writer", adoption_status: "TENTATIVE", source_session_id: SESSION },
+            { artifact_id: "as_direct", adoption_status: "TENTATIVE", source_session_id: SESSION },
+          ],
+          pending_adoption_turn_results: [{
+            turn_id: "source-turn",
+            adoption_state: { pending: [
+              { artifact_id: "as_writer", adoption_status: "TENTATIVE" },
+              { artifact_id: "as_resolved", adoption_status: "TENTATIVE" },
+            ], resolved: [] },
+          }],
+          resolved_adoptions: [{ artifact_id: "as_resolved", adoption_status: "ACCEPTED" }],
+          inbox_pending_adoptions: [{
+            artifact_id: "as_inbox", adoption_status: "TENTATIVE", source_session_id: "other-session",
+          }],
+          inbox_pending_adoption_turn_results: [],
+          inbox_resolved_adoptions: [],
+          source_note: "两空格  与换行\n均来自原始回包",
+        };
+        const raw = Buffer.from(JSON.stringify(body, null, 2) + "\n", "utf8");
+        const encoded = encoding === "gzip" ? gzipSync(raw) : raw;
+        const expectedHash = createHash("sha256").update(raw).digest("hex");
+        assert.notEqual(expectedHash, createHash("sha256").update(JSON.stringify(body)).digest("hex"));
+        const expectedPath = `/api/works/${WORK}/sessions/${SESSION}`;
+        const seen = [], proxied = [];
+        upstream = http.createServer((request, response) => {
+          seen.push({ method: request.method, path: request.url });
+          if (request.method !== "GET" || request.url !== expectedPath) {
+            response.writeHead(405);
+            response.end();
+            return;
+          }
+          response.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Encoding": encoding,
+            "Content-Length": encoded.length,
+          });
+          response.end(encoded);
+        });
+        const backendPort = await listenSessionCaptureServer(upstream);
+        const logPath = path.join(copy.dir, "native-transport.jsonl");
+        fs.writeFileSync(logPath, "");
+        proxy = createQuestionTransportProxy({
+          target: `http://127.0.0.1:${backendPort}`,
+          controlPath: path.join(copy.dir, "transport-control.json"),
+          logPath,
+        });
+        proxy.server.on("request", (request, response) => {
+          proxied.push({ method: request.method, path: request.url });
+          if (corruptRecordedBody) response.once("finish", () => {
+            try {
+              // 原代理先记录完整响应，再结束下游；只破坏隔离证据，不改变真实回包。
+              const records = fs.readFileSync(logPath, "utf8").trim().split("\n")
+                .map((line) => JSON.parse(line));
+              const record = records.at(-1);
+              record.body.pending_adoptions = [{
+                artifact_id: "as_replaced", adoption_status: "TENTATIVE", source_session_id: SESSION,
+              }];
+              fs.writeFileSync(logPath, records.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+              bodyMutationApplied = true;
+            } catch (error) {
+              bodyMutationFailure = error;
+            }
+          });
+        });
+        const transportPort = await listenSessionCaptureServer(proxy.server);
+        const readyFile = path.join(copy.dir, "native-driver-ready.json");
+        const readyValue = JSON.parse(fs.readFileSync(readyFile, "utf8"));
+        writeJson(copy.dir, "native-driver-ready.json", {
+          ...readyValue, api_url: `http://127.0.0.1:${backendPort}`,
+          owned_ports: { backend: backendPort, transport: transportPort,
+            provider_stream: null, provider_stream_control: null },
+        });
+
+        if (corruptRecordedBody) {
+          const failure = await evidenceMain(["capture", copy.dir, "start"])
+            .then(() => null, (error) => error);
+          assert.ifError(bodyMutationFailure);
+          assert.equal(bodyMutationApplied, true, "负例必须实际改动代理已落盘的body");
+          assert.notEqual(failure, null, "落盘body与真实HTTP回包不同时必须拒收");
+          assert.match(failure.message, /session capture/);
+          assert.deepEqual(seen, [{ method: "GET", path: expectedPath }]);
+          assert.deepEqual(proxied, seen);
+          const records = fs.readFileSync(logPath, "utf8").trim().split("\n")
+            .map((line) => JSON.parse(line));
+          assert.equal(records.length, 1);
+          assert.equal(records[0].body_state.sha256, expectedHash, "原HTTP字节hash仍然真实");
+          assert.deepEqual(records[0].body.pending_adoptions.map((entry) => entry.artifact_id), ["as_replaced"]);
+          assert.notDeepEqual(records[0].body, body);
+          assert.equal(fs.existsSync(path.join(copy.dir, "b71-start.json")), false);
+          return;
+        }
+
+        await evidenceMain(["capture", copy.dir, "start", "step-0-before"]);
+
+        assert.deepEqual(seen, [
+          { method: "GET", path: expectedPath }, { method: "GET", path: expectedPath },
+        ]);
+        assert.deepEqual(proxied, seen, "两个GET必须逐个经过transport，不能直连backend");
+        const records = fs.readFileSync(logPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+        assert.equal(records.length, 2);
+        assert.equal(new Set(records.map((record) => record.request_id)).size, 2);
+        const checkpoints = ["start", "step-0-before"].map((name) =>
+          JSON.parse(fs.readFileSync(path.join(copy.dir, `b71-${name}.json`), "utf8")));
+        for (const [index, checkpoint] of checkpoints.entries()) {
+          const record = records[index];
+          assert.deepEqual(checkpoint.session_capture, record);
+          assert.deepEqual(record.body, body, "原始body及源TurnResult不能被裁剪或重算");
+          assert.deepEqual(record.response_scope, {
+            kind: "session_show", work_id: WORK, session_id: SESSION, turn_id: null,
+          });
+          assert.equal(record.body_state.sha256, expectedHash);
+          assert.equal(record.body_state.bytes, encoded.length);
+          assert.equal(record.body_state.content_encoding, encoding);
+          assert.equal(record.body_state.complete, true);
+          assert.equal(record.body_state.truncated, false);
+          assert.equal(checkpoint.session_capture_window.body_sha256, expectedHash);
+          assert(checkpoint.session_capture_window.started_at <= record.at);
+          assert(record.at <= checkpoint.session_capture_window.completed_at);
+          assert.deepEqual(checkpoint.state_facts.pending_artifact_ids, ["as_direct", "as_writer"]);
+          assert.equal(checkpoint.state_facts.pending_artifact_count, 2);
+        }
+        assert(checkpoints[0].session_capture_window.completed_at <=
+          checkpoints[1].session_capture_window.started_at);
+      } finally {
+        try {
+          if (proxy) await closeSessionCaptureServer(proxy.server, () => proxy.close());
+        } finally {
+          try {
+            if (upstream) await closeSessionCaptureServer(upstream, () => upstream.close());
+          } finally {
+            copy.cleanup();
+          }
+        }
+      }
+    });
+}
+function sessionStateCapture(ids = []) {
+  const body = {
+    work: { id: WORK }, session: { id: SESSION, work_id: WORK, status: "ACTIVE" },
+    read_only: false, transcript: [], transcript_page: { has_more: true },
+    pending_adoptions: ids.map((artifact_id) => ({ artifact_id, adoption_status: "TENTATIVE" })),
+    pending_adoption_turn_results: [], resolved_adoptions: [],
+    inbox_pending_adoptions: [{ artifact_id: "other-session-pending", adoption_status: "TENTATIVE" }],
+  };
+  return {
+    direction: "http", method: "GET", path: `/api/works/${WORK}/sessions/${SESSION}`,
+    at: "2026-11-23T13:00:00.000Z", request_id: "http-session-checkpoint", status: 200,
+    scope: { kind: "session_show", work_id: WORK, session_id: SESSION, turn_id: null },
+    response_scope: { kind: "session_show", work_id: WORK, session_id: SESSION, turn_id: null },
+    body_state: { complete: true, json: "valid", truncated: false, sha256: sha256(JSON.stringify(body)) }, body,
+  };
+}
+
+function sessionStateWindow(record) {
+  return {
+    started_at: "2026-11-23T12:59:59.999Z", completed_at: "2026-11-23T13:00:00.001Z",
+    body_sha256: record?.body_state?.sha256 ?? null,
+  };
+}
+
+function checkpointSessionEvidence(ids = []) {
+  const sessionCapture = sessionStateCapture(ids);
+  return { sessionCapture, sessionCaptureWindow: sessionStateWindow(sessionCapture) };
+}
+
+
+test("R08 checkpoint 从真实session show保存直接登记及Writer候选，不能依赖AgentRun并集", () => {
+  for (const [ids, stale] of [
+    [["direct-registration"], []],
+    [["direct-registration", "writer-candidate"], ["writer-candidate"]],
+    [["remaining"], ["already-accepted", "already-discarded", "remaining"]],
+    [["historical-before-visible-page"], ["historical-before-visible-page", "historical-before-visible-page"]],
+  ]) withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => {
+    const db = new DatabaseSync(path.join(copy.dir, CAPTURE_DB_REL));
+    try {
+      db.prepare("INSERT INTO agent_runs (id, work_id, session_id, pending_artifact_refs) VALUES (?, ?, ?, ?)")
+        .run("history-run", WORK, SESSION, JSON.stringify(stale));
+      prepare(copy.dir);
+      const source = sessionStateCapture(ids);
+      capture(copy.dir, "start", { sessionCapture: source, sessionCaptureWindow: sessionStateWindow(source) });
+      const actual = JSON.parse(fs.readFileSync(path.join(copy.dir, "b71-start.json"), "utf8"));
+      assert.equal(actual.state_facts.pending_artifact_count, ids.length);
+      assert.deepEqual(actual.state_facts.pending_artifact_ids, [...ids].sort());
+      assert.deepEqual(actual.session_capture, source, "原始响应与采集身份必须保留");
+    } finally { db.close(); }
+  }));
+});
+
+test("R08 checkpoint 缺少或不完整的同会话show不能补零、借inbox或历史run授信", () => {
+  const mutations = [
+    () => null,
+    (r) => { delete r.request_id; },
+    (r) => { r.method = "POST"; },
+    (r) => { r.path += "/resume"; },
+    (r) => { r.status = 500; },
+    (r) => { r.body_state.complete = false; },
+    (r) => { r.body_state.truncated = true; },
+    (r) => { r.scope.work_id = "other-work"; },
+    (r) => { r.scope.session_id = "other-session"; },
+    (r) => { r.body.work.id = "other-work"; },
+    (r) => { r.body.session.id = "other-session"; },
+    (r) => { r.body.session.work_id = "other-work"; },
+    (r) => { r.body.session.status = "ARCHIVED"; },
+    (r) => { r.body.read_only = true; },
+    (r) => { delete r.body.pending_adoptions; },
+    (r) => { r.body.pending_adoptions = null; },
+    (r) => { r.body.pending_adoptions = [{ artifact_id: "", adoption_status: "TENTATIVE" }]; },
+    (r) => { r.body.pending_adoptions = [{ artifact_id: "a" }, { artifact_id: "a" }]; },
+    (r) => { r.body.pending_adoptions = [{ artifact_id: "accepted", adoption_status: "ACCEPTED" }]; },
+    (r) => { delete r.body.pending_adoption_turn_results; },
+    (r) => { delete r.body.resolved_adoptions; },
+    (r) => { r.body.resolved_adoptions = [{ artifact_id: "a", adoption_status: "DISCARDED" }];
+      r.body.pending_adoptions = [{ artifact_id: "a", adoption_status: "TENTATIVE" }]; },
+  ];
+  for (const mutate of mutations) withWorkingCopy(template(), (copy) =>
+    withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => {
+      prepare(copy.dir);
+      const input = sessionStateCapture();
+      const result = mutate(input);
+      const source = result === null ? null : input;
+      assert.throws(() => capture(copy.dir, "start", { sessionCapture: source, sessionCaptureWindow: sessionStateWindow(source) }),
+        /session|capture|scope|pending|会话|采集|身份|响应|状态/u);
+      assert.equal(fs.existsSync(path.join(copy.dir, "b71-start.json")), false);
+    }));
+});
+
+
+test("R08 session checkpoint 拒绝早已在途响应、缺窗口或原字节hash不一致", () => {
+  for (const mutate of [
+    (proof) => { delete proof.sessionCaptureWindow; },
+    (proof) => { proof.sessionCaptureWindow.started_at = "2026-11-23T13:00:00.001Z"; },
+    (proof) => { proof.sessionCaptureWindow.completed_at = "2026-11-23T12:59:59.999Z"; },
+    (proof) => { proof.sessionCaptureWindow.body_sha256 = "0".repeat(64); },
+    (proof) => { proof.sessionCapture.at = "2026-11-23T12:59:00.000Z"; },
+    (proof) => { delete proof.sessionCapture.body_state.sha256; },
+    (proof) => { delete proof.sessionCapture.response_scope; },
+  ]) withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => {
+    prepare(copy.dir);
+    const proof = checkpointSessionEvidence();
+    mutate(proof);
+    assert.throws(() => capture(copy.dir, "start", proof), /session|capture|window|hash|scope|窗口|采集|身份|响应/u);
+    assert.equal(fs.existsSync(path.join(copy.dir, "b71-start.json")), false);
+  }));
+});
+
+test("R08 behavior checkpoint 从各轮真实边界读状态，仅计同work/session候选", () => {
+  withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[1], () => {
+    const db = new DatabaseSync(path.join(copy.dir, CAPTURE_DB_REL));
+    try {
+      db.exec("DELETE FROM chapters");
+      const foreignWork = "f1000000-0000-4000-8000-000000000001";
+      const foreignChapter = "f2000000-0000-4000-8000-000000000001";
+      db.prepare("INSERT INTO works (id, title) VALUES (?, ?)").run(foreignWork, "另一作品");
+      db.prepare("INSERT INTO chapters (id, work_id, title, seq) VALUES (?, ?, ?, ?)").run(
+        foreignChapter, foreignWork, "另一作品的章节", 1);
+      db.prepare("INSERT INTO drafts (id, work_id, chapter_id, status, text) VALUES (?, ?, ?, ?, ?)").run(
+        "f3000000-0000-4000-8000-000000000001", foreignWork, foreignChapter, "ACCEPTED", "另一作品正文");
+      db.prepare("INSERT INTO memory_items (id, work_id, reference_count, last_referenced_at) VALUES (?, ?, ?, ?)").run(
+        "f4000000-0000-4000-8000-000000000001", foreignWork, 0, null);
+      const insertRun = db.prepare("INSERT INTO agent_runs (id, work_id, session_id, pending_artifact_refs) VALUES (?, ?, ?, ?)");
+      insertRun.run("foreign-run", foreignWork, SESSION, '["foreign-pending"]');
+      insertRun.run("other-session-run", WORK, "other-session", '["other-session-pending"]');
+      prepare(copy.dir);
+      assert.throws(() => capture(copy.dir, "step-0-after"), /step-0-before/);
+      assert.throws(() => capture(copy.dir, "step-1-before"), /step-0-after/);
+      assert.throws(() => capture(copy.dir, "step-4-before"), /未知 checkpoint/);
+      capture(copy.dir, "start", checkpointSessionEvidence());
+      capture(copy.dir, "step-0-before", checkpointSessionEvidence());
+      insertRun.run("current-run", WORK, SESSION, '["current-pending"]');
+      capture(copy.dir, "step-0-after", checkpointSessionEvidence(["current-pending"]));
+      capture(copy.dir, "step-1-before", checkpointSessionEvidence(["current-pending"]));
+      const before = JSON.parse(fs.readFileSync(path.join(copy.dir, "b71-step-0-before.json"), "utf8"));
+      const after = JSON.parse(fs.readFileSync(path.join(copy.dir, "b71-step-0-after.json"), "utf8"));
+      const next = JSON.parse(fs.readFileSync(path.join(copy.dir, "b71-step-1-before.json"), "utf8"));
+      assert.deepEqual(before.state_facts, {
+        chapters_rows: [], drafts_rows: [], memory_count: 0, pending_artifact_count: 0, pending_artifact_ids: [],
+      });
+      assert.deepEqual(after.state_facts, { ...before.state_facts, pending_artifact_count: 1, pending_artifact_ids: ["current-pending"] });
+      assert.deepEqual(next.state_facts, after.state_facts);
+      // 中途合法待答可以结束采集；缺失后继仍由 verifier 据真实步骤拒绝签完整组。
+      capture(copy.dir, "final", checkpointSessionEvidence(["current-pending"]));
+      assert.throws(() => capture(copy.dir, "step-0-after", checkpointSessionEvidence(["current-pending"])), /证据不得覆盖/);
+    } finally {
+      db.close();
+    }
+  }));
+});
+
+test("R08 behavior 状态读取失败或pending字段缺失不能冒充显式零", () => {
+  for (const missingTable of [false, true]) {
+    withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => {
+      const db = new DatabaseSync(path.join(copy.dir, CAPTURE_DB_REL));
+      try {
+        db.exec("DELETE FROM chapters");
+        const proof = checkpointSessionEvidence();
+        if (missingTable) db.exec("DROP TABLE memory_items");
+        else delete proof.sessionCapture.body.pending_adoptions;
+        prepare(copy.dir);
+        assert.throws(() => capture(copy.dir, "start", proof), /memory_items|pending|capture/);
+        assert.equal(fs.existsSync(path.join(copy.dir, "b71-start.json")), false);
+      } finally {
+        db.close();
+      }
+    }));
+  }
+});
+
+test("R08 behavior 的启动与读取共用登记合同，缺selector或换seed目标即拒绝", () => {
+  withWorkingCopy(template(), (copy) => withBehavior(copy, R08_BEHAVIOR_GROUPS[3], () => {
+    assert.throws(() => validatePreregistrationFile(path.join(copy.dir, "preregistration.json"), {
+      dir: copy.dir, provider: "splash", b71Live: true,
+    }), /behavior.*启动 case/);
+    prepare(copy.dir);
+    const config = readConfig(copy.dir);
+    for (const field of ["work_id", "session_id"]) {
+      const forged = structuredClone(config);
+      forged.target[field] = "foreign-target";
+      writeJson(copy.dir, "native-b71-config.json", forged);
+      assert.throws(() => readConfig(copy.dir), /target.*seed work\/session/);
+    }
+  }));
+});
+
+test("R08 退役 Strata 裸behavior入口：capture在任何seed/runtime前拒绝旧pilot", () => {
+  const keys = ["B71_BEHAVIOR_CASE", "B71_AUTO_MAINTENANCE", "B71_CONFIRMATION_ACTION",
+    "B71_ANSWER_MODE", "B71_MEMORY_DETAIL"];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of keys) delete process.env[key];
+    process.env.B71_BEHAVIOR_CASE = "C-F1-003";
+    for (const hasSeed of [true, false]) {
+      withWorkingCopy(template(), (copy) => {
+        liveReady(copy.dir);
+        if (hasSeed) seedLive(copy.dir);
+        assert.throws(() => prepare(copy.dir), /Strata.*behavior.*退役|behavior.*Strata.*退役/);
+        assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
+        assert.equal(fs.existsSync(path.join(copy.dir, "production-sources-before.json")), false);
+      });
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("R08 退役 Strata 裸behavior入口：shell在任何初始化前拒绝", () => {
+  const guard = tempDir("retired-behavior-guard-");
+  fs.writeFileSync(path.join(guard, "mkdir"),
+    "#!/bin/sh\nprintf '%s\\n' 'r08-retired-behavior-setup-reached' >&2\nexit 77\n", { mode: 0o755 });
+  const env = { ...process.env, PATH: `${guard}:${process.env.PATH ?? ""}`,
+    B71_PROVIDER: "strata", B71_SLICE: "b71-first-consumer", B71_BEHAVIOR_CASE: "C-F1-003",
+    B71_LIVE_PREREGISTRATION: "", B71_AUTO_MAINTENANCE: "", B71_CONFIRMATION_ACTION: "",
+    B71_ANSWER_MODE: "", B71_MEMORY_DETAIL: "" };
+  const result = spawnSync("bash", ["scripts/native_b71_batch.sh", "r08-retired-behavior"],
+    { encoding: "utf8", env, timeout: 10000 });
+  assert.equal(result.status, 64, result.stderr);
+  assert.match(result.stderr, /Strata.*behavior.*退役|behavior.*Strata.*退役/);
+  assert.doesNotMatch(result.stderr, /r08-retired-behavior-setup-reached/);
 });

@@ -343,6 +343,7 @@ defmodule NovelCommon.RequestIR.Compaction do
     for message <- messages,
         block <- Map.get(message, :blocks, []),
         Map.get(block, :type) in types,
+        Map.get(block, :type) == "tool_call" or Map.get(message, :role) == "tool",
         do: Map.get(block, :call_id)
   end
 end

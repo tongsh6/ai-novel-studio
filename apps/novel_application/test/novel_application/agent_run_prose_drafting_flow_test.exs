@@ -916,7 +916,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:planner_prompt, 1, initial_prompt}, 500
     assert RequestIR.Tools.tool_choice(initial_prompt) == "auto"
     assert_receive {:planner_prompt, 2, retry_prompt}, 500
-    assert prompt_text(retry_prompt) =~ "上一次的 AgentRun 计划 tool call 无法被系统解析"
+
+    assert Enum.any?(retry_prompt.messages, fn
+             %{
+               role: "application_notice",
+               blocks: [%{type: "validation_result", status: "failed", detail: detail}]
+             } ->
+               detail["message"] =~ "上一次的 AgentRun 计划 tool call 无法被系统解析"
+
+             _ ->
+               false
+           end)
+
     assert RequestIR.Tools.tool_choice(retry_prompt) == "auto"
     refute_receive {:planner_prompt, 3, _}
     assert_receive {:writer_prompt, _writer_prompt}, 1_000

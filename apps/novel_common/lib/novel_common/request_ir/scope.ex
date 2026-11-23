@@ -233,7 +233,7 @@ defmodule NovelCommon.RequestIR.Scope do
     end
   end
 
-  defp validate_scope_metadata(message, refs) do
+  def validate_scope_metadata(message, refs) do
     valid? =
       scope_source_refs?(Map.get(message, :source_refs, [])) and
         scope_source_refs?(Map.get(refs, :base_refs, [])) and

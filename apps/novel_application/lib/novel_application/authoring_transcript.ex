@@ -271,21 +271,29 @@ defmodule NovelApplication.AuthoringTranscript do
     }
   end
 
-  @doc "追加校验失败/通过结果（tool 原生结果回流，不追加 user 纠错）。"
-  @spec append_validation(t(), String.t(), String.t(), String.t(), map(), map()) :: t()
+  @doc "沿 RequestIR 追加原生工具校验或同源响应拒收，不追加作者纠错输入。"
+  @spec append_validation(t(), String.t() | map(), String.t(), String.t(), map(), map()) :: t()
   def append_validation(
         transcript,
-        call_id,
+        subject,
         status,
         reason_code,
         detail \\ %{},
         receipt_context \\ %{}
       ) do
-    block =
-      RequestIR.validation_result_block(call_id, status, reason_code, detail, receipt_context)
-
-    message = RequestIR.message(:tool, :tool_result, [block])
-    %{transcript | messages: transcript.messages ++ [message]}
+    with {:ok, ir} <- to_request_ir(transcript),
+         ir =
+           RequestIR.append_validation_result(
+             ir,
+             subject,
+             status,
+             reason_code,
+             detail,
+             receipt_context
+           ),
+         {:ok, restored} <- from_request_ir(ir) do
+      restored
+    end
   end
 
   @doc "追加一次真实 Provider 响应，保留原生工具调用及无效参数原文供校验纠错。"

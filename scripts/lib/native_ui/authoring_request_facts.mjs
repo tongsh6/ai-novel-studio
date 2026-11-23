@@ -202,7 +202,7 @@ export function parseIrMessage(message, index) {
     return { malformed: true };
   }
   const calls = irCalls(blocks, index);
-  const results = irResults(blocks, index);
+  const results = message.role === "application_notice" ? [] : irResults(blocks, index);
   return {
     malformed: false,
     message: {
@@ -571,9 +571,107 @@ export function checkpointSelectionsFromFacts(facts) {
 }
 
 
+// 响应级失败仅由 canonical application_notice 供应；普通文本不推断发布资格。
+// 返回对原始 assistant 对象的只读索引，null 表示新组合缺证/矛盾，不能回退为未知。
+export function responseRejectionsOf(messages, run = {}) {
+  if (!Array.isArray(messages)) return null;
+  const rejected = new Map();
+  const executionKeys = ["provider_call_ref", "provider_run_ref"];
+  const ownerKeys = ["workspace_id", "work_id", "session_id", "run_id", "parent_turn_ref"];
+  const ownerOf = message => {
+    if (hasOwn(message, "canonical_ref")) {
+      const identity = message.canonical_ref;
+      if (!isRecord(identity) || !ownerKeys.every(key => nonBlank(identity[key])) ||
+          !Number.isSafeInteger(identity.run_sequence) || identity.run_sequence <= 0) return null;
+      return Object.fromEntries(ownerKeys.map(key => [key, identity[key]]));
+    }
+    return nonBlank(run?.run_id)
+      ? Object.fromEntries(ownerKeys.map(key => [key, run[key] ?? null])) : null;
+  };
+  const currentTail = from => {
+    let unannotated = false;
+    for (const message of messages.slice(from)) {
+      if (hasOwn(message, "canonical_ref") && unannotated) return false;
+      unannotated ||= !hasOwn(message, "canonical_ref");
+    }
+    return true;
+  };
+  const earlier = (left, right) => !left.canonical_ref || !right.canonical_ref ||
+    left.canonical_ref.run_sequence < right.canonical_ref.run_sequence;
+  const applicationTaskContext = (sourceIndex, owner) => {
+    const previous = messages.slice(0, sourceIndex), source = messages[sourceIndex];
+    if (previous.some(message => message?.role === "user" || message?.provenance === "author")) return false;
+    const scopeIndex = previous.findLastIndex(message =>
+      message?.role === "scope_update" && isDeepStrictEqual(ownerOf(message), owner));
+    if (scopeIndex < 0) return false;
+    const scope = previous[scopeIndex], content = scopeContentOf(scope);
+    if (!content || (content.work_id ?? null) !== owner.work_id || !earlier(scope, source)) return false;
+    const baseIndex = previous.findLastIndex(message =>
+      message?.role === "application_base" && isDeepStrictEqual(ownerOf(message), owner));
+    if (baseIndex < 0 || baseIndex >= scopeIndex) return false;
+    const base = previous[baseIndex];
+    return base.provenance === "application" &&
+      Array.isArray(base.blocks) && base.blocks.length > 0 &&
+      base.blocks.every(block => block?.type === "text" && typeof block.text === "string" && block.text !== "") &&
+      nonBlank(irText(base.blocks)) && validScopeMetadata(base.versions, base.source_refs) &&
+      earlier(base, scope) && currentTail(baseIndex);
+  };
+  for (const [index, notice] of messages.entries()) {
+    const blocks = list(notice?.blocks);
+    const responseBlock = blocks.some(block => block?.type === "validation_result" &&
+      (notice?.role !== "tool" || !nonBlank(block.call_id)));
+    if (!responseBlock) continue;
+    const block = blocks[0], source = messages[index - 1];
+    const allowed = ["type", "status", "reason_code", "detail", "retryable", "budget_after"];
+    if (notice.role !== "application_notice" || notice.provenance !== "application" ||
+        blocks.length !== 1 || block.type !== "validation_result" || block.status !== "failed" ||
+        Object.keys(block).length !== allowed.length || Object.keys(block).some(key => !allowed.includes(key)) ||
+        hasOwn(notice, "call_id") || !nonBlank(block.reason_code) ||
+        !isRecord(block.detail) || !nonBlank(block.detail.message) ||
+        !(block.retryable === null || typeof block.retryable === "boolean") ||
+        !(block.budget_after === null || isRecord(block.budget_after)) ||
+        source?.role !== "assistant" || source.provenance !== "model" ||
+        !Array.isArray(source.blocks) || !source.blocks.every(entry =>
+          entry?.type === "text" && typeof entry.text === "string" && entry.text !== "") ||
+        !executionKeys.every(key => nonBlank(notice[key]) && notice[key] === source[key]) ||
+        rejected.has(source)) return null;
+    if (!executionKeys.every(key => messages.filter(message =>
+      message?.role === "assistant" && message[key] === source[key]).length === 1)) return null;
+    const owner = ownerOf(source);
+    if (!owner || !isDeepStrictEqual(ownerOf(notice), owner)) return null;
+    if (!currentTail(index - 1)) return null;
+    const author = messages.slice(0, index - 1).findLast(message =>
+      message?.role === "user" && message.provenance === "author" &&
+      isDeepStrictEqual(ownerOf(message), owner));
+    if (author) {
+      if (!Array.isArray(author.source_refs) || author.source_refs.length !== 1 ||
+          !nonBlank(author.source_refs[0]?.ref) || !earlier(author, source)) return null;
+    } else if (!applicationTaskContext(index - 1, owner)) return null;
+    if (source.canonical_ref && notice.canonical_ref &&
+        notice.canonical_ref.run_sequence !== source.canonical_ref.run_sequence + 1) return null;
+    rejected.set(source, block);
+  }
+  return rejected;
+}
+
+function responseNoticeMatches(actual, canonical) {
+  const header = "【应用数据 · application_notice · 非作者原话】\n";
+  if (actual.role !== "user" || typeof actual.raw.content !== "string" ||
+      !actual.raw.content.startsWith(header)) return false;
+  const block = canonical.blocks[0];
+  const data = Object.fromEntries(Object.entries(block)
+    .filter(([key]) => !["call_id", "retryable", "budget_after"].includes(key)));
+  const expected = { ok: false, data, error_code: block.reason_code,
+    message: block.detail.message, retryable: block.retryable ?? null,
+    observation_ref: null, budget_after: block.budget_after ?? null };
+  return isDeepStrictEqual(decodedJson(actual.raw.content.slice(header.length)), expected);
+}
+
 // 已保留 canonical 消息与真实请求逐条绑定；不生成请求正文，也不从文字猜 provenance。
 // Provider system envelope 不属于会话消息，仅可占真实 wire 的额外首位；它不供应 Base。
 export function bindRequestMessages(facts, canonicalMessages, { actualMessages = facts.messageFacts, checkpoints = new Map() } = {}) {
+  if (responseRejectionsOf(canonicalMessages, facts.run) === null ||
+      (facts.format === AUTHORING_REQUEST_IR && responseRejectionsOf(facts.messages, facts.run) === null)) return null;
   const parsed = canonicalMessages.map(parseIrMessage);
   if (parsed.some(entry => entry.malformed)) return null;
   const canonical = parsed.map(entry => entry.message);
@@ -602,13 +700,15 @@ function sameIrRequestMessage(actual, canonical) {
     isDeepStrictEqual(actual.blocks, canonical.blocks) &&
     isDeepStrictEqual(actual.sourceRefs, canonical.sourceRefs) &&
     isDeepStrictEqual(actual.versions, canonical.versions) &&
-    isDeepStrictEqual(actual.baseRefs, canonical.baseRefs);
+    isDeepStrictEqual(actual.baseRefs, canonical.baseRefs) &&
+    isDeepStrictEqual(actual.raw.provider_call_ref, canonical.raw.provider_call_ref) &&
+    isDeepStrictEqual(actual.raw.provider_run_ref, canonical.raw.provider_run_ref);
 }
 
 function nativeMessageUnits(message, checkpoint) {
   const role = message.role;
   const allowedBlocks = {
-    system: ["text"], user: ["text"], application_base: ["text"], application_notice: ["text"],
+    system: ["text"], user: ["text"], application_base: ["text"], application_notice: ["text", "validation_result"],
     scope_update: ["scope"], assistant: ["text", "tool_call"],
     tool: ["observation", "validation_result"], checkpoint: ["text", "checkpoint"],
     tentative_artifact: ["tentative_artifact"], author_exit: ["author_exit"],
@@ -623,7 +723,8 @@ function nativeMessageUnits(message, checkpoint) {
       !["system", "user", "assistant", "application_base", "application_notice", "scope_update", "checkpoint"].includes(role)) {
     return null;
   }
-  if (["system", "user", "application_base", "application_notice"].includes(role) && message.text === "") return [];
+  if (["system", "user", "application_base", "application_notice"].includes(role) && message.text === "" &&
+      !message.blocks.some(block => block.type === "validation_result")) return [];
   if (role === "checkpoint" && message.text === "" && !message.blocks.some(block => block.type === "checkpoint")) return [];
   return [{ message, checkpoint }];
 }
@@ -641,10 +742,13 @@ function nativeMessageMatches(actual, { message: canonical, result, checkpoint }
     case "user":
       return actual.role === canonical.role && typeof actual.raw.content === "string" &&
         actual.text === canonical.text;
-    case "application_base":
     case "application_notice":
+      if (canonical.blocks[0]?.type === "validation_result") return responseNoticeMatches(actual, canonical);
       return actual.role === "user" && typeof actual.raw.content === "string" &&
-        actual.text === "【应用数据 · " + canonical.role + " · 非作者原话】\n" + canonical.text;
+        actual.text === "【应用数据 · application_notice · 非作者原话】\n" + canonical.text;
+    case "application_base":
+      return actual.role === "user" && typeof actual.raw.content === "string" &&
+        actual.text === "【应用数据 · application_base · 非作者原话】\n" + canonical.text;
     case "scope_update":
       return actual.role === "user" && actual.scopeContent !== null &&
         isDeepStrictEqual(actual.scopeContent, canonical.scopeContent) &&

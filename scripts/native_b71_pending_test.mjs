@@ -28,9 +28,9 @@ const SESSION = "33333333-3333-4333-8333-333333333333";
 const MEMORY = "44444444-4444-4444-8444-444444444444";
 const MUTATION = "55555555-5555-4555-8555-555555555555";
 const NONCE = "a1b2c3d4e5f60718";
-const SOURCE_TURN = "turn-source";
-const REVISION_TURN = "turn-revision";
-const FOLLOWUP_TURN = "turn-followup";
+const SOURCE_TURN = "message_aaaaaaaa-1111-4111-8111-111111111111";
+const REVISION_TURN = "message_bbbbbbbb-2222-4222-8222-222222222222";
+const FOLLOWUP_TURN = "message_cccccccc-3333-4333-8333-333333333333";
 const SOURCE_RUN = "run-source";
 const REVISION_RUN = "run-revision";
 const FOLLOWUP_RUN = "run-followup";
@@ -138,7 +138,7 @@ function transcript(run, messages) {
 }
 
 function author(text, turnId) {
-  return { role: "user", provenance: "author", source_refs: [`author_input:${turnId}`],
+  return { role: "user", provenance: "author", source_refs: [{ ref: turnId }],
     versions: {}, blocks: [{ type: "text", text }] };
 }
 
@@ -1705,36 +1705,153 @@ test("followup 缺 assistant_message 不能通过", (t) => {
   assert.throws(() => verifyPendingBatch(dir), /followup_reply_visible/);
 });
 
-test("三轮当前作者来源逐条绑定，原文或 author_input 引用改写不能借历史通过", (t) => {
-  for (const [label, runId, turnId] of [
-    ["source", SOURCE_RUN, SOURCE_TURN], ["revision", REVISION_RUN, REVISION_TURN],
-    ["followup", FOLLOWUP_RUN, FOLLOWUP_TURN],
-  ]) {
-    for (const field of ["source_refs", "text"]) {
-      const dir = batchCopy(t), db = openDb(dir);
-      const change = message => {
-        if (message.role !== "user" || message.provenance !== "author" ||
-            !message.source_refs?.includes(`author_input:${turnId}`)) return;
-        if (field === "source_refs") message.source_refs = ["author_input:another-turn"];
-        else message.blocks[0].text += "（追加）";
-      };
-      try {
-        const rows = db.prepare("SELECT id, message FROM authoring_session_messages WHERE run_id = ?").all(runId);
-        for (const row of rows) {
-          const message = JSON.parse(row.message);
-          change(message);
-          db.prepare("UPDATE authoring_session_messages SET message = ? WHERE id = ?")
-            .run(JSON.stringify(message), row.id);
-        }
-      } finally { db.close(); }
-      // 同步篡改 request 与 canonical，保留序列可配对，专门检验独立 WS 作者原文/父轮来源。
-      mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), rows => rows.map(row => {
-        row.request_body.messages.forEach(change);
-        return row;
-      }));
-      assert.throws(() => verifyPendingBatch(dir), new RegExp(`${label}_author_input_bound`));
+// 独立期望采用真实 canonical 作者消息合同：source_refs 是对象数组，ref 是裸消息 ID。
+// 候选的 provider_call_ref/source_tool_result_ref 仍保留 author_input: 前缀，二者不能混用。
+const AUTHOR_INPUT_PHASES = [
+  ["source", SOURCE_RUN, SOURCE_TURN],
+  ["revision", REVISION_RUN, REVISION_TURN],
+  ["followup", FOLLOWUP_RUN, FOLLOWUP_TURN],
+];
+
+function mutateAuthorInputFixture(dir, runId, turnId, change) {
+  const db = openDb(dir);
+  try {
+    const rows = db.prepare(
+      "SELECT id, message FROM authoring_session_messages WHERE run_id = ? AND role = 'user'",
+    ).all(runId);
+    assert.equal(rows.length, 1, "反例前态必须只有一个当前作者输入");
+    const message = JSON.parse(rows[0].message);
+    assert.deepEqual(message.source_refs, [{ ref: turnId }]);
+    change(message);
+    db.prepare("UPDATE authoring_session_messages SET message = ? WHERE id = ?")
+      .run(JSON.stringify(message), rows[0].id);
+  } finally { db.close(); }
+  // 同步更改全部真实请求中的同一来源，保留 canonical/request 可配对；
+  // 必须再对独立 WS 原话、当前 run 和裸父消息 ref 核准，不能仅看两边相等。
+  let changedRequests = 0;
+  mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), rows => rows.map(row => {
+    for (const message of row.request_body.messages) {
+      if (message.role === "user" && message.provenance === "author" &&
+          message.source_refs?.some(source => source?.ref === turnId)) {
+        change(message);
+        changedRequests++;
+      }
     }
+    return row;
+  }));
+  assert(changedRequests > 0, "反例必须实际修改请求中的作者来源");
+}
+
+test("pending canonical 作者来源：真实对象ref与裸message ID让三轮及两个依赖门通过", (t) => {
+  const dir = batchCopy(t), db = openDb(dir);
+  try {
+    for (const [, runId, turnId] of AUTHOR_INPUT_PHASES) {
+      const rows = db.prepare(
+        "SELECT message FROM authoring_session_messages WHERE run_id = ? AND role = 'user'",
+      ).all(runId);
+      assert.equal(rows.length, 1);
+      assert.deepEqual(JSON.parse(rows[0].message).source_refs, [{ ref: turnId }]);
+    }
+  } finally { db.close(); }
+  const { checks } = verifyPendingBatch(dir);
+  for (const name of [
+    "source_author_input_bound", "revision_author_input_bound", "followup_author_input_bound",
+    "revision_source_candidate_bound", "followup_request_is_new_boundary",
+  ]) assert.equal(checks[name], true, name);
+});
+
+for (const [label, runId, turnId] of AUTHOR_INPUT_PHASES) {
+  const changes = [
+    ["错对象ref", message => { message.source_refs = [{ ref: "message_another_author_input" }]; }],
+    ["缺来源字段", message => { delete message.source_refs; }],
+    ["空来源数组", message => { message.source_refs = []; }],
+    ["旧裸字符串", message => { message.source_refs = [turnId]; }],
+    ["旧前缀字符串", message => { message.source_refs = [`author_input:${turnId}`]; }],
+    ["对象中误用登记前缀", message => { message.source_refs = [{ ref: `author_input:${turnId}` }]; }],
+    ["原话字节改变", message => { message.blocks[0].text += "（追加）"; }],
+  ];
+  for (const [name, change] of changes) {
+    test(`pending canonical 作者来源：${label} ${name}不能借同步请求通过`, (t) => {
+      const dir = batchCopy(t);
+      mutateAuthorInputFixture(dir, runId, turnId, change);
+      assert.throws(() => verifyPendingBatch(dir), new RegExp(`${label}_author_input_bound`));
+    });
   }
+}
+
+test("pending canonical 作者来源：跨run作者行不能借相同原文和请求通过", (t) => {
+  const dir = batchCopy(t), db = openDb(dir);
+  try {
+    const result = db.prepare(
+      "UPDATE authoring_session_messages SET run_id = ? WHERE run_id = ? AND role = 'user'",
+    ).run(SOURCE_RUN, REVISION_RUN);
+    assert.equal(result.changes, 1);
+  } finally { db.close(); }
+  // 拒绝来自既有 canonical 历史 owner 的段/行归属校验，不改造 decoder 绕过它。
+  assert.throws(() => verifyPendingBatch(dir), /authoring_history:/u);
+});
+
+for (const [label, runId] of AUTHOR_INPUT_PHASES.slice(1)) {
+  test(`pending canonical 作者来源：${label}缺真实上一轮历史不能fallback当前段`, (t) => {
+    const dir = batchCopy(t);
+    let removed = 0;
+    mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), records => records.map(record => {
+      if (record.agent_run_id !== runId) return record;
+      record.request_body.messages = record.request_body.messages.filter(message => {
+        const priorAuthor = message.role === "user" && message.provenance === "author" &&
+          message.source_refs?.some(source => source?.ref === SOURCE_TURN);
+        if (priorAuthor) removed++;
+        return !priorAuthor;
+      });
+      return record;
+    }));
+    assert(removed > 0);
+    const rejection = label === "followup"
+      ? /followup Scope 必须绑定同次 pcall\/prun 的 canonical 应用来源/u
+      : /revision_author_input_bound/u;
+    assert.throws(() => verifyPendingBatch(dir), rejection);
+  });
+}
+
+test("pending canonical 作者来源：同一当前run重复作者输入不能以一个WS输入授信", (t) => {
+  const dir = batchCopy(t), db = openDb(dir);
+  try {
+    const rows = db.prepare(
+      "SELECT * FROM authoring_session_messages WHERE run_id = ? AND role = 'user'",
+    ).all(FOLLOWUP_RUN);
+    assert.equal(rows.length, 1);
+    const original = rows[0];
+    assert.deepEqual(JSON.parse(original.message).source_refs, [{ ref: FOLLOWUP_TURN }]);
+    // 在同段插入完整重复行并顺移后继坐标，确保反例不是稀疏/损坏序列造成的早退。
+    const later = db.prepare(
+      "SELECT id, sequence, run_sequence, run_id FROM authoring_session_messages WHERE session_id = ? AND sequence > ? ORDER BY sequence DESC",
+    ).all(SESSION, original.sequence);
+    for (const row of later) {
+      db.prepare("UPDATE authoring_session_messages SET sequence = ?, run_sequence = ? WHERE id = ?")
+        .run(row.sequence + 1, row.run_sequence + (row.run_id === FOLLOWUP_RUN ? 1 : 0), row.id);
+    }
+    db.prepare(
+      "INSERT INTO authoring_session_messages (id, workspace_id, work_id, session_id, run_id, sequence, run_sequence, role, message, format_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("msg-followup-author-duplicate", original.workspace_id, original.work_id, original.session_id,
+      original.run_id, original.sequence + 1, original.run_sequence + 1, original.role,
+      original.message, original.format_version);
+    db.prepare(
+      "UPDATE authoring_run_segments SET message_count = message_count + 1, last_sequence = last_sequence + 1 WHERE run_id = ?",
+    ).run(FOLLOWUP_RUN);
+  } finally { db.close(); }
+  let changed = 0;
+  mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), records => records.map(record => {
+    if (record.agent_run_id !== FOLLOWUP_RUN) return record;
+    const messages = record.request_body.messages;
+    const index = messages.findIndex(message => message.role === "user" && message.provenance === "author" &&
+      message.source_refs?.some(source => source?.ref === FOLLOWUP_TURN));
+    assert(index >= 0);
+    messages.splice(index + 1, 0, structuredClone(messages[index]));
+    changed++;
+    return record;
+  }));
+  assert.equal(changed, 1);
+  assert.throws(() => verifyPendingBatch(dir), /followup_author_input_bound/u);
 });
 
 test("第四条自动补答即使三个指定 run 都成功也不能通过", (t) => {

@@ -23,7 +23,7 @@ defmodule NovelApplication.AuxTaskBuilder do
   @contracts %{
     chapter_summary: [
       schema_ref: "chapter_summary_v1",
-      required_keys: ["plot", "characters", "foreshadowing", "mood"],
+      required_keys: [],
       allow_companions: false
     ],
     fact_inventory: [
@@ -190,7 +190,8 @@ defmodule NovelApplication.AuxTaskBuilder do
 
   defp contract(kind) do
     opts = Map.fetch!(@contracts, kind)
-    AuthoringTaskBuilder.output_contract(:json, opts)
+    output_kind = if kind == :chapter_summary, do: :text, else: :json
+    AuthoringTaskBuilder.output_contract(output_kind, opts)
   end
 
   defp inventory_material(raw, index) when is_map(raw) do

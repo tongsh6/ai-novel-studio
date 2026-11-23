@@ -1,73 +1,17 @@
-// B71 作者行为覆盖外部驱动（journey=behavior）：输入取 B70 冻结 case 的 expression
-// 原文（由 prepare 写入 config），像作者一样在真实窗口输入并等待 run 终局，采集
-// AX/WS/llm-calls/DB/canon 证据与 Strata 单槽生命周期；不轮询固定回复文本、不假设
-// 工具调用次数、不修改产品 prompt。判据见 authoring_behavior_evidence。
+// B71 冻结作者输入的原生驱动：同一 work/session 按 steps 顺序采集。
+// 只操作与采证，不判断模型语义、不替作者回答、不补发或自动重试。
+import assert from "node:assert/strict";
 import path from "node:path";
-import { readJson } from "./lib/native_ui/driver.mjs";
-import {
-  NativeScenarioHarness,
-  ROOT,
-  ensureWorkSelected,
-  frameBody,
-  runEvidenceMode,
-} from "./lib/native_ui/scenario_driver.mjs";
-import { all, frameOf, logs, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
-import {
-  classifyTurnBody,
-  summarizeModelBehavior,
-  wireTerminal,
-} from "./lib/native_ui/live_run_wait.mjs";
-import {
-  DEFAULT_STRATA_ENDPOINT,
-  readStrataState,
-  strataLifecycleRecord,
-  strataSlotCheck,
-  unloadStrata,
-} from "./lib/native_ui/strata_lifecycle.mjs";
-
-const dir = path.resolve(process.argv[2] ?? "");
-if (!dir) {
-  console.error("usage: node scripts/native_b71_behavior_drive.mjs <batch-run-dir>");
-  process.exit(64);
-}
-
-const evidence = path.join(ROOT, "scripts/native_b71_evidence.mjs");
-const harness = new NativeScenarioHarness(dir);
-const strataEndpoint = (() => {
-  const configured = process.env.NOVEL_STRATA_ENDPOINT ?? DEFAULT_STRATA_ENDPOINT;
-  return String(configured).replace(/\/v1\/?$/u, "").replace(/\/+$/u, "");
-})();
-// 作者行为 case（尤其写/保存类）真实模型链可能更长；行为批次默认 12 分钟。
-const TURN_TIMEOUT_MS = Number(process.env.B71_BEHAVIOR_TURN_TIMEOUT_MS ?? 720_000);
-const INPUT_TIMEOUT_MS = Number(process.env.B71_LIVE_INPUT_TIMEOUT_MS ?? 120_000);
-const READY_TIMEOUT_MS = Number(process.env.B71_LIVE_READY_TIMEOUT_MS ?? 180_000);
-
-const readProviderCounts = () => ({
-  llm_records: logs(path.join(dir, "llm-calls")).length,
-  provider_runs: withDb(dir, (db) => Number(all(db, "SELECT COUNT(*) AS c FROM provider_runs")[0].c)),
-});
-
-function readRunRow({ turnId, runId }) {
-  return withDb(dir, (db) => all(db,
-    "SELECT id, status, parent_turn_ref, run_mode, workspace_id, work_id, session_id, goal_version " +
-      "FROM agent_runs WHERE id = ? AND parent_turn_ref = ?", [runId, turnId])[0] ?? null);
-}
-
-// 持久事实和已交付运行回包须一致；不能在页面仍 active 时凭 DB 终态推进下一输入。
-async function waitRunTerminal(identity) {
-  return harness.runStep("turn", "live_run_terminal", () => harness.pollWire((wire) =>
-    wireTerminal(wire, { ...identity, runRow: readRunRow(identity), requireWireTerminal: true }),
-  TURN_TIMEOUT_MS, "b71-live:terminal"));
-}
-
-async function collectModelBehavior({ terminal, turnBody, runStatus }) {
-  const llmRecords = logs(path.join(dir, "llm-calls")).filter((record) => record?.provider === "strata");
-  return summarizeModelBehavior({ turnBody, llmRecords, runStatus: runStatus ?? terminal?.status ?? null });
-}
+import { fileURLToPath } from "node:url";
+import { NativeScenarioHarness, ROOT, ensureWorkSelected, frameBody, runEvidenceMode } from "./lib/native_ui/scenario_driver.mjs";
+import { all, frameOf, frameEvent, logs, withDb } from "./lib/native_ui/scenario_evidence.mjs";
+import { readConfig } from "./lib/native_ui/authoring_capture_evidence.mjs";
+import { summarizeModelBehavior, wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
+import { publishedAuthorQuestion } from "./lib/native_ui/authoring_live_evidence.mjs";
 
 // Why/replay 只读面板：有按钮则打开并在前后记录 Provider 计数；找不到按钮/打开失败
 // 如实记录 why_not_observed，不判产品失败（判据侧 L11 记为未触发）。
-async function observeWhy() {
+async function observeWhy(harness, readProviderCounts) {
   // 真实创作 run 后 Why 按钮可能在长消息流下方（视口外）：先找可见按钮，
   // 找不到时从完整 AX 树定位 enabled 的「为什么」按钮并滚到可见位置再找。
   // 记录 scroll 尝试，便于区分「按钮不存在」与「存在但不可见」。
@@ -154,117 +98,125 @@ async function observeWhy() {
   };
 }
 
-async function run() {
-  runEvidenceMode(evidence, "prepare", dir);
-  const config = readJson(path.join(dir, "native-b71-config.json"));
-  if (config.journey !== "behavior") throw new Error(`behavior driver 只接受 journey=behavior，实测: ${config.journey}`);
-  if (config.provider !== "strata") throw new Error(`live driver 只接受 provider=strata，实测: ${config.provider}`);
 
-  const behavior = config.behavior ?? {};
-  if (!behavior.case_id) throw new Error("behavior config 缺 case 元数据");
-  const before = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
-    ok: false,
-    error: error.message,
-  }));
-  // 证据文件不得覆盖：开始只落 before 观测（不同名），卸载核验后的完整记录只在
-  // finally 写一次 strata-slot.json。
-  write(dir, "strata-slot-before.json", strataLifecycleRecord({ before, after: before, unload: null }));
-
-  let driverLog = null;
-  try {
-    await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
-    await harness.runStep("maintenance", "workbench_ready", () =>
-      harness.rawWaitWorkbenchSettled("b71-live", READY_TIMEOUT_MS),
-    );
-    await ensureWorkSelected(harness, config.target.work_title, "b71-live");
-    harness.capture("01-workbench");
-    runEvidenceMode(evidence, "capture", dir, ["start"]);
-
-    const afterLaunch = await readStrataState({ endpoint: strataEndpoint }).catch((error) => ({
-      ok: false,
-      error: error.message,
-    }));
-    const launchSlot = strataSlotCheck(afterLaunch);
-    harness.log.push({ op: "strata_after_launch", slot: launchSlot, at: harness.nowIso() });
-
-    await harness.runStep("maintenance", "input_ready", () =>
-      harness.rawWaitInputReady("b71-live", INPUT_TIMEOUT_MS),
-    );
-    const sent = await harness.runStep("input", "author_creation_request", () =>
-      harness.rawTypeAndSend(config.message, "b71-live"),
-    );
-    const turnId = String(frameBody(sent)?.turn_id ?? "");
-    if (!turnId) throw new Error("user_message_without_turn_id");
-    harness.capture("after-input");
-    const ack = await harness.runStep("ack", "user_message_ack", () =>
-      harness.pollWire((wire) => harness.ackFor(wire, sent), 25_000, "b71-live:ack"),
-    );
-    const runId = String(frameBody(ack)?.response?.run_id ?? "");
-
-    const terminal = await waitRunTerminal({ turnId, runId, topic: frameOf(sent)[2],
-      workId: frameBody(sent).work_id, sessionId: frameBody(sent).session_id, since: sent.at });
-    if (!terminal) throw new Error("live_run_terminal_missing");
-    harness.capture("final");
-    const turnBody = terminal.body ?? null;
-    const turnClassified = turnBody ? classifyTurnBody(turnBody) : null;
-
-    const why = await observeWhy();
-    const modelBehavior = await collectModelBehavior({
-      terminal,
-      turnBody,
-      runStatus: turnClassified?.run_status ?? terminal.status ?? null,
-    });
-
-    runEvidenceMode(evidence, "capture", dir, ["final"]);
-    driverLog = {
-      slice_id: config.slice_id,
-      provider: "strata",
-      behavior: {
-        case_id: behavior.case_id,
-        target_id: behavior.target_id ?? null,
-        state_id: behavior.state_id ?? null,
-        split: behavior.split ?? null,
-        expression_sha256: behavior.expression_sha256 ?? null,
-        persona_id: behavior.persona_id ?? null,
-      },
-      model: config.target?.model ?? "iq3_s",
-      turn: {
-        turn_id: turnId,
-        run_id: runId || terminal.body?.agent_run?.run_id || null,
-        terminal_kind: terminal.kind,
-        terminal_status: terminal.status ?? null,
-        terminal_source: terminal.source,
-      },
-      run: { status: turnClassified?.run_status ?? terminal.status ?? null },
-      model_behavior: modelBehavior,
-      why,
-      strata: { endpoint: strataEndpoint, after_launch: launchSlot },
-    };
-    harness.writeDriverLog("native-b71-driver-log.json", driverLog);
-    harness.writeUiComplete(config.slice_id);
-    console.log(
-      `B71 author-behavior 驱动完成: case=${behavior.case_id} turn=${turnId} run=${driverLog.turn.run_id ?? "none"} terminal=${terminal.kind}/${terminal.source} provider_calls=${modelBehavior.provider_calls} tool_calls=${modelBehavior.tool_call_count} why=${why.opened ? "opened" : "not_observed"}`,
-    );
-  } finally {
-    // 批次结束/失败/中断都必须卸载并核验 loaded=null；卸载结果覆盖 strata-slot.json。
-    const unload = await unloadStrata({ endpoint: strataEndpoint }).catch((error) => ({
-      unload: { ok: false, error: error.message },
-      state: { error: error.message },
-      slot: { ok: false, loaded: null, reason: `unload_failed:${error.message}` },
-    }));
-    write(dir, "strata-slot.json", strataLifecycleRecord({ before, after: unload.state, unload: unload.unload }));
-    if (driverLog) {
-      harness.writeDriverLog("native-b71-driver-log.json", {
-        ...driverLog,
-        strata: {
-          ...driverLog.strata,
-          unload: unload.unload,
-          after: unload.state,
-          slot_after: unload.slot,
-        },
-      });
-    }
-  }
+function hasPublishedQuestion(terminal) {
+  return terminal.results.some((record) => publishedAuthorQuestion(frameBody(record)));
 }
 
-await harness.runJourney(run);
+// hooks 只封装 checkpoint、DB 与日志/UI 读取；业务身份与停止条件由本函数统一决定。
+export async function driveBehavior(harness, config, hooks) {
+  assert.equal(config.journey, "behavior", "behavior driver 只接受 journey=behavior");
+  assert(["splash", "strata"].includes(config.provider), "behavior provider 未知");
+  assert(Array.isArray(config.steps) && config.steps.length > 0, "behavior 缺冻结 steps");
+  assert.equal(config.steps.length, config.budget?.author_sends, "steps 与冻结发送预算不符");
+  assert.equal(config.budget.manual_retries, 0, "behavior 禁止自动重试");
+  const target = config.target;
+  assert(target?.work_id && target?.session_id, "behavior 缺冻结 work/session");
+  const inputTimeout = config.budget.input_timeout_ms, turnTimeout = config.budget.turn_timeout_ms;
+  const runIds = new Set(), turnIds = new Set();
+  const result = { slice_id: config.slice_id, provider: config.provider,
+    model: config.preregistration?.model ?? config.target.model ?? null, steps: [] };
+  await harness.runStep("maintenance", "launch_app", () => harness.rawLaunchApp());
+  await harness.runStep("maintenance", "workbench_ready", () =>
+    harness.rawWaitWorkbenchSettled("b71-behavior", 180000));
+  await ensureWorkSelected(harness, target.work_title, "b71-behavior");
+  harness.capture("01-workbench");
+  await hooks.capture("start", { workId: target.work_id, sessionId: target.session_id });
+  for (const [index, step] of config.steps.entries()) {
+    await harness.runStep("maintenance", `input_ready_${index}`, () =>
+      harness.rawWaitInputReady("b71-behavior", inputTimeout));
+    await hooks.capture(`step-${index}-before`, { workId: target.work_id, sessionId: target.session_id });
+    const sent = await harness.runStep("input", `author_input_${index}`, () =>
+      harness.rawTypeAndSend(step.expression, "b71-behavior"));
+    const body = frameBody(sent), topic = frameOf(sent)?.[2];
+    assert.equal(body?.text, step.expression, "发送作者字节与冻结输入不符");
+    assert.equal(body?.work_id, target.work_id, "发送 work 与冻结目标不符");
+    assert.equal(body?.session_id, target.session_id, "发送 session 与同组会话不符");
+    const turnId = body?.turn_id;
+    assert(typeof turnId === "string" && turnId && !turnIds.has(turnId), "发送 turn 身份缺失或重复");
+    turnIds.add(turnId);
+    harness.capture(`step-${index}-input`);
+    const ack = await harness.runStep("ack", `input_ack_${index}`, () =>
+      harness.pollWire((wire) => {
+        const matches = wire.filter((record) => record.direction === "received" &&
+          frameEvent(record) === "phx_reply" && frameOf(record)?.[0] === frameOf(sent)[0] &&
+          frameOf(record)?.[1] === frameOf(sent)[1] && frameOf(record)?.[2] === topic && record.at >= sent.at);
+        assert(matches.length <= 1, "发送 ACK 多义");
+        return matches[0] ?? null;
+      }, 25000, "b71-behavior:ack"));
+    assert.equal(frameBody(ack)?.status, "ok", "作者输入 ACK 未成功");
+    assert.equal(frameBody(ack)?.response?.turn_id, turnId, "ACK turn 错绑");
+    const runId = frameBody(ack)?.response?.run_id;
+    assert(typeof runId === "string" && runId && !runIds.has(runId), "ACK run 身份缺失或重复");
+    runIds.add(runId);
+    const identity = { turnId, runId, topic, workId: body.work_id, sessionId: body.session_id,
+      since: sent.at, resultPosition: "last" };
+    const terminal = await harness.runStep("turn", `run_terminal_${index}`, () =>
+      harness.pollWire((wire) => {
+        const terminal = wireTerminal(wire, { ...identity, runRow: hooks.readRunRow(identity),
+          requireWireTerminal: true });
+        if (terminal && ["awaiting_author", "needs_confirmation"].includes(terminal.status) &&
+          !hasPublishedQuestion(terminal)) return null;
+        return terminal;
+      }, turnTimeout, "b71-behavior:terminal"));
+    harness.capture(`step-${index}-after`);
+    await hooks.capture(`step-${index}-after`, identity);
+    const turnBody = frameBody(terminal.results.at(-1)) ?? null;
+    const modelBehavior = await hooks.collectModelBehavior({ ...identity, terminal, turnBody,
+      runStatus: terminal.status, provider: config.provider });
+    const entry = { case_id: step.case_id, sequence: step.sequence ?? index,
+      turn: { turn_id: turnId, run_id: runId, topic, work_id: body.work_id, session_id: body.session_id,
+        terminal_kind: terminal.kind, terminal_status: terminal.status, terminal_source: terminal.source },
+      run: { status: terminal.status }, model_behavior: modelBehavior };
+    result.steps.push(entry);
+    Object.assign(result, { turn: entry.turn, run: entry.run });
+    harness.writeDriverLog("native-b71-driver-log.json", result);
+    if (["failed", "cancelled"].includes(terminal.status)) {
+      await hooks.capture("final", identity);
+      throw new Error(`behavior 停止: run ${runId} 实际终局 ${terminal.status}`);
+    }
+    if (terminal.status !== "completed" && index < config.steps.length - 1) {
+      result.stopped = { reason: "awaiting_unregistered_author_action", case_id: step.case_id,
+        unexecuted_case_ids: config.steps.slice(index + 1).map((next) => next.case_id) };
+      await hooks.capture("final", identity);
+      harness.writeDriverLog("native-b71-driver-log.json", result);
+      return result;
+    }
+  }
+  result.why = await hooks.observeWhy();
+  await hooks.capture("final", { workId: target.work_id, sessionId: target.session_id });
+  harness.capture("final");
+  harness.writeDriverLog("native-b71-driver-log.json", result);
+  harness.writeUiComplete(config.slice_id);
+  return result;
+}
+
+async function run(dir) {
+  const evidence = path.join(ROOT, "scripts/native_b71_evidence.mjs");
+  const harness = new NativeScenarioHarness(dir);
+  await harness.runJourney(async () => {
+    runEvidenceMode(evidence, "prepare", dir);
+    const config = readConfig(dir);
+    const readProviderCounts = () => ({
+      llm_records: logs(path.join(dir, "llm-calls")).length,
+      provider_runs: withDb(dir, (db) => Number(all(db, "SELECT COUNT(*) AS c FROM provider_runs")[0].c)),
+    });
+    await driveBehavior(harness, config, {
+      capture: (name) => runEvidenceMode(evidence, "capture", dir, [name]),
+      readRunRow: ({ turnId, runId }) => withDb(dir, (db) => all(db,
+        "SELECT id, status, parent_turn_ref, run_mode, workspace_id, work_id, session_id, goal_version " +
+        "FROM agent_runs WHERE id = ? AND parent_turn_ref = ?", [runId, turnId])[0] ?? null),
+      collectModelBehavior: ({ turnId, turnBody, runStatus }) => summarizeModelBehavior({
+        turnBody, runStatus, llmRecords: logs(path.join(dir, "llm-calls")).filter((record) =>
+          record.provider === config.provider && (record.turn_id === turnId ||
+            String(record.turn_id).startsWith(`${turnId}:agent:`))),
+      }),
+      observeWhy: () => observeWhy(harness, readProviderCounts),
+    });
+  });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  assert(process.argv[2], "usage: node scripts/native_b71_behavior_drive.mjs <batch-run-dir>");
+  await run(path.resolve(process.argv[2]));
+}

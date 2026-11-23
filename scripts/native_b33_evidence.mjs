@@ -20,6 +20,9 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
+import { closedSseData } from "./native_provider_stream_proxy.mjs";
 import {
   all,
   assertAllChecks,
@@ -29,7 +32,7 @@ import {
   checkProductionFingerprint,
   frameBody,
   productionFingerprint,
-  productionTableCounts,
+  PRODUCTION_TABLES,
   read,
   rewrite,
   sentUserMessages,
@@ -46,11 +49,11 @@ import { providerOperation, providerTurnMatchesParent, readProviderRuns } from "
 import { requestSettingsFacts } from "./lib/native_ui/request_cost_capture.mjs";
 import { NATIVE_CHAT_WIRE, requestFactsFromRecord } from "./lib/native_ui/authoring_request_facts.mjs";
 import { DEFAULT_STRATA_ENDPOINT } from "./lib/native_ui/strata_lifecycle.mjs";
-import { planningCanonSnapshot } from "./lib/native_ui/authoring_capture_evidence.mjs";
-import { compareAuthoringCanonSnapshots } from "./lib/native_ui/authoring_canon_evidence.mjs";
+import { referenceLogRows } from "./lib/native_ui/reference_log_evidence.mjs";
+import { CANON_TABLES, buildAuthoringCanonSnapshot, compareAuthoringCanonSnapshots, uuidFromHex } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import {
-  actionAck, actionFrame, actionResult, selectPendingAction,
+  actionAck, actionFrame, actionResult, actionTurnResult, canonTableSignature, selectPendingAction,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -142,46 +145,80 @@ function onlyWork(dir) {
 }
 
 // ── DB 快照：生产表计数 + 章节/角色/采纳事实（只读）─────────────────────────────
-function dbSnapshot(dir) {
+function capturedRows(db, table, rows = all(db, "SELECT * FROM " + table + " ORDER BY id")) {
+  const jsonFields = { memory_items: ["tags"], interactions: ["content"], author_action_receipts: ["result"],
+    ledger_entries: ["payload", "source_refs"] }[table] ?? [];
+  return rows.map((row) => {
+    const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [
+      key, (key === "id" || key.endsWith("_id")) && value instanceof Uint8Array && value.byteLength === 16
+        ? uuidFromHex(Buffer.from(value).toString("hex")) : value,
+    ]));
+    for (const key of jsonFields) if (typeof normalized[key] === "string") normalized[key] = JSON.parse(normalized[key]);
+    return normalized;
+  });
+}
+
+function dbSnapshot(dir, at) {
   return withDb(dir, (db) => {
-    const chapterRows = all(db, "SELECT id, seq, title, status FROM chapters ORDER BY seq");
-    const draftRows = all(
-      db,
-      "SELECT d.content, d.status, s.chapter_id FROM drafts d JOIN scenes s ON s.id = d.scene_id",
-    );
-    const chapterContent = {};
-    for (const row of draftRows) {
-      if (String(row.status) !== "ACCEPTED") continue;
-      const key = String(row.chapter_id ?? "none");
-      chapterContent[key] = `${chapterContent[key] ?? ""}${String(row.content ?? "")}`;
+    db.exec("BEGIN");
+    try {
+      const tables = Object.fromEntries(CANON_TABLES.map((table) =>
+        [table, all(db, "SELECT * FROM " + table + " ORDER BY id")]));
+      const chapterRows = all(db, "SELECT id, work_id, seq, title, status FROM chapters ORDER BY seq");
+      const draftRows = all(
+        db,
+        "SELECT d.content, d.status, s.chapter_id FROM drafts d JOIN scenes s ON s.id = d.scene_id",
+      );
+      const chapterContent = {};
+      for (const row of draftRows) {
+        if (String(row.status) !== "ACCEPTED") continue;
+        const key = String(row.chapter_id ?? "none");
+        chapterContent[key] = `${chapterContent[key] ?? ""}${String(row.content ?? "")}`;
+      }
+      const characterRows = all(db, "SELECT id, name, narrative_role FROM characters ORDER BY name");
+      return {
+        db_production_counts: Object.fromEntries(PRODUCTION_TABLES.map((table) => [
+          table, Number(all(db, "SELECT COUNT(*) AS n FROM " + table)[0].n),
+        ])),
+        authoring_canon: buildAuthoringCanonSnapshot({
+          tables, referenceLogs: referenceLogRows(db), at, includeChapterFacts: false,
+        }),
+        extra_counts: {
+          drafts: Number(all(db, "SELECT COUNT(*) AS n FROM drafts")[0].n),
+          versions: Number(all(db, "SELECT COUNT(*) AS n FROM versions")[0].n),
+          author_action_receipts: Number(all(db, "SELECT COUNT(*) AS n FROM author_action_receipts")[0].n),
+          chapter_summaries: Number(all(db, "SELECT COUNT(*) AS n FROM chapter_summaries")[0].n),
+        },
+        chapters: chapterRows.map((row) => ({
+          chapter_id: String(row.id),
+          work_id: row.work_id instanceof Uint8Array ? uuidFromHex(Buffer.from(row.work_id).toString("hex")) : String(row.work_id),
+          seq: Number(row.seq),
+          title: String(row.title),
+          status: String(row.status),
+        })),
+        chapter_content_sha: Object.fromEntries(
+          Object.entries(chapterContent).map(([chapterId, content]) => [
+            chapterId,
+            sha256Hex(content),
+          ]),
+        ),
+        action_receipts: capturedRows(db, "author_action_receipts", tables.author_action_receipts),
+        scope_rows: {
+          ...Object.fromEntries(["drafts", "scenes", "memory_items", "mutations", "versions", "chapter_summaries", "ledger_entries"]
+            .map((table) => [table, capturedRows(db, table, tables[table])])),
+          interactions: capturedRows(db, "interactions").filter((row) => row.role === "assistant" &&
+            (row.content?.turn_result?.adoption_state?.pending?.length > 0 ||
+              row.content?.turn_result?.adoption_state?.resolved?.length > 0)),
+        },
+        characters: characterRows.map((row) => ({
+          character_id: String(row.id),
+          name: String(row.name),
+          narrative_role: String(row.narrative_role),
+        })),
+      };
+    } finally {
+      db.exec("ROLLBACK");
     }
-    const characterRows = all(db, "SELECT id, name, narrative_role FROM characters ORDER BY name");
-    return {
-      db_production_counts: productionTableCounts(dir),
-      extra_counts: {
-        drafts: Number(all(db, "SELECT COUNT(*) AS n FROM drafts")[0].n),
-        versions: Number(all(db, "SELECT COUNT(*) AS n FROM versions")[0].n),
-        author_action_receipts: Number(all(db, "SELECT COUNT(*) AS n FROM author_action_receipts")[0].n),
-        chapter_summaries: Number(all(db, "SELECT COUNT(*) AS n FROM chapter_summaries")[0].n),
-      },
-      chapters: chapterRows.map((row) => ({
-        chapter_id: String(row.id),
-        seq: Number(row.seq),
-        title: String(row.title),
-        status: String(row.status),
-      })),
-      chapter_content_sha: Object.fromEntries(
-        Object.entries(chapterContent).map(([chapterId, content]) => [
-          chapterId,
-          sha256Hex(content),
-        ]),
-      ),
-      characters: characterRows.map((row) => ({
-        character_id: String(row.id),
-        name: String(row.name),
-        narrative_role: String(row.narrative_role),
-      })),
-    };
   });
 }
 
@@ -189,6 +226,63 @@ function sha256Hex(text) {
   return execFileSync("shasum", ["-a", "256"], { input: String(text ?? "") })
     .toString()
     .split(/\s+/)[0];
+}
+
+function regularEvidencePath(value, kind) {
+  assert(nonEmpty(value) && path.isAbsolute(value), "B33 evidence path must be explicit and absolute");
+  const stat = fs.lstatSync(value);
+  assert(!stat.isSymbolicLink() && (kind === "directory" ? stat.isDirectory() : stat.isFile()),
+    "B33 evidence must remain at its original regular path");
+  assert.equal(fs.realpathSync(value), path.resolve(value), "B33 evidence path changed identity");
+  return value;
+}
+
+function checkedPreregistration(file, dir, { provider, model, scenarios }) {
+  regularEvidencePath(file, "file");
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(record.provider, provider, "B33 preregistration provider mismatch");
+  assert.equal(record.runtime?.provider, provider, "B33 preregistration runtime provider mismatch");
+  assert.equal(record.runtime?.model, model, "B33 preregistration model mismatch");
+  assert.equal(path.resolve(ROOT, record.artifact_dir ?? ""), path.resolve(dir), "B33 preregistration output mismatch");
+  assert(Array.isArray(record.scenarios) && record.scenarios.length === scenarios.length, "B33 preregistration scenarios missing");
+  for (const [index, scenario] of scenarios.entries()) {
+    const frozen = record.scenarios[index];
+    for (const [key, value] of Object.entries(scenario)) assert.deepEqual(frozen[key], value, "B33 frozen scenario mismatch");
+    assert.equal(frozen.input_sha256, sha256Hex(scenario.input), "B33 frozen input hash mismatch");
+  }
+  for (const [key, value] of Object.entries(B33_BUDGET)) assert.equal(record.budget?.[key], value, "B33 frozen budget mismatch");
+  assert.equal(record.budget?.max_manual_retries, 0, "B33 manual retries are not authorized");
+  const limit = record.budget?.max_upstream_requests;
+  assert(Number.isSafeInteger(limit) && limit > 0, "B33 requires a frozen positive HTTP budget");
+  assert(nonEmpty(record.proxy_dir), "B33 preregistration proxy_dir missing");
+  const proxyDir = regularEvidencePath(path.resolve(ROOT, record.proxy_dir), "directory");
+  const readyFile = regularEvidencePath(path.join(proxyDir, "provider-stream-ready.json"), "file");
+  const observed = JSON.parse(fs.readFileSync(readyFile, "utf8"));
+  assert.equal(observed.mode, "observe", "B33 requires the registered observation proxy");
+  assert.equal(observed.max_upstream_requests, limit, "B33 proxy HTTP budget mismatch");
+  assert.equal(observed.upstream_endpoint, record.upstream_endpoint, "B33 proxy upstream mismatch");
+  assert(Number.isSafeInteger(observed.pid) && observed.pid > 0, "B33 proxy PID missing");
+  return { path: file, sha256: shaFile(file), proxy_dir: proxyDir, max_upstream_requests: limit,
+    ready_sha256: shaFile(readyFile) };
+}
+
+export function readB33ProviderObservation(dir, config) {
+  const marker = config.preregistration;
+  assert(marker, "B33 frozen preregistration marker missing");
+  assert.deepEqual(checkedPreregistration(marker.path, dir, config), marker, "B33 preregistration or observation changed");
+  const directory = marker.proxy_dir;
+  const eventsFile = regularEvidencePath(path.join(directory, "provider-stream.jsonl"), "file");
+  const text = fs.readFileSync(eventsFile, "utf8");
+  assert(text.endsWith("\n"), "B33 observation event file is not sealed");
+  const rawDir = regularEvidencePath(path.join(directory, "provider-stream-requests"), "directory");
+  return {
+    directory, ready: read(directory, "provider-stream-ready.json"),
+    events: text.trim().split("\n").map((line) => JSON.parse(line)),
+    readBytes(name) {
+      assert(/^request-[1-9][0-9]*(?:\.(?:received|delivered))?\.bin$/u.test(name), "B33 unsafe original byte filename");
+      return fs.readFileSync(regularEvidencePath(path.join(rawDir, name), "file"));
+    },
+  };
 }
 
 // ── prepare / capture ──────────────────────────────────────────────────────
@@ -215,6 +309,12 @@ export async function prepare(dir, { env = process.env } = {}) {
   const scenarios = requested.length > 0 ? SCENARIOS.filter((scenario) => requested.includes(scenario.id)) : SCENARIOS;
   assert(scenarios.length > 0, `B33_SCENARIOS 过滤后没有场景: ${process.env.B33_SCENARIOS}`);
 
+  const preregistration = checkedPreregistration(env.B33_NATIVE_PREREGISTRATION, dir, {
+    provider: ready.provider, model, scenarios,
+  });
+  const proxyReady = read(preregistration.proxy_dir, "provider-stream-ready.json");
+  assert.equal(proxyReady.endpoint, endpoint, "B33 runtime endpoint differs from frozen observation");
+
   const seedWorkId = seedField(dir, "work_id");
   const target = seedWorkId
     ? {
@@ -233,13 +333,15 @@ export async function prepare(dir, { env = process.env } = {}) {
     endpoint,
     runtime,
     budget: B33_BUDGET,
+    preregistration,
     run_ref: ready.run_ref,
     ready_at: ready.ready_at,
     target,
     requested_by_env: requested,
     scenarios,
     full_matrix: scenarios.length === SCENARIOS.length,
-    checkpoints: ["start", ...scenarios.map((scenario) => scenario.id), "final"],
+    checkpoints: ["start", ...scenarios.flatMap((scenario) =>
+      scenario.adopt ? [scenario.id + "-before-adoption", scenario.id] : [scenario.id]), "final"],
   });
   console.log(
     `B33 CP3 证据准备完成: work=${target.work_id} title=${target.work_title} ` +
@@ -250,11 +352,11 @@ export async function prepare(dir, { env = process.env } = {}) {
 export function capture(dir, checkpoint) {
   const config = read(dir, CONFIG_FILE);
   assert(config.checkpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
+  const at = new Date().toISOString();
   write(dir, `b33-${checkpoint}.json`, {
-    at: new Date().toISOString(),
+    at,
     checkpoint,
-    ...dbSnapshot(dir),
-    authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts: false }),
+    ...dbSnapshot(dir, at),
   });
 }
 
@@ -263,6 +365,296 @@ export function capture(dir, checkpoint) {
 
 function pendingOf(turnResult) {
   return turnResult?.adoption_state?.pending ?? [];
+}
+
+export function selectB33PendingArtifact(turnResult, { wire, identity, scenario, start } = {}) {
+  const reject = (reason) => ({ unique: false, artifact: undefined, reason });
+  if (!identity || !Array.isArray(wire) || ![identity.runId, identity.turnId,
+    identity.workspaceId, identity.workId, identity.sessionId, identity.since].every(nonEmpty) ||
+    identity.topic !== "workspace:" + identity.workspaceId) return reject("identity_missing");
+  // 离线 verify 也使用点击前的真实 run 终态；动作增量不能替换原候选清单。
+  const actionIndex = wire.findIndex((record) => record.direction === "sent" &&
+    record.frame?.[2] === identity.topic && record.frame?.[3] === "author_action" &&
+    frameBody(record)?.action?.source_turn_ref === turnResult?.turn_id);
+  const beforeAction = actionIndex < 0 ? wire : wire.slice(0, actionIndex);
+  const terminal = wireTerminal(beforeAction, { ...identity, resultPosition: "last", requireWireTerminal: true });
+  const sameScope = (body) => body?.workspace_id === identity.workspaceId &&
+    body?.work_id === identity.workId && body?.session_id === identity.sessionId;
+  const states = beforeAction.filter((record) => record.direction === "received" &&
+    record.frame?.[2] === identity.topic && record.frame?.[3] === "agent_run_state" &&
+    record.at >= identity.since && sameScope(frameBody(record)) &&
+    frameBody(record)?.run_id === identity.runId && frameBody(record)?.parent_turn_ref === identity.turnId);
+  const state = frameBody(states.at(-1));
+  if (terminal?.kind !== "completed" || state?.status !== "completed" ||
+    !sameScope(turnResult) || !sameCounts(terminal.body, turnResult) ||
+    turnResult.status === "failed" || turnResult.author_question != null) return reject("run_not_bound");
+  const pending = turnResult.adoption_state?.pending;
+  const refs = state.pending_artifact_refs;
+  if (!Array.isArray(pending) || !Array.isArray(refs) ||
+    refs.length !== pending.length || new Set(refs).size !== refs.length ||
+    new Set(pending.map((entry) => entry?.artifact_id)).size !== pending.length ||
+    !pending.every((entry) => nonEmpty(entry?.artifact_id) && refs.includes(entry.artifact_id) &&
+      entry.adoption_status === "TENTATIVE" && entry.requires_adoption === true &&
+      Array.isArray(entry.payload?.items) && entry.payload.items.length > 0)) return reject("pending_refs_mismatch");
+  if (scenario?.id === "S5") {
+    const artifact = pending[0];
+    return pending.length === 1 && artifact?.artifact_type === "chapter_structure_change_plan"
+      ? { unique: true, artifact, pending, terminal } : reject("structure_target_not_unique");
+  }
+  if (scenario?.id !== "S4") return reject("scenario_not_adoptable");
+  const chapters = (start?.chapters ?? []).filter((row) => row.seq === 7 && nonEmpty(row.chapter_id));
+  if (chapters.length !== 1) return reject("frozen_chapter_missing");
+  const chapterRef = "chapter:" + chapters[0].chapter_id;
+  const prose = pending.filter((entry) => entry.artifact_type === "prose_fragment");
+  const companionTypes = new Set(["character_seed", "foreshadowing_seed", "world_rule_seed", "constraint_seed"]);
+  if (prose.length !== 1 || prose[0].target_chapter_ref !== chapterRef ||
+    !nonEmpty(prose[0].source_tool_result_ref) ||
+    pending.some((entry) => entry !== prose[0] &&
+      (!companionTypes.has(entry.artifact_type) ||
+        entry.source_tool_result_ref !== prose[0].source_tool_result_ref))) return reject("prose_target_not_unique");
+  return { unique: true, artifact: prose[0], pending, chapterRef, terminal };
+}
+
+function requiredRows(snapshot, table) {
+  const rows = table === "action_receipts" ? snapshot?.action_receipts : snapshot?.scope_rows?.[table];
+  assert(Array.isArray(rows), "B33 采纳缺真实 " + table + " 行快照");
+  assert(rows.every((row) => nonEmpty(row?.id)) && new Set(rows.map((row) => row.id)).size === rows.length,
+    "B33 采纳行身份必须唯一: " + table);
+  return rows;
+}
+
+function rowDelta(before, after, table) {
+  const oldRows = requiredRows(before, table);
+  const newRows = requiredRows(after, table);
+  return { oldRows, newRows, added: newRows.filter((row) => !oldRows.some((old) => old.id === row.id)) };
+}
+
+function rowsPreserved(oldRows, newRows) {
+  return oldRows.every((old) => newRows.some((row) => row.id === old.id && isDeepStrictEqual(old, row)));
+}
+
+function persistedAdoptionChecks({ before, after, identity, turnResult, actionResult, artifact, receipt, action }) {
+  const receipts = rowDelta(before, after, "action_receipts");
+  const stored = receipts.added.length === 1 ? receipts.added[0] : null;
+  const inScope = (row) => row.role === "assistant" && row.workspace_id === identity.workspaceId &&
+    row.session_id === identity.sessionId;
+  const sourceRows = (snapshot) => requiredRows(snapshot, "interactions").filter((row) =>
+    inScope(row) && row.turn_id === turnResult.turn_id);
+  const beforeSource = sourceRows(before);
+  const afterSource = sourceRows(after);
+  // Scope 在 WS 外壳及 interaction 行上；MemoryLog 中的原 TurnResult 不带这三个传输字段。
+  const persistedBody = (body) => Object.fromEntries(Object.entries(body ?? {})
+    .filter(([key]) => !["workspace_id", "work_id", "session_id"].includes(key)));
+  const storedMatches = (row, body) => {
+    const storedBody = row.content?.turn_result;
+    return [["workspace_id", identity.workspaceId], ["work_id", identity.workId], ["session_id", identity.sessionId]]
+      .every(([key, value]) => storedBody?.[key] === undefined || storedBody[key] === value) &&
+      isDeepStrictEqual(persistedBody(storedBody), persistedBody(body));
+  };
+  const sourceMatches = (rows) => rows.length === 1 && storedMatches(rows[0], turnResult);
+  const interactions = requiredRows(after, "interactions").filter(inScope);
+  const appliedRows = interactions.filter((row) => row.turn_id === actionResult.turn_id);
+  const resolved = interactions.flatMap((row) => row.content?.turn_result?.adoption_state?.resolved ?? []);
+  const companions = pendingOf(turnResult).filter((entry) => entry.artifact_id !== artifact.artifact_id);
+  const mutations = requiredRows(after, "mutations");
+  return {
+    adoption_receipt_persisted: Boolean(stored && stored.work_id === identity.workId &&
+      stored.session_id === identity.sessionId && stored.source_turn_ref === action.source_turn_ref &&
+      stored.action_id === action.action_id && stored.action_type === action.action_type &&
+      stored.idempotency_key === action.idempotency_key && stored.status === "accepted"),
+    persisted_receipt_result_matches_wire: Boolean(stored?.result?.decision === "ACCEPTED" &&
+      stored.result.decided_by === "author" && Object.entries(receipt).filter(([key]) => key !== "decision")
+        .every(([key, value]) => Object.hasOwn(stored.result, key) && isDeepStrictEqual(stored.result[key], value))),
+    existing_receipts_preserved: receipts.newRows.length === receipts.oldRows.length + 1 &&
+      rowsPreserved(receipts.oldRows, receipts.newRows),
+    source_candidates_persisted: sourceMatches(beforeSource) && sourceMatches(afterSource),
+    action_result_persisted: appliedRows.length === 1 &&
+      storedMatches(appliedRows[0], actionResult) &&
+      !requiredRows(before, "interactions").some((row) => row.id === appliedRows[0].id),
+    companions_remain_unadopted: companions.every((entry) =>
+      afterSource.length === 1 && pendingOf(afterSource[0].content?.turn_result)
+        .filter((candidate) => candidate.artifact_id === entry.artifact_id)
+        .some((candidate) => isDeepStrictEqual(candidate, entry)) &&
+      !resolved.some((candidate) => candidate?.artifact_id === entry.artifact_id) &&
+      !receipts.newRows.some((row) => row.result?.artifact_id === entry.artifact_id) &&
+      !mutations.some((row) => row.target_object_ref === entry.artifact_id ||
+        row.proposed_change_ref === entry.artifact_id)),
+  };
+}
+
+function ledgerSnapshotRows(snapshot) {
+  const rows = requiredRows(snapshot, "ledger_entries");
+  const canon = snapshot.authoring_canon?.tables?.ledger_entries;
+  assert(canon?.row_count === rows.length && /^[a-f0-9]{64}$/u.test(canon.rows_sha256) &&
+    canon.rows_sha256 === canon.canon_sha256, "B33 ledger rows and canonical capture disagree");
+  assert(rows.every((row) => [row.work_id, row.ledger, row.subject_ref].every(nonEmpty)) &&
+    new Set(rows.map((row) => JSON.stringify([row.work_id, row.ledger, row.subject_ref]))).size === rows.length,
+    "B33 ledger natural identity is missing or duplicated");
+  return rows;
+}
+
+function proseLedgerScopeBound({ before, after, identity, receipt, sourceTurnId, since, appRecords }) {
+  try {
+    const oldSignature = canonTableSignature(before.authoring_canon, "ledger_entries");
+    const newSignature = canonTableSignature(after.authoring_canon, "ledger_entries");
+    // Old pure adoption fixtures can prove no change by their existing complete canonical hashes.
+    // Actual verify separately requires the current capture's original rows at every checkpoint.
+    if (!Object.hasOwn(before.scope_rows, "ledger_entries") && !Object.hasOwn(after.scope_rows, "ledger_entries")) {
+      return oldSignature !== null && oldSignature === newSignature;
+    }
+    const oldRows = ledgerSnapshotRows(before), newRows = ledgerSnapshotRows(after);
+    const unchanged = oldRows.length === newRows.length && rowsPreserved(oldRows, newRows);
+    assert(unchanged === (oldSignature === newSignature), "B33 ledger canonical/raw change disagreement");
+    if (unchanged) return true;
+    const projection = receipt.persistence?.reading_projection;
+    const chapterId = projection?.chapter_id;
+    const summaryRef = "chapter_summary:" + chapterId + "@" + projection?.source_revision_ref;
+    const oldSummaries = requiredRows(before, "chapter_summaries");
+    const summaries = requiredRows(after, "chapter_summaries").filter((row) =>
+      row.work_id === identity.workId && row.chapter_id === chapterId && row.status === "ACCEPTED");
+    assert(summaries.length === 1 && !oldSummaries.some((row) => row.id === summaries[0].id) &&
+      summaries[0].source_ref === sourceTurnId && summaries[0].revision_base === projection.source_revision_ref &&
+      nonEmpty(summaries[0].summary_text), "B33 ledger has no same-adoption accepted summary");
+    const terminal = adoptionMaintenanceOutcome(appRecords, {
+      workId: identity.workId, chapterId, since, until: after.at,
+    });
+    assert(terminal?.summary.event.endsWith(".done") && terminal.summary.status === "ACCEPTED" &&
+      terminal.summary.four_column === true && terminal.ledger.event.endsWith(".done"),
+      "B33 ledger changes lack completed background maintenance");
+    const from = Date.parse(terminal.summary.timestamp), to = Date.parse(terminal.ledger.timestamp);
+    const mutable = new Set(["subject_kind", "subject_label", "design_ref", "status", "payload",
+      "source_refs", "last_event_chapter", "adoption_status", "revision", "updated_at"]);
+    const fixed = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => !mutable.has(key)));
+    assert(oldRows.every((row) => newRows.some((next) => next.id === row.id)), "B33 ledger deleted an existing row");
+    for (const row of newRows) {
+      const previous = oldRows.find((old) => old.id === row.id);
+      if (previous && isDeepStrictEqual(previous, row)) continue;
+      assert(row.work_id === identity.workId, "B33 ledger changed another work");
+      if (previous) assert(isDeepStrictEqual(fixed(previous), fixed(row)), "B33 ledger replaced a fixed identity");
+      const genre = row.ledger === "promise" && row.subject_kind === "promise" && row.subject_ref === "genre";
+      assert(genre || ["arc", "conflict", "emotion_curve"].includes(row.ledger), "B33 ledger kind is outside this maintenance");
+      if (row.ledger === "emotion_curve") assert(row.subject_kind === "chapter" &&
+        row.subject_ref === chapterId && row.last_event_chapter === chapterId, "B33 emotion target differs from the adoption");
+      if (genre) assert(row.last_event_chapter === null, "B33 work-level genre is not a chapter event");
+      const allowedRef = genre ? "work_profile:" + identity.workId : summaryRef;
+      assert(Array.isArray(row.source_refs) && row.source_refs.length > 0 &&
+        row.source_refs.every((ref) => nonEmpty(ref) && (ref === allowedRef || previous?.source_refs?.includes(ref))),
+        "B33 ledger introduced an unbound source");
+      assert(row.payload && typeof row.payload === "object" && !Array.isArray(row.payload) &&
+        nonEmpty(row.subject_kind) && nonEmpty(row.subject_label) && nonEmpty(row.status) &&
+        row.adoption_status === "ACCEPTED" && Number.isSafeInteger(row.revision) && row.revision >= 1 &&
+        (!previous || row.revision > previous.revision), "B33 ledger state is not a completed schema update");
+      assert(Date.parse(row.updated_at) >= from && Date.parse(row.updated_at) <= to &&
+        (previous || (Date.parse(row.inserted_at) >= from && Date.parse(row.inserted_at) <= Date.parse(row.updated_at))),
+        "B33 ledger row is outside the actual maintenance window");
+    }
+    return true;
+  } catch { return false; }
+}
+
+function prosePersistenceChecks({ before, after, identity, artifact, receipt, sourceTurnId, since, appRecords }) {
+  const changes = Object.fromEntries(["drafts", "scenes", "memory_items", "mutations"].map((table) =>
+    [table, rowDelta(before, after, table)]));
+  const single = (table) => changes[table].added.length === 1 ? changes[table].added[0] : null;
+  const draft = single("drafts");
+  const scene = single("scenes");
+  const memory = single("memory_items");
+  const mutation = single("mutations");
+  const persistence = receipt.persistence;
+  const projection = persistence?.reading_projection;
+  const chapterId = artifact.target_chapter_ref?.replace(/^chapter:/u, "");
+  const items = artifact.payload?.items;
+  const body = Array.isArray(items) && items.length > 0 && items.every((item) => typeof item.body === "string")
+    ? items.map((item) => item.body).join("\n\n") : null;
+  const otherTables = ["works", "volumes", "characters"];
+  const otherChapters = (snapshot) => Object.fromEntries(Object.entries(snapshot.chapters)
+    .filter(([id]) => id !== chapterId));
+  return {
+    prose_effect_append: artifact.payload?.adoption_effect?.mode === "append" &&
+      receipt.adoption_effect?.mode === "append",
+    prose_projection_bound: Boolean(persistence?.persisted === true && projection &&
+      projection.chapter_id === chapterId && draft && scene && draft.scene_id === scene.id &&
+      scene.id === projection.scene_id && scene.chapter_id === chapterId && draft.id === projection.draft_id &&
+      draft.work_id === identity.workId && draft.status === "ACCEPTED" && body !== null && draft.content === body &&
+      projection.source_revision_ref === "draft:" + draft.id + ":" + draft.revision),
+    prose_memory_bound: Boolean(memory && mutation && memory.id === persistence?.memory_item_id &&
+      persistence.memory_status === "CONFIRMED" && memory.work_id === identity.workId &&
+      memory.source_id === mutation.id && memory.source_type === "AUTHOR_CONFIRMED" &&
+      memory.type === "DRAFT_CONTEXT" && memory.status === "CONFIRMED" && memory.content === body &&
+      Array.isArray(memory.tags) && memory.tags.includes("adopted_artifact") && memory.tags.includes("prose_fragment")),
+    prose_mutation_bound: Boolean(mutation && mutation.id === persistence?.mutation_id &&
+      persistence.mutation_status === "APPLIED" && projection?.mutation_id === mutation.id &&
+      persistence.source_revision_ref === "mutation:" + mutation.id &&
+      mutation.actor_ref === "author" && mutation.source_turn_ref === sourceTurnId &&
+      mutation.target_scope === "work:" + identity.workId && mutation.target_object_ref === artifact.artifact_id &&
+      mutation.proposed_change_ref === artifact.artifact_id && mutation.mutation_type === "adopt_artifact" &&
+      mutation.status === "APPLIED" && mutation.authority_scope === "author_confirmed_adoption" &&
+      (mutation.requires_adoption === false || mutation.requires_adoption === 0)),
+    previous_prose_rows_preserved: ["drafts", "scenes", "mutations"].every((table) =>
+      rowsPreserved(changes[table].oldRows, changes[table].newRows)),
+    previous_memory_rows_preserved: rowsPreserved(changes.memory_items.oldRows, changes.memory_items.newRows),
+    prose_ledger_changes_accounted: proseLedgerScopeBound({ before, after, identity, receipt, sourceTurnId, since, appRecords }),
+    non_prose_canon_unchanged: otherTables.every((table) =>
+      canonTableSignature(before.authoring_canon, table) !== null &&
+      canonTableSignature(before.authoring_canon, table) === canonTableSignature(after.authoring_canon, table)) &&
+      isDeepStrictEqual(otherChapters(before.authoring_canon), otherChapters(after.authoring_canon)),
+    prose_canon_counts_match: ["drafts", "scenes", "memory_items", "author_action_receipts"].every((table) =>
+      after.authoring_canon.tables[table].row_count === before.authoring_canon.tables[table].row_count + 1),
+    // 正文记忆来自本次作者确认；后台摘要/账面维护另由真实调用与来源证据核验。
+    memory_reference_updates_accounted: Boolean(memory && memory.reference_count === 0 &&
+      memory.last_referenced_at === null && rowsPreserved(changes.memory_items.oldRows, changes.memory_items.newRows) &&
+      Array.isArray(before.authoring_canon.memory_reference_logs) &&
+      Array.isArray(after.authoring_canon.memory_reference_logs) &&
+      isDeepStrictEqual(before.authoring_canon.memory_reference_logs, after.authoring_canon.memory_reference_logs)),
+  };
+}
+
+export function adoptionEvidenceChecks({
+  unique, artifact, turnResult, identity, terminal, driverEntry, wire, before, after, appRecords = [],
+}) {
+  const checks = { adoption_receipt_accepted: false, adoption_log_matches_wire: false };
+  if (!unique || !identity || terminal?.kind !== "completed") return checks;
+  const artifactId = artifact.artifact_id;
+  const action = selectPendingAction(turnResult, { artifactId, actionType: "accept" });
+  const sent = actionFrame(wire, { topic: identity.topic, since: terminal.record.at, action });
+  const ack = actionAck(wire, sent, { actionStatus: "accepted" });
+  const receipt = frameBody(actionResult(wire, {
+    topic: identity.topic, since: sent.at, action, actionStatus: "accepted",
+  }));
+  const adopted = frameBody(actionTurnResult(wire, {
+    topic: identity.topic, since: sent.at, parentTurnRef: turnResult.turn_id,
+  }));
+  const actions = wire.filter((record) => record.direction === "sent" &&
+    record.frame?.[2] === identity.topic && record.frame?.[3] === "author_action" &&
+    record.at >= terminal.record.at && frameBody(record)?.action?.source_turn_ref === turnResult.turn_id);
+  const resolved = adopted?.adoption_state?.resolved;
+  checks.adoption_receipt_accepted = receipt?.status === "accepted";
+  checks.adoption_log_matches_wire = driverEntry.adoption?.artifact_id === artifactId &&
+    sameCounts(driverEntry.adoption?.send, frameBody(sent)) &&
+    sameCounts(driverEntry.adoption?.ack, frameBody(ack.reply)) &&
+    sameCounts(driverEntry.adoption?.receipt, receipt);
+  checks.only_selected_author_action = actions.length === 1 && actions[0] === sent;
+  checks.receipt_targets_selected = receipt.artifact_type === artifact.artifact_type &&
+    receipt.decision?.candidate_ref === artifactId;
+  checks.adoption_delta_only_selected = adopted?.phase === "completed" && adopted.status !== "failed" &&
+    adopted.workspace_id === identity.workspaceId &&
+    adopted?.work_id === identity.workId && adopted?.session_id === identity.sessionId &&
+    Array.isArray(adopted?.adoption_state?.pending) && adopted.adoption_state.pending.length === 0 &&
+    Array.isArray(resolved) && resolved.length === 1 && resolved[0].artifact_id === artifactId &&
+    resolved[0].artifact_type === artifact.artifact_type && resolved[0].adoption_status === "ACCEPTED" &&
+    resolved[0].requires_adoption === false && resolved[0].source_artifact_ref === artifactId &&
+    isDeepStrictEqual(resolved[0].payload, artifact.payload) &&
+    (artifact.artifact_type !== "prose_fragment" || resolved[0].mutation_ref === receipt.persistence?.mutation_id);
+  checks.adoption_checkpoint_order = before?.authoring_canon?.at >= terminal.record.at &&
+    before.authoring_canon.at <= driverEntry.adoption?.clicked_at && driverEntry.adoption.clicked_at <= sent.at &&
+    after?.authoring_canon?.at >= sent.at;
+  Object.assign(checks, persistedAdoptionChecks({
+    before, after, identity, turnResult, actionResult: adopted, artifact, receipt, action,
+  }));
+  if (artifact.artifact_type === "prose_fragment") Object.assign(checks, prosePersistenceChecks({
+    before, after, identity, artifact, receipt, sourceTurnId: action.source_turn_ref, since: sent.at, appRecords,
+  }));
+  return checks;
 }
 
 function sameCounts(left, right) {
@@ -284,9 +676,323 @@ export function discussionEvidenceChecks({ before, after, turnResult, judgment, 
   };
 }
 
+const providerBytesSha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+function observedProviderResponses(config, stream, records) {
+  const marker = config.preregistration;
+  assert(marker && stream?.directory === marker.proxy_dir, "B33 observation directory is not frozen");
+  const limit = marker.max_upstream_requests;
+  assert(Number.isSafeInteger(limit) && limit > 0, "B33 observation budget missing");
+  assert(stream.ready?.mode === "observe" && stream.ready.endpoint === config.endpoint &&
+    stream.ready.max_upstream_requests === limit, "B33 observation runtime mismatch");
+  const events = stream.events;
+  assert(Array.isArray(events) && events.every((event, index) => event.sequence === index + 1 &&
+    event.max_upstream_requests === limit && event.budget_requests_rejected === 0 &&
+    Number.isSafeInteger(event.upstream_requests_admitted) && event.upstream_requests_admitted >= 0 &&
+    event.upstream_requests_admitted <= limit),
+  "B33 observation sequence or budget mismatch");
+  const registrations = events.filter((event) => event.event === "request_registered");
+  assert(registrations.length > 0 && registrations.length <= limit, "B33 HTTP budget exceeded");
+  assert(new Set(registrations.map((event) => event.request_id)).size === registrations.length,
+    "B33 duplicate HTTP request identity");
+  const responses = new Map();
+  const observed = [];
+  const once = (rows, name) => {
+    const found = rows.filter((event) => event.event === name);
+    assert.equal(found.length, 1, "B33 missing or duplicate " + name);
+    return found[0];
+  };
+  for (const registration of registrations) {
+    const id = registration.request_id;
+    assert(/^request-[1-9][0-9]*$/u.test(id) && ["POST", "GET"].includes(registration.method), "B33 unknown HTTP request");
+    const rows = events.filter((event) => event.request_id === id);
+    const forwarded = once(rows, "upstream_request_forwarded");
+    const headers = once(rows, "response_headers");
+    const ended = once(rows, "upstream_end");
+    const closed = once(rows, "transparent_complete");
+    assert(rows.filter((event) => ["transparent_complete", "request_closed"].includes(event.event)).length === 1 &&
+      forwarded.upstream_admitted === true && forwarded.forwarded === true && closed.response_complete === true &&
+      registration.sequence < forwarded.sequence && forwarded.sequence < headers.sequence &&
+      headers.sequence < ended.sequence && ended.sequence < closed.sequence, "B33 HTTP request did not close completely");
+    const request = stream.readBytes(id + ".bin");
+    const received = stream.readBytes(id + ".received.bin");
+    const delivered = stream.readBytes(id + ".delivered.bin");
+    assert([request, received, delivered].every(Buffer.isBuffer), "B33 original bytes missing");
+    assert.equal(providerBytesSha(request), registration.request_sha256, "B33 original request seal mismatch");
+    assert(received.equals(delivered) && received.length === closed.received_bytes &&
+      delivered.length === closed.delivered_bytes && providerBytesSha(received) === closed.received_sha256 &&
+      providerBytesSha(delivered) === closed.delivered_sha256, "B33 original response seal mismatch");
+    const status = headers.response_status;
+    assert(Number.isInteger(status) && status >= 100 && status <= 599, "B33 response status missing");
+    const fact = { request_id: id, method: registration.method, response_status: status,
+      requested_at: registration.at, completed_at: closed.at,
+      request_sha256: registration.request_sha256, response_sha256: closed.received_sha256 };
+    if (registration.method === "POST") {
+      assert.equal(registration.path, new URL(config.endpoint).pathname.replace(/\/+$/u, "") + "/chat/completions",
+        "B33 unregistered POST operation");
+      const body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(request));
+      const matching = records.filter((record) => isDeepStrictEqual(record.request?.body, body) &&
+        record.request?.method === "POST" && record.request?.url === config.endpoint.replace(/\/+$/u, "") + "/chat/completions");
+      assert.equal(matching.length, 1, "B33 raw request does not bind one log record");
+      const record = matching[0];
+      assert(!responses.has(record) && record.response?.status === status, "B33 response identity/status mismatch");
+      Object.assign(fact, { provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref });
+      let text = "", finish = null, hasTools = false, failed = status < 200 || status >= 300;
+      if (!failed) {
+        assert(String(headers.content_type).toLowerCase().includes("text/event-stream") &&
+          headers.response_encoding === "identity", "B33 successful model response is not raw SSE");
+        const data = closedSseData(received);
+        assert(data.at(-1) === "[DONE]" && data.filter((value) => value === "[DONE]").length === 1, "B33 SSE terminal missing");
+        for (const value of data.slice(0, -1)) {
+          const part = JSON.parse(value);
+          assert(part && typeof part === "object" && !Array.isArray(part), "B33 SSE object missing");
+          if (part.error) {
+            assert(finish === null, "B33 SSE error followed a terminal choice");
+            failed = true;
+            continue;
+          }
+          assert(Array.isArray(part.choices) && part.choices.length <= 1, "B33 SSE choices missing or ambiguous");
+          for (const choice of part.choices) {
+            assert(finish === null, "B33 SSE choice followed a terminal choice");
+            assert(choice.index === 0 && choice.delta && typeof choice.delta === "object" &&
+              !Array.isArray(choice.delta), "B33 ambiguous SSE choice");
+            if (choice.delta.content != null) {
+              assert.equal(typeof choice.delta.content, "string", "B33 SSE content is not text");
+              text += choice.delta.content;
+            }
+            if (choice.delta.tool_calls != null) {
+              assert(Array.isArray(choice.delta.tool_calls), "B33 SSE tool fragments invalid");
+              hasTools ||= choice.delta.tool_calls.length > 0;
+            }
+            if (choice.finish_reason != null) {
+              assert(finish === null && nonEmpty(choice.finish_reason), "B33 SSE finish is ambiguous");
+              finish = choice.finish_reason;
+            }
+          }
+        }
+        assert(failed || finish !== null, "B33 SSE finish missing");
+      }
+      responses.set(record, { ...fact, text, finish, hasTools, failed });
+    }
+    observed.push(fact);
+  }
+  assert.equal(responses.size, records.length, "B33 model call omitted from HTTP evidence");
+  const ids = new Set(registrations.map((event) => event.request_id));
+  assert(events.every((event) => !event.request_id || ids.has(event.request_id)), "B33 unregistered HTTP event");
+  const admitted = events.filter((event) => event.event === "upstream_request_forwarded").length;
+  assert.equal(admitted, registrations.length, "B33 HTTP admission denominator mismatch");
+  assert.equal(Math.max(...events.map((event) => event.upstream_requests_admitted)), admitted, "B33 HTTP counter mismatch");
+  return { responses, measured: { original_directory: stream.directory, http_requests: registrations.length,
+    model_POST: responses.size, GET: registrations.length - responses.size, admitted, max_upstream_requests: limit,
+    requests: observed } };
+}
+
+function acceptedSummarySource(snapshot, workId, chapterId) {
+  const chapters = snapshot?.chapters?.filter((row) => row.chapter_id === chapterId) ?? [];
+  assert(chapters.length === 1 && chapters[0].work_id === workId, "B33 summary chapter owner missing");
+  const drafts = snapshot.scope_rows?.drafts ?? [];
+  const scenes = (snapshot.scope_rows?.scenes ?? []).filter((row) => row.chapter_id === chapterId &&
+    drafts.some((draft) => draft.scene_id === row.id && draft.status === "ACCEPTED"))
+    .sort((left, right) => left.seq - right.seq);
+  assert(scenes.length > 0 && scenes.every((row) => Number.isSafeInteger(row.seq)) &&
+    new Set(scenes.map((row) => row.seq)).size === scenes.length, "B33 summary source scene order ambiguous");
+  const source = scenes.map((scene) => {
+    const accepted = drafts.filter((row) => row.scene_id === scene.id && row.status === "ACCEPTED");
+    assert(accepted.length === 1 && accepted[0].work_id === workId && typeof accepted[0].content === "string",
+      "B33 summary source is not one accepted draft");
+    const row = accepted[0];
+    return { id: row.id, scene_id: row.scene_id, seq: scene.seq, work_id: row.work_id,
+      revision: row.revision, status: row.status, content: row.content };
+  });
+  return { source, text: source.map((row) => row.content).join("\n").trim() };
+}
+
+function renderedSummary(text) {
+  const labels = ["情节推进", "人物状态与弧光", "伏笔动作", "情绪基调"];
+  const lines = text.split(/\r?\n/u);
+  if (lines.at(-1) === "") lines.pop();
+  assert.equal(lines.length, labels.length, "B33 summary does not have four complete lines");
+  return labels.map((label, index) => {
+    const prefix = "【" + label + "】";
+    const line = lines[index].trim();
+    assert(line.startsWith(prefix) && nonEmpty(line.slice(prefix.length)), "B33 summary line is invalid");
+    return prefix + line.slice(prefix.length).trim();
+  }).join("\n");
+}
+
+export function adoptionMaintenanceOutcome(appRecords, { workId, chapterId, since, until }) {
+  const start = Date.parse(since), end = Date.parse(until);
+  assert(nonEmpty(workId) && nonEmpty(chapterId) && Number.isFinite(start) && Number.isFinite(end) && end >= start,
+    "B33 maintenance window is not bound");
+  const owned = appRecords.filter((row) => row.work_id === workId && row.chapter_id === chapterId &&
+    Date.parse(row.timestamp) >= start && Date.parse(row.timestamp) <= end);
+  const summary = owned.filter((row) =>
+    ["chapter_summary_maintenance.run.done", "chapter_summary_maintenance.run.error"].includes(row.event));
+  const ledger = owned.filter((row) => ["ledger.update.done", "ledger.update.error"].includes(row.event));
+  assert(summary.length <= 1 && ledger.length <= 1, "B33 maintenance terminal is ambiguous");
+  if (summary.length === 0 || ledger.length === 0) return null;
+  assert(Date.parse(ledger[0].timestamp) >= Date.parse(summary[0].timestamp),
+    "B33 ledger terminal precedes the summary terminal");
+  const validOutcome = (row) => row.event.endsWith(".done") ? row.outcome === "ok" :
+    row.outcome === "error" && nonEmpty(row.reason_code) && nonEmpty(row.outcome_detail);
+  assert(validOutcome(summary[0]) && validOutcome(ledger[0]), "B33 maintenance outcome is unknown");
+  assert(!summary[0].event.endsWith(".error") || ledger[0].event.endsWith(".error"),
+    "B33 degraded summary contradicts the downstream ledger outcome");
+  return { summary: summary[0], ledger: ledger[0] };
+}
+
+function adoptedSummarySource({ config, wire, scenarioScopes, driverLog, snapshots, appRecords }, sourceRef, chapterId) {
+  assert(Array.isArray(wire), "B33 adopted summary has no original wire");
+  const sources = wire.filter((row) => row.direction === "received" && row.frame?.[3] === "turn_result" &&
+    frameBody(row)?.turn_id === sourceRef);
+  assert.equal(sources.length, 1, "B33 adopted summary source TurnResult is not unique");
+  const source = frameBody(sources[0]);
+  const scopes = scenarioScopes.filter((scope) => source.workspace_id === scope.workspaceId &&
+    source.work_id === scope.workId && source.session_id === scope.sessionId &&
+    source.agent_run?.run_id === scope.runId && source.agent_run?.parent_turn_ref === scope.turnId &&
+    providerTurnMatchesParent(sourceRef, scope.turnId));
+  assert.equal(scopes.length, 1, "B33 adopted summary source owner is unknown");
+  const identity = scopes[0];
+  assert(identity.workId === config.target.work_id && identity.sessionId === config.target.session_id,
+    "B33 adopted summary source differs from the frozen work/session");
+  const scenarios = config.scenarios.filter((scenario) => scenario.id === "S4");
+  const entries = (driverLog.scenarios ?? []).filter((entry) => entry.id === "S4");
+  assert(scenarios.length === 1 && entries.length === 1, "B33 adopted summary scenario is not unique");
+  const selection = selectB33PendingArtifact(source, {
+    wire, identity, scenario: scenarios[0], start: snapshots.start,
+  });
+  assert(selection.unique && selection.artifact?.artifact_type === "prose_fragment",
+    "B33 adopted summary is not the selected prose candidate");
+  const before = snapshots["S4-before-adoption"], after = snapshots.S4;
+  const checks = adoptionEvidenceChecks({
+    ...selection, turnResult: source, identity, driverEntry: entries[0], wire, before, after, appRecords,
+  });
+  assert(Object.values(checks).every(Boolean),
+    "B33 adopted summary adoption evidence failed: " + Object.keys(checks).filter((key) => !checks[key]).join(","));
+  const action = selectPendingAction(source, { artifactId: selection.artifact.artifact_id, actionType: "accept" });
+  const sent = actionFrame(wire, { topic: identity.topic, since: selection.terminal.record.at, action });
+  const receipt = frameBody(actionResult(wire, {
+    topic: identity.topic, since: sent.at, action, actionStatus: "accepted",
+  }));
+  const projection = receipt.persistence?.reading_projection;
+  assert(action.source_turn_ref === sourceRef && projection?.chapter_id === chapterId &&
+    nonEmpty(projection.source_revision_ref), "B33 adopted summary projection/source mismatch");
+  const maintenance = adoptionMaintenanceOutcome(appRecords, {
+    workId: identity.workId, chapterId, since: sent.at, until: after.at,
+  });
+  assert(maintenance, "B33 adopted summary background work has no complete terminal pair");
+  return { before, after, since: sent.at, revisionBase: projection.source_revision_ref, maintenance,
+    text: selection.artifact.payload.items.map((item) => item.body).join("\n\n").trim() };
+}
+
+function summaryPriorRowsPreserved(before, after, since, until) {
+  const fixed = (row) => Object.fromEntries(Object.entries(row).filter(([key]) =>
+    key !== "status" && key !== "updated_at"));
+  return before.every((row) => {
+    const next = after.find((candidate) => candidate.id === row.id);
+    if (!next) return false;
+    if (isDeepStrictEqual(next, row)) return true;
+    return row.status === "ACCEPTED" && next.status === "SUPERSEDED" &&
+      isDeepStrictEqual(fixed(next), fixed(row)) && Date.parse(next.updated_at) >= Date.parse(row.updated_at) &&
+      Date.parse(next.updated_at) >= since && Date.parse(next.updated_at) <= until;
+  });
+}
+
+function summaryStoredResult(row, status, sourceRef, revisionBase, raw, since, until) {
+  assert(row.status === status && row.source_ref === sourceRef && row.revision_base === revisionBase &&
+    !raw.failed && raw.finish === "stop" && !raw.hasTools, "B33 summary row contradicts its source or provider result");
+  assert.equal(row.summary_text, renderedSummary(raw.text), "B33 summary result does not match original response");
+  const inserted = Date.parse(row.inserted_at), updated = Date.parse(row.updated_at);
+  assert(inserted >= since && updated >= inserted && updated <= until, "B33 summary row is outside the actual call window");
+}
+
+function summaryAuxiliaryFact(record, context) {
+  const { config, appRecords, snapshots, observation } = context;
+  const fact = { provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref,
+    kind: "unknown", result: "unknown", bound: false };
+  try {
+    assert(record.step === "chapter_summary" && observation?.responses.has(record), "B33 unknown independent provider operation");
+    fact.kind = "chapter_summary";
+    const refs = record.request?.refs?.base_refs;
+    assert.deepEqual(record.request?.refs?.observation_refs, [], "B33 auxiliary observation refs changed");
+    assert.deepEqual(record.request?.refs?.used_refs, [], "B33 auxiliary used refs changed");
+    assert(Array.isArray(refs) && refs.length === 2 && new Set(refs).size === 2, "B33 summary source refs missing");
+    const chapterRefs = refs.filter((ref) => typeof ref === "string" && ref.startsWith("chapter:"));
+    assert.equal(chapterRefs.length, 1, "B33 summary chapter ref ambiguous");
+    const chapterId = chapterRefs[0].slice("chapter:".length);
+    const sourceRef = refs.find((ref) => ref !== chapterRefs[0]);
+    assert(nonEmpty(chapterId) && nonEmpty(sourceRef), "B33 summary operation source missing");
+    const workId = config.target?.work_id;
+    assert(nonEmpty(workId) && (!Object.hasOwn(record, "work_id") || record.work_id === workId) &&
+      (!Object.hasOwn(record, "session_id") || record.session_id === config.target.session_id),
+      "B33 independent summary owner mismatch");
+    let source;
+    if (sourceRef === "summary_repair:" + chapterId) {
+      const beforeSource = acceptedSummarySource(snapshots?.start, workId, chapterId);
+      const afterSource = acceptedSummarySource(snapshots?.final, workId, chapterId);
+      assert.deepEqual(afterSource.source, beforeSource.source, "B33 summary accepted source changed during batch");
+      source = { before: snapshots.start, after: snapshots.final, since: snapshots.start.at,
+        text: afterSource.text, revisionBase: null };
+    } else {
+      source = adoptedSummarySource(context, sourceRef, chapterId);
+    }
+    assert(nonEmpty(source.text), "B33 summary source is empty");
+    const material = "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + source.text;
+    const messages = record.request.body.messages;
+    assert(record.request.body.tools == null || (Array.isArray(record.request.body.tools) &&
+      record.request.body.tools.length === 0), "B33 auxiliary request unexpectedly has tools");
+    assert(messages.length === 2 && messages[0].role === "system" && messages[1].role === "user" &&
+      messages[1].content === material, "B33 summary request is not the actual accepted material");
+    const outcomes = source.maintenance ? [source.maintenance.summary] : appRecords.filter((row) =>
+      ["chapter_summary_maintenance.run.done", "chapter_summary_maintenance.run.error"].includes(row.event) &&
+      row.work_id === workId && row.chapter_id === chapterId);
+    assert.equal(outcomes.length, 1, "B33 summary business outcome is missing or ambiguous");
+    const result = outcomes[0], raw = observation.responses.get(record);
+    const times = [source.since, record.ts, result.timestamp, source.after.at].map(Date.parse);
+    assert(times.every(Number.isFinite) && times.every((time, index) => index === 0 || time >= times[index - 1]),
+      "B33 summary outcome is outside this actual call and checkpoint window");
+    assert(Date.parse(raw.requested_at) >= times[0] && Date.parse(raw.completed_at) >= Date.parse(raw.requested_at) &&
+      Date.parse(raw.completed_at) <= times[3], "B33 original auxiliary request is outside the source window");
+    const rowsFor = (snapshot) => requiredRows(snapshot, "chapter_summaries")
+      .filter((row) => row.chapter_id === chapterId && row.work_id === workId);
+    const before = rowsFor(source.before), after = rowsFor(source.after);
+    const added = after.filter((row) => !before.some((old) => old.id === row.id));
+    assert(added.length <= 1 && summaryPriorRowsPreserved(before, after, times[1], times[2]),
+      "B33 summary changed or removed an existing row beyond lawful supersede");
+    Object.assign(fact, { source_ref: sourceRef, chapter_id: chapterId, work_id: workId,
+      revision_base: source.revisionBase, request_id: raw.request_id, response_status: raw.response_status });
+    if (source.maintenance) fact.maintenance = source.maintenance;
+    if (result.event.endsWith(".done")) {
+      assert(result.outcome === "ok" && result.status === "ACCEPTED" && result.four_column === true &&
+        added.length === 1 && after.filter((row) => row.status === "ACCEPTED").length === 1,
+        "B33 summary completion is not one new accepted result");
+      summaryStoredResult(added[0], "ACCEPTED", sourceRef, source.revisionBase, raw, times[1], times[2]);
+      Object.assign(fact, { result: "accepted", summary_id: added[0].id });
+    } else {
+      assert(result.outcome === "error" && ["generation_failed", "persistence_failed"].includes(result.reason_code) &&
+        nonEmpty(result.outcome_detail), "B33 auxiliary failure is unknown");
+      if (result.reason_code === "generation_failed") {
+        assert.deepEqual(after, before, "B33 generation failure changed summaries");
+      } else {
+        if (!isDeepStrictEqual(after, before)) {
+          assert(!raw.failed && raw.finish === "stop" && !raw.hasTools, "B33 failed generation cannot change summaries");
+          renderedSummary(raw.text);
+        }
+        for (const row of added) summaryStoredResult(row, "TENTATIVE", sourceRef, source.revisionBase, raw, times[1], times[2]);
+      }
+      Object.assign(fact, { result: raw.failed ? "provider_failed" : "degraded", reason_code: result.reason_code,
+        tentative_summary_ids: added.map((row) => row.id) });
+    }
+    fact.bound = true;
+  } catch (error) { fact.reason = error.message; }
+  return fact;
+}
+
+
 // Provider 身份取实际调用日志；服务可用模型目录和生命周期未知不冒充调用事实。
-export function providerEvidenceChecks({
+function providerEvidence({
   config, ready, driverLog, providerStarts, llmRecords, providerRuns = [], scenarioScopes = [], runtimeFacts = null,
+  appRecords = [], snapshots = {}, providerStream = null, wire = [],
 }) {
   const pairs = llmRecords.map((record) => {
     const byRun = providerRuns.filter((row) => row.id === record.provider_run_ref);
@@ -300,8 +1006,22 @@ export function providerEvidenceChecks({
       record.work_id === row.work_id && record.session_id === row.session_id &&
       (!Object.hasOwn(record, "workspace_id") || record.workspace_id === row.workspace_id) &&
       providerTurnMatchesParent(record.turn_id, scope.turnId));
-    return { record, row, owned };
+    return { record, row, owned, matched: byRun.length > 0 || byCall.length > 0 };
   });
+  const authors = pairs.filter(({ matched }) => matched);
+  const independent = pairs.filter(({ matched }) => !matched);
+  const observationRequired = providerStream !== null || Boolean(config.preregistration) || independent.length > 0;
+  let observation = null;
+  let transport = null;
+  if (observationRequired) {
+    try {
+      observation = observedProviderResponses(config, providerStream, llmRecords);
+      transport = { bound: true, ...observation.measured };
+    } catch (error) { transport = { bound: false, reason: error.message }; }
+  }
+  const auxiliary = independent.map(({ record }) => summaryAuxiliaryFact(record, {
+    config, appRecords, snapshots, observation, wire, scenarioScopes, driverLog,
+  }));
   const checks = {
     provider_identity_matches: ["splash", "strata"].includes(config.provider) && ready.provider === config.provider &&
       driverLog.provider === config.provider && driverLog.model === config.model && driverLog.endpoint === config.endpoint,
@@ -314,14 +1034,17 @@ export function providerEvidenceChecks({
     }),
     provider_call_identities_unique: ["provider_call_ref", "provider_run_ref"].every((field) =>
       new Set(llmRecords.map((record) => record[field])).size === llmRecords.length),
-    provider_runs_bound: pairs.length > 0 && providerRuns.length === pairs.length &&
-      pairs.every(({ row }) => row && row.provider_id === config.provider && row.model === config.model),
-    provider_runs_owned: pairs.length > 0 && pairs.every(({ owned }) => owned),
-    provider_runs_terminal: pairs.length > 0 &&
-      pairs.every(({ row }) => row && ["completed", "failed", "cancelled"].includes(row.status)),
+    provider_observation_bound: !observationRequired || Boolean(observation),
+    provider_auxiliary_bound: auxiliary.every((fact) => fact.bound) &&
+      new Set(auxiliary.map((fact) => JSON.stringify([fact.work_id, fact.chapter_id, fact.source_ref]))).size === auxiliary.length,
+    provider_runs_bound: authors.length > 0 && providerRuns.length === authors.length &&
+      authors.every(({ row }) => row && row.provider_id === config.provider && row.model === config.model),
+    provider_runs_owned: authors.length > 0 && authors.every(({ owned }) => owned),
+    provider_runs_terminal: authors.length > 0 &&
+      authors.every(({ row }) => row && ["completed", "failed", "cancelled"].includes(row.status)),
     provider_scenarios_completed: scenarioScopes.length > 0 &&
       new Set(scenarioScopes.map((scope) => scope.runId)).size === scenarioScopes.length &&
-      scenarioScopes.every((scope) => pairs.some(({ row, owned }) =>
+      scenarioScopes.every((scope) => authors.some(({ row, owned }) =>
         owned && row.agent_run_id === scope.runId && row.status === "completed" &&
         providerOperation(row) !== "transcript_compaction")),
     execution_budget_matches: sameCounts(config.budget, B33_BUDGET) && sameCounts(driverLog.budget, config.budget),
@@ -338,14 +1061,18 @@ export function providerEvidenceChecks({
       checks.runtime_facts_match = true;
     } catch { /* 缺失或冲突保持失败，不以准备时声明替代实际 runtime。 */ }
     const profile = getRuntimeProfile(RUNTIME_PROFILE_ID);
-    checks.provider_request_settings_match = checks.provider_runs_bound && checks.provider_runs_owned &&
+    checks.provider_request_settings_match = checks.provider_runs_bound && checks.provider_runs_owned && checks.provider_auxiliary_bound &&
       pairs.every(({ record, row }) => {
-        const compaction = row.purpose === "other" && providerOperation(row) === "transcript_compaction";
+        const compaction = row?.purpose === "other" && providerOperation(row) === "transcript_compaction";
         const tokens = compaction ? 8192 : profile.max_tokens;
         return record.request?.body?.reasoning_effort === profile.reasoning_effort && record.request?.body?.max_tokens === tokens;
       });
   }
-  return checks;
+  return { checks, auxiliary, transport };
+}
+
+export function providerEvidenceChecks(input) {
+  return providerEvidence(input).checks;
 }
 
 export function verify(dir, sliceIdArg) {
@@ -356,6 +1083,7 @@ export function verify(dir, sliceIdArg) {
 
   const ready = read(dir, "native-driver-ready.json");
   const driverLog = read(dir, "b33-native-driver-log.json");
+  const providerStream = readB33ProviderObservation(dir, config);
 
   const common = assertCommonEvidence(dir, {
     sliceId: SLICE_ID,
@@ -399,12 +1127,17 @@ export function verify(dir, sliceIdArg) {
     shaFile(path.join(dir, "runtime-facts.json")) === config.runtime?.facts_sha256;
 
   const snapshots = Object.fromEntries(
-    ["start", ...config.scenarios.map((scenario) => scenario.id), "final"].map((checkpoint) => [
+    ["start", ...config.scenarios.flatMap((scenario) =>
+      scenario.adopt ? [scenario.id + "-before-adoption", scenario.id] : [scenario.id]), "final"].map((checkpoint) => [
       checkpoint,
       read(dir, `b33-${checkpoint}.json`),
     ]),
   );
 
+  checks.ledger_rows_captured = Object.values(snapshots).every((snapshot) => {
+    try { ledgerSnapshotRows(snapshot); return true; }
+    catch { return false; }
+  });
   const measured = { scenarios: {}, model: config.model, endpoint: config.endpoint,
     request_settings: requestSettingsFacts(wireCommon.llmRecords) };
   const scenarioScopes = [];
@@ -485,26 +1218,16 @@ export function verify(dir, sliceIdArg) {
       const pending = pendingOf(turnResult);
       scenarioChecks.judgment_execute = action === "execute";
       scenarioChecks.judgment_capability_expected = capability === scenario.expect_capability;
-      scenarioChecks.pending_target_unique = pending.length === 1;
-      scenarioChecks.adoption_receipt_accepted = false;
-      scenarioChecks.adoption_log_matches_wire = false;
-      if (pending.length === 1 && identity && terminal?.kind === "completed") {
-        const artifactId = pending[0].artifact_id;
-        const authorAction = selectPendingAction(turnResult, { artifactId, actionType: "accept" });
-        const sent = actionFrame(wire, {
-          topic: identity.topic, since: terminal.record.at, action: authorAction,
-        });
-        const ack = actionAck(wire, sent, { actionStatus: "accepted" });
-        const receipt = actionResult(wire, {
-          topic: identity.topic, since: sent.at, action: authorAction, actionStatus: "accepted",
-        });
-        scenarioChecks.adoption_receipt_accepted = frameBody(receipt)?.status === "accepted";
-        scenarioChecks.adoption_log_matches_wire =
-          driverEntry.adoption?.artifact_id === artifactId &&
-          sameCounts(driverEntry.adoption?.send, frameBody(sent)) &&
-          sameCounts(driverEntry.adoption?.ack, frameBody(ack.reply)) &&
-          sameCounts(driverEntry.adoption?.receipt, frameBody(receipt));
-      }
+      const selection = selectB33PendingArtifact(turnResult, { wire, identity, scenario, start: snapshots.start });
+      const beforeAdoption = snapshots[scenario.id + "-before-adoption"];
+      scenarioChecks.pending_target_unique = selection.unique;
+      scenarioChecks.generation_memory_reference_updates_accounted = compareAuthoringCanonSnapshots(
+        snapshots[previousCheckpoint].authoring_canon, beforeAdoption.authoring_canon,
+      ).checks.memory_reference_updates_accounted;
+      Object.assign(scenarioChecks, adoptionEvidenceChecks({
+        ...selection, turnResult, identity, terminal, driverEntry, wire, appRecords: wireCommon.appRecords,
+        before: beforeAdoption, after: snapshots[scenario.id],
+      }));
       const afterSnap = snapshots[scenario.id];
       if (scenario.id === "S5") {
         scenarioChecks.chapters_seq_dense = isDense(afterSnap?.chapters ?? []);
@@ -538,7 +1261,9 @@ export function verify(dir, sliceIdArg) {
         judgment_action: action,
         judgment_capability: capability,
         pending_count: pending.length,
-        pending_kinds: pending.map((entry) => entry?.payload?.object_kind ?? entry?.payload?.artifact_type ?? null),
+        pending_kinds: pending.map((entry) => entry?.artifact_type ?? entry?.payload?.object_kind ?? null),
+        selected_artifact_id: selection.artifact?.artifact_id ?? null,
+        selection_reason: selection.reason ?? null,
         adoption: driverEntry.adoption ?? null,
       };
     }
@@ -559,10 +1284,13 @@ export function verify(dir, sliceIdArg) {
     run_id: scope.runId, workspace_id: scope.workspaceId, work_id: scope.workId,
     session_id: scope.sessionId, parent_turn_ref: scope.turnId,
   }));
-  Object.assign(checks, providerEvidenceChecks({
-    config, ready, driverLog, ...wireCommon, providerRuns, scenarioScopes,
+  const provider = providerEvidence({
+    config, ready, driverLog, ...wireCommon, providerRuns, scenarioScopes, snapshots, providerStream,
     runtimeFacts: config.provider === "splash" ? read(dir, "runtime-facts.json") : null,
-  }));
+  });
+  Object.assign(checks, provider.checks);
+  measured.auxiliary_executions = provider.auxiliary;
+  measured.provider_transport = provider.transport;
   measured.provider_executions = providerRuns.map((row) => ({
     provider_run_ref: row.id, provider_call_ref: row.provider_call_ref, run_id: row.agent_run_id,
     provider: row.provider_id, model: row.model, status: row.status, operation: providerOperation(row),
