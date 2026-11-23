@@ -3172,3 +3172,100 @@ GREEN01连同完整judgment_protocol_test为118/118，owned6b5ac56521e086f7、ex
 本批交付范围为§19.17–19.18已通过独立RED/GREEN及完整后端的合同一致性修复；最终按原scope运行完整task_done.sh --scope artifacts/slice-verify/b87-r08-20261122/scope.json --top 10，收口原件位于judgment-contract-20261123/task-done-final-01，正式manifest/完整扫描/Top10/处置与实际检查结果由现owner生成并在该目录封存定位，不使用quick/skip或旧源native绑定。该工程入口不代签R08，task_acceptance=not_asserted保持。
 
 R08仍doing、语义验收未通过。接续优先审查现current与历史来源表达、原文登记和能力缺口判断的可理解性及实际消费者；先提出可证的合同/供给差异或独立语义反例，再决定下一处改动与新实模checkpoint，不能因一次失败叠提示、增加猜意图守卫、扩大交换/HTTP预算或重复原批刷分。结构异议升级目标、缺号解释、无依据UI能力承诺，以及十条外历史/部分页/assistant非来源/引用条件/多候选/章修订矩阵继续保留。
+
+### 19.20 作者来源目录与精确引用统一（2026-11-23，实施前）
+
+**验收口径。** 作者在本会话确认：从愿景、元原则、设计及批次独立判据验收，原三轮是重要回归场景之一，不是 B87 或 R08 的完整规格。R08 完整边界及 §19.4 反例矩阵保持；本 checkpoint 继续来源供给与选择，不能凭单批原生通过签收其余未验范围。
+
+**基线与机制证据。** 当前分支 develop/dialogue-based-novel-workbench，HEAD d02dcebbcd8c4562fadcc178352fbb9ab3ac5554，与 upstream 一致且 clean；沿原 scope d072fb9c-7dfb-40b1-8d3a-9918e9279ef6。证据目录 author-source-reference-20261123，compile-baseline-01 的 warnings-as-errors exit0，owned204fad733fb29962 正常收口；2683 entry、fingerprinte73a738f72e750bc1b9b70ac783a92ed06810dd9ac83fbc29ec0b9e9df4c3c08 前后相同。author_sources 已认可当前完整作者消息，但 judgment_scope 从公开目录删除 source_input_ref；规则要求选目录 ref，又给出目录外 current 特例。Git 4fa6e5e7 将原目录中的 current 改成历史集合投影，解释了此有意设计的形成；§19.19 的来源已供应事实不改写。这是可独立证明的表示不一致，不从单次实模 FAIL 推断所有语义失败均由它造成。
+
+| 方案 | 裁决及代价 |
+|---|---|
+| 保留历史目录和 current 特例，再加强提示 | 不选：继续要求消费者跨两套表示推导可用来源，不能消除目录不完整。 |
+| 完整资格目录统一真实 ref | 采纳：复用已有 author_sources、source_input_ref 和工具字段，只供 ref/hash 元数据，不重复正文；接收和物化继续精确核来源。 |
+| 新增 current/history 分组或来源 DTO | 不选：当前身份已有 goal.source_input_ref，增加字段或主模型没有新消费者需求。 |
+
+| 七问 | 本次裁决 |
+|---|---|
+| Contract | 先前向修订 VS-00M §6.4；来源发现、工具选择、真实请求接收、持久原字节物化使用同一实际身份。 |
+| Invariant | 作者完整原字节、work/workspace/session 隔离、来源/版本/hash、两次交换上限和 tentative/采纳边界保持；目录不能替代真实来源，模型选择不能自动授权采纳。 |
+| Boundary | 现 AuthorContentRegistration、JudgmentProtocol、JudgmentToolContract 及所有当前测试/语义验收消费者；不增实体、字段、表、工具、第二判断环、动态 enum 或产品验收 hook，不引入 R09/R17。 |
+| Consumer | 三 wire 的真实 Scope/工具参数 → Judgment 接收 → DPS/WorkSessionRepo 原字节物化 → 现候选/作者动作；本版 Stub/SliceVerify 与验收按真实来源身份判定；B27 冻结 cases/评分链和候选包保留，不用于 v7 新批签收。 |
+| Proof | 先独立 RED：当前/历史 ref 与原字节 SHA 在同一目录可发现；同文不同身份、同 run 多作者、未知/错误/未完整来源、字面 current 的普通 ID 语义；复用已有分页/assistant/跨作品反例，补三 wire/恢复与静态工具断言。既有原始失败保留。 |
+| Acceptance Driver | 复用 native_b71_batch → native_b71_drive → pending；改后源码/nonce/完整输入/seed/command/独立预算调用前冻结，零批内重试，按真实请求、Provider、canonical、候选、receipt 和页面核完整链。 |
+| Exploration | 历史消息仍沿 session_message_read 获取完整观察后进入资格集合；不扩大固定历史包、不以摘要/部分页/assistant 冒充原文，也不由最后 user 或 parent_turn_ref 猜源。 |
+
+**二阶影响与退出边界。** 完整目录只比原表示增加当前 ref/hash，原文保持单份；初始 application_base → Scope → author 与原会话组合顺序保持。去掉别名解析和专属测试，避免旧符号在恢复/评分/替身中形成兼容双轨；历史原件仍只读。工具合同版本、静态指纹与当前消费者同步迁移，不能声称旧缓存字节不变。仅工程结果不能签语义；本次原生即使通过，也只证明当前登记、普通修订、采纳/放弃与恢复链，§19.19 其余矩阵继续开放。
+
+### 19.21 来源引用实施与完整工程回归（2026-11-23，原生执行前）
+
+生产三处按 §19.20 落地：JP 供应完整来源目录，ACR 删除 current 专属解析而保留精确原字节身份绑定，JTC 的来源字段直接说明实际 ref 并升为 b26-tools-v7。没有改来源资格、完整页拼接、DPS 物化、Writer、采纳或两次交换上限。Stub/SliceVerify 同批使用实际 RequestIR 的 goal.source_input_ref；历史选择与坏来源反例保持。现 single_call_compliance 的无读取者 options.author_content_sources 已删除，其真实作者消息和验证入口保留。
+
+独立 RED01 为111项/6失败（owned45158f77800136fc，exit2），命中首轮/跨轮目录遗漏、别名误绑与当前合同说明/版本；没有以实现生成期望。首轮来源整例完整迁入已有 AuthorContentRegistrationTest，JP 的续行/三 wire/JSON恢复整例继续保留；无新测试模块、断言删减或规模基线提升。GREEN01 的应用140项通过、替身91项有1失败：SliceVerify 迁移误从渲染文本取 Scope，现改读该函数实际 RequestIR 的 source 参数；fixture 本身已正确供源，未靠 fallback 修复。GREEN02 格式检查和 GREEN03 文档末尾空行检查的前置失败均保留，二者未进入测试。
+
+最终 GREEN04 为231/231（应用140、替身91），格式/diff通过，owneddb6a9ffaec956503、exit0。backend-gates-01 沿现 mix check 完成强制 warnings-as-errors 全量编译、codegen、枚举 lint、零环、全部3757 tests/0 failures、架构、ADR和I-CACHE，并通过 strict Credo；ownedae538e861741e829、119406ms、exit0。两批均 tree_finalized、scope_removed、源码前后不变，工程源码 fingerprint bce60144331c1ac41209fd06162e34967067103f32958e74525d552ba60c459e。生产独立审查无阻塞；工程结果不代签模型语义。
+
+接下来的唯一新原生批沿原 scope 和既有 pending owner：tag r08-source-ref-20261123-01，证据基址 author-source-reference-20261123/pending-native-01，独立原生输出 artifacts/slice-verify/b71-authoring-pending-tauri-native-r08-source-ref-20261123-01。启动前重新封存实际源码、独立 nonce、完整三输入、seed/proxy 哈希、prereg 和 command；沿原64总HTTP含GET、单call300秒、输入30秒、每轮240秒、根900秒、3计划作者输入、1批和0重试，外部模型服务不启停。只按实际 source→revision→作者采纳/丢弃→restore/followup 结果签此链；原三轮与历史来源/否定条件/多候选/章修订等完整R08范围保留，未执行不记通过。
+
+### 19.22 来源统一新原生批与可见性阻塞（2026-11-23）
+
+§19.21 唯一新批已执行，tag r08-source-ref-20261123-01，nonce af2e9e4a40ccd641；prereg SHA e2d7979ed4335d93f8f691b9df649d7776a514a342a8c7af5c43d5bad668603c，冻结 command 字符串 SHA 92bd145407bbd246967e448d8e3127043df944da5e6fa3a2567421fc412662b6，整文件 SHA 6605af78201266b47425b664fc1b097ce3da91c86feebd295bb048ad43fe0b29。原 scope execution 7abb5f77-c439-4dd1-84d2-c7029badbb74；源码 fingerprint 68abd60d38956954755e9bfd812f7581cd2b340bd1a91fd5972fe5b1aaaacebf，HEAD d02dcebb、2683 entries、WIP 在本次执行前后不变。owned d1c118bcd7988754、138739ms、exit1、tree_finalized=true，原始日志及失败留在 pending-native-01 和独立原生输出目录。
+
+原生流程实际完成源候选、修订候选、Why、作者采纳修订稿、放弃原稿、重启恢复及第三条追问；最终在 maintenance:followup_reply_visible 等待45秒后退出。failure.jpg / failure-ax-raw.json / failure.text.txt 展示了完整追问答复，含林渡修订稿已入档、沈砚原稿已放弃、无待采纳及作者操作归属。原始答复的 Markdown 段落和列表在真实 AX 中分块；现 pending driver 的 awaitVisible 与 verifier 的 textIncludes 都要求整条原始回复连续子串，不能表达该合法渲染。driver 没有生成 final checkpoint、native-ui-complete 或 summary；原 scope finish 已用实际 exit1/冻结命令调用，实际拒绝 native output missing or not execution-selected output，记录于 execution/finish-observation.json，没有补造绑定或倒签通过。完整 wire/Provider/canonical、九表 canon 与资源审计分别独立进行；页面可见不自动证明模型语义正确，首轮关于作者校验标识的解释也须另核。
+
+### 19.23 pending 回复可见性同合同核验（2026-11-23，实施前）
+
+本次只修正上述已观测的验收表达错误；不改生产回复/Markdown 渲染、模型规则、作者输入、等待预算或本批失败结果。现 ADR-0036 与 R05/R06 验收已有 Markdown AST 到完整 AX 语义单元的 owner，直接复用 r05ReplyMatch 的结构能力；不另建文本清洗器、正则解析器或“找到几个关键词就通过”的判据。其他候选正文的逐字/来源/完整对象检查保持。
+
+| 七问 | 可见性修复裁决 |
+|---|---|
+| Contract | Provider 原文与 TurnResult 仍精确字节比较；页面层按既定 Markdown 静态政策匹配完整 AX 内容，不能拿未渲染语法符要求界面显示。 |
+| Invariant | 绑定实际本轮作者消息、发送前同文作者计数与唯一助手消息/Why；全文各语义单元数量、顺序和文本必须相同，缺段、改写、额外段落、旧轮或过程记录借用均拒绝。 |
+| Boundary | 仅现 authoring_pending_driver 与 authoring_pending_run_evidence，以及各自既有测试/说明；不加产品入口、模型调用、状态写入或新的验收主模型。 |
+| Consumer | 在线驱动等待与离线 verifier 消费同一现有 r05ReplyMatch；独立原始 AX、原始 Provider 和真实请求身份保留，不能只信 driver 布尔值。 |
+| Proof | 手写原始 Markdown 与独立 AX 段落/列表 fixture 先 RED；加入完整正例及缺段/篡改/错轮/额外助手块负例。真实失败原件仅只读复算，不生成旧批成功 summary。 |
+| Acceptance Driver | 现 pending 全链 owner 不变；本批三输入及1批/0重试预算已经执行完，不借修验收扩大预算重跑。未来新实模 checkpoint 必须重新冻结源码及预注册。 |
+| Exploration | 无产品探索/资料资格变化；此处只核作者实际可见交付，不能据工程修复签 R08 全语义矩阵。 |
+
+完整匹配失败仍失败关闭，不能因表层“已有文字”放宽；本 checkpoint 的可提交完成是来源统一实现、独立测试、已运行真实工作台事实及修复后的验收工程门禁，不是 R08 PASS。
+
+### 19.24 回复语义测量纠偏（2026-11-23，实施前）
+
+最终独立复核发现另一处现役验收表达缺陷：followupReplyChecks 以回复包含 ACCEPTED/DISCARDED 及完整候选标题/ref 推断“识别真实状态与对象”。本次原始中文回复正确报告处置结果却不含英文枚举；反例“ACCEPTED 原稿、DISCARDED 修订稿”可同时命中所有旧词面条件而颠倒状态。该门既有假阴性也有假阳性，不能增加中文词表或据 GREEN 声称语义成立。model-interaction-coverage §5.5/§5.12 和 B71 CP4b 的独立目标要求真实状态理解，没有要求英文枚举原样展示。
+
+七问裁决：Contract=沿现验收设计前向明确机器/语义证据边界，作者成功目标不变；Invariant=真实 Scope/身份/前后继/回执、Provider 原字节、完整 AX 及无额外作品写入原样保留；Boundary=退役现 authoring_pending_evidence 的两项词面推断及无消费者 helper，run owner 复用现 semantic_review/not_signed/verdict 字段，不建新评审框架或生产分支；Consumer=现 pending driver/verifier 与其原测试，R05 已有分层证明格式作为唯一参考；Proof=先 RED 证明合法中文无需英文枚举，含全部词但状态颠倒/否定/无关的文本也只能取得机制证据且显式未签语义，改字节/错事实/越权仍失败；Acceptance Driver=既有 batch 和完整证据路径不变，原失败不补 summary、不再发模型；Exploration=独立审读同次原回复及已核 source/revision/作者动作事实，不从模型措辞自证、不新增解析器。
+
+检查产物与 summary 均须携带待审状态、原回复和已验证预期事实；console 明确只通过机制核验。本次补齐的是验收测量本身的正确性，R08 的语义签收仍须逐项独立判断；首轮 nonce 与全文 hash 的无依据比较保持 open。
+
+### 19.25 新原生批的独立审计结论（2026-11-23）
+
+§19.22 的正式原生结果保持 FAIL，未生成 final checkpoint、summary 或成功 binding；后续审计均是原件的只读复核，不能补成当时的完成事实。独立审计封存在 author-source-reference-20261123/pending-native-01：
+
+| 审计原件 | SHA-256 |
+|---|---|
+| independent-transport-audit.json | 26a230a89c593735eb01eae0846c744d99f06f17fe201a9b37fe8a5eff189126 |
+| independent-semantic-audit.json | a4055f4d9fa4fb758ff3c984879eb42e6ec156b703bf01122d2b9d146ba55988 |
+| canon-actions-readonly-audit-01.json | 801eaa3db17e4e82ea7c0de2c6b181ae3c2b3279963cfc15664fb2918afd0bda |
+| independent-followup-sse-supplement.json | 22c8043e75ed92b7f5841fb7b3cbd0bcae248e55fcc2b3c6a864078236bb7efd |
+
+**真实来源与候选。** 三个真实作者 run 的 canonical system 及实际 wire 均为 b26-tools-v7；六次 Provider 请求逐次通过同 pcall/prun 的 canonical 来源绑定，消息数依次3/5/9/13/15/19。当前及已完整供应历史作者消息同在来源目录，三条原文的 SHA 独立复算一致。两次 register_author_content 均传真实 message_183f6576-cb6c-43c1-b2a9-25c1770ff2a0，没有 current 别名；源候选完整 body 与第一条冻结原文相等，修订候选全部 item 字段逐字等于合法 Writer 响应，body 恰为沈砚→林渡，nonce 保留、revision_of/registration_source_ref 精确。
+
+**实际纠错与语义未通过项。** 六次模型调用为源登记 judgment 2、修订 judgment 1、Writer 2、追问 judgment 1。源登记第一次因 author_visible_narrative_invalid 拒绝暴露完整内部 source_hash；第二次删除具体 hash 后成功登记，但作者可见解释仍称作者校验标识与系统消息校验值“不一致”。作者 nonce 与全文 SHA 用途不同，作者没有声明两者应相等；该比较无依据，作为 R08 作者解释错误保持 open，不误记为来源绑定/物化字节失败。Writer 首次把作者消息 ID 当 used_context_refs，被 used_context_refs_invalid 拒绝；第二次只用真实源 artifact 后通过。协议纠错没有增加作者输入，未改两次交换上限。
+
+**作者动作与状态。** 两候选产生前后九表作品事实未写入；只有实际采纳修订动作新增1条 CONFIRMED/AUTHOR_CONFIRMED 设定、1条 receipt、1条 APPLIED mutation。实际放弃源稿只再增1条 receipt，源稿字节保留，修订仍独立。动作身份、idempotency、receipt→mutation→memory逐项一致。恢复零 Provider调用且canon不变；恢复后到终态只读快照的九表行hash及canonhash均相同，引用日志/引用计数增量为0，追问没有新作品动作或写入。恢复阶段 works 行hash变化但canonhash未变；3 runs、6 Provider、8 interactions、22 session messages的运行记账真实存在，不能称数据库零变化。独立终态快照不是缺失的原生 final checkpoint，也不证明未执行的崩溃回滚分支。
+
+**传输、正文与清理。** 实际12/64 HTTP=6 GET /models+6 POST，全部200/自然EOF；36份raw request/received/delivered文件重新核SHA，12组received=delivered，六个POST各1个DONE、无解析错/取消/截断/预算拒绝，最终active_requests为空。原始请求和SSE返回均为local/Q4-PLE4，实际请求high/max_tokens32000；thinking enabled仍只作为冻结配置事实。六个POST的完整request JSON分别唯一绑定实际pcall/prun及持久ProviderRun。补充审计以唯一request-10原SSE的delta.content重建追问正文：received=delivered=canonical assistant=精确followup TurnResult，1315 UTF-8 bytes，SHA bf2c334e2a50f35acc7bd990ad8882a1d0658dab759589fd743f9917b97937d7，N-NARR来源范围与hash一致；不借仅含工具事实的LLM decoder body声称正文闭合。保存的before/after源码、HEAD、WIP完全一致，owned scope已移除，6个已记录owned/App PID均退出、精确命令行扫描无残留，未启停外部模型。
+
+**页面与语义分开复核。** 对实际failure原始AX、真实追问原文和发送前同文计数0调用现r05ReplyMatch，预期/实际Markdown单元7/7，当前作者计数1；旧whole raw includes为false，现完整匹配为true，本次原图首末均在视口。该观察证明原等待条件误判，不更改原FAIL；新的通用匹配只声明完整AX呈现，不扩大为任意长回复的全视口覆盖。此追问对林渡版采纳、沈砚版放弃、无待处理及作者动作归属的独立审读成立；首轮无依据nonce/hash比较和完整R08其它矩阵仍未通过，不能因后续正确就代签整批语义。
+
+### 19.26 验收修复验证与本阶段交付边界（2026-11-23）
+
+可见性独立RED为86项/20失败（visibility-red-01，owned c57a595a8008f944、7501ms），实际命中完整Markdown误拒与会话外/旧轮同文误收，没有以fixture错误充数。接入现r05ReplyMatch后，扩展pending driver/纯判据/完整batch、R05回复与G2回归240/240（visibility-green-01，owned bcfe9fa9ac1a0d5a、7580ms）。AX列表夹具再按实测结构去未观测装饰字段、补实际group.value后，两owner86/86（visibility-green-02，owned e08ebb58602be3d6、7569ms）；预期正文均手写，不由被测投影生成。
+
+词面伪语义判据另行先RED：108项/9失败（semantic-boundary-red-01，owned 427bff81216f46c7、4560ms），覆盖合法中文误拒、状态词齐全却颠倒/否定/无关/错计数、报告缺独立待审边界。退役两个includes推断及专属helper后，scopeFactsChecks、原字节、作者动作/canon和完整AX判据保持；现measured、checks JSON与summary同存原回复、独立真实预期、semantic_review/not_signed/verdict。最终扩展246/246（semantic-boundary-green-01，owned b8eb7b0c24bc20a3、7571ms），git diff --check通过，source fingerprint 795d4acba81940e10193fc51f21e7ca86637976acb950deb0d3239fa72171a1b 前后相同。以上所有owned均tree_finalized、scope_removed，退出码/原始失败完整保留。
+
+本阶段产品来源修复仍以§19.21的完整后端3757/0、编译/codegen/架构/循环/I-CACHE/strict Credo为工程证据，后续没有修改产品源码。验收层的普通成功日志明确机制通过/语义待审；外层batch的PASS仍仅表示driver/runner执行成功，全局task_done仍只签工程身份、task_acceptance=not_asserted，不改为任务或模型语义签收。
+
+收口入口固定为原scope的完整命令：bash scripts/task_done.sh --scope artifacts/slice-verify/b87-r08-20261122/scope.json --top 10，并先做format/diff检查。当前阶段结果归档于author-source-reference-20261123/task-done-final-01：实际原scope manifest、checks binding、完整扫描原件、Top10与处置及owned/source前后结果由现owner产生后封存，不使用quick/skip或旧native成功绑定。源码、验收修复与任务台账按可review组正常提交/推送，实际本地/远端HEAD和门禁源码字节一致性记录于同基址delivery.json。
+
+**R08仍doing，完整语义验收未通过。** 下个checkpoint继续核来源证据与作者资料标识的职责表达，保留独立语义反例后再决定改动及新预注册；不因一次输出改变叠提示或增加意图词表。原三轮仍是重要回归之一；结构异议、缺号解释、无依据UI承诺、十条外历史/部分页/assistant非来源、否定/条件/引用、多候选和章范围等完整矩阵继续开放。§19.22原批预算已结束，未追加模型或重跑；旧Before/After、B33、R06/R07未通过证据和状态均保持。
