@@ -5,7 +5,6 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
   alias NovelCommon.Contracts.AuthoringTask
 
   @text %{type: "string", minLength: 1}
-  @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
 
   @execute_target_fields [
     pending_artifact_ref: AuthoringTaskPolicy.artifact_capabilities(:pending),
@@ -58,7 +57,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
     capabilities = Keyword.fetch!(@execute_target_fields, key)
 
     "只用于 execute 且 capability 为 #{Enum.join(capabilities, "、")}；" <>
-      "其他能力及 explore 不提供此字段，包括 null。"
+      "出现时必须为非空字符串，原样引用真实对象；其他能力及 explore 不提供此字段，包括 null。"
   end
 
   defp field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
@@ -89,22 +88,16 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
   end
 
   defp decision_example(%{action: "execute"} = detail, example) do
-    revision? =
-      Map.get(detail, :capability) == "revise_adopted_content" or
-        Enum.any?(
-          ["target_chapter_ref"],
-          &(&1 in Map.get(detail, :disallowed, []))
-        )
-
-    if revision? do
+    if Map.get(detail, :capability) == "revise_adopted_content" do
       guidance =
         "内容修订的 execute 必须用 adopted_content_ref，按本轮可选目标原样复制；章级修订以 modification_scope 表达范围，不填 target_chapter_ref。" <>
           schema_for_action("execute").properties.modification_scope.description <>
           schema_for_action("execute").properties.target_segment_ids.description
 
-      {guidance, nil}
+      {guidance <> target_fields_guidance(), nil}
     else
-      {"execute 必须提供非空的创作目标与范围 dialogue_goal，以及本轮允许的 capability。", example}
+      {"execute 必须提供非空的创作目标与范围 dialogue_goal，以及本轮允许的 capability。" <>
+         target_fields_guidance(), example}
     end
   end
 
@@ -141,9 +134,9 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
           author_reasoning: narrative,
           capability: Map.put(@text, :description, "仅 execute 时必填；explore 不提供。"),
           pending_artifact_ref:
-            Map.put(@nullable_text, :description, target_field_description(:pending_artifact_ref)),
+            Map.put(@text, :description, target_field_description(:pending_artifact_ref)),
           adopted_content_ref:
-            Map.put(@nullable_text, :description, target_field_description(:adopted_content_ref)),
+            Map.put(@text, :description, target_field_description(:adopted_content_ref)),
           modification_scope: %{
             type: "string",
             enum: Enum.map(AuthoringTask.modification_scopes(), &Atom.to_string/1),
@@ -160,7 +153,7 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
           },
           character_ref:
             Map.put(
-              @nullable_text,
+              @text,
               :description,
               target_field_description(:character_ref) <>
                 "先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"

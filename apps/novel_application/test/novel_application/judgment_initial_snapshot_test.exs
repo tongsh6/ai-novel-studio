@@ -343,22 +343,48 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert repeated.messages == third.messages
   end
 
-  test "固定 profile 的 schema 不随动态来源/对象/权限变化" do
-    first =
-      JudgmentProtocol.request_for_production(
-        input(capabilities: ["prose_writing"], explore: true)
+  test "固定 profile 的 schema 不随动态来源/对象/权限变化，三 wire 与恢复保留可选非空引用" do
+    first_input =
+      input(
+        capabilities: ["revise_pending_artifact"],
+        pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]},
+        explore: true
       )
+
+    {first, transcript} = production_request(first_input)
 
     second =
       JudgmentProtocol.request_for_production(
-        input(capabilities: [])
+        input(capabilities: [], pending_artifact_targets: %{})
         |> Map.put(:source_input_ref, "other-author-turn")
       )
 
+    assert {:ok, restored} = restore(transcript)
+    {replayed, _transcript} = production_request(Map.put(first_input, :transcript, restored))
     assert first.tools == second.tools
+    assert RequestIR.json_value(first.tools) == RequestIR.json_value(replayed.tools)
     assert first.tools == JudgmentToolContract.tools(:judgment)
     assert RequestIR.Tools.tool_choice(first) == "auto"
     refute first.messages == second.messages
+
+    for request <- [first, second, replayed], target <- @projection_targets do
+      assert {:ok, projected} = Projection.project(request, target)
+      tools = Enum.map(projected.tools, &(Map.get(&1, :function) || &1))
+      assert [tool] = Enum.filter(tools, &(&1.name == "judgment_decision"))
+      schema = tool[:parameters] || tool[:input_schema]
+      assert schema["type"] == "object"
+      assert schema["required"] == ["action"]
+
+      for field <- ~w(pending_artifact_ref adopted_content_ref character_ref) do
+        assert %{"type" => "string", "minLength" => 1} = schema["properties"][field]
+        refute Map.has_key?(schema["properties"][field], "anyOf")
+        refute field in schema["required"]
+      end
+
+      if target == "responses_api",
+        do: assert(tool.strict == false),
+        else: refute(Map.has_key?(tool, :strict))
+    end
   end
 
   describe "B71：judgment Request IR" do

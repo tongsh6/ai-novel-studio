@@ -146,6 +146,17 @@ defmodule NovelApplication.JudgmentToolContractTest do
 
     assert guidance =~ binding
 
+    branch = NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute")
+
+    for field <- [:pending_artifact_ref, :adopted_content_ref, :character_ref],
+        schema <- [tool.input_schema, branch] do
+      assert %{type: "string", minLength: 1, description: description} = schema.properties[field]
+      refute Map.has_key?(schema.properties[field], :anyOf)
+      refute to_string(field) in schema.required
+      assert description =~ "非空字符串"
+      assert description =~ "不提供此字段，包括 null"
+    end
+
     examples = [
       %{
         action: "explore",
@@ -162,6 +173,49 @@ defmodule NovelApplication.JudgmentToolContractTest do
     for arguments <- examples do
       assert ToolArgumentSchema.valid?(arguments, tool.input_schema)
       refute ToolArgumentSchema.valid?(Map.delete(arguments, :action), tool.input_schema)
+    end
+  end
+
+  test "三个目标引用可省略，出现时只接受非空字符串且 atom/string keys 一致" do
+    tool = Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "judgment_decision"))
+    branch = NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute")
+
+    for {field, capability, ref} <- [
+          {:pending_artifact_ref, "revise_pending_artifact", "as_pending"},
+          {:adopted_content_ref, "revise_adopted_content", "as_adopted"},
+          {:character_ref, "revise_character_profile", "character:actual"}
+        ] do
+      base = %{
+        action: "execute",
+        capability: capability,
+        dialogue_goal: "按真实对象提出候选",
+        author_reasoning: "保留作者指定的对象和范围。"
+      }
+
+      valid = [base, Map.put(base, field, ref), Map.put(base, field, " " <> ref <> "\n")]
+
+      for arguments <- valid,
+          encoded <- [
+            arguments,
+            Map.new(arguments, fn {key, value} -> {to_string(key), value} end)
+          ] do
+        assert :ok = validate(encoded)
+        assert ToolArgumentSchema.valid?(encoded, tool.input_schema)
+        assert ToolArgumentSchema.valid?(encoded, branch)
+      end
+
+      for value <- [nil, "", " \t\r\n", 1, 1.5, true, false, [], [ref], %{}, %{"ref" => ref}] do
+        arguments = Map.put(base, field, value)
+
+        for encoded <- [
+              arguments,
+              Map.new(arguments, fn {key, item} -> {to_string(key), item} end)
+            ] do
+          assert {:error, :invalid_tool_arguments} = validate(encoded)
+          refute ToolArgumentSchema.valid?(encoded, tool.input_schema)
+          refute ToolArgumentSchema.valid?(encoded, branch)
+        end
+      end
     end
   end
 

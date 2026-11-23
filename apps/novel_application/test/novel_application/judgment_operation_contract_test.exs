@@ -159,7 +159,10 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
   test "不使用目标引用的新建能力拒绝全部目标字段，包括 null" do
     for field <- ["pending_artifact_ref", "adopted_content_ref", "character_ref"],
-        value <- ["foreign-ref", nil] do
+        {value, reason} <- [
+          {"foreign-ref", "target_ref_field_conflict"},
+          {nil, "invalid_tool_arguments"}
+        ] do
       invalid = execute_call(Map.put(%{"capability" => "character_design"}, field, value))
       corrected = %{execute_call(%{"capability" => "character_design"}) | id: "target-clean"}
 
@@ -174,19 +177,19 @@ defmodule NovelApplication.JudgmentOperationContractTest do
                )
 
       assert judgment.action == "execute"
-      assert judgment.provider_call_count == 2
       assert judgment.pending_artifact_ref == nil
       assert judgment.adopted_content_ref == nil
       assert judgment.character_ref == nil
-      assert [failed, passed] = blocks(judgment.transcript, "validation_result")
-      assert failed.reason_code == "target_ref_field_conflict"
-      assert passed.status == "passed"
-      assert hd(blocks(judgment.transcript, "tool_call")).arguments == invalid.arguments
+      assert_target_correction(judgment, invalid, corrected, reason)
     end
   end
 
   test "候选修订只接受所属目标字段，其他两类引用及 null 都必须纠错" do
-    for extra <- ["adopted_content_ref", "character_ref"], value <- ["as_real", nil] do
+    for extra <- ["adopted_content_ref", "character_ref"],
+        {value, reason} <- [
+          {"as_real", "target_ref_field_conflict"},
+          {nil, "invalid_tool_arguments"}
+        ] do
       args = %{"capability" => "revise_pending_artifact", "pending_artifact_ref" => "as_real"}
       invalid = execute_call(Map.put(args, extra, value))
       corrected = %{execute_call(args) | id: "pending-corrected"}
@@ -206,11 +209,119 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
       assert judgment.action == "execute"
       assert judgment.pending_artifact_ref == "as_real"
-      assert judgment.provider_call_count == 2
-      assert [failed, passed] = blocks(judgment.transcript, "validation_result")
-      assert failed.reason_code == "target_ref_field_conflict"
-      assert passed.status == "passed"
-      assert hd(blocks(judgment.transcript, "tool_call")).arguments == invalid.arguments
+      assert_target_correction(judgment, invalid, corrected, reason)
+    end
+  end
+
+  test "多余旧章引用不能把普通候选或新建能力纠错成已采纳内容修订" do
+    for args <- [
+          %{"capability" => "revise_pending_artifact", "pending_artifact_ref" => "as_real"},
+          %{"capability" => "character_design"}
+        ] do
+      invalid = execute_call(Map.put(args, "target_chapter_ref", "chapter:foreign"))
+      corrected = %{execute_call(args) | id: "legacy-target-removed"}
+
+      assert {:ok, judgment} =
+               JudgmentProtocol.request_judgment(
+                 execution([
+                   judgment_response("", [invalid], "legacy-target-invalid"),
+                   judgment_response("", [corrected], "legacy-target-removed")
+                 ]),
+                 %{},
+                 judgment_input(
+                   capabilities: [args["capability"]],
+                   pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+                 )
+               )
+
+      assert judgment.capability == args["capability"]
+      assert judgment.pending_artifact_ref == args["pending_artifact_ref"]
+      assert [failed, _passed] = blocks(judgment.transcript, "validation_result")
+      refute failed.detail["message"] =~ "必须用 adopted_content_ref"
+      assert_target_correction(judgment, invalid, corrected, "invalid_tool_arguments")
+    end
+  end
+
+  test "错误引用后仅补正确引用并留 null 仍失败，两次交换后不得第三次调用" do
+    first =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "adopted_content_ref" => "as_real"
+      })
+
+    second =
+      %{
+        execute_call(%{
+          "capability" => "revise_pending_artifact",
+          "pending_artifact_ref" => "as_real",
+          "adopted_content_ref" => nil
+        })
+        | id: "pending-null"
+      }
+
+    assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 judgment_response("", [first], "pending-wrong-field"),
+                 judgment_response("", [second], "pending-null"),
+                 judgment_response("第三次调用不应发生。", [], "unexpected-third")
+               ]),
+               %{},
+               judgment_input(
+                 capabilities: ["revise_pending_artifact"],
+                 pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+               )
+             )
+
+    assert state.provider_call_count == 2
+
+    assert Enum.map(blocks(state.judgment_transcript, "tool_call"), & &1.arguments) ==
+             [first.arguments, second.arguments]
+
+    assert [failed, terminal] = blocks(state.judgment_transcript, "validation_result")
+    assert failed.reason_code == "target_ref_field_conflict"
+    assert failed.retryable == true
+    assert failed.budget_after == exchange_budget(1)
+    assert terminal.reason_code == "invalid_tool_arguments"
+    assert terminal.status == "failed"
+    assert terminal.retryable == false
+    assert terminal.budget_after == exchange_budget(2)
+    assert_target_guidance(terminal.detail["message"])
+    assert_receive {:provider_request, first_request}
+    assert_receive {:provider_request, second_request}
+    assert second_request.tools == first_request.tools
+    refute_receive {:provider_request, _third}, 10
+  end
+
+  test "省略、未知或带空白的引用不能自动绑定唯一真实候选" do
+    for ref <- [nil, "as_missing", " as_real\n"] do
+      args = %{"capability" => "revise_pending_artifact"}
+      args = if is_nil(ref), do: args, else: Map.put(args, "pending_artifact_ref", ref)
+      first = execute_call(args)
+      second = %{first | id: "unbound-second"}
+
+      assert {:error, {:pending_artifact_invalid, :target_not_available}, state} =
+               JudgmentProtocol.request_judgment(
+                 execution([
+                   judgment_response("", [first], "unbound-first"),
+                   judgment_response("", [second], "unbound-second"),
+                   judgment_response("第三次调用不应发生。", [], "unexpected-third")
+                 ]),
+                 %{},
+                 judgment_input(
+                   capabilities: ["revise_pending_artifact"],
+                   pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+                 )
+               )
+
+      assert state.provider_call_count == 2
+
+      assert Enum.map(blocks(state.judgment_transcript, "tool_call"), & &1.arguments) ==
+               [first.arguments, second.arguments]
+
+      assert_receive {:provider_request, _first}
+      assert_receive {:provider_request, _second}
+      refute_receive {:provider_request, _third}, 10
     end
   end
 
@@ -269,6 +380,47 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
     refute_receive {:provider_request, _third}, 10
+  end
+
+  defp assert_target_correction(judgment, invalid, corrected, reason) do
+    assert judgment.provider_call_count == 2
+    assert [original, accepted] = blocks(judgment.transcript, "tool_call")
+    assert original.arguments == invalid.arguments
+    assert accepted.arguments == corrected.arguments
+    assert [failed, passed] = blocks(judgment.transcript, "validation_result")
+    assert failed.call_id == original.call_id
+    assert failed.status == "failed"
+    assert failed.reason_code == reason
+    assert failed.retryable == true
+    assert failed.budget_after == exchange_budget(1)
+    assert passed.call_id == accepted.call_id
+    assert passed.status == "passed"
+    assert passed.retryable == false
+    assert passed.budget_after == exchange_budget(2)
+    assert_target_guidance(failed.detail["message"])
+    assert_receive {:provider_request, first_request}
+    assert_receive {:provider_request, corrected_request}
+    assert corrected_request.run == first_request.run
+    assert corrected_request.tools == first_request.tools
+    assert [correction] = blocks(corrected_request, "validation_result")
+    assert correction.call_id == original.call_id
+    assert correction.detail["message"] == failed.detail["message"]
+    refute_receive {:provider_request, _third}, 10
+  end
+
+  defp assert_target_guidance(message) do
+    for {field, capabilities} <- [
+          {"pending_artifact_ref", ["revise_pending_artifact", "discard_pending_artifact"]},
+          {"adopted_content_ref", ["revise_adopted_content"]},
+          {"character_ref", ["revise_character_profile"]}
+        ] do
+      assert message =~ field
+      for capability <- capabilities, do: assert(message =~ capability)
+    end
+
+    assert message =~ "非空字符串"
+    assert message =~ "不提供此字段，包括 null"
+    refute message =~ "必须用 adopted_content_ref"
   end
 
   defp gap_call(refs) do
