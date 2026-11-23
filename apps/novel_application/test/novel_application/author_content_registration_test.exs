@@ -52,29 +52,64 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
              AuthorContentRegistration.bind_judgment(registration("unread"), request)
   end
 
-  test "current 由本轮 goal 的真实作者 ref 解析，不取 parent 或消息序列最后一条 user" do
+  test "来源精确绑定真实 ref，同文多条作者消息也不按 goal、parent 或末条猜选" do
     original = "  上次潮来。\r\n"
-    request = source_request(original, "actual-current")
-    request = append_author(request, "另一条完整作者消息", "later-visible-input")
+
+    request =
+      source_request(original, "actual-current")
+      |> append_author(original, "later-visible-input")
 
     proposal =
-      registration("current")
+      registration("actual-current")
       |> Map.put(:author_content_source, %{ref: "self-reported", source_hash: sha256("伪造")})
 
     assert {:ok, bound} = AuthorContentRegistration.bind_judgment(proposal, request)
-    assert bound.author_content_source_ref == "current"
+    assert bound.author_content_source_ref == "actual-current"
     assert bound.author_content_source == %{ref: "actual-current", source_hash: sha256(original)}
     refute bound.author_content_source.ref == request.run.parent_turn_ref
     refute bound.author_content_source.ref == "later-visible-input"
+
+    assert {:ok, sources} = AuthorContentRegistration.author_sources(request)
+
+    assert MapSet.new(sources) ==
+             MapSet.new([
+               %{ref: "actual-current", source_hash: sha256(original)},
+               %{ref: "later-visible-input", source_hash: sha256(original)}
+             ])
+
+    for ref <- ["current", " actual-current ", "unread"] do
+      assert {:error, {:author_content_registration_invalid, :source_not_available}} =
+               AuthorContentRegistration.bind_judgment(registration(ref), request)
+    end
   end
 
-  test "current 不能由历史 run 的同名来源或未供应消息冒充" do
+  test "current 若是真实来源 ID 就按该条原文绑定，不借本轮 goal 解析" do
+    raw = "  这条来源的真实标识恰好是 current。\r\n"
+
+    request =
+      source_request("本轮 goal 指向另一条原文。", "actual-current")
+      |> append_author(raw, "current")
+
+    assert {:ok, bound} =
+             AuthorContentRegistration.bind_judgment(registration("current"), request)
+
+    assert bound.author_content_source == %{ref: "current", source_hash: sha256(raw)}
+  end
+
+  test "Scope 中宣称的来源和 goal 不能给未供应的作者原文授信" do
     request = source_request()
 
     messages =
       Enum.map(request.messages, fn
-        %{role: "user"} = message ->
-          put_in(message, [:canonical_ref, :run_id], "different-run")
+        %{role: "scope_update", blocks: [block]} = message ->
+          content =
+            block.content
+            |> put_in(["goal", "source_input_ref"], "unread")
+            |> Map.put("operation", %{
+              "author_content_sources" => [%{"ref" => "unread", "source_hash" => sha256("伪造")}]
+            })
+
+          %{message | blocks: [%{block | content: content}]}
 
         message ->
           message
@@ -82,7 +117,7 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
 
     assert {:error, {:author_content_registration_invalid, :source_not_available}} =
              AuthorContentRegistration.bind_judgment(
-               registration("current"),
+               registration("unread"),
                %{request | messages: messages}
              )
   end
@@ -164,11 +199,59 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
     assert hd(linked.items).body == raw
   end
 
+  @tag :r08_author_sources
+  test "当前真实来源进入公开目录并绑定完整原字节，首轮只构造一个 Scope" do
+    parent = self()
+    raw = "  之前的海。\n"
+    source_ref = "r08-current-author"
+    source_hash = sha256(raw)
+
+    input =
+      TestAgenticLoopFixtures.judgment_input()
+      |> Map.put(:author_text, raw)
+      |> Map.put(:source_input_ref, source_ref)
+
+    execution =
+      registration_execution(source_ref,
+        dialogue_goal: "登记本条原文",
+        narrative: "按原文形成待采纳候选。",
+        on_prompt: fn request -> send(parent, {:provider_request, request}) end
+      )
+
+    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution, %{}, input)
+    assert judgment.author_content_source_ref == source_ref
+    assert judgment.author_content_source == %{ref: source_ref, source_hash: source_hash}
+    assert judgment.provider_call_count == 1
+    assert_receive {:provider_request, request}
+    refute_receive {:provider_request, _}, 10
+
+    assert [base, scope, author] = request.messages
+    assert base.role == "application_base"
+    assert base.source_refs == [%{ref: "work:work-judgment-fixture"}]
+    assert base.base_refs == []
+    assert author.role == "user"
+    assert author.provenance == "author"
+    assert author.source_refs == [%{ref: source_ref}]
+    assert author.blocks == [%{type: "text", text: raw}]
+    assert author.canonical_ref.run_id == request.run.run_id
+    assert author.canonical_ref.run_sequence == 3
+    assert scope.role == "scope_update"
+    assert scope.versions["scope_revision"] == 1
+    assert [%{type: "scope", content: content}] = scope.blocks
+    assert content["goal"]["source_input_ref"] == source_ref
+
+    assert content["operation"]["author_content_sources"] == [
+             %{"ref" => source_ref, "source_hash" => source_hash}
+           ]
+
+    refute judgment.author_content_source.ref == request.run.parent_turn_ref
+  end
+
   test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do
     for {source, duplicate_call, reason} <- [
           {nil, false, {:author_content_registration_invalid, :source_required}},
           {"foreign", false, {:author_content_registration_invalid, :source_not_available}},
-          {"current", true, {:judgment_protocol_violation, :invalid_tool_combination}}
+          {"guard-source", true, {:judgment_protocol_violation, :invalid_tool_combination}}
         ] do
       execution = registration_execution(source, duplicate_call: duplicate_call)
 
@@ -193,12 +276,12 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
   end
 
   @tag :r08_author_sources
-  test "R08 current 取真实本条原文，短句含过去词也不能由机械词法拒绝" do
+  test "R08 按真实 ref 取本条原文，短句含过去词也不能由机械词法拒绝" do
     original = "  将本条原文登记为候选：上次潮来。\r\n"
     source_ref = "r08-current-original"
 
     execution =
-      registration_execution("current", narrative: "这条原文已形成待采纳候选。")
+      registration_execution(source_ref, narrative: "这条原文已形成待采纳候选。")
 
     {:ok, spec} =
       DialoguePlanningService.plan_agent_run(
@@ -310,7 +393,7 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
     author_text = "把这份大纲直接存档为作品设定：主角李衡靠账单推演天机，第一卷从记账学徒写到执掌灵市。"
 
     provider_execution =
-      registration_execution("current",
+      registration_execution("turn-acr",
         narrative: "我没有直接写入档案的能力；已把你的原文整理成待采纳候选，采纳后入档。",
         dialogue_goal: "把作者提供的内容登记进作品档案"
       )

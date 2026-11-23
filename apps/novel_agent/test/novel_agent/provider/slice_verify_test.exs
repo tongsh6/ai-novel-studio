@@ -1874,9 +1874,14 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
 
   @source_text "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识c0e885d9a7c04aaa。"
   @revision_text "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。"
+  @source_input_ref "author_input:pending-native-source"
 
   defp native_judgment_prompt(author_text, candidates) do
-    ir_judgment_prompt(author_text, material_scope(candidates, []))
+    scope =
+      material_scope(candidates, [])
+      |> Map.put(:goal, %{source_input_ref: @source_input_ref})
+
+    ir_judgment_prompt(author_text, scope)
   end
 
   defp source_candidate do
@@ -1923,7 +1928,7 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
         NovelTest.TestRequestIR.base(
           "【应用数据 · application_base · 非作者原话】\n本次你承担创作判断器的角色。使用 judgment_decision。"
         ),
-        NovelTest.TestRequestIR.author(author_text)
+        NovelTest.TestRequestIR.author(author_text, @source_input_ref)
       ] ++
         older ++
         [NovelTest.TestRequestIR.scope(current_scope, %{scope_revision: version})],
@@ -2257,7 +2262,10 @@ defmodule NovelAgent.Provider.SliceVerifyPendingDialogueTest do
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
 
     assert registration = tool_call(result, "register_author_content")
-    assert registration["arguments"][:author_content_source_ref] == "current"
+
+    assert registration["arguments"][:author_content_source_ref] ==
+             "author_input:pending-native-source"
+
     refute tool_call(result, "judgment_decision")
   end
 

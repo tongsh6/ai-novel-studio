@@ -378,7 +378,11 @@ defmodule NovelAgent.Provider.Stub do
              %{
                name: "register_author_content",
                arguments: %{
-                 author_content_source_ref: "current",
+                 author_content_source_ref:
+                   get_in(TestProviderPrompt.scope_content(prompt) || %{}, [
+                     "goal",
+                     "source_input_ref"
+                   ]),
                  dialogue_goal: stub_dialogue_goal(text),
                  author_reasoning: judgment_narrative_content(action, text)
                }

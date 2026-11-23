@@ -336,7 +336,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     reg =
       judgment_call("register_author_content", %{
-        author_content_source_ref: "current",
+        author_content_source_ref: "source-of-mixed-tools",
         dialogue_goal: "登记",
         author_reasoning: "生成候选"
       })
@@ -940,6 +940,17 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert scope.versions["change_reason"] == "run_scope_changed"
     assert scope.source_refs == [%{ref: "work:work-judgment-fixture"}]
 
+    expected_sources =
+      Enum.map([{"author-turn-a", author_a}, {"author-turn-b", author_b}], fn {ref, raw} ->
+        %{
+          "ref" => ref,
+          "source_hash" => :crypto.hash(:sha256, raw) |> Base.encode16(case: :lower)
+        }
+      end)
+
+    assert Enum.sort_by(scope.content["operation"]["author_content_sources"], & &1["ref"]) ==
+             expected_sources
+
     checkpoint =
       next_transcript
       |> AuthoringCheckpoint.checkpoint()
@@ -953,9 +964,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert restored_transcript.messages == next_transcript.messages
 
     Enum.each(~w(chat_completions anthropic_messages responses_api), fn target ->
-      expected = Projection.project(next_request, target)
+      assert {:ok, projected} = expected = Projection.project(next_request, target)
       assert Projection.project(duplicate_request, target) == expected
       assert Projection.project(restored_request, target) == expected
+
+      for %{"source_hash" => hash} <- expected_sources do
+        assert Jason.encode!(projected) =~ hash
+      end
     end)
   end
 
@@ -1185,57 +1200,6 @@ defmodule NovelApplication.JudgmentProtocolTest do
     correction = validation_text(List.last(corrected.messages))
     assert correction =~ "工具参数未通过 schema 校验"
     refute correction =~ JudgmentToolContract.legal_combination_guidance()
-  end
-
-  @tag :r08
-  test "current 绑定明确的本轮作者身份和完整原字节，首轮只构造一个 Scope" do
-    raw = "  之前的海。\n"
-    source_ref = "r08-current-author"
-    source_hash = :crypto.hash(:sha256, raw) |> Base.encode16(case: :lower)
-
-    input =
-      judgment_input()
-      |> Map.put(:author_text, raw)
-      |> Map.put(:source_input_ref, source_ref)
-
-    registration =
-      judgment_call("register_author_content", %{
-        "author_content_source_ref" => "current",
-        "dialogue_goal" => "登记本条原文",
-        "author_reasoning" => "按原文形成待采纳候选。"
-      })
-
-    assert {:ok, judgment} =
-             JudgmentProtocol.request_judgment(
-               execution([judgment_response("", [registration])]),
-               %{},
-               input
-             )
-
-    assert judgment.author_content_source_ref == "current"
-    assert judgment.author_content_source == %{ref: source_ref, source_hash: source_hash}
-    assert judgment.provider_call_count == 1
-    assert_receive {:provider_request, request}
-    refute_receive {:provider_request, _}, 10
-
-    assert [base, scope, author] = request.messages
-    assert base.role == "application_base"
-    assert base.source_refs == [%{ref: "work:work-judgment-fixture"}]
-    assert base.base_refs == []
-    assert author.role == "user"
-    assert author.provenance == "author"
-    assert author.source_refs == [%{ref: source_ref}]
-    assert author.blocks == [%{type: "text", text: raw}]
-    assert author.canonical_ref.run_id == request.run.run_id
-    assert author.canonical_ref.run_sequence == 3
-    assert scope.role == "scope_update"
-    assert scope.versions["scope_revision"] == 1
-    assert [%{type: "scope", content: content}] = scope.blocks
-    assert content["goal"]["source_input_ref"] == source_ref
-
-    assert content["operation"]["author_content_sources"] == []
-
-    refute judgment.author_content_source.ref == request.run.parent_turn_ref
   end
 
   test "M13：只有推理占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do

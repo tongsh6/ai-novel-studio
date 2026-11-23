@@ -151,7 +151,11 @@ defmodule NovelApplication.B81Cp2SessionDerivationTest do
     historical_hash =
       :crypto.hash(:sha256, @first_author_text) |> Base.encode16(case: :lower)
 
-    assert scope["operation"]["author_content_sources"] == [
+    current_hash =
+      :crypto.hash(:sha256, @second_author_text) |> Base.encode16(case: :lower)
+
+    assert Enum.sort_by(scope["operation"]["author_content_sources"], & &1["ref"]) == [
+             %{"ref" => "author-turn-2", "source_hash" => current_hash},
              %{"ref" => "turn-run-cp2-1", "source_hash" => historical_hash}
            ]
 

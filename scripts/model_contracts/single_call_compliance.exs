@@ -101,7 +101,7 @@ rows =
           context: %{},
           coverage: %{work: %{status: "not_read"}}
         },
-        options: [plan_run: run, author_content_sources: [source_input_ref]]
+        options: [plan_run: run]
       })
 
     requests = Agent.get(captured, & &1)

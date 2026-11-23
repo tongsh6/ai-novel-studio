@@ -28,7 +28,7 @@ defmodule NovelApplication.AuthorContentRegistration do
   def bind_judgment(judgment, %RequestIR{} = request) do
     if value(judgment, :action) == "author_content_registration" do
       with {:ok, sources} <- author_sources(request),
-           {:ok, ref} <- selected_ref(value(judgment, :author_content_source_ref), request),
+           {:ok, ref} <- selected_ref(value(judgment, :author_content_source_ref)),
            %{} = source <- Enum.find(sources, &(&1.ref == ref)) do
         {:ok, Map.put(judgment, :author_content_source, source)}
       else
@@ -41,34 +41,10 @@ defmodule NovelApplication.AuthorContentRegistration do
     end
   end
 
-  defp selected_ref(nil, _request), do: {:error, :source_required}
-  defp selected_ref("", _request), do: {:error, :source_required}
-  defp selected_ref("current", request), do: current_source_ref(request)
-  defp selected_ref(ref, _request) when is_binary(ref), do: {:ok, ref}
-  defp selected_ref(_ref, _request), do: {:error, :source_required}
-
-  defp current_source_ref(request) do
-    scope =
-      request.messages
-      |> Compaction.project()
-      |> Enum.reverse()
-      |> Enum.find(&(&1.role == "scope_update"))
-
-    with %{provenance: "application", canonical_ref: owner, blocks: blocks} <- scope,
-         true <- same_scope?(owner, request.run),
-         true <- value(owner, :run_id) == value(request.run, :run_id),
-         %{content: content} <- Enum.find(blocks, &(&1.type == "scope")),
-         ref when is_binary(ref) <- value(value(content, :goal), :source_input_ref),
-         true <-
-           Enum.any?(request.messages, fn message ->
-             value(value(message, :canonical_ref), :run_id) == value(request.run, :run_id) and
-               match?(%{ref: ^ref}, canonical_source(message, request.run))
-           end) do
-      {:ok, ref}
-    else
-      _ -> {:error, :source_not_available}
-    end
-  end
+  defp selected_ref(nil), do: {:error, :source_required}
+  defp selected_ref(""), do: {:error, :source_required}
+  defp selected_ref(ref) when is_binary(ref), do: {:ok, ref}
+  defp selected_ref(_ref), do: {:error, :source_required}
 
   defp canonical_sources(request) do
     request.messages
@@ -299,9 +275,8 @@ defmodule NovelApplication.AuthorContentRegistration do
       待采纳的作品设定候选；应用按来源逐字复制，不调用创作能力重写，也不直接写入档案。
       这里的原文是被引用消息的完整文本，包括同条消息中的指令性前缀；系统不会自动抽取资料段或删去前缀，
       不能在回复中声称会剔除它们。若作者希望只保留资料内容，应修订现有候选或在“修改后保存”中编辑全文。
-    - author_content_source_ref 使用当前 Scope.operation.author_content_sources 中的 ref；
-      current 表示本轮完整作者消息本身就是要登记的原文。source_hash 是应用提供的来源证据，不是工具参数。
-      选择依据是作者真实意图和完整原文，不由某个指代词、句长或标点决定。
+    - 来源选择依据是作者真实意图和完整原文，不由某个指代词、句长或标点决定。
+      source_hash 是应用提供的来源证据，不是工具参数。
     - 历史来源必须是实际供应的完整作者消息，其原文本身就是作者要登记的具体内容；
       目录、摘要、同名提及或模型答复不能替代该原文，也不能将本轮保存指令冒充历史资料。
       需要补足来源时，可用 session_message_read 按真实消息坐标读取；部分页需继续读取直到来源完整。

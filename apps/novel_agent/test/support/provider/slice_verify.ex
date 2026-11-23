@@ -4955,7 +4955,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           do:
             Map.merge(args, %{
               "author_content_registration" => true,
-              "author_content_source_ref" => "current"
+              "author_content_source_ref" =>
+                get_in(TestProviderPrompt.scope_content(source) || %{}, [
+                  "goal",
+                  "source_input_ref"
+                ])
             }),
           else: args
       end)

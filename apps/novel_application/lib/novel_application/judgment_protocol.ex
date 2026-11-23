@@ -745,7 +745,7 @@ defmodule NovelApplication.JudgmentProtocol do
       pending_artifact_targets: Keyword.get(options, :pending_artifact_targets, %{}),
       adopted_content_targets: Keyword.get(options, :adopted_content_targets, %{}),
       registered_sources: Keyword.get(options, :registered_sources, []),
-      author_content_sources: Enum.reject(author_sources, &(&1.ref == source_input_ref)),
+      author_content_sources: author_sources,
       exploration: %{
         allowed: Keyword.get(options, :explore, false),
         tools: Keyword.get(options, :explore_tools, []),

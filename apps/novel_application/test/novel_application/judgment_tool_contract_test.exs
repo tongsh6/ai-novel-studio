@@ -176,6 +176,25 @@ defmodule NovelApplication.JudgmentToolContractTest do
     end
   end
 
+  test "原文登记参数显式选择真实来源 ref，固定合同不嵌入动态来源枚举" do
+    assert JudgmentToolContract.version() == "b26-tools-v7"
+
+    tool =
+      Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "register_author_content"))
+
+    schema = tool.input_schema
+    assert schema.type == "object"
+    assert "author_content_source_ref" in schema.required
+
+    assert %{type: "string", minLength: 1, description: description} =
+             source = schema.properties.author_content_source_ref
+
+    assert description =~ "author_content_sources"
+    assert description =~ "ref"
+    refute Map.has_key?(source, :enum)
+    refute Map.has_key?(source, :anyOf)
+  end
+
   test "三个目标引用可省略，出现时只接受非空字符串且 atom/string keys 一致" do
     tool = Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "judgment_decision"))
     branch = NovelApplication.JudgmentDecisionToolContract.schema_for_action("execute")

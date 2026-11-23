@@ -5,7 +5,7 @@ defmodule NovelApplication.JudgmentToolContract do
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
 
-  @version "b26-tools-v6"
+  @version "b26-tools-v7"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
@@ -129,7 +129,12 @@ defmodule NovelApplication.JudgmentToolContract do
       "register_author_content",
       "按明确来源逐字登记作者原文为待采纳候选，不重写。",
       %{
-        author_content_source_ref: @text,
+        author_content_source_ref:
+          Map.put(
+            @text,
+            :description,
+            "原样使用 Scope.operation.author_content_sources 中作者消息的 ref；目录包含当前及已完整提供的历史原文，本轮消息由 Scope.goal.source_input_ref 标识。"
+          ),
         dialogue_goal: @text,
         author_reasoning:
           Map.put(
