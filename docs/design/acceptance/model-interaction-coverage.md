@@ -271,3 +271,49 @@ v2 `successor_observation` 严格冻结 `source:{path,sha256,expected_turns:1}`�
 **采集与核验的报告分责（普通33后修订）。** 现役capture IO按本批ready、request注册清单和三份raw bin列库存，不读取人工独审artifact或凭任意bin宣称整批采集。无材料为not_collected；必需集合可读且闭合记录齐全为collected_unverified；缺件/坏记录/读取失败/仍活动未封存为collection_incomplete。合法取消、上游错误或cleanup的封存partial可有完整采集库存，原执行截断与采集缺件分别列事实。文件可读、长度/hash只是局部观察，不等于调用身份、SSE终结或产品消费核验；这四类自动核验保持not_evaluated，不引入第二SSE解析器或完成台账。
 
 报告原字段语义改变明确发布b87-request-cost-native-report/v2：批次summary.raw_http_bytes/raw_sse为上述采集态并附source_scope及raw_transport库存；HTTP仅指实体字节而非TLS包/transfer framing，SSE仅据已声明content-type列原件，不签协议合法性。单调用/历史LLM日志分析仍明确其log-local无原件，不代表整批没有外部材料；成本子窗口未做传输身份绑定也不得借批次库存冒称自身raw已核。旧v1报告保持不变，重算只写独立derived目录；库存不改变原机制status、语义判据或20轮准入。现役消费者检索只见batch报告/Markdown/summary与相邻测试，沿现schema常量升级，不改变产品协议。复用request_cost_capture、batch_evidence与log-local evidence及原测试，不新增实体；独立反例覆盖旧无件、完整未核、已封存partial、缺件/活动、伪人工PASS、跨目录原件和原报告不可覆盖。
+
+### 5.11 R08 独立实模批次的上游请求预算
+
+R08 §19.4 要求在执行前冻结独立调用上限。作者输入次数、每轮等待及 owned 根进程总截止分别约束输入和时间，不能证明真实供应商调用总量；现 AgentRun 执行预算也不能覆盖批内全部规划与维护调用。复用既有 native_provider_stream_proxy 的实际转发边界，以可选的正安全整数 maxUpstreamRequests 冻结本代理生命周期的上游请求硬上限；不新增预算模块、代理、产品配置或模型输出规则。
+
+在原 URL/API 前缀校验通过后、创建 http(s).request 之前，同步预留一次额度，之后不因上游失败、取消或客户端断开退还；预留与开始转发之间不得有异步等待。所有获准创建上游请求的 HTTP 尝试均消耗额度，包括 GET /models，避免按模型路径分类形成遗漏。控制端口只读观察不转发，不消耗额度。达到上限后保留原始入站尝试与明确的预算拒绝事实，返回独立 HTTP 429，不再创建上游请求、不重试、不生成模型内容、不清退已有请求。客户端重试仍只能得到拒绝；根命令 deadline 负责其总时长。预算停止不计为模型语义失败，也不得签完整场景通过。
+
+ready/state 与既有 JSONL 保留冻结上限、已准入上游请求数和预算拒绝数；准入计数表示额度消耗，不证明远端实际收到或生成。原请求和上游响应字节、已存在的观察/取消/清理证据保持。报告必须区分上游 HTTP 请求数和经真实调用身份核验的模型调用数，不能把健康探测称为模型调用。未设置该可选额度的现 C8/观测消费者明确为无此总量限制，不反向改写其原预算或结果；R08 新批次必须显式提供上限，不把缺值推定为有界。
+
+R08 三轮 Before 与 After 分别启动独立 observe 代理，复用同一已冻结代理源码/hash和相同额度，通过已有 NOVEL_SPLASH_ENDPOINT 只给各自隔离 backend 注入地址；旧 Before 产品 checkout 保持原提交字节。原 batch 输出目录由现 batch 创建，代理原件放独立新目录并绑定该臂 runtime facts、真实请求及产品执行双引用。代理控制量与实际 model/effort/max_tokens、原三条输入、完整快照、每轮等待、零 harness 重试和 owned 总截止共同冻结，不借旧批次预算，也不修改原快照或 scope 归属。
+
+七问/存在性审核：Contract=本节与B87 R08真实调用上限；Invariant=不会向上游发出超过冻结额度的请求、原字节/错误事实保留；Boundary=现外部proxy及同名测试/CLI，不动生产判断/Provider/数据库和Before产品源；Consumer=当前R08独立A/B与B33实模执行；Proof=独立本地HTTP计数、并发额度竞争、上游失败/取消不退款、非法目标不派发、客户端重试/GET探测、无额度既有gate/observe和原字节透明性；Acceptance Driver=现native_request_cost/native_b33与原owned边界；Exploration=复用现代理JSONL/原bin/只读state及持久调用关联，不新增来源或完成账本。时间与磁盘观察开销如实披露，不宣称无扰动。
+
+### 5.12 R08 当前作者原文与普通候选修订的实模消费者迁移（2026-11-23）
+
+本节消费愿景 §2.1–2.4、VS-00M §6.4 与 ADR-0035，复用 B71 pending 的现有三输入及作者动作链。目标是当前短作者原文以原字节登记为 tentative，普通修订形成独立候选，作者分别采纳修订、放弃原稿，恢复后能据真实处置事实回答。它是 R08 完整矩阵中的一个 checkpoint；历史十条以外来源、原文完整分页、仅接收/缺来源、引用段号/数值、多候选消歧与章范围仍须按 B87 §19.8 补证，不能由本链或旧 pending PASS 代签。
+
+**实施前独立判据。** 第一条仍为“把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识<nonce>。”；第二条仍为“请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。”；第三条仍为“资料处理进度怎么样？”。nonce 在本次启动之前选定，并与这三条完整原文、现 seed 脚本 SHA、供应商/模型/现役 runtime、证据目录和预算封存在同一份已有 preregistration.json 中；prepare/driver/verifier 只消费该副本，不能运行中重生 nonce 或按结果改输入。seed 仍只建立空作品和活动会话，不预造候选、调用或作者动作；真实 work/session 身份由本次 seed 和真实输入回执绑定。
+
+| 观察边界 | 独立成功事实 | 必须拒绝的反例 |
+|---|---|---|
+| 当前作者来源 | 唯一真实 user_message/ACK/run 与同作品会话来源绑定；源候选完整 body 等于该条原文，provider_call_ref 为其真实 author_input 身份；无创作 Writer、无 canon 写入 | 历史或 assistant 同文冒充本条、改写/截断原文、错 run/session、提前保存 |
+| 普通修订 | 本轮原文与真实完整源候选进入同次请求；当前 run 的 Writer 原响应与全部 item 字段精确相等，revision_of 指向源候选；原候选保留 | 旧会话 Writer 冒充本次、错候选、缺/重复 item、仅部分字段相同、没有真实原响应 |
+| 作者裁决 | 修订采纳与源稿放弃分别绑定唯一 action/ACK/result/持久 receipt；仅修订原字节进入确认态，原候选仍可独立处置 | 候选出现即算采纳、错兄弟按钮、重复/串用回执、采纳/放弃调用模型或额外 canon 改动 |
+| 恢复与后续请求 | 同一作品会话恢复真实已处置状态、无模型调用；第三条是独立作者 run，实际 Scope 带正确 identity/status/title/revision_of 与覆盖，回复来自该次真实 Provider 原字节 | 清除合法会话历史、旧作者/旧回复冒充当前、错/缺处置状态、只凭正文片段猜身份、当前 run 又生成候选或执行作品动作 |
+| 真实供应商与失败 | 声明、ready/runtime、真实日志与持久 ProviderRun 归属可对账；调用按实际身份统计，协议纠错不是自动作者补答 | 以固定成功调用数保护 fixture、把历史请求中的工具当成新调用、错误/缺证仍签 PASS、用旧批次或任意较后响应洗绿 |
+
+**存在性与职责裁决。** native_b71_batch 负责已有 pending route、预注册启动前快照/封存和原 driver 选择；authoring_capture_evidence 负责同一个预注册校验、nonce/三原文/seed/budget 配置与实际 runtime；authoring_pending_driver 继续真实 UI 的输入、独立动作、恢复和失败留证，不添加自动回答；authoring_pending_run_evidence 消费真实 WS/DB/log 并编排判据；authoring_pending_evidence 保留 AX 唯一候选/动作、原字节和 canon 的纯规则。响应形状复用 live_run_wait 的 recordResponseBody/recordResponseToolCalls，canonical/请求身份复用 authoring_call_evidence 与 authoring_history_evidence，不新增 parser、reader、schema、harness 或产品 hook。
+
+**SSE 回复的持久来源边界。** 当前真实 SSE 日志只保留解码工具事实，不能凭缺失 content 宣称取得了原始回复。成功回复沿现 authoring_call_evidence.readProviderRuns 的显式消费者选项读取同一只读快照内已有 ProviderOutput.content_summary；唯一当前 pcall/prun、同 AgentRun 的 completed ProviderRun 与 status=ok 输出、作品/会话/父轮归属成立后，以真实已记录 content_sha256 核 canonical 回复字节，再与本轮作者可见回复比较。预期 hash 来自持久 Provider 输出，不能由 canonical 自行生成两端期望。缺成功输出、重复输出、hash 不符、错 call/run、失败/取消输出、范围错绑一律不授信；现错误分支与其它 reader 消费者行为保持。该证明只签“持久 Provider 输出摘要→canonical 字节→本轮回复”，不签 raw SSE 采集/终结；外部代理原件仍由后续实际批次单独核验，原采集态不改写。
+
+ADR-0035 允许并要求合法跨轮 assistant/tool 历史进入新请求。退役 followup 对整份请求角色的禁令，改核本条真实作者边界、同次完整 canonical 请求配对及当前 run 的实际工具/回复；历史工具不等于本轮调用。followup Scope 逐次绑定实际 pcall/prun，不要求只发生一条 Provider 调用；产品有界纠错或只读探索不能用固定 call-count 误拒，当前真实创作/登记/采纳动作仍不允许。Writer 与回复沿共享响应读口消费 fixture 或真实 Chat Completions 记录，SSE 日志仅保留解码工具事实时不能补造原正文信用。
+
+本批新实模入口仅启用已授权 Splash，沿已有 B71 runtime recipe 显式冻结受控参数，不把它描述为产品默认；外部模型服务不属于 owned 进程树，不 load/unload/stop。已有三输入预算为一批、三次发送、零 harness 重试，输入/ACK 30 秒、每轮完成 240 秒、owned 场景上限 900 秒；实际 Provider 总调用由真实记录逐笔保留，后续执行的硬准入预算由现外部 proxy 在本批冻结，不借 A/B 或 B33 的配额。机制测试不启动 UI/模型，真实批次仍须 fresh source、当前 summary/binding 与独立结果审读。
+
+**七问。** Contract 为上述现有会话、来源、普通修订和作者裁决合同；Invariant 为作者原字节、真实来源、tentative/采纳分离、会话连续与缺证失败；Boundary 仅现外部 batch/capture/pending driver/evidence 及邻接测试，不扩产品 prompt；Consumer 为现 b71-authoring-pending 原生入口；Proof 为字面独立正反例、真实 SQLite/日志/帧的现有回归及相邻门禁，后续真实 Tauri/Splash 单批另签；Acceptance Driver 仍为 native_b71_drive→drivePending；Exploration 复用现会话事实、Scope 与请求配对，不新增知识供给或第二控制环。
+
+### 5.13 当前作者边界内的原生能力缺口终态（2026-11-23）
+
+R08 After01 的第三次实际运行已 completed，原响应经判断校验接受，真实页面也显示该轮能力缺口、完整回复和 Why；原 authoring_g2_evidence 只把 AXGroup 的 description 前缀识别为缺口，漏掉现界面同层 AXStaticText 标记，随后又被前一轮真实 awaiting_author 面板阻断普通回复的全局 idle 回退，最终外部驱动等满360秒。原运行仍为 FAIL/partial，不能用持久终态补签页面或改写原 summary。
+
+职责只归现 AX 场景证据消费者：在最近实际作者消息的现有边界中，以真实 AX 层级关联能力缺口标记、该轮回复与 Why；消费现有 AXGroup 与本次确认的静态标记形状，不新增 UI 状态或产品 hook。普通回复原全局 idle 规则不删除；只有本轮明确的缺口终态结构能绕开无关旧等待面板。标记不得由任意正文词语、历史节点、旧 Why 或下一作者边界外内容提供，不能用 canonical/DB 终态直接让 UI 检查通过。
+
+独立正例是旧 awaiting_author 面板仍在而新作者边界内有真实静态缺口标记、完整回复和 Why；反例必须保留旧标记/旧 Why、新作者缺失、仅正文引用同词、回复/Why缺项、流式未终结和错误层级。原 AXGroup 形状继续按原边界工作。测试期望独立写出；本次 After01 原始 AX 可只读用于派生回归，派生结果不覆盖原 FAIL 或制造原批次 binding。新原生复核只能在修复集成、源码/输入/预算重新冻结后执行，零自动重试仍按每个独立批次保留。
+
+七问：Contract=当前真实工作台作者边界和终态可见性；Invariant=本轮作者/标记/回复/Why绑定及原失败保留；Boundary=现 authoring_g2_evidence 与同名测试/必要既有fixture，生产模块none；Consumer=现 request_cost waitFreshTurn及共享AX消费者；Proof=独立正反例、真实失败AX只读派生回归和后续fresh原生批次；Acceptance Driver=现 native_request_cost，复用原owned/scope；Exploration=不适用，未新增作品知识、意图判断或模型供给。

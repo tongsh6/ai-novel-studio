@@ -2843,7 +2843,7 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 
 ### 19.1 调度授权、基线与原批次保留
 
-**当前 R08：BLOCKED（实现与工程检查已交付，原生 UI / 实模语义未闭环），不签 PASS。** 作者在本会话明确“先进入R08”，据此调整原 R05/R07 PASS 的开工顺序，独立推进本卡目标；这是任务级调度，不是把 R07 补签通过。R07 的实现及工程验证已分组推送，§18.7 的 native、ui-binding 和原 scope completion 缺口原地保留；R06 原失败亦保持。R08 若暴露这些依赖的真实缺陷，按原责任记录，不用本批结果反向签收前批。
+**当前 R08：未验收（原生已恢复，本轮工程修复已实施；实模语义失败与完整矩阵缺证保留），不签 PASS。** 作者在本会话明确“先进入R08”，据此调整原 R05/R07 PASS 的开工顺序，独立推进本卡目标；这是任务级调度，不是把 R07 补签通过。R07 的实现及工程验证已分组推送，§18.7 的 native、ui-binding 和原 scope completion 缺口原地保留；R06 原失败亦保持。R08 若暴露这些依赖的真实缺陷，按原责任记录，不用本批结果反向签收前批。
 
 本批基线：develop/dialogue-based-novel-workbench，HEAD `429c8fc417e2c2c81978c7ea41b52e7335c29ed1`，开工时工作树干净。实施前已执行 `bash scripts/task_done.sh --begin artifacts/slice-verify/b87-r08-20261122/scope.json --task tasks/slices/B87-model-interaction-request-projection/R08.md`，exit 0；scope_id `d072fb9c-7dfb-40b1-8d3a-9918e9279ef6`，原件 SHA `36c421a254cba3abc4528009ebf98e5610dc2e654731c819f81d7b290b2c22c7`。该范围不复用 R07 scope，也不代表授权以外的完成证明。
 
@@ -3013,3 +3013,112 @@ NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保�
 **最终工程核验入口与任务签字边界。** 提交前沿原 scope `d072fb9c-7dfb-40b1-8d3a-9918e9279ef6` 执行 `bash scripts/task_done.sh --scope artifacts/slice-verify/b87-r08-20261122/scope.json --top 10`，不使用 quick/skip；本次输出固定在 `resume-engineering-scope-01.log`，owned 记录在同名目录，真实 manifest/checks-start/checks-binding 由该 owner 生成，具体目录和执行结果以日志及原件为准。现 `--ui-required` 的源码路径判定实际返回 false，仅表示本批没有自动门禁定义的生产 UI 文件变更；该 owner 的 `task_acceptance=not_asserted` 与 engineering-only 证据边界不免除 R08 明列的原生实模 DoD。首次裸扫描与后续同源工程记录分别保留，不能把后者升级为真实页面或模型行为证明。
 
 **当前签字仍为 R08 BLOCKED / NOT PASS。** 下一步先由作者在本机处理实际安全弹窗，再按 §19.7 冻结当前源码配对 A/B 与各批独立预算、恢复真实 Tauri 验收，并沿上表已有 owner 补齐来源/引用/歧义/普通与章修订矩阵。工程提交不撤销原失败，不前移 R09，不代签 R06/R07，也不把六场 B33 当作完整 R08。
+
+### 19.9 原生恢复与实模预算前置（2026-11-23）
+
+接续实际 HEAD 为 d0a6733be999e2c6788de9604fb96497149a4ec0，主线及工作树重新核实，无未提交改动。沿原 R08 scope 继续，不重建开工记录。当前前台为 com.openai.codex（PID 69246），已不再被上次 SecurityAgent 占据；随后实际新批次证明工作台已能激活、输入和展示，不据前台进程名称单独宣称 UI 验收通过。
+
+新批次 ui-first-consumer-02 使用现 native_b71_batch、b71-first-consumer + slice_verify、tag=r08-ui-scope-02；在执行前由原 scope start-execution 冻结当前源及预选 summary，未继承 live/故障/补答路线。真实驱动完成作者输入、两页正文读取和最终回复，driver exit 0；runner exit 1，失败为 complete_reading_events_are_bound、continuation_query_is_verbatim。owned run 936e882f6c9729fd 用时47808ms、tree_finalized=true，独立应用 cleanup remaining=[]；本轮真实模型调用0。原件在 artifacts/slice-verify/b71-first-consumer-tauri-native-r08-ui-scope-02，执行记录在本scope native-runs/ui-first-consumer-02。最终页面截图 SHA 0171ec91d4176ecf1217b1a7b5e819e0f164485be7e8653d47c8a1b821a4789b；实际 finish-execution 因无合格summary退出1，没有补造binding。两项失败先按实际请求/观察/事件链定位，不删断言或改写原结果。
+
+实模前预算审查另发现：现 request_cost 与 B33 只固定作者输入/每轮等待/零harness重试，没有批内真实调用总上限；AgentRun执行预算不能覆盖全部规划，只有总deadline也不能证明调用数量。实施前裁决归现 model-interaction-coverage §5.11：只在既有 provider stream proxy 的上游转发前同步预留额度，所有获准创建上游请求的HTTP尝试消耗额度，远端实际收到/生成不能由准入计数推定；模型调用另据真实身份计量；错误/取消不退款，耗尽后不再转发。两臂复用同一当前proxy源码、各自独立进程与额度，通过既有NOVEL_SPLASH_ENDPOINT注入；429c8fc4的Before产品源不改。新增预算模块、harness、业务Schema、产品hook均为none；现proxy/同名测试为当前实现落点。实际三轮输入、完整快照、Before/After身份、上限数值及独立时间预算仍在首次实模前按原owner冻结，未执行不记通过。
+
+**续读消费者实施前裁决。** UI02 的两项失败同源于现 authoring_scenario_evidence 的旧核验：要求 previous.content.summary 包含下一次完整 query。VS-00M §6.1 已明确 query 为原字节运输、续读资格来自真实上一页 Observation 及结构化来源/next_offset；该契约无需修改。UI02 实际三端 query 一致，当前请求最近 Scope 也提供相同章引用和 next_offset=6000，不能据旧说明文字缺 JSON 判源链失效。迁移仅归现 nativeRequestChecks：从实际上一页定位本次续调之前最近有效 Scope，核同一 chapter_ref、精确 next_offset、工具资格和对应 call/Observation；未来或被覆盖的旧 Scope 不得代证。保留三端 query 原字节、真实来源/版本、页覆盖及事件绑定，不以删检查换通过。
+
+同链 DialoguePlanningService 的通用指引仍称上一页【续读】给出 query，与现契约不一致；在既有指引内改为使用真实结构化来源和分页坐标，不恢复摘要 JSON、不额外供应 query、不增专项 prompt 分支。源码落点限现 authoring_scenario_evidence 及其测试/既有场景 fixture、DialoguePlanningService 与 judgment_exploration_loop_test 既有断言。先留独立正反例 RED，再实施 GREEN；原 UI02 失败原件保持不变，最终源码以新 tag 另跑原生验证。新增实体/框架/来源/权限均为 none。
+
+**本次实现与独立验证。** 续读 consumer 的 RED 为91项/26失败；GREEN与最终源码回归均91/91，既有应用全章回环 RED 为6项/1失败、GREEN为6/6，格式与diff检查通过。测试同时拒绝未来/过期Scope、异章/错offset、关闭资格、换版本和仅语义相等但原字节不同的query；不把摘要删检当作修复。准入proxy的独立真实本地HTTP RED为20通过/12失败，GREEN为32/32，三个邻接文件回归58/58；独立只读复核未发现阻断项。proxy冻结SHA为61786b570abe739b634fc12f8349aeda8507f2cf6f0f12536d32ac527ba1f703，同名测试SHA为9841d18b0476074ebd98a7b0ad55073183570a93fe63f1176423f6c39223cbc7。以上归档均在本scope的resume-20261123，真实模型调用仍为0。
+
+**原三轮本批预算冻结。** 新manifest为ab-20261123/manifest.json，SHA ce4a1f182c3cc07481d627f77ca1b36fc450527655ccfc12f59a3c52c343cc65。只执行length=3；Before/After每臂一次、三条原话、零补答、零harness/人工重试。每臂独立proxy最多准入24次上游HTTP尝试，错误/取消不退还；既有单调用deadline显式注入300000ms，driver单次等待360000ms，owned整臂总截止1200000ms。原manifest的3/10/20格式不授权10/20。达到额度或截止记budget-stop；驱动/环境错误停止本臂并保留失败。合法waiting/capability_gap时沿现driver可见“开始新讨论”规则输入下一条冻结原话，不在报告中虚称遇waiting立即停止。两臂无任意自动重跑或重启proxy补额度。
+
+**Before准备与数据配对。** 新独立工作树ab-20261123/before-source固定429c8fc417e2c2c81978c7ea41b52e7335c29ed1，原snapshot owner记录fingerprint dde9e7e22285c59f5c5cc7eb1a9ca79bb724d9833d4705ccf7019611d2852104。首次worktree add的原post-checkout因PATH缺git-lfs退出2，补齐已安装工具PATH后正常执行同一hook；没有重建checkout或绕过hook。原日志和完整snapshot七个文件复制到该root同路径并逐字hash对账，两臂loadSourceAuthors/preflightNative均通过（owned 43b22587830d5af7）；240条引用日志签名及作品内容签名一致。
+
+Before的Mix test编译和生产sidecar均由自身源码重新生成（owned 9473347a34bb3de2，exit0）；没有复制After的BEAM、app、target或sidecar。相同锁定依赖复制后发现pnpm shim残留After绝对NODE_PATH，普通offline安装真实no-op，身份检查如实失败；随后由原pnpm --force --offline --frozen-lockfile重建，下载0、锁与产品源未变、shim已指向Before（owned 35f9f5114009995d）。其独立原生构建已exit0；正式runner仍在该root按本臂端点生成真实页面。Before数据/依赖/build原件均在ab-20261123及该工作树自身artifacts目录，旧批次不覆盖。
+
+**当前签字为R08进行中 / NOT PASS。** 原生阻塞已恢复；源码与独立预注册冻结后，先以新ui-first-consumer-03/原scope记录验证完整续读，再沿现native_request_cost执行各一次真实Before/After。After源以执行前原snapshot/start-execution原件为准，不能把旧HEAD标签当作当前dirty源码；两臂共同proxy源码另以冻结SHA绑定。原生机制、真实模型语义、完整R08矩阵和工程出口分别判定，未执行不写通过。R07原签字与§19.8其余来源/引用/歧义/候选矩阵缺口继续保留。
+
+**执行前预注册修订与已验源码。** ui-first-consumer-03 已真实通过20/20，原scope finish-execution=passed；owned 369a5ec41a6527f4 用时47444ms，tree_finalized=true，cleanup remaining=[]。对应源码fingerprint 32f8d48f2cf9b24e52fb11446e82f715593aeabe46c8a5be9bc136f9774ab873；四次Provider调用均为slice_verify，真实模型仍0。完整后端3748项零失败，编译/循环/架构/strict Credo通过（owned ec8a1bd33fe955ac）；原生证据相关五文件204/204通过（owned b0c2ead3529f6c7d）。
+
+首次实模前另核实WorkspaceChat每30秒健康检查也经Gateway请求/models，故24次HTTP预注册及frozen-commands.json保持为未执行历史，现以manifest-02.json（SHA a0874bd880b7cefd021ca858ac70be8d5af5abd68e86c2d9eeab8d63dd10031a）替代，每臂统一64次总HTTP准入，包含持续健康开销；20分钟根截止、单调用300秒、每次等待360秒、三条原话及零重试不变。这是首次实模前的预算修订，不是运行后扩额；实际model调用数另按pcall/prun核验，64不解释成已经调用或额外场景许可。
+
+endpoint优先级已核两臂同源：本批env供base，空RuntimeConfig不会从DB快照恢复地址；前端持久偏好可覆盖base，所以不能称env不可覆盖。现runner给每个新bundle写独立desktop_profile，缺本profile preferences时不恢复作者旧地址；实际profile、启动runtime-facts与原调用URL须同批保留对账。现自动batch没有proxy endpoint等值硬门，本批不虚称新增此门。正式命令仍仅组合原proxy API、原batch与原owned入口，两臂相互独立；After本次追加仅任务事实与预算文档，正式源重新由snapshot/start-execution冻结，不覆盖UI03原绑定。
+
+### 19.10 R08 pending 实模验收消费者的独立候选迁移（2026-11-23，实施前）
+
+父线程为并行完成 §19.8 原范围建立 detached `d0a6733be999e2c6788de9604fb96497149a4ec0` 候选工作树 `artifacts/slice-verify/b87-r08-20261122/pending-20261123/source`。本 checkpoint 仅在该工作树改动现役验收 owner 和本节/验收设计；主工作树正冻结 UI03、原三轮 A/B 与 B33，禁止写入主路径，也不新建 R08 scope。候选的 §5.12/本 §19.10 独立追加，后续集成须保留主树 §5.11/§19.9，不能覆盖另批裁决及证据。
+
+依据愿景→VS-00M §6.4/ADR-0035→[验收设计 §5.12](../../docs/design/acceptance/model-interaction-coverage.md#512-r08-当前作者原文与普通候选修订的实模消费者迁移2026-11-23) 固定独立预期：当前短作者原文→普通修订候选→独立采纳修订/放弃原稿→同会话恢复与原 followup。三条输入和原 seed 不改；执行前将 nonce、完整输入、seed SHA、runtime、目录、预算纳入现预注册，运行中不补话、不新生 nonce、不选另一结果。原源候选逐字绑定作者，修订逐字绑定本次 Writer，作者动作逐一绑定 receipt/canon，后继回复绑定本次 Provider；状态、身份、覆盖缺项均失败关闭。
+
+存在性审计已确认四处消费者断点：batch 的真实供应商 allowlist/driver 选择排除 pending；capture 把真实供应商固定成 live 且仅接受 live/mission 预注册；Writer/回复直接读取 fixture response.body；followup 禁止整份请求含 assistant/tool，与会话 canonical 的真实连续历史冲突。迁移沿现 native_b71_batch、authoring_capture_evidence、authoring_pending_driver、authoring_pending_run_evidence、authoring_pending_evidence 和已有共享 response/canonical reader，退役这些失效假设；不清历史、不固定真实调用数、不新增 schema/reader/harness/产品提示或验收 hook。产品模块为 none；若现既有字段和 owner 无法承载，先回父线程裁决。
+
+先写与被测生成器无关的正例及反例并保留 RED，再实施 GREEN；命令 cwd 与 owned 证据均归候选工作树的 artifacts。本 checkpoint 不运行 UI/模型，不 commit/push；真实模型参数、硬准入预算、fresh tag、源码冻结与原 scope 的 binding 由父线程在集成后沿原入口执行。局部测试只能解除消费者前置，不能把三输入基础链签成历史/分页/引用/同名多候选完整矩阵，更不能据此关闭 R08。
+
+### 19.11 After01 原生终态消费者失配的独立修复（2026-11-23，实施前）
+
+真实Before完成三轮，现采集32/32通过；7个模型POST与8个健康GET共15/64准入，零业务内容写入。After实际三轮1/2/1共4个模型POST与15个健康GET共19/64，零预算拒绝；第二run awaiting_author、第三run已completed且最后 judgment_validated passed，但第三轮外部等待超时。原After owned c82e90966ae9062b 为exit1/partial，434590ms，tree_finalized=true、cleanup remaining=[]；没有合格summary，真实finish-execution退出1，无补造binding。两臂原字节/ProviderRun/源码冻结均保留，不把7→4宣称配对收益。
+
+已确证的消费者原因是现 AX gap 识别仅接受 AXGroup desc前缀；After01第三轮实际标记为同作者边界内 AXStaticText value=能力缺口。该轮无探索过程组，旧round2等待面板又使全局idle回退失败，所以真正新轮回复/Why已经可见却持续unknown。模型未返回、原协议纠错、预算耗尽均不符合实际证据。本次修复只依据[验收设计 §5.13](../../docs/design/acceptance/model-interaction-coverage.md#513-当前作者边界内的原生能力缺口终态2026-11-23)迁现 authoring_g2_evidence及其测试；不删全局idle门，不按整页文本签终态，不改产品意图判断或追加模型提示。
+
+实施与§19.10并行但仅写同一候选工作树的不同源码文件；主树继续冻结执行已预注册的B33六场。先以独立正反例留RED，再GREEN，并对只读After01原AX作派生回归。集成前后分别核源，后续fresh原生复核另冻独立输入/预算和原scope记录。原After失败、未核未来能力承诺及R08完整来源/引用矩阵缺口均不因此撤销。
+
+### 19.12 实模结果审读、G2 合入与独立修复复核（2026-11-23）
+
+原 Before 的三轮采集完成，7个真实模型调用及各自持久身份/原HTTP体/SSE终结闭合；原 After01 的4个模型调用同样完整，失败归原生AX消费者。两臂9张业务/canon表内容均无变更，但各有8条引用记账新增，不能写“数据库零变化”。Before第三轮声称重编号可消除档案中历史“第1/2章”冲突，没有实现保证：档案用ledger的last_seen_seq，重编号只写Chapter.seq。After01正确说明新增档案候选不等于移走阅读条目，真实plot_outline→outline_draft→档案候选及作者采纳路径存在；其“按原文生成、不改写”超出该模型生成/结构解析合同的字节保证，须作为剩余语义偏差保留，不靠本批外部消费者修复掩盖。
+
+G2候选仅两文件：实现SHA 3b97181e8aaaf6f82c7973db5b6a004970a1ac4e365317af5dd8b59aeee238ce，测试SHA 4c1ead438345e0e081528ad2ebc7cc3a6f2296fd9d6dea5aefb3a8067999e2a7；RED02 82通过/2失败，GREEN01 84/84（owned 0ddc6b6899786dab），相邻五消费者169/169（888d7ccba86d8522）。真实After01的105节点只读派生回归（6a5f3f98acd45e5d）定位本轮badge/reply/Why，并拒绝6类缺项/跨轮/运行中反例；原件SHA 66198248a4bf8f8317716bba5f4b93a5140bff8c84cbbd855fc459454e8132ec 未变，original_batch_reclassified=false。两文件经独立反证复核后按相同SHA合入主树；普通idle及本轮process优先未放松，静态形状只支持已确认的实际布局。
+
+B33首批已真实执行六条原话：前四个讨论/no-op场景有回复、零候选；S5有独立重编号候选和作者采纳；S4在330秒整turn截止时未完成。root/driver/runner均exit1，owned 6ef3953bf08bd630 用时532535ms、timed_out=false、tree_finalized=true、scope_removed=true；42/128 HTTP含19个GET、23个模型POST，零预算拒绝。22个POST已完整，最后evaluator仍在流式输出时随清场截断，不能算完成。Writer经过真实used_context_refs_invalid协议纠错后成功，之后才启动评价；本次证据不支持无进展死锁或单调用300秒超时。S5保留原章标题；S4据新目录和chapter_read将“第07章”唯一绑定seq4/title“第07章：空章待写”的同一空章ID，未凭旧seq7猜目标。S4尚无候选/采纳，原批缺summary，原scope finish真实失败且不补binding。原执行前后2683源entry和fingerprint e2e7ab07e7604ded559ad304dd07145b318931298280c4efb68896343977a265 相同；合入后的源码另冻，不能反写旧批。
+
+逐场独立审读不等于整批PASS：S1/S2/S3/S6的9张canon表、正文和计数均未变化；但S6将目录“缺号04”当成存在且未写的第04章安排承接，实际并无该对象，因此其动作边界成立、材料语义失败。S5仅seq与1条accepted receipt变化，3份已采纳正文SHA不变。S4有真实中间写入：目标plan_direction登记TENTATIVE chapter_mission，后台新增2条ACCEPTED chapter_summaries与4条ledger_entries；空章仍无正文、drafts仍3、versions0、receipt仍仅S5的1条，不能称S4零写入。23个模型POST里2个后台chapter_summary有真实pcall/prun但不落当前provider_runs表；该表21行=20completed+1running，全部23次均已计HTTP预算。最后evaluator的2728个SSE data对象无解析错误、无DONE，末次增量距清场断流14ms；断流不冒充持久cancelled。
+
+下一次仅沿现native_request_cost执行After02修复checkpoint：原三条输入、完整种子和受控模型参数不变，独立64次HTTP、每call300秒、每轮360秒、root20分钟、零补话/自动或人工批内重试；fresh tag/output/proxy/source/start按原scope执行前冻结。该批验证G2集成后的真实页面，不新建Before配对、不将原After01补签，也不以单次调用数宣称稳定收益。pending仍在独立候选树完成消费者迁移，B33时间预算的后续修订须另行前置裁决；R08完整矩阵及剩余回复承诺问题继续未通过。
+
+After02独立修复复核已执行：manifest-03 SHA41eafa3da6698b20a4976899f692f24c7571b2511ae40be992b72066d67b34b5、source fingerprint54963ac7b51a3715dc74dc3dc5e84eb6aa7b597b8a75ad867effa8580b656b10；owned bab9622cf65de653 用时101746ms，exit0、tree_finalized=true，原scope finish=passed，32/32采集检查通过。9/64 HTTP=4GET+5POST，0拒绝；实际三轮1/2/2调用，三run completed；9表业务内容未变、8条引用记账新增。模型语义仍失败：第二轮对结构异议使用report_capability_gap，违背§19.4；第二/三轮声称作者可在作品结构界面手动删除/移卷，现结构面板与客户端/应用检索未找到该能力保证，不能当作已证实路径。此次第三轮有真实完成过程组，未重现原After01旧等待面板+仅静态badge场景，因此只签新源码原生兼容与采集，不夸大新静态分支的实时覆盖。原After01及B33失败均保留。
+
+独立根因复核：After01/02第二轮作者原话、实际目录、system/application_base/tools分别同SHA，但前轮assistant历史措辞和运行身份不同，不能当作完整同请求的随机对照。两次当前Scope.goal都只有source_input_ref；“修正结构错位、移除或降级章条目”首先由After02的模型工具参数提出，应用未预填。实际system已含“结构异议不构成修改授权”与按作者实际要求确定效果；gap工具局部字段与Protocol校验不能独立证明这种语义资格。故本次归Judgment的目标解释/出口失败，非G2误判或已发生越权写入；不新增词法分类器、第二模型审查环或R09能力。工具目录也不证明自然语言声称的手动UI路径；After01的ask_author及其重编号选项同样不自动取得语义正确性。
+
+### 19.13 B33 暴露的已写章数供给错位（2026-11-23，实施前）
+
+本批S4使命供给称已写3章，后续Writer creative_execution.context_text却称已写4章；真实种子为4个结构章位、3份已采纳正文和1个空章。根因在既有TurnExecutionService.work_skeleton_written_count/1用current_chapters标题数量近似已写数，连计划章也算入；NovelDomain.WorkSkeleton.render/render_for_prose/progress合同明确该参数是已写章数。ProseDraftingWithQuality与PlotOutlineWithContext的使命输入已经使用structured_chapters.has_prose==true，本处是同一真实事实的消费者口径分裂，归原VS-00G/CA04供给责任，不是新增R09能力或反签R05。
+
+七问与前向裁决：Contract=现WorkSkeleton已写章数合同和ContextAssembler正规化后的structured_chapters；Invariant=只有已证明存在正文的章计入已写进度，空章/计划章/显示标题不能充当正文；Boundary=只改TurnExecutionService既有计数函数及注释、现work_skeleton_injection_test，不新增reader/DTO/统计模块/字段；Consumer=规划与正文骨架段及book_progress_percent、现卷级收束守则；Proof=独立4结构/3正文、无正文事实/仅标题、不合法或缺has_prose，以及大量空计划章不得放宽收官守则的RED→GREEN，原30正文场景保留；Acceptance Driver=现Application执行测试和后续原生现owner，旧B33请求不重写；Exploration=沿现结构化事实供给，不增加模型材料包或第二推断环。
+
+修改按使命已有口径复用has_prose严格真值，未知/空结构列表保持既有无已证实正文计数，不用字符串标题兜底。该修复会降低先前被空章抬高的全书进度，进而恢复原有远离目标时的收官约束；这是纠正事实来源的下游结果，不改变Domain公式、阈值或创作意图。测试先证明旧实现违反事实，再改应用函数；模型对缺号04的另一个语义误判及原批S4未完成不因此签通过。
+
+已写章数实施完成并独立复核：RED 8项/3失败（9031bde54d7aa3e5）；最终GREEN03的骨架与B11A CP3/CP4回归33/33（a57ba10676311451），格式和diff检查通过。第3项反例取30个空计划章、目标28000字，真实正文0不得触发全书收官阈值。实现SHA8f9c08be09ed64906896c33030736d4a1c7b3e565ad46215c763c7e08d142725，测试SHA4e0cbe491f8d276a54926215ed30eb5bddf491a9ef9fffe562d9fbbbb4a47cd9。完整后端backend-gates-02共3751项零失败，warnings-as-errors编译、compile-connected零环、架构和strict Credo均通过；owned241dbc4358a1d97a 用时114582ms、tree_finalized=true。GREEN02的格式前置失败且未跑测试原样保留，不挪作产品失败或已验结果。真实has_prose源自排除tentative的阅读投影word_count，未知值0只表示0个已证实正文，不扩大为作品实际不存在正文或已完稿证明。
+
+### 19.14 pending 消费者合入及独立原生预算（2026-11-23，执行前）
+
+§19.10的12个既有源/测试文件经过双向独立审查，最终候选328/328（owned9e581fba085b0661）且diff检查通过。原314/314、过渡327/327及候选静态扫描迁移前置失败全部保留。补充RED80项/13失败揭露当前Writer完整源对象未核；随后真实Scope形状RED2/2揭露fixture误把work_id嵌套，按实际生产顶层content.work_id/message.versions改正，未保留错误形状兼容分支。最终检查只授信实际Writer调用前最近当前run Scope里的真实源artifact/ref/hash/完整body及本轮作者；历史、未来、被覆盖Scope和伪造同hash的截断正文均不能代签。对本冻结短句的body独立核唯一沈砚→林渡、其余字节不变，title/rationale保持Writer字段追溯；这不是生产意图守卫。
+
+主树合入只复制这12项已审增量并逐项核SHA，保护§19.9–19.13、G2及两项Application修复；完成同组main回归后才冻结本次source/start。本批原生沿既有native_b71_batch→native_b71_drive→pending，不新建harness；供应商Splash/local-Q4-PLE4/high/max_tokens32000，现b87-r03-splash-product-maintenance-budget声明模型context262144、维护窗口32000/0.70/keep4、关闭同步摘要。该受控维护窗口与A/B的262144不同，不能直接比较调用收益，也不改产品默认。
+
+执行前现preregistration封存16位nonce、三条完整输入、seed SHA、唯一输出目录与原3send/0retry/30秒输入/240秒每轮/900秒整场预算。外层现proxy另冻64次总HTTP准入（含健康GET及维护），每call300秒，owned根900秒，0批内人工或自动重试；实际模型调用按日志/持久身份/原HTTP分别核，不从3次发送推导3个模型调用。每轮240秒可先于300秒单call截止，根900秒可先于各阶段理论总上限；任一截止保留原失败/partial，绝不看到增量就自动续期。外部模型服务不load/unload/stop，原场景只在隔离作品执行作者采纳/丢弃。
+
+目标仍是完整作者原字节tentative→普通修订独立候选→真实采纳修订/丢弃原稿→同会话恢复和后继事实回复。持久ProviderOutput摘要只证明解码正文SHA→canonical→当前回复，原SSE采集与终结由外部原件另核。未形成真实summary不补造binding；即使这三输入通过，也不代签历史十条外/分页/assistant非来源、引用与歧义、章修订矩阵，R08仍逐项未闭环。
+
+### 19.15 普通候选首批实模实际失败及责任定位（2026-11-23）
+
+唯一原批为 pending-20261123/main-execution-01，native原件在 artifacts/slice-verify/b71-authoring-pending-tauri-native-r08-pending-20261123-01。预注册SHA9f265d083f5251f8cb630489feeab86833fc9291ed9fed6f574cd4b561efbbb7、frozen-command SHA87aa8045bda751a51bd89817295438d670dc6124b9b6ff99a37558bfaed57241，执行前后源码fingerprint a6c6982855253a3b77ec6a003fbfcd9678b435bdbfeeb8bd64ebb08bf8484629一致。owned713e64ae9d9f47ed用时43667ms，root/driver/runner均exit1、tree_finalized=true；代理实际准入5/64 HTTP、0拒绝、关闭后active_requests为空。未达任一时间或HTTP上限，不归为预算超时。
+
+独立传输/持久核账：5次HTTP为2GET+3POST，全部200并自然EOF；3个POST各1个DONE、received/delivered原字节与SHA一致，逐条唯一关联LLM请求体、pcall/prun、canonical工具ID/参数。3个ProviderRun completed与Output ok只证明调用结束；原文AgentRun completed、修订AgentRun failed保持。首轮1个TENTATIVE world_setting，memory_items、author_action_receipts、drafts、chapters、volumes、characters均0；无Writer和作者动作。失败门比最后EOF晚约74ms，不存在活动流被超时清场的证据。root96474/proxy96475/runner96507/backend96644/app96879均已退出，cleanup remaining为空、owned scope已移除；2683源entry、WIP及HEAD在该批执行前后完全相等。
+
+真实页面首轮显示完整原字节的世界设定待采纳候选及独立保存/不保存动作。第二条真实输入被接收后，driver按本轮真实失败终态抛出pending_turn_failed:failed:revision；failure.json阶段为turn:revision_completed，failure.jpg SHA3748b6ed45daeae78258ff7002c4ae2ce29673954913a597e327128f8f0edb9e，原截图/AX/文本已独立审读。第三条“资料处理进度怎么样？”、修订采纳、原稿放弃和恢复均未执行，不能把计划三send写成实际三send。
+
+actual llm-calls只有3条：首轮register_author_content成功；修订第一次pcall_mwsq9bim_o选中真实源候选，却将其放进adopted_content_ref而未给pending_artifact_ref；当前有界纠错后的pcall_mwsq9far_x补对pending_artifact_ref，仍带adopted_content_ref:null。两次都因target_ref_field_conflict被拒，未进入Writer、未形成修订候选。真实judgment_decision schema required仅action且未启用strict；宽类型anyOf(string,null)不要求提交非适用字段，工具总描述、字段说明和同call纠错均明确非适用字段不得提供，包括null。当前证据是模型违反能力字段归属，消费者正确保留失败；不静默剥字段、改接收器、提高两次交换预算或自动重发洗绿。
+
+原scope finish已用实际命令与exit1调用；因正式summary未产生而返回“native output missing or not execution-selected output”。真实观察留在main-execution-01/execution/finish-observation.json，无成功binding，不补造summary。首轮原文登记局部成立不代签普通修订、作者裁决或整个pending链；本次新增失败并入R08模型协议缺口，原After01/B33失败及After02语义失败均不改签。
+
+### 19.16 本轮工程交付与继续推进边界（2026-11-23）
+
+本轮可review实现分为：真实续页材料与调用绑定、外部HTTP硬预算、当前作者边界内的G2终态证据、Writer已写章数真实供给、既有pending实模消费者迁移；全部沿原owner，不新增产品意图解释器或能力。普通候选12文件合入前核main==d0a6733、合入后逐项等于已审候选SHA；integration-sha.json与post-gates-sha.json留在resume-20261123/pending-integration-main-01。保护项中的B87文档在主代理授权写入§19.13/14后SHA变化，核账明确记录，其他12项保持，不能写成全保护集最终零变化。
+
+完整工程首轮task-done-final-01已实际失败：owned a260c596b89fd022、49731ms，原scope及源fingerprint58159c3caf9c012320757f69c945db4a35523ade73125b4da2944f6b05249de0前后一致。真实manifest为artifacts/slice-verify/task-completion-20261123T035715Z-98788/manifest.json；21项扫描20 raw pass/1 raw gitleaks fail，10发现中9项沿既有处置，新增唯一blocking为capture IO测试夹具894行Object.assign。完整report/top10/disposition/raw已封存final-01/static-scan-results。独立审查确认合并源均固定本地字面量，不是已发现外部污染漏洞；按夹具确切六字段改成逐项赋值，保留同一scenario对象和其它预置字段，使未来PENDING_INPUTS新增键不隐式进入预注册，不改规则/阈值/处置台账。该测试是原12文件合入后唯一源码字节增量，原合入SHA记录不覆盖；capture-fixture-fields-01现有39/39通过，owned5226958099dd2c3e、1127ms、tree_finalized=true，未新增镜像实现测试。
+
+| 验证 | 已成立的工程事实与证据范围 |
+|---|---|
+| 完整后端 | backend-gates-02：3751 tests / 0 failures、warnings-as-errors、compile-connected零环、架构与strict Credo通过，owned241dbc4358a1d97a；不包含模型服从性结论。 |
+| G2主树合入 | g2-main-integration-02：153/153，ownedf456922d4e0622ad；第一次文档EOF空行导致diff前置失败原样保留。 |
+| pending主树合入 | pending-integration-main-01：328/328，owned84af4356ad6ad112；bash语法bb14cb9f3fd9e859、diff检查caf5a0e2b12c358b均退出0且归属收口。机制通过不代签§19.15真实失败。 |
+| 最终工程入口 | 所有源码/记录稳定后，沿原scope完整运行task_done.sh --scope artifacts/slice-verify/b87-r08-20261122/scope.json --top 10；收尾复核固定日志resume-20261123/task-done-final-02/output.log，owned记录同目录；final-01失败原件单独保留。实际manifest/checks-binding及完整扫描/Top10/处置由现owner生成并另存原件；不使用quick/skip或旧源native绑定。最终是否通过以该次实际产物为准，task_acceptance=not_asserted继续适用。 |
+
+阶段实现与证据按职责正常commit/push，保持正常hooks；提交不宣告R08 PASS。接续仍在R08：优先以现Judgment/AuthoringTaskPolicy责任审查结构异议升级目标、无来源能力承诺、缺号推断及本次工具字段违约；完整来源/修订矩阵还缺十条外历史原文、部分页/assistant非来源、引用与条件、多候选歧义及章修订。任何新的实模checkpoint须先有明确待证假设、独立输入/源/预算和停止条件，不能重复原批刷分、挪用已消耗预算或自动进入R09/R17。当前证据足以交付上述工程修复，仍不足以完成R08语义验收。
