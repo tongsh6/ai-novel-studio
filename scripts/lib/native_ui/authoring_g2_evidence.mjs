@@ -479,8 +479,8 @@ function processGroupKind(nodes, group) {
   return null;
 }
 
-// 现役 capability_gap 结果：真实 AXGroup 的可访问说明 + 直接子文本「能力缺口」，
-// 且同一作者边界内必须有对应回复组和「为什么」入口。正文关键词不参与。
+// capability_gap 消费已有说明组和当前界面的独立静态徽标；都要绑定本轮回复与 Why。
+// 静态徽标只在消息开头的助手角色后成立，正文关键词不提供终态。
 export function withinAuthorBoundary(node, { container, afterPath, beforePath }) {
   if (axParentPath(node) !== container) return false;
   if (compareAxPath(node, { path: afterPath }) <= 0) return false;
@@ -489,11 +489,24 @@ export function withinAuthorBoundary(node, { container, afterPath, beforePath })
 }
 
 function isCapabilityGapMarker(nodes, node, boundary) {
-  if (node.role !== "AXGroup") return false;
   if (!withinAuthorBoundary(node, boundary)) return false;
-  if (typeof node.desc !== "string") return false;
-  if (!node.desc.startsWith(CAPABILITY_GAP_PREFIX)) return false;
-  return directTextValues(nodes, axPath(node)).includes(CAPABILITY_GAP_LABEL);
+  if (node.role === "AXGroup") {
+    return axText(node.desc).startsWith(CAPABILITY_GAP_PREFIX) &&
+      directTextValues(nodes, axPath(node)).includes(CAPABILITY_GAP_LABEL);
+  }
+  if (node.role !== "AXStaticText" || axValue(node) !== CAPABILITY_GAP_LABEL ||
+    axTitle(node) !== "" || axText(node.desc) !== "") return false;
+  const region = conversationRegion(nodes, node);
+  if (region?.path !== boundary.container) return false;
+  const page = nodes.find((entry) => entry.role === "AXWebArea");
+  const names = nodes.filter((entry) => entry.role === "AXPopUpButton" &&
+    entry.desc === "助手名称" && axParentPath(entry) === page.path);
+  const preceding = nodes.filter((entry) => withinAuthorBoundary(entry, boundary) &&
+    compareAxPath(entry, node) < 0);
+  if (names.length !== 1 || !nonBlank(names[0].title) || preceding.length !== 1 ||
+    preceding[0].role !== "AXGroup") return false;
+  const label = directTextValues(nodes, axPath(preceding[0]));
+  return label.length === 1 && label[0] === names[0].title;
 }
 
 function capabilityGapMarkers(nodes, boundary) {
@@ -534,14 +547,22 @@ function gapReplyGroup(nodes, following, why) {
 function capabilityGapFacts(nodes, boundary) {
   const markers = capabilityGapMarkers(nodes, boundary);
   for (const marker of markers.reverse()) {
-    const following = followingInBoundary(nodes, boundary, marker);
+    let following = followingInBoundary(nodes, boundary, marker);
+    if (marker.role === "AXStaticText") {
+      const label = previousAxSibling(nodes, axPath(marker));
+      const name = directTextValues(nodes, axPath(label))[0];
+      const nextAssistant = following.findIndex((node) => node.role === "AXGroup" &&
+        directTextValues(nodes, axPath(node)).includes(name));
+      if (nextAssistant >= 0) following = following.slice(0, nextAssistant);
+    }
     const why = gapWhyButton(following);
     if (why === null) continue;
     const reply = gapReplyGroup(nodes, following, why);
     if (reply === null) continue;
     return {
       marker_path: axPath(marker),
-      goal: String(marker.desc).slice(CAPABILITY_GAP_PREFIX.length).trim(),
+      goal: marker.role === "AXGroup" ?
+        marker.desc.slice(CAPABILITY_GAP_PREFIX.length).trim() : null,
       reply_path: axPath(reply),
       why_path: axPath(why),
     };

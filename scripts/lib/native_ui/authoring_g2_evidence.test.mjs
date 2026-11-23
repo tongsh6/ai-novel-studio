@@ -1425,6 +1425,154 @@ function axCapabilityGap(path, goal, reply = "这条目标当前能力做不到�
   ];
 }
 
+function axStaticGapTurn(message, assistantName = "AI 助手") {
+  return [
+    axNode("0", "AXWindow"), axNode(AX_WEB_AREA, "AXWebArea"),
+    { ...axNode(AX_CONTAINER, "AXGroup", "会话消息"), subrole: "AXLandmarkRegion" },
+    axDescNode(`${AX_WEB_AREA}/1`, "AXPopUpButton", "助手名称", assistantName),
+    axNode(`${AX_WEB_AREA}/2`, "AXGroup", "当前创作任务操作"),
+    axNode(`${AX_WEB_AREA}/2/0`, "AXButton", "回答当前问题"),
+    ...axMessageGroup(`${AX_CONTAINER}/1`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/2`, "上一句"),
+    ...axMessageGroup(`${AX_CONTAINER}/3`, assistantName),
+    axNode(`${AX_CONTAINER}/4`, "AXGroup", "创作问题记录"),
+    axNode(`${AX_CONTAINER}/4/0`, "AXStaticText", "", "等待你的回答"),
+    axDescNode(`${AX_CONTAINER}/5`, "AXButton", "查看这轮回应的依据", "为什么"),
+    ...axMessageGroup(`${AX_CONTAINER}/6`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/7`, message),
+    ...axMessageGroup(`${AX_CONTAINER}/8`, assistantName),
+    axDescNode(`${AX_CONTAINER}/9`, "AXStaticText", "", "", "能力缺口"),
+    ...axMessageGroup(`${AX_CONTAINER}/10`, "这个目标需要当前尚未提供的作品档案操作。"),
+    axDescNode(`${AX_CONTAINER}/11`, "AXButton", "查看这轮回应的依据", "为什么"),
+  ];
+}
+
+test("直属静态能力缺口 badge 绑定本轮助手、回复和 Why，不受旧等待面板影响", () => {
+  const message = "应该在作品档案显示";
+  const nodes = axStaticGapTurn(message);
+  const expected = {
+    kind: "capability_gap", author_count: 1, author_path: `${AX_CONTAINER}/7/0`,
+    group_title: null,
+    gap: { marker_path: `${AX_CONTAINER}/9`, goal: null,
+      reply_path: `${AX_CONTAINER}/10`, why_path: `${AX_CONTAINER}/11` },
+  };
+  assert.deepEqual(axTurnOutcome(nodes, { message }), expected);
+  assert.deepEqual(axTurnOutcome([...nodes].reverse(), { message }), expected);
+  assert.equal(axTurnOutcome(nodes.filter((node) => node.path !== `${AX_CONTAINER}/9`),
+    { message }).kind, "unknown", "普通回复仍受全局非空闲门限制");
+});
+
+test("静态 badge 读取当前页的唯一实际助手名称，不固定为默认名称", () => {
+  const message = "只放档案";
+  assert.equal(axTurnOutcome(axStaticGapTurn(message, "创作助手甲"), { message }).kind,
+    "capability_gap");
+});
+
+test("静态 badge 不接受错误值、角色、说明、层级或助手身份", () => {
+  const message = "只放档案";
+  const nodes = axStaticGapTurn(message);
+  const change = (path, patch) => nodes.map((node) => node.path === path ? { ...node, ...patch } : node);
+  const cases = [
+    ["只是词语前缀", change(`${AX_CONTAINER}/9`, { value: "能力缺口：正文引用" })],
+    ["不完整标签", change(`${AX_CONTAINER}/9`, { value: "能力缺口 " })],
+    ["错误控件角色", change(`${AX_CONTAINER}/9`, { role: "AXButton" })],
+    ["正文组不是静态徽标", change(`${AX_CONTAINER}/9`, { role: "AXGroup" })],
+    ["有其他标题", change(`${AX_CONTAINER}/9`, { title: "正文" })],
+    ["有其他说明", change(`${AX_CONTAINER}/9`, { desc: "引用" })],
+    ["嵌入助手标签", change(`${AX_CONTAINER}/9`, { path: `${AX_CONTAINER}/8/1` })],
+    ["助手名称不符", change(`${AX_CONTAINER}/8/0`, { value: "其他助手" })],
+    ["角色组包含正文", [...nodes, axNode(`${AX_CONTAINER}/8/1`, "AXStaticText", "", "正文")]],
+    ["缺少角色组", nodes.filter((node) => !node.path.startsWith(`${AX_CONTAINER}/8`))],
+    ["名称选择器不在当前页面", change(`${AX_WEB_AREA}/1`, { path: "0/9/1" })],
+    ["缺少名称选择器", nodes.filter((node) => node.path !== `${AX_WEB_AREA}/1`)],
+    ["名称选择器不唯一", [...nodes,
+      axDescNode(`${AX_WEB_AREA}/8`, "AXPopUpButton", "助手名称", "AI 助手")]],
+    ["会话区域身份错误", change(AX_CONTAINER, { subrole: "" })],
+    ["多个页面", [...nodes, axNode("0/9", "AXWebArea")]],
+  ];
+  for (const [label, entries] of cases) {
+    assert.equal(axTurnOutcome(entries, { message }).kind, "unknown", label);
+  }
+});
+
+test("正文中引用能力缺口或先引用助手名都不能伪装消息开头的静态 badge", () => {
+  const message = "只放档案";
+  const base = axStaticGapTurn(message).filter((node) =>
+    node.path !== `${AX_CONTAINER}/9` && node.path !== `${AX_CONTAINER}/11`);
+  const why = axDescNode(`${AX_CONTAINER}/16`, "AXButton", "查看这轮回应的依据", "为什么");
+  const cases = [
+    [...base, ...axMessageGroup(`${AX_CONTAINER}/9`, "能力缺口"), why],
+    [...base, axDescNode(`${AX_CONTAINER}/12`, "AXStaticText", "", "", "能力缺口"),
+      ...axMessageGroup(`${AX_CONTAINER}/13`, "引用之后的正文"), why],
+    [...base, ...axMessageGroup(`${AX_CONTAINER}/11`, "AI 助手"),
+      axDescNode(`${AX_CONTAINER}/12`, "AXStaticText", "", "", "能力缺口"),
+      ...axMessageGroup(`${AX_CONTAINER}/13`, "引用之后的正文"), why],
+  ];
+  for (const entries of cases) assert.equal(axTurnOutcome(entries, { message }).kind, "unknown");
+});
+
+test("静态 badge 缺本轮正文或精确 Why 时不能借历史 Why 或后续助手的回复", () => {
+  const message = "只放档案";
+  const nodes = axStaticGapTurn(message);
+  const withoutReply = nodes.filter((node) => !node.path.startsWith(`${AX_CONTAINER}/10`));
+  const withoutWhy = nodes.filter((node) => node.path !== `${AX_CONTAINER}/11`);
+  const laterAssistant = [
+    ...axMessageGroup(`${AX_CONTAINER}/12`, "AI 助手"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "另一条助手回复"),
+    axDescNode(`${AX_CONTAINER}/14`, "AXButton", "查看这轮回应的依据", "为什么"),
+  ];
+  const cases = [
+    ["缺正文", withoutReply],
+    ["空正文", nodes.map((node) => node.path === `${AX_CONTAINER}/10/0` ?
+      { ...node, value: " " } : node)],
+    ["只有历史 Why", withoutWhy],
+    ["借后续回复", [...withoutReply.filter((node) => node.path !== `${AX_CONTAINER}/11`), ...laterAssistant]],
+    ["借后续 Why", [...withoutWhy, ...laterAssistant]],
+    ...[
+      ["错误 Why 角色", { role: "AXGroup" }],
+      ["错误 Why 标题", { title: "为什么？" }],
+      ["错误 Why 说明", { desc: "其他说明" }],
+      ["嵌套 Why", { path: `${AX_CONTAINER}/10/1` }],
+    ].map(([label, patch]) => [label, nodes.map((node) => node.path === `${AX_CONTAINER}/11` ?
+      { ...node, ...patch } : node)]),
+  ];
+  for (const [label, entries] of cases) {
+    assert.equal(axTurnOutcome(entries, { message }).kind, "unknown", label);
+  }
+});
+
+test("静态 badge 不能越过新增作者游标、下一作者或真实会话容器边界", () => {
+  const message = "只放档案";
+  const nodes = axStaticGapTurn(message);
+  assert.equal(axTurnOutcome(nodes, { message, baselineAuthorCount: 1 }).kind, "unknown");
+  assert.equal(axTurnOutcome(nodes.filter((node) => node.path !== `${AX_CONTAINER}/7/0`),
+    { message }).kind, "unknown");
+  const nextAuthor = [...axMessageGroup(`${AX_CONTAINER}/12`, "你"),
+    ...axMessageGroup(`${AX_CONTAINER}/13`, "新原话")];
+  assert.equal(axTurnOutcome([...nodes, ...nextAuthor], { message: "新原话" }).kind, "unknown");
+  const afterNext = nodes.map((node) => {
+    if (node.path === `${AX_CONTAINER}/10` || node.path.startsWith(`${AX_CONTAINER}/10/`)) {
+      return { ...node, path: node.path.replace(`${AX_CONTAINER}/10`, `${AX_CONTAINER}/14`) };
+    }
+    return node.path === `${AX_CONTAINER}/11` ? { ...node, path: `${AX_CONTAINER}/15` } : node;
+  });
+  assert.equal(axTurnOutcome([...afterNext, ...nextAuthor], { message }).kind, "unknown");
+  const foreign = nodes.map((node) => node.path.startsWith(`${AX_CONTAINER}/9`) ||
+    node.path.startsWith(`${AX_CONTAINER}/10`) || node.path === `${AX_CONTAINER}/11` ?
+    { ...node, path: node.path.replace(AX_CONTAINER, `${AX_WEB_AREA}/20`) } : node);
+  assert.equal(axTurnOutcome(foreign, { message }).kind, "unknown");
+});
+
+test("本轮过程仍在运行、等待或失败时优先于完整静态 badge，不把流式阶段签成完成", () => {
+  const message = "只放档案";
+  for (const [status, kind] of [["进行中", "running"], ["等待你的回答", "waiting"], ["失败", "failed"]]) {
+    const group = axProcessGroup(`${AX_CONTAINER}/12`, [status]);
+    if (kind === "waiting") group[0].title = "创作问题记录";
+    const nodes = [...axStaticGapTurn(message), ...group];
+    assert.equal(axTurnOutcome(nodes, { message }).kind, kind);
+  }
+});
+
 test("现役 capability_gap 结构：真实说明+直接标记+回复+为什么才识别", () => {
   const second = "卷纲不对";
   const base = [
