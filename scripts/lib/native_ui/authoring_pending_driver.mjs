@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { frameBody, frameEvent, frameOf } from "./scenario_driver.mjs";
 import { broadcastFrames } from "./scenario_evidence.mjs";
 import { wireTerminal } from "./live_run_wait.mjs";
+import { authorVisibleScenarioSpec } from "./authoring_capture_evidence.mjs";
 import { authorBoundary, countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { textOf } from "./driver.mjs";
 
@@ -23,6 +24,8 @@ import {
   locateScopedButton,
   locateWhyButton,
   pendingSourceMessage,
+  PENDING_REVISION_MESSAGE,
+  PENDING_FOLLOWUP_MESSAGE,
   selectPendingAction,
 } from "./authoring_pending_evidence.mjs";
 
@@ -74,7 +77,7 @@ async function sendMessage(harness, text, label, config) {
   assertSentIdentity(sent, config, label);
   const turnId = String(frameBody(sent).turn_id);
   const ack = await harness.runStep("ack", `${label}_ack`, () =>
-    harness.pollWire((wire) => harness.ackFor(wire, sent), 30_000, `b71:${label}:ack`),
+    harness.pollWire((wire) => harness.ackFor(wire, sent), config.budget?.input_timeout_ms ?? 30_000, `b71:${label}:ack`),
   );
   const runId = String(frameBody(ack)?.response?.run_id ?? "");
   if (!runId) throw new Error(`${label}: ACK 缺 run_id`);
@@ -347,7 +350,7 @@ async function followupPhase(harness, config, followupText) {
     turnId: followup.turnId,
     workId: config.target.work_id,
     sessionId: config.target.session_id,
-  }, "followup");
+  }, "followup", config.budget?.turn_timeout_ms);
   const replyText = String(frameBody(followupResult)?.assistant_message?.text ?? "");
   if (!replyText) throw new Error("followup assistant reply missing");
   await awaitVisible(harness, [replyText], "followup_reply");
@@ -360,6 +363,14 @@ export async function drivePending(harness, config, { capture }) {
   const revisionText = config.revision_message;
   const followupText = config.followup_message;
   assert.equal(sourceText, pendingSourceMessage(config.nonce), "pending 源输入必须携带本批 nonce 原文");
+  assert.equal(revisionText, PENDING_REVISION_MESSAGE, "pending 修订输入与冻结原文不符");
+  assert.equal(followupText, PENDING_FOLLOWUP_MESSAGE, "pending followup 与冻结原文不符");
+  assert(["slice_verify", "streaming_slice_verify", "splash"].includes(harness.provider), "pending provider 未注册");
+  if (config.provider !== undefined) assert.equal(config.provider, harness.provider, "pending provider 与配置不符");
+  if (harness.provider === "splash") {
+    assert.equal(config.provider, "splash", "pending provider 缺冻结来源");
+    assert.deepEqual(config.budget, authorVisibleScenarioSpec("b87-r08-pending").budget, "pending 预算与冻结场景不符");
+  }
 
   await harness.runStep("maintenance", "input_ready", () => harness.rawWaitInputReady("b71:pending"));
 
@@ -372,7 +383,7 @@ export async function drivePending(harness, config, { capture }) {
     turnId: source.turnId,
     workId: config.target.work_id,
     sessionId: config.target.session_id,
-  }, "source");
+  }, "source", config.budget?.turn_timeout_ms);
   const sourceBody = frameBody(sourceResult);
   const sourceArtifact = pendingArtifact(sourceBody, "source");
   const sourceItem = itemOf(sourceArtifact, "source");
@@ -389,7 +400,7 @@ export async function drivePending(harness, config, { capture }) {
     turnId: revision.turnId,
     workId: config.target.work_id,
     sessionId: config.target.session_id,
-  }, "revision");
+  }, "revision", config.budget?.turn_timeout_ms);
   const revisionBody = frameBody(revisionResult);
   const revisionArtifact = pendingArtifact(revisionBody, "revision");
   const revisionItem = itemOf(revisionArtifact, "revision");
@@ -506,6 +517,8 @@ export async function drivePending(harness, config, { capture }) {
   harness.writeDriverLog("native-b71-driver-log.json", {
     slice_id: config.slice_id,
     provider: harness.provider,
+    ...(harness.provider === "splash" ? { model: config.preregistration?.model,
+      budget: config.budget, runtime_profile: config.runtime?.profile } : {}),
     source_turn_id: source.turnId,
     source_run_id: source.runId,
     source_artifact_id: sourceArtifact.artifact_id,

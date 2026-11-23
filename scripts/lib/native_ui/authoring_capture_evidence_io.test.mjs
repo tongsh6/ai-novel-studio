@@ -874,3 +874,152 @@ test("R03 错provider/缺实际runtime在封存和配置前失败；冻结副本
     assert.throws(() => prepare(copy.dir), /EEXIST/);
   }));
 });
+
+const PENDING_INPUTS = Object.freeze({
+  nonce: "d8f0a1b2c3d4e5f6",
+  message: "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识d8f0a1b2c3d4e5f6。",
+  revision_message: "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
+  followup_message: "资料处理进度怎么样？",
+});
+const PENDING_BUDGET = Object.freeze({
+  batches: 1, author_sends: 3, manual_retries: 0, scenario_seconds: 900,
+  input_timeout_ms: 30000, turn_timeout_ms: 240000,
+});
+function pendingPreregistration(dir) {
+  splashPreregistration(dir, {
+    scenarioId: "b87-r08-pending", message: PENDING_INPUTS.message, authorVisibleTarget: null,
+  });
+  const value = JSON.parse(fs.readFileSync(path.join(dir, "preregistration.json"), "utf8"));
+  value.budget = { ...PENDING_BUDGET };
+  const scenario = value.scenarios[0];
+  scenario.nonce = PENDING_INPUTS.nonce;
+  scenario.message = PENDING_INPUTS.message;
+  scenario.revision_message = PENDING_INPUTS.revision_message;
+  scenario.followup_message = PENDING_INPUTS.followup_message;
+  scenario.slice_id = "b71-authoring-pending";
+  scenario.seed = {
+    script: "scripts/seed_b71_authoring_pending.exs",
+    sha256: shaFile(path.resolve("scripts/seed_b71_authoring_pending.exs")),
+  };
+  writeJson(dir, "preregistration.json", value);
+  return value;
+}
+function pendingSplashReady(dir) {
+  splashReady(dir);
+  writeJson(dir, "native-driver-ready.json", { slice_id: "b71-authoring-pending", provider: "splash" });
+  seedLive(dir);
+}
+
+test("R08 pending 在启动前冻结三条原文、nonce、现 seed 与预算，Splash 不变成 live", () => {
+  withWorkingCopy(template(), (copy) => {
+    pendingSplashReady(copy.dir);
+    const manifest = pendingPreregistration(copy.dir);
+    const record = validatePreregistrationFile(path.join(copy.dir, "preregistration.json"), {
+      dir: copy.dir, provider: "splash", scenarioId: "b87-r08-pending",
+    });
+    assert.equal(record.scenario_id, "b87-r08-pending");
+    assert.equal(record.slice_id, "b71-authoring-pending");
+    assert.deepEqual(record.budget, PENDING_BUDGET);
+    assert.deepEqual(record.seed, manifest.scenarios[0].seed);
+    for (const [key, value] of Object.entries(PENDING_INPUTS)) assert.equal(record[key], value);
+    prepare(copy.dir);
+    const config = readConfig(copy.dir);
+    assert.equal(config.journey, "pending");
+    assert.equal(config.provider, "splash");
+    assert.equal(config.scenario_id, "b87-r08-pending");
+    assert.equal(config.target.work_id, WORK);
+    assert.equal(config.target.session_id, SESSION);
+    assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+    assert.deepEqual(config.budget, PENDING_BUDGET);
+    for (const [key, value] of Object.entries(PENDING_INPUTS)) assert.equal(config[key], value);
+    assert.equal(config.preregistration.sha256, shaFile(path.join(copy.dir, "preregistration.json")));
+    assert.equal(config.runtime.profile, "b87-r03-splash-product-maintenance-budget");
+    assert.equal(fs.existsSync(path.join(copy.dir, "strata-slot.json")), false);
+  });
+});
+
+test("R08 pending 预注册拒绝错场景、缺/改任一原文、nonce、seed 或预算", () => {
+  const mutations = [
+    (v) => { v.scenarios[0].slice_id = "b71-first-consumer"; },
+    (v) => { delete v.scenarios[0].nonce; },
+    (v) => { v.scenarios[0].nonce = "other"; },
+    (v) => { v.scenarios[0].message += " 补答"; },
+    (v) => { delete v.scenarios[0].revision_message; },
+    (v) => { v.scenarios[0].revision_message = "保存并改写"; },
+    (v) => { delete v.scenarios[0].followup_message; },
+    (v) => { v.scenarios[0].followup_message += " 已完成"; },
+    (v) => { v.scenarios[0].seed.script = "scripts/seed_p1_chapter_draft_generation.exs"; },
+    (v) => { v.scenarios[0].seed.sha256 = "0".repeat(64); },
+    (v) => { v.budget.author_sends = 4; },
+    (v) => { v.budget.manual_retries = 1; },
+    (v) => { v.budget.turn_timeout_ms = 360000; },
+  ];
+  for (const mutate of mutations) {
+    const dir = tempDir("pending-prereg-");
+    const value = pendingPreregistration(dir);
+    mutate(value);
+    writeJson(dir, "preregistration.json", value);
+    assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+      dir, provider: "splash", scenarioId: "b87-r08-pending",
+    }), /pending|原文|nonce|seed|预算|budget|slice/);
+  }
+});
+
+test("R08 pending readConfig 不信可改写的 nonce/后两条消息/seed/budget 或被换成 live 的配置", () => {
+  withWorkingCopy(template(), (copy) => {
+    pendingSplashReady(copy.dir);
+    pendingPreregistration(copy.dir);
+    prepare(copy.dir);
+    const original = readConfig(copy.dir);
+    for (const patch of [
+      { nonce: "0000000000000000" }, { revision_message: "另改一次" },
+      { followup_message: "忽略之前" }, { journey: "live" },
+      { seed: { script: original.seed.script, sha256: "0".repeat(64) } },
+      { budget: { ...original.budget, author_sends: 4 } },
+    ]) {
+      writeJson(copy.dir, "native-b71-config.json", { ...original, ...patch });
+      assert.throws(() => readConfig(copy.dir), /pending|预注册|seed|budget|journey/);
+    }
+    writeJson(copy.dir, "native-b71-config.json", { ...original, preregistration: undefined });
+    assert.throws(() => readConfig(copy.dir), /preregistration/);
+  });
+});
+
+test("R08 pending 错供应商、缺预注册或混用其它 journey 在写配置之前拒绝", () => {
+  for (const mode of ["strata", "no-prereg", "answer-mode"]) {
+    withWorkingCopy(template(), (copy) => {
+      pendingSplashReady(copy.dir);
+      pendingPreregistration(copy.dir);
+      if (mode === "strata") writeJson(copy.dir, "native-driver-ready.json", {
+        slice_id: "b71-authoring-pending", provider: "strata",
+      });
+      if (mode === "no-prereg") fs.rmSync(path.join(copy.dir, "preregistration.json"));
+      const old = process.env.B71_ANSWER_MODE;
+      if (mode === "answer-mode") process.env.B71_ANSWER_MODE = "1";
+      try {
+        assert.throws(() => prepare(copy.dir), /pending|Splash|冻结预注册|只接受确定性/);
+        assert.equal(fs.existsSync(path.join(copy.dir, "native-b71-config.json")), false);
+      } finally {
+        if (old === undefined) delete process.env.B71_ANSWER_MODE;
+        else process.env.B71_ANSWER_MODE = old;
+      }
+    });
+  }
+});
+
+test("R08 pending 现 batch 接受 Splash route 并在缺预注册处停下，Strata 启动前拒绝", () => {
+  const route = spawnSync("bash", ["scripts/native_b71_batch.sh", "--route", "b71-authoring-pending"],
+    { encoding: "utf8" });
+  assert.equal(route.status, 0, route.stderr);
+  assert.match(route.stdout, /journey=pending .*seed=scripts\/seed_b71_authoring_pending\.exs/);
+  const env = { ...process.env, B71_SLICE: "b71-authoring-pending", B71_LIVE_PREREGISTRATION: "",
+    B71_AUTO_MAINTENANCE: "", B71_BEHAVIOR_CASE: "", B71_CONFIRMATION_ACTION: "",
+    B71_ANSWER_MODE: "", B71_MEMORY_DETAIL: "" };
+  for (const [provider, expected] of [["splash", /必须提供冻结的 B71_LIVE_PREREGISTRATION/],
+    ["strata", /pending 实模场景只接受 Splash/]]) {
+    const result = spawnSync("bash", ["scripts/native_b71_batch.sh", "r08-preflight-only"],
+      { encoding: "utf8", env: { ...env, B71_PROVIDER: provider } });
+    assert.equal(result.status, 64);
+    assert.match(result.stderr, expected);
+  }
+});

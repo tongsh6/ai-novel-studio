@@ -1000,18 +1000,24 @@ export function joinNativeCallEvidence(input) {
 }
 
 // DB 边界只负责按 agent_run_id 读取；ownership 由纯函数再次逐字段核对。
-export function readProviderRuns(dir, scope) {
+export function readProviderRuns(dir, scope, { includeOutputs = false } = {}) {
   const identity = normalizeScope(scope);
   return withDb(dir, (db) => {
     db.exec("BEGIN");
     try {
       const rows = all(db,
         "SELECT * FROM provider_runs WHERE agent_run_id = ? ORDER BY id", [identity.run_id]);
-      return rows.map((row) => ERROR_RUN_STATUSES.includes(row.status)
-        ? { ...row, recorded_outputs: all(db,
-          "SELECT provider_run_id, provider_call_ref, agent_run_id, status FROM provider_outputs WHERE provider_run_id = ?",
-          [row.id]) }
-        : row);
+      return rows.map((row) => {
+        // 成功正文摘要只供显式消费者做持久输出→canonical 字节对账；默认错误分支不变。
+        if (includeOutputs) return { ...row, recorded_outputs: all(db,
+          "SELECT provider_run_id, provider_call_ref, agent_run_id, status, content_summary FROM provider_outputs WHERE provider_run_id = ?",
+          [row.id]) };
+        return ERROR_RUN_STATUSES.includes(row.status)
+          ? { ...row, recorded_outputs: all(db,
+            "SELECT provider_run_id, provider_call_ref, agent_run_id, status FROM provider_outputs WHERE provider_run_id = ?",
+            [row.id]) }
+          : row;
+      });
     } finally {
       db.exec("ROLLBACK");
     }

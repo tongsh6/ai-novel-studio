@@ -1006,3 +1006,30 @@ test("canonical IR scope_update 直接按 role/provenance/blocks 读取，未知
   assert.equal(scopeFactsFromRequest({ ...ir, ir_version: undefined }), null);
   assert.equal(scopeFactsFromRequest({ request_format: "provider_prompt/v1" }), null);
 });
+
+test("R08 writer 原生 Chat 响应沿共享 reader 核全部 item 原字节，历史/坏 JSON/重复不授信", () => {
+  const item = { item_id: "item-wire", title: "旧书铺", body: "林渡经营旧书铺。\r\n", rationale: "只改姓名。" };
+  const artifact = { payload: { items: [{ ...item, provider_call_ref: "pcall-wire" }] } };
+  const raw = {
+    choices: [{ message: { role: "assistant", content: null,
+      tool_calls: [{ id: "call-wire", type: "function",
+        function: { name: "submit_tentative_artifact", arguments: JSON.stringify({ items: [item] }) } }] } }],
+  };
+  const record = { provider_call_ref: "pcall-wire", provider_run_ref: "prun-wire",
+    response: { status: 200, body: JSON.stringify(raw) } };
+  assert.equal(writerArtifactMatch({ artifact, records: [record] }).ok, true);
+  assert.equal(writerArtifactMatch({ artifact, records: [{ ...record, response: { status: 200, body: raw } }] }).ok, true);
+  for (const changed of [
+    { ...record, provider_call_ref: "pcall-old" },
+    { ...record, response: { status: 200, body: "{broken" } },
+    { ...record, response: { status: 200, body: JSON.stringify({
+      choices: [{ message: { ...raw.choices[0].message, tool_calls: [
+        raw.choices[0].message.tool_calls[0], raw.choices[0].message.tool_calls[0],
+      ] } }],
+    }) } },
+  ]) assert.equal(writerArtifactMatch({ artifact, records: [changed] }).ok, false);
+  assert.equal(writerArtifactMatch({ artifact, records: [record, structuredClone(record)] }).ok, false);
+  const changedBody = structuredClone(artifact);
+  changedBody.payload.items[0].body = item.body.trim();
+  assert.equal(writerArtifactMatch({ artifact: changedBody, records: [record] }).ok, false);
+});

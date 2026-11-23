@@ -14,6 +14,7 @@ import { qualityRevisionArtifactRole } from "../../../frontend/src/lib/agentRunA
 import { CARD } from "../../../frontend/src/lib/copy.ts";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
 import { requestFactsFromBody } from "./authoring_request_facts.mjs";
+import { recordResponseToolCalls } from "./live_run_wait.mjs";
 import {
   actionResultBindsArtifact,
   actionResultIdentityFor,
@@ -579,10 +580,10 @@ function decodeArguments(call) {
 function writerItems(records, providerCallRef) {
   const matched = list(records).filter((record) => get(record, "provider_call_ref") === providerCallRef);
   if (matched.length !== 1) return { reason: "writer_record_missing", items: [] };
-  const calls = list(get(get(get(matched[0], "response"), "body"), "tool_calls"));
+  const calls = recordResponseToolCalls(matched[0]);
   const items = [];
   for (const call of calls) {
-    const args = decodeArguments(call);
+    const args = decodeArguments(isObject(get(call, "function")) ? call.function : call);
     for (const item of list(args.items)) items.push(item);
   }
   return { items };

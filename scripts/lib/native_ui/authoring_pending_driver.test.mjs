@@ -539,3 +539,45 @@ test("capturePendingItemViews 对歧义或非法目标立即拒绝，不把它�
     assert.equal(harness.log.some((entry) => entry.op === "click"), false);
   }
 });
+
+const LIVE_PENDING_BUDGET = { batches: 1, author_sends: 3, manual_retries: 0,
+  scenario_seconds: 900, input_timeout_ms: 30000, turn_timeout_ms: 240000 };
+const livePendingConfig = () => ({ ...config, provider: "splash", budget: { ...LIVE_PENDING_BUDGET },
+  preregistration: { model: "local/Q4-PLE4" },
+  runtime: { profile: "b87-r03-splash-product-maintenance-budget" } });
+
+test("pending Splash driver 保留三输入/独立动作并记录实际采用的冻结模型与等待预算", async () => {
+  const harness = fakeHarness(buildWire()), waits = [], original = harness.pollWire;
+  harness.provider = "splash";
+  harness.pollWire = async function(predicate, timeout, label) {
+    waits.push({ timeout, label });
+    return original.call(this, predicate);
+  };
+  await drivePending(harness, livePendingConfig(), { capture() {} });
+  assert.equal(harness.driverLog.value.model, "local/Q4-PLE4");
+  assert.deepEqual(harness.driverLog.value.budget, LIVE_PENDING_BUDGET);
+  assert.equal(harness.driverLog.value.runtime_profile, "b87-r03-splash-product-maintenance-budget");
+  for (const label of ["source", "revision", "followup"]) {
+    assert.equal(waits.find(wait => wait.label === `b71:${label}:ack`).timeout, 30000);
+    assert.equal(waits.find(wait => wait.label === `b71:${label}:completed`).timeout, 240000);
+  }
+});
+
+test("pending driver 在输入前拒绝更换原文、加预算或借用其它 provider", async () => {
+  for (const mutate of [
+    value => { value.revision_message += "继续保存"; },
+    value => { value.followup_message += "继续"; },
+    value => { value.budget.author_sends = 4; },
+    value => { value.budget.turn_timeout_ms = 360000; },
+    value => { value.provider = "strata"; },
+  ]) {
+    const current = livePendingConfig(), harness = fakeHarness(buildWire());
+    harness.provider = "splash";
+    let sends = 0;
+    harness.rawTypeAndSend = async () => { sends += 1; throw new Error("unexpected_send"); };
+    mutate(current);
+    await assert.rejects(() => drivePending(harness, current, { capture() {} }), /冻结|pending.*provider/);
+    assert.equal(sends, 0);
+    assert.equal(harness.uiComplete, undefined);
+  }
+});

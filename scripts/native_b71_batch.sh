@@ -59,6 +59,8 @@ fi
 MISSION=0
 ROUTE="$(b71_route "$SLICE")"
 if [[ "$ROUTE" == journey=mission\ * ]]; then MISSION=1; fi
+PENDING=0
+if [[ "$SLICE" == "b71-authoring-pending" ]]; then PENDING=1; fi
 TAG="${1:-}"
 if [[ -z "$TAG" || ! "$TAG" =~ ^[a-z0-9-]+$ || ${#TAG} -gt 32 ]]; then
   echo "usage: bash scripts/native_b71_batch.sh <lowercase-tag-at-most-32-chars>" >&2
@@ -72,6 +74,10 @@ else
 fi
 if [[ "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "streaming_slice_verify" && "$B71_PROVIDER" != "strata" && "$B71_PROVIDER" != "splash" ]]; then
   echo "unsupported B71_PROVIDER: $B71_PROVIDER (slice_verify|streaming_slice_verify|strata|splash)" >&2
+  exit 64
+fi
+if [[ "$PENDING" == "1" && "$B71_PROVIDER" == "strata" ]]; then
+  echo "pending 实模场景只接受 Splash" >&2
   exit 64
 fi
 if [[ "$MISSION" == "1" && "$B71_PROVIDER" != "slice_verify" && "$B71_PROVIDER" != "splash" ]]; then
@@ -152,7 +158,7 @@ fi
 LIVE=0
 if [[ "$B71_PROVIDER" == "strata" || ( "$B71_PROVIDER" == "splash" && "${B71_AUTO_MAINTENANCE:-0}" != "1" ) ]]; then
   LIVE=1
-  if [[ "$SLICE" != "b71-first-consumer" && "$MISSION" != "1" ]]; then
+  if [[ "$SLICE" != "b71-first-consumer" && "$MISSION" != "1" && "$PENDING" != "1" ]]; then
     echo "live model batch 只接受现 B71 作者可见场景，实测: $SLICE" >&2
     exit 64
   fi
@@ -295,7 +301,11 @@ fi
 # 此后封存只链接同一快照，绝不再读源。判据只在 validatePreregistrationFile 中定义。
 preregistration_check() {
   local scenario_args=()
-  if [[ "$B71_PROVIDER" == "splash" ]]; then scenario_args=(b71-live); fi
+  if [[ "$PENDING" == "1" ]]; then
+    scenario_args=(b87-r08-pending)
+  elif [[ "$B71_PROVIDER" == "splash" ]]; then
+    scenario_args=(b71-live)
+  fi
   node "$ROOT/scripts/lib/native_ui/authoring_capture_evidence.mjs" \
     validate-preregistration "$1" "$DIR" "$B71_PROVIDER" "${scenario_args[@]}"
 }
@@ -471,6 +481,8 @@ elif [[ "$ANSWER_MODE" == "1" ]]; then
   node "$ROOT/scripts/native_b71_auto_maintenance_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$BEHAVIOR" == "1" ]]; then
   node "$ROOT/scripts/native_b71_behavior_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
+elif [[ "$PENDING" == "1" ]]; then
+  node "$ROOT/scripts/native_b71_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 elif [[ "$LIVE" == "1" || "$MISSION" == "1" ]]; then
   node "$ROOT/scripts/native_b71_live_drive.mjs" "$DIR" >"$DRIVER_LOG" 2>&1
 else

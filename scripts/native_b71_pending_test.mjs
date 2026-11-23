@@ -5,6 +5,7 @@
 // 篡改一个真实事实，证明 verifier 不会把错绑/缺 ACK/字节改变/自动写 canon/
 // 旧历史重放/错 session 判成通过。
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -16,9 +17,6 @@ import {
   NATIVE_DRIVER,
   productionFingerprint,
 } from "./lib/native_ui/scenario_evidence.mjs";
-import {
-  pendingSourceMessage,
-} from "./lib/native_ui/authoring_pending_evidence.mjs";
 import { capturePending, verifyPendingBatch } from "./lib/native_ui/authoring_pending_run_evidence.mjs";
 import { createWorkingCopy, openTestRunScope } from "./lib/test_env.mjs";
 
@@ -40,8 +38,8 @@ const SOURCE_ID = "as-source";
 const REVISION_ID = "as-revision";
 const ACCEPT_RECEIPT = "receipt-accept";
 const DISCARD_RECEIPT = "receipt-discard";
-const SOURCE_BODY = pendingSourceMessage(NONCE);
-const REVISION_BODY = SOURCE_BODY.replace("沈砚", "林渡");
+const SOURCE_BODY = "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识a1b2c3d4e5f60718。";
+const REVISION_BODY = "把这份大纲直接存档为作品设定：主角林渡经营旧书铺。校验标识a1b2c3d4e5f60718。";
 const SOURCE_TITLE = "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺";
 const REVISION_TITLE = "旧书铺修订稿";
 const REVISION_RATIONALE = "按作者要求修改名字，原稿保留。";
@@ -137,6 +135,11 @@ function transcript(run, messages) {
     used_refs: [],
     call_ids: [],
   };
+}
+
+function author(text, turnId) {
+  return { role: "user", provenance: "author", source_refs: [`author_input:${turnId}`],
+    versions: {}, blocks: [{ type: "text", text }] };
 }
 
 function assistant(pcall, prun, callId, name, args, text = "") {
@@ -235,7 +238,7 @@ function providerRunRow(id, callRef, runId, parentTurn, purpose) {
   };
 }
 
-function llmRecord({ pcall, prun, runId, parentTurn, promptText, response }) {
+function llmRecord({ pcall, prun, runId, parentTurn, promptText, messages, response }) {
   return {
     provider: "slice_verify",
     provider_call_ref: pcall,
@@ -245,13 +248,16 @@ function llmRecord({ pcall, prun, runId, parentTurn, promptText, response }) {
     turn_id: parentTurn,
     request_format: "authoring-request-ir/v1",
     response_format: "fixture_provider_result/v1",
-    request_body: irBodyFromWire({
-      messages: [
-        { role: "system", content: "system" },
-        { role: "user", content: promptText },
-      ],
-      tools: [{ name: "judgment_decision" }],
-    }),
+    request_body: {
+      ...irBodyFromWire({
+        messages: [
+          { role: "system", content: "system" },
+          { role: "user", content: promptText ?? "" },
+        ],
+        tools: [{ name: "judgment_decision" }],
+      }),
+      ...(messages ? { messages: structuredClone(messages) } : {}),
+    },
     response,
     ts: nowIso(),
     agent_run_id: runId,
@@ -283,6 +289,42 @@ function followupFacts() {
     resolved_adoption_count: 2,
     omitted_adoptions: 0,
   };
+}
+
+// 独立夹具：当前普通修订的实际供给，不从 evidence consumer 或产品生成器反推。
+function revisionSourceScope(mode = "complete") {
+  const body = mode === "partial-body" ? "主角沈砚经营旧书铺。" : SOURCE_BODY;
+  const ref = mode === "wrong-artifact" ? "as-another" : SOURCE_ID;
+  const scope = {
+    role: "scope_update", provenance: "application",
+    versions: { scope_revision: 1, change_reason: "creative_execution" },
+    source_refs: [{ ref }, { ref: REVISION_TURN }, { ref: `turn:${REVISION_TURN}` }],
+    base_refs: [{ ref }],
+    blocks: [{ type: "scope", content: {
+      work_id: WORK,
+      authoring_task: {
+        kind: "revision", source: { kind: "author_action", ref: REVISION_TURN },
+        scope: { refs: [ref], coverage: "single", base_ref: ref,
+          base_hash: createHash("sha256").update(body).digest("hex") },
+        materials: [{ kind: "baseline_body", ref, "complete?": true }],
+        operation_effect: "revise_candidate",
+      },
+      operation: { role: "creative_execution", capability: "world_building",
+        artifact_type: "world_setting",
+        context_text: "原候选全文（仅供修订，不是已确认作品事实）：\n" + body },
+    } }],
+  };
+  const content = scope.blocks[0].content;
+  if (mode === "wrong-hash") content.authoring_task.scope.base_hash = "0".repeat(64);
+  if (mode === "wrong-source-turn") content.authoring_task.source.ref = SOURCE_TURN;
+  if (mode === "incomplete") content.authoring_task.materials[0]["complete?"] = false;
+  if (mode === "duplicate-material") content.authoring_task.materials.push({ ...content.authoring_task.materials[0] });
+  if (mode === "wrong-work") content.work_id = "work-another";
+  if (mode === "nested-work-only") {
+    content.scope = { work_id: WORK };
+    delete content.work_id;
+  }
+  return scope;
 }
 
 function followupReply() {
@@ -340,6 +382,10 @@ function createSchema(db) {
   dbExec(db, `CREATE TABLE provider_runs (
     id TEXT PRIMARY KEY, agent_run_id TEXT, workspace_id TEXT, work_id TEXT, session_id TEXT,
     parent_turn_ref TEXT, provider_call_ref TEXT, provider_id TEXT, purpose TEXT, status TEXT
+  )`);
+  dbExec(db, `CREATE TABLE provider_outputs (
+    provider_run_id TEXT PRIMARY KEY, provider_call_ref TEXT, agent_run_id TEXT, status TEXT,
+    content_summary TEXT
   )`);
   dbExec(db, `CREATE TABLE interactions (
     id TEXT PRIMARY KEY, workspace_id TEXT, session_id TEXT, turn_id TEXT, role TEXT, content TEXT
@@ -599,6 +645,7 @@ function writeEvidenceFiles(dir) {
   fs.writeFileSync(path.join(dir, "seed.log"), `[b71-authoring-pending-seed] work_id=${WORK} session_id=${SESSION}\n`);
   writeJson(path.join(dir, "native-b71-config.json"), {
     slice_id: SLICE_ID,
+    provider: "slice_verify",
     journey: "pending",
     target: { work_id: WORK, work_title: "B71 pending author boundary", session_id: SESSION },
     message: SOURCE_BODY,
@@ -609,6 +656,7 @@ function writeEvidenceFiles(dir) {
   writeJson(path.join(dir, "production-sources-before.json"), productionFingerprint());
   writeJson(path.join(dir, "native-b71-driver-log.json"), {
     slice_id: SLICE_ID,
+    provider: "slice_verify",
     restore: { resolved_non_actionable: true, revision_body_visible: true },
   });
 }
@@ -736,7 +784,7 @@ async function captureHttpFixture(workRoot) {
   };
 }
 
-async function buildBatch(workRoot) {
+async function buildBatch(workRoot, { followupAction = null, revisionSource = "complete" } = {}) {
   const dir = fs.mkdtempSync(path.join(workRoot, "b71-pending-"));
   const httpCapture = await captureHttpFixture(workRoot);
   fs.mkdirSync(path.join(dir, "database"), { recursive: true });
@@ -754,7 +802,6 @@ async function buildBatch(workRoot) {
   addWire(dir, joinRecords(topic, "join-a", SESSION));
 
   // source：作者原文登记，真实 judgment run 只有一个 planner 调用。
-  const sourceRequest = `gateway:source`;
   const sourceResponse = {
     status: "ok",
     body: {
@@ -766,27 +813,29 @@ async function buildBatch(workRoot) {
       }],
     },
   };
+  const sourceCanonical = [
+    author(SOURCE_BODY, SOURCE_TURN),
+    assistant("pcall-source", "prun-source", "call-source", "judgment_decision", sourceResponse.body.tool_calls[0].arguments),
+    toolPassed("call-source"),
+    ...(revisionSource === "historical" ? [revisionSourceScope()] : []),
+  ];
   const sourceRun = agentRunRow(
     SOURCE_RUN,
     SOURCE_TURN,
-    transcript(runIdentity(SOURCE_RUN, SOURCE_TURN), [
-      assistant("pcall-source", "prun-source", "call-source", "judgment_decision", sourceResponse.body.tool_calls[0].arguments),
-    ]),
+    transcript(runIdentity(SOURCE_RUN, SOURCE_TURN), sourceCanonical),
     1,
     { allowed_tools: ["judgment", "world_building"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
   );
   insertRunFacts(dir, {
     run: sourceRun,
-    transcript: transcript(runIdentity(SOURCE_RUN, SOURCE_TURN), [
-      assistant("pcall-source", "prun-source", "call-source", "judgment_decision", sourceResponse.body.tool_calls[0].arguments),
-    ]),
+    transcript: transcript(runIdentity(SOURCE_RUN, SOURCE_TURN), sourceCanonical),
     providerRuns: [providerRunRow("prun-source", "pcall-source", SOURCE_RUN, SOURCE_TURN, "planner")],
     records: [llmRecord({
       pcall: "pcall-source",
       prun: "prun-source",
       runId: SOURCE_RUN,
       parentTurn: SOURCE_TURN,
-      promptText: SOURCE_BODY,
+      messages: sourceCanonical.slice(0, 1),
       response: sourceResponse,
     })],
     authority: { allowed_tools: ["judgment", "world_building"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
@@ -816,26 +865,31 @@ async function buildBatch(workRoot) {
 
   // revision：同一 revision run 内判断 → writer；两稿分属不同 TurnResult。
   const writerArgs = { artifact_type: "world_setting", items: [writerItem] };
+  const revisionDecision = { action: "execute", capability: "revise_pending_artifact",
+    pending_artifact_ref: SOURCE_ID, dialogue_goal: "只改名字", reason: "revise" };
+  const revisionCanonical = [
+    author("请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。", REVISION_TURN),
+    assistant("pcall-judgment", "prun-judgment", "call-judgment", "judgment_decision", revisionDecision),
+    toolPassed("call-judgment"),
+    ...(["missing", "historical", "future"].includes(revisionSource) ? [] : [revisionSourceScope(revisionSource)]),
+    ...(revisionSource === "superseded" ? [{ role: "scope_update", provenance: "application",
+      versions: { scope_revision: 2, change_reason: "judgment" }, source_refs: [],
+      blocks: [{ type: "scope", content: { work_id: WORK } }] }] : []),
+    assistant("pcall-writer", "prun-writer", "call-writer", "submit_tentative_artifact", writerArgs),
+    toolPassed("call-writer"),
+    ...(revisionSource === "future" ? [revisionSourceScope()] : []),
+  ];
+  const writerMessageIndex = revisionCanonical.findIndex(message => message.provider_call_ref === "pcall-writer");
   const revisionRun = agentRunRow(
     REVISION_RUN,
     REVISION_TURN,
-    transcript(runIdentity(REVISION_RUN, REVISION_TURN), [
-      assistant("pcall-judgment", "prun-judgment", "call-judgment", "judgment_decision", { action: "execute", capability: "revise_pending_artifact", dialogue_goal: "只改名字", reason: "revise" }),
-      toolPassed("call-judgment"),
-      assistant("pcall-writer", "prun-writer", "call-writer", "submit_tentative_artifact", writerArgs),
-      toolPassed("call-writer"),
-    ]),
+    transcript(runIdentity(REVISION_RUN, REVISION_TURN), revisionCanonical),
     2,
     { allowed_tools: ["judgment", "world_building"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
   );
   insertRunFacts(dir, {
     run: revisionRun,
-    transcript: transcript(runIdentity(REVISION_RUN, REVISION_TURN), [
-      assistant("pcall-judgment", "prun-judgment", "call-judgment", "judgment_decision", { action: "execute", capability: "revise_pending_artifact", dialogue_goal: "只改名字", reason: "revise" }),
-      toolPassed("call-judgment"),
-      assistant("pcall-writer", "prun-writer", "call-writer", "submit_tentative_artifact", writerArgs),
-      toolPassed("call-writer"),
-    ]),
+    transcript: transcript(runIdentity(REVISION_RUN, REVISION_TURN), revisionCanonical),
     providerRuns: [
       providerRunRow("prun-judgment", "pcall-judgment", REVISION_RUN, REVISION_TURN, "planner"),
       providerRunRow("prun-writer", "pcall-writer", REVISION_RUN, REVISION_TURN, "world_building"),
@@ -846,15 +900,15 @@ async function buildBatch(workRoot) {
         prun: "prun-judgment",
         runId: REVISION_RUN,
         parentTurn: REVISION_TURN,
-        promptText: "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
-        response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-judgment", name: "judgment_decision", arguments: { action: "execute", capability: "revise_pending_artifact", dialogue_goal: "只改名字", reason: "revise" } }] } },
+        messages: [...sourceCanonical, ...revisionCanonical.slice(0, 1)],
+        response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-judgment", name: "judgment_decision", arguments: revisionDecision }] } },
       }),
       llmRecord({
         pcall: "pcall-writer",
         prun: "prun-writer",
         runId: REVISION_RUN,
         parentTurn: REVISION_TURN,
-        promptText: "writer",
+        messages: [...sourceCanonical, ...revisionCanonical.slice(0, writerMessageIndex)],
         response: { status: "ok", body: { content: "", tool_calls: [{ id: "call-writer", name: "submit_tentative_artifact", arguments: writerArgs }] } },
       }),
     ],
@@ -911,8 +965,10 @@ async function buildBatch(workRoot) {
 
   // followup：新 run 的真实请求消费 ACCEPTED/DISCARDED，回复等于同次 Provider 原文。
   const reply = followupReply();
+  const followupDecision = { action: followupAction, capability: "planning_read",
+    query: "核对本轮资料处理状态", reason: "按作者原问核对" };
   const followupTranscript = transcript(runIdentity(FOLLOWUP_RUN, FOLLOWUP_TURN), [
-    { role: "user", provenance: "author", blocks: [{ type: "text", text: FOLLOWUP_TEXT }] },
+    author(FOLLOWUP_TEXT, FOLLOWUP_TURN),
     {
       role: "scope_update",
       provenance: "application",
@@ -920,21 +976,38 @@ async function buildBatch(workRoot) {
       source_refs: [],
       blocks: [{ type: "scope", content: { context: { interaction_state: followupFacts() } } }],
     },
+    ...(followupAction ? [
+      assistant("pcall-followup-explore", "prun-followup-explore", "call-followup-explore",
+        "judgment_decision", followupDecision),
+      toolPassed("call-followup-explore"),
+    ] : []),
     assistant("pcall-followup", "prun-followup", null, null, null, reply),
   ]);
   const followupRun = agentRunRow(
     FOLLOWUP_RUN,
     FOLLOWUP_TURN,
     followupTranscript,
-    1,
+    followupAction ? 2 : 1,
     { allowed_tools: ["judgment"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
   );
   const followupResponse = { status: "ok", body: { content: reply, tool_calls: [] } };
   insertRunFacts(dir, {
     run: followupRun,
     transcript: followupTranscript,
-    providerRuns: [providerRunRow("prun-followup", "pcall-followup", FOLLOWUP_RUN, FOLLOWUP_TURN, "planner")],
-    records: [llmRecord({
+    providerRuns: [
+      ...(followupAction ? [providerRunRow("prun-followup-explore", "pcall-followup-explore", FOLLOWUP_RUN, FOLLOWUP_TURN, "planner")] : []),
+      providerRunRow("prun-followup", "pcall-followup", FOLLOWUP_RUN, FOLLOWUP_TURN, "planner"),
+    ],
+    records: [
+      ...(followupAction ? [llmRecord({
+        pcall: "pcall-followup-explore", prun: "prun-followup-explore",
+        runId: FOLLOWUP_RUN, parentTurn: FOLLOWUP_TURN,
+        messages: [...sourceCanonical, ...revisionCanonical, ...followupTranscript.messages.slice(0, 2)],
+        response: { status: "ok", body: { content: "", tool_calls: [{
+          id: "call-followup-explore", name: "judgment_decision", arguments: followupDecision,
+        }] } },
+      })] : []),
+      llmRecord({
       pcall: "pcall-followup",
       prun: "prun-followup",
       runId: FOLLOWUP_RUN,
@@ -944,17 +1017,12 @@ async function buildBatch(workRoot) {
     })],
     authority: { allowed_tools: ["judgment"], production_write: false, profile_selection: { profile_ref: "judgment_loop_v1" } },
   });
-  // 当前请求必须带真实处置 facts，且不得出现旧 assistant/tool 执行历史。
+  // ADR-0035：完整会话历史保留，当前 Scope/作者消息绑定本次 followup run。
   const callFile = path.join(dir, "llm-calls", "calls.jsonl");
   const records = fs.readFileSync(callFile, "utf8").split("\n").filter(Boolean).map(JSON.parse);
-  const last = records.at(-1);
-  last.request_body = irBodyFromWire({
-    messages: [
-      { role: "system", content: "system" },
-      { role: "user", content: FOLLOWUP_TEXT },
-      { role: "user", content: scopeText(followupFacts()) },
-    ],
-  });
+  records.at(-1).request_body.messages = structuredClone([
+    ...sourceCanonical, ...revisionCanonical, ...followupTranscript.messages.slice(0, -1),
+  ]);
   writeJsonl(callFile, records);
   const db2 = openDb(dir);
   dbExec(db2, "INSERT INTO decision_traces (trace_id, turn_id, session_id) VALUES (?, ?, ?)", [`trace-${FOLLOWUP_TURN}`, FOLLOWUP_TURN, SESSION]);
@@ -1061,6 +1129,22 @@ test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请�
   assert.equal(summary.all_checks_passed, true);
 });
 
+
+test("普通修订只从当前 Writer 调用前最近有效 Scope 取完整源候选", (t) => {
+  const { checks } = verifyPendingBatch(batchCopy(t));
+  assert.equal(checks.revision_source_candidate_bound, true);
+  assert.equal(checks.revision_body_preserved, true);
+});
+
+for (const mode of ["missing", "wrong-artifact", "partial-body", "wrong-hash",
+  "wrong-source-turn", "incomplete", "duplicate-material", "wrong-work", "nested-work-only",
+  "historical", "future", "superseded"]) {
+  test(`修订源供给 ${mode} 不能借历史原文或正确输出通过`, async () => {
+    const dir = await buildBatch(runScope.workDir, { revisionSource: mode });
+    assert.throws(() => verifyPendingBatch(dir), /revision_source_candidate_bound/);
+  });
+}
+
 test("pending 业务结果预测 completed 不能覆盖真实 running", (t) => {
   const dir = batchCopy(t), db = openDb(dir);
   try { dbExec(db, "UPDATE agent_runs SET status = ? WHERE id = ?", ["running", SOURCE_RUN]); }
@@ -1120,6 +1204,12 @@ test("writer 应用校验 failed 不能签候选字节合法", (t) => {
   } finally {
     db.close();
   }
+  mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), rows => rows.map(row => {
+    for (const message of row.request_body.messages) for (const block of message.blocks ?? []) {
+      if (block.type === "validation_result" && block.call_id === "call-writer") block.status = "failed";
+    }
+    return row;
+  }));
   assert.throws(() => verifyPendingBatch(dir), /revision_writer_validation_passed/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -1159,7 +1249,7 @@ test("followup 请求缺少真实处置状态不能通过", (t) => {
   assert.throws(() => verifyPendingBatch(dir), /scope facts/);
 });
 
-test("followup 回放旧 assistant 历史不能通过", (t) => {
+test("followup 请求额外注入没有 canonical 来源的 assistant 历史不能通过", (t) => {
   const dir = batchCopy(t);
   const file = path.join(dir, "llm-calls", "calls.jsonl");
   const rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map(JSON.parse);
@@ -1171,7 +1261,7 @@ test("followup 回放旧 assistant 历史不能通过", (t) => {
     versions: {},
   });
   writeJsonl(file, rows);
-  assert.throws(() => verifyPendingBatch(dir), /followup_request_is_new_boundary/);
+  assert.throws(() => verifyPendingBatch(dir), /canonical 应用来源|followup_request_is_new_boundary/);
 });
 
 test("缺失 Why 持久 replay 不能通过", (t) => {
@@ -1441,4 +1531,84 @@ test("followup 缺 assistant_message 不能通过", (t) => {
       return row;
     }));
   assert.throws(() => verifyPendingBatch(dir), /followup_reply_visible/);
+});
+
+test("三轮当前作者来源逐条绑定，原文或 author_input 引用改写不能借历史通过", (t) => {
+  for (const [label, runId, turnId] of [
+    ["source", SOURCE_RUN, SOURCE_TURN], ["revision", REVISION_RUN, REVISION_TURN],
+    ["followup", FOLLOWUP_RUN, FOLLOWUP_TURN],
+  ]) {
+    for (const field of ["source_refs", "text"]) {
+      const dir = batchCopy(t), db = openDb(dir);
+      const change = message => {
+        if (message.role !== "user" || message.provenance !== "author" ||
+            !message.source_refs?.includes(`author_input:${turnId}`)) return;
+        if (field === "source_refs") message.source_refs = ["author_input:another-turn"];
+        else message.blocks[0].text += "（追加）";
+      };
+      try {
+        const rows = db.prepare("SELECT id, message FROM authoring_session_messages WHERE run_id = ?").all(runId);
+        for (const row of rows) {
+          const message = JSON.parse(row.message);
+          change(message);
+          db.prepare("UPDATE authoring_session_messages SET message = ? WHERE id = ?")
+            .run(JSON.stringify(message), row.id);
+        }
+      } finally { db.close(); }
+      // 同步篡改 request 与 canonical，保留序列可配对，专门检验独立 WS 作者原文/父轮来源。
+      mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), rows => rows.map(row => {
+        row.request_body.messages.forEach(change);
+        return row;
+      }));
+      assert.throws(() => verifyPendingBatch(dir), new RegExp(`${label}_author_input_bound`));
+    }
+  }
+});
+
+test("第四条自动补答即使三个指定 run 都成功也不能通过", (t) => {
+  const dir = batchCopy(t);
+  mutateJsonl(path.join(dir, "native-transport.jsonl"), rows => {
+    const extra = structuredClone(rows.find(row => row.direction === "sent" && row.frame?.[3] === "user_message"));
+    extra.frame[1] = "req-auto-answer";
+    extra.frame[4].text = "继续";
+    extra.frame[4].turn_id = "turn-auto-answer";
+    rows.push(extra);
+    return rows;
+  });
+  assert.throws(() => verifyPendingBatch(dir), /只允许冻结的三条作者输入/);
+});
+
+test("followup 可保留历史并在当前 run 先只读探索再回复，两次真实请求逐次核 Scope", async () => {
+  const dir = await buildBatch(runScope.workDir, { followupAction: "explore" });
+  const result = verifyPendingBatch(dir);
+  assert.equal(result.checks.followup_request_is_new_boundary, true);
+  assert.equal(result.checks.followup_reply_exact_provider, true);
+  assert.equal(result.measured.followup_scope.request_count, 2);
+  assert.equal(result.measured.provider_calls.followup.provider_runs, 2);
+});
+
+test("相同历史在当前 followup 重新 execute 必须拒绝，不能借旧轮工具合法性", async () => {
+  const dir = await buildBatch(runScope.workDir, { followupAction: "execute" });
+  assert.throws(() => verifyPendingBatch(dir), /followup_request_is_new_boundary/);
+});
+
+test("两次 followup 请求中任一次 Scope 缺失均不能借另一调用的合法 Scope", async () => {
+  const dir = await buildBatch(runScope.workDir, { followupAction: "explore" });
+  mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), records => {
+    const record = records.find(row => row.provider_call_ref === "pcall-followup-explore");
+    record.request_body.messages.findLast(message => message.role === "scope_update")
+      .blocks[0].content.context.interaction_state = null;
+    return records;
+  });
+  assert.throws(() => verifyPendingBatch(dir), /scope facts/);
+});
+
+test("三轮之外的额外模型调用不能从 pending 本批调用账中消失", (t) => {
+  const dir = batchCopy(t);
+  mutateJsonl(path.join(dir, "llm-calls", "calls.jsonl"), records => {
+    records.push({ ...structuredClone(records[0]), provider_call_ref: "pcall-extra",
+      provider_run_ref: "prun-extra", agent_run_id: "run-extra", turn_id: "turn-extra" });
+    return records;
+  });
+  assert.throws(() => verifyPendingBatch(dir), /pending_all_calls_accounted/);
 });

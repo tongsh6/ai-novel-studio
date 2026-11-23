@@ -148,6 +148,12 @@ const R05_FULL_READ_TARGET = Object.freeze({
 });
 // 作者可见场景唯一登记点；batch、prepare、driver、readConfig 共用，不另建 R06 白名单。
 const AUTHOR_VISIBLE_SCENARIOS = Object.freeze({
+  "b87-r08-pending": {
+    mode: "pending", slice_id: "b71-authoring-pending",
+    seed_script: "scripts/seed_b71_authoring_pending.exs",
+    budget: Object.freeze({ batches: 1, author_sends: 3, manual_retries: 0,
+      scenario_seconds: 900, input_timeout_ms: 30000, turn_timeout_ms: 240000 }),
+  },
   "b82-g2": {
     mode: "candidate", slice_id: "b71-first-consumer",
     seed_script: "scripts/seed_judgment_explore_chapter_full_read.exs",
@@ -198,7 +204,7 @@ const AUTHOR_VISIBLE_SCENARIOS = Object.freeze({
 export function authorVisibleScenarioSpec(scenarioId) {
   if (typeof scenarioId !== "string" || !Object.hasOwn(AUTHOR_VISIBLE_SCENARIOS, scenarioId)) return null;
   const spec = AUTHOR_VISIBLE_SCENARIOS[scenarioId];
-  return spec.seed_script ? { ...spec, budget: OWNED_SCENARIO_BUDGET } : spec;
+  return spec.seed_script ? { ...spec, budget: spec.budget ?? OWNED_SCENARIO_BUDGET } : spec;
 }
 
 export const authorVisibleScenario = (scenarioId) => authorVisibleScenarioSpec(scenarioId)?.mode ?? null;
@@ -308,19 +314,28 @@ export function validatePreregistrationFile(
   if (provider === "splash" && b71Live) {
     assert(spec?.seed_script, "Splash B71 live 只接受 b82-g2 或已登记的 R05/WR01/WR02 场景");
   }
-  const owned = spec?.goal || spec?.mission_kind || (provider === "splash" && actualScenarioId === "b82-g2");  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
-  const authorVisibleTarget = authorVisibleScenario(actualScenarioId)
+  const pending = spec?.mode === "pending";
+  const owned = pending || spec?.goal || spec?.mission_kind || (provider === "splash" && actualScenarioId === "b82-g2");  // 目标来自同一冻结副本；普通 live 的同名字段不改变入口行为。
+  const authorVisibleTarget = !pending && authorVisibleScenario(actualScenarioId)
     ? readAuthorVisibleTarget(scenario, { require: requireAuthorVisibleTarget })
     : null;
   if (owned) {
     assert.equal(provider, "splash", "冻结场景 provider 必须是 splash");
     assert.equal(scenario.slice_id, spec.slice_id, "冻结场景 slice 绑定不符");
-    assert.equal(scenario.message, spec.message, "作者原文与冻结场景不符");
-    assert.deepEqual(authorVisibleTarget, spec.target, "作者可见目标与冻结场景不符");
-    assert.deepEqual(scenario.author_visible_target, spec.target, "冻结目标不得补造字段");
+    if (pending) {
+      assert(/^[a-f0-9]{16}$/.test(scenario.nonce ?? ""), "pending nonce 必须在启动前冻结为 16 位 hex");
+      assert.equal(scenario.message, pendingSourceMessage(scenario.nonce), "pending 作者原文与冻结 nonce 不符");
+      assert.equal(scenario.revision_message, PENDING_REVISION_MESSAGE, "pending 修订原文与冻结场景不符");
+      assert.equal(scenario.followup_message, PENDING_FOLLOWUP_MESSAGE, "pending followup 原文与冻结场景不符");
+      assert.equal(scenario.author_visible_target, undefined, "pending 目标只由同次 seed 绑定");
+    } else {
+      assert.equal(scenario.message, spec.message, "作者原文与冻结场景不符");
+      assert.deepEqual(authorVisibleTarget, spec.target, "作者可见目标与冻结场景不符");
+      assert.deepEqual(scenario.author_visible_target, spec.target, "冻结目标不得补造字段");
+    }
     assert.equal(scenario.seed?.script, spec.seed_script, "seed 路径与冻结场景不符");
     assert.equal(scenario.seed?.sha256, shaFile(path.join(ROOT, spec.seed_script)), "seed 字节与冻结 SHA 不符");
-    assert.deepEqual(value.budget, OWNED_SCENARIO_BUDGET, "budget 必须绑定 1 send/0 retry/900秒 owned 执行");
+    assert.deepEqual(value.budget, spec.budget, `budget 必须绑定 ${spec.budget.author_sends} send/0 retry/900秒 owned 执行`);
   }
   return {
     id: value.id,
@@ -332,6 +347,8 @@ export function validatePreregistrationFile(
     ...(owned ? { slice_id: spec.slice_id, seed: scenario.seed, budget: value.budget } : {}),
     ...(spec?.goal ? { r05_goal: spec.goal } : {}),
     ...(spec?.mission_kind ? { mission_kind: spec.mission_kind } : {}),
+    ...(pending ? { nonce: scenario.nonce, revision_message: scenario.revision_message,
+      followup_message: scenario.followup_message } : {}),
   };
 }
 
@@ -339,7 +356,7 @@ export function validatePreregistrationFile(
 function checkPreregistration(dir, config) {
   const marker = config.preregistration ?? null;
   const file = path.join(dir, PREREGISTRATION_FILE);
-  if (!marker && !(config.journey === "live" && fs.existsSync(file))) return null;
+  if (!marker && !(["live", "pending"].includes(config.journey) && fs.existsSync(file))) return null;
   assert(marker, "预注册文件存在但配置缺少 preregistration 标记");
   assert(
     typeof marker === "object" && !Array.isArray(marker),
@@ -360,6 +377,12 @@ function checkPreregistration(dir, config) {
     assert.deepEqual(config.seed, record.seed, "配置 seed 与预注册不一致");
     assert.deepEqual(config.budget, record.budget, "配置 budget 预算与预注册不一致");
     assert.equal(config.slice_id, record.slice_id, "配置 slice 绑定不符");
+  }
+  if (record.scenario_id === "b87-r08-pending") {
+    assert.equal(config.journey, "pending", "冻结 pending 场景不能借其它 journey 签收");
+    for (const field of ["nonce", "revision_message", "followup_message"]) {
+      assert.equal(config[field], record[field], `配置 ${field} 与冻结预注册不一致`);
+    }
   }
   // B82 作者可见目标与作者输入一起封存在同一份预注册哈希里；旧批次缺字段时
   // 保持历史可读，但 G2/G3 新批次必须有冻结来源，且配置副本不得被改写或补造。
@@ -386,9 +409,10 @@ export function readConfig(dir) {
   // 配置文件自带的 scenario_id/作者可见目标可伪造，一律丢弃；只保留哈希验证后的冻结值。
   const sealed = { ...config };
   if (sealed.provider === "splash") {
-    assert(["live", "mission", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
+    assert(["live", "mission", "pending", "auto-maintenance"].includes(sealed.journey), "Splash journey 未注册");
     assert.deepEqual(sealed.runtime, splashRuntime(dir), "实际 runtime facts 与配置不符");
-    if (["live", "mission"].includes(sealed.journey)) assert(record, "Splash live/mission 缺少冻结预注册");
+    if (["live", "mission", "pending"].includes(sealed.journey)) assert(record, "Splash live/mission/pending 缺少冻结预注册");
+    if (sealed.journey === "pending") assert.equal(record.scenario_id, "b87-r08-pending", "pending 冻结场景不符");
   }
   if (sealed.journey === "auto-maintenance") {
     assert.equal(sealed.provider, "splash", "R03 auto-maintenance provider 不符");
@@ -445,6 +469,11 @@ function readyFor(dir) {
     assert(!answerMode && !memoryDetail && !autoMaintenance && !confirmationMode && !behaviorCaseId,
       "使命场景不能混用其它 journey 开关");
     journey = "mission";
+  } else if (ready.slice_id === "b71-authoring-pending" && ["strata", "splash"].includes(ready.provider)) {
+    assert.equal(ready.provider, "splash", "pending 实模场景只接受 Splash");
+    assert(!answerMode && !memoryDetail && !autoMaintenance && !confirmationMode && !behaviorCaseId,
+      "pending 场景不能混用其它 journey 开关");
+    journey = "pending";
   } else if (answerMode) {
     assert.equal(ready.provider, "slice_verify", "answer-mode journey 只接受确定性 slice_verify");
     if (confirmationMode || behaviorCaseId || autoMaintenance || memoryDetail) {
@@ -517,16 +546,17 @@ export function prepare(dir) {
   const preregistrationFile = path.join(dir, PREREGISTRATION_FILE);
   const hasPreregistration = fs.existsSync(preregistrationFile);
   const runtime = ready.provider === "splash" ? splashRuntime(dir) : null;
-  if (ready.provider === "splash" && ["live", "mission"].includes(ready.journey)) {
+  if (ready.provider === "splash" && ["live", "mission", "pending"].includes(ready.journey)) {
     assert(hasPreregistration, "Splash live 缺少冻结预注册");
   }
   if (hasPreregistration) {
-    assert(["live", "mission"].includes(ready.journey), "预注册文件只属于 live/mission 批次");
+    assert(["live", "mission"].includes(ready.journey) || (pending && ready.provider === "splash"),
+      "预注册文件只属于 live/mission 批次或 Splash pending 批次");
   }
   const preregistration = hasPreregistration
     ? validatePreregistrationFile(preregistrationFile, { dir, provider: ready.provider,
       model: runtime ? runtime.observed.provider.model : DEFAULT_STRATA_MODEL, requireAuthorVisibleTarget: true,
-      b71Live: true })
+      b71Live: !pending, ...(pending ? { scenarioId: "b87-r08-pending" } : {}) })
     : null;
   if (preregistration?.slice_id) assert.equal(ready.slice_id, preregistration.slice_id, "启动 slice 与冻结场景不符");
   if (mission && ready.provider === "slice_verify") {
@@ -538,7 +568,7 @@ export function prepare(dir) {
   const target = visibleTarget
     ? null
     : targetFor(dir, { includeSession: pending || live || confirmation || autoMaintenance || answerMode });
-  const nonce = pending ? randomBytes(8).toString("hex") : null;
+  const nonce = pending ? preregistration?.nonce ?? randomBytes(8).toString("hex") : null;
   // 作者行为覆盖：输入必须是 B70 冻结 case 的 expression 原文（禁止现场造输入）。
   let behaviorCase = null;
   if (behavior) {

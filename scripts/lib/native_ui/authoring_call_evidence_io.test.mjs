@@ -212,3 +212,23 @@ test("两可写副本独立：wrong ownership 行被 reader+纯 join 拒绝，�
   }
   assert.equal(fs.existsSync(leaf), false, "本 case 独有叶子已明确回收");
 });
+
+test("成功输出摘要仅由显式消费者读取，缺失/重复/错run原事实保留且默认行为不变", (t) => {
+  const copy = createWorkingCopy(fixture, { scope: runScope, context: t });
+  const db = new DatabaseSync(copy.files.get(AUTHORING_CALL_DB_REL));
+  try {
+    db.exec("CREATE TABLE provider_outputs (provider_run_id TEXT, provider_call_ref TEXT, agent_run_id TEXT, status TEXT, content_summary TEXT)");
+    const expected = { provider_run_id: "prun-1", provider_call_ref: "pcall-1",
+      agent_run_id: scope().run_id, status: "ok",
+      content_summary: '{"content_sha256":"8f5bd0e5429c4b64f4273f87c5338845af372dd17f87d96646e1e4d26a881c00"}' };
+    const inspect = () => readProviderRuns(copy.dir, scope(), { includeOutputs: true });
+    assert.deepEqual(inspect()[0].recorded_outputs, []);
+    db.prepare("INSERT INTO provider_outputs VALUES (?, ?, ?, ?, ?)").run(...Object.values(expected));
+    assert.deepEqual(inspect()[0].recorded_outputs.map(row => ({ ...row })), [expected]);
+    assert.equal(Object.hasOwn(readProviderRuns(copy.dir, scope())[0], "recorded_outputs"), false);
+    db.prepare("INSERT INTO provider_outputs VALUES (?, ?, ?, ?, ?)").run(
+      "prun-1", "pcall-other", "run-other", "error", expected.content_summary);
+    assert.equal(inspect()[0].recorded_outputs.length, 2, "reader 不选赢家或去重掩盖冲突");
+    assert.equal(inspect()[0].recorded_outputs[1].agent_run_id, "run-other");
+  } finally { db.close(); copy.cleanup(); }
+});

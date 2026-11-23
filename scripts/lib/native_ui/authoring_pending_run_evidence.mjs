@@ -5,7 +5,8 @@
 // 作者消息自己的 join/request 生命周期 + ACK run + 精确 run/session/turn 绑定，
 // 不按“最新 run/最新候选/时间就近”猜取。
 import assert from "node:assert/strict";
-import { wireTerminal } from "./live_run_wait.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { recordResponseBody, wireTerminal } from "./live_run_wait.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -22,12 +23,15 @@ import {
   read,
   requestReplies,
   seedFields,
+  sha256,
   withDb,
   write,
 } from "./scenario_evidence.mjs";
-import { requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { NATIVE_CHAT_WIRE, parseIrMessage, requestFactsFromRecord } from "./authoring_request_facts.mjs";
+import { COMPACTION_RUNTIME_PROFILE_ID, getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
 import { authoringScope, readAuthoringHistory } from "./authoring_history_evidence.mjs";
-import { joinNativeCallEvidence, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalReplyForProviderCall, canonicalRequestBindingsForProviderCall, joinNativeCallEvidence,
+  providerOperation, providerTurnMatchesParent, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { planningCanonSnapshot, readConfig } from "./authoring_capture_evidence.mjs";
 import {
   assistantCalls,
@@ -213,10 +217,11 @@ function readPhaseFacts(dir, evidence, { sent, ackBody, runId, topic, label, wor
   const history = readAuthoringHistory(dir, scope, { requireMode: "bounded" });
   const completed = completedForRun(evidence.wire, { turnId, runId, topic, workId,
     sessionId: scope.session_id, since: sent.at, runRow: history.record }, label);
+  const providerRuns = readProviderRuns(dir, scope, { includeOutputs: true });
   const calls = joinNativeCallEvidence({
     scope,
     transcript: history.transcript,
-    providerRuns: readProviderRuns(dir, scope),
+    providerRuns,
     records: evidence.llmRecords,
     consumedProviderCalls: history.budget?.provider_calls,
   });
@@ -235,7 +240,7 @@ function readPhaseFacts(dir, evidence, { sent, ackBody, runId, topic, label, wor
     completed.turn_id,
     `${label}: Interaction 内 TurnResult 与本轮不一致`,
   );
-  return { sent, topic, turnId, runId, completed, scope, history, calls, interaction, ackBody };
+  return { sent, topic, turnId, runId, completed, scope, history, calls, providerRuns, interaction, ackBody };
 }
 
 function acceptedAckRun(evidence, sent, label) {
@@ -315,10 +320,11 @@ function canonicalNames(history) {
   return assistantCalls(history.transcript).map((call) => call.name);
 }
 
-// writer 候选必须经过应用校验且结果为 passed；failed 的 writer 不能签字节合法。
-function writerValidationPassed(history) {
+// 只授信实际返回候选的 Writer；前次失败仍记账，不能阻断后续合法纠错或为它代签。
+export function writerValidationPassed(history, providerCallRef) {
+  if (!nonBlank(providerCallRef)) return false;
   const writerCalls = assistantCalls(history.transcript)
-    .filter((call) => call.name === "submit_tentative_artifact");
+    .filter((call) => call.name === "submit_tentative_artifact" && call.pcall === providerCallRef);
   const validations = list(history.transcript.messages)
     .filter((message) => message?.role === "tool")
     .flatMap((message) => list(message.blocks))
@@ -329,32 +335,114 @@ function writerValidationPassed(history) {
   });
 }
 
-function assistantProviderMessage(history) {
-  return list(history.transcript.messages).find(
-    (message) => message?.role === "assistant" && nonBlank(message.provider_call_ref),
-  ) ?? null;
-}
-
 function providerRecordFor(records, assistant) {
-  const matches = list(records).filter(
-    (record) => record.provider_call_ref === assistant.provider_call_ref &&
-      record.provider_run_ref === assistant.provider_run_ref,
+  const byCall = list(records).filter(record => record.provider_call_ref === assistant.provider_call_ref);
+  const byRun = list(records).filter(record => record.provider_run_ref === assistant.provider_run_ref);
+  return byCall.length === 1 && byRun.length === 1 && byCall[0] === byRun[0] ? byCall[0] : null;
+}
+
+// 正文期望来自本轮可见回复；解码正文的独立字节 SHA 来自已持久 ProviderOutput，
+// 不将 canonical 自己派生的摘要或 tool-only 日志里后补的 content 当成原输出。
+export function providerContentFor(history, records, providerRuns, expectedReply) {
+  if (!nonBlank(expectedReply)) return null;
+  const candidates = list(history?.transcript?.messages).filter(message => {
+    const parsed = parseIrMessage(message, 0);
+    return !parsed.malformed && parsed.message.role === "assistant" &&
+      parsed.message.provenance === "model" && parsed.message.text === expectedReply &&
+      nonBlank(message.provider_call_ref) && nonBlank(message.provider_run_ref);
+  });
+  if (candidates.length !== 1) return null;
+  const assistant = candidates[0], record = providerRecordFor(records, assistant);
+  if (!record || canonicalReplyForProviderCall(record, history.transcript) !== assistant) return null;
+  const status = record.response?.status;
+  if (!(status === "ok" || (Number.isInteger(status) && status >= 200 && status < 300))) return null;
+  const body = recordResponseBody(record);
+  if (body?.source !== "sse_decoder") {
+    const content = body?.content ?? body?.choices?.[0]?.message?.content;
+    return content === expectedReply ? content : null;
+  }
+  const byCall = list(providerRuns).filter(row => row.provider_call_ref === assistant.provider_call_ref);
+  const byRun = list(providerRuns).filter(row => row.id === assistant.provider_run_ref);
+  if (byCall.length !== 1 || byRun.length !== 1 || byCall[0] !== byRun[0]) return null;
+  const row = byRun[0], run = history.record;
+  if (!run || run.status !== "completed" || !nonBlank(run.id) || row.agent_run_id !== run.id ||
+      row.status !== "completed" || !["workspace_id", "work_id", "session_id", "parent_turn_ref"]
+        .every(field => nonBlank(run[field]) && row[field] === run[field]) ||
+      record.work_id !== run.work_id || record.session_id !== run.session_id ||
+      (Object.hasOwn(record, "agent_run_id") && record.agent_run_id !== run.id) ||
+      (Object.hasOwn(record, "workspace_id") && record.workspace_id !== run.workspace_id) ||
+      !providerTurnMatchesParent(record.turn_id, run.parent_turn_ref)) return null;
+  const outputs = list(row.recorded_outputs);
+  if (outputs.length !== 1) return null;
+  const output = outputs[0];
+  if (output?.status !== "ok" || output.provider_run_id !== row.id ||
+      output.provider_call_ref !== row.provider_call_ref || output.agent_run_id !== run.id) return null;
+  let summary;
+  try { summary = parseJsonField(output.content_summary); } catch { return null; }
+  const hash = summary?.content_sha256;
+  return typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash) && hash === sha256(expectedReply)
+    ? expectedReply : null;
+}
+
+function completedBusinessRecords(phase) {
+  return phase.calls.records.filter(record => phase.providerRuns.some(row =>
+    row.id === record.provider_run_ref && row.provider_call_ref === record.provider_call_ref &&
+    row.status === "completed" && !(row.purpose === "other" && providerOperation(row) === "transcript_compaction")));
+}
+
+function authorInputBound(phase, record) {
+  const bindings = canonicalRequestBindingsForProviderCall(record, { messages: phase.history.sessionMessages });
+  if (!bindings) return false;
+  const current = bindings.filter(binding => binding.canonical.role === "user" &&
+    binding.canonical.provenance === "author" &&
+    binding.canonical.raw?.canonical_ref?.run_id === phase.runId);
+  const text = frameBody(phase.sent)?.text;
+  return current.length === 1 && nonBlank(text) &&
+    current[0].canonical.text === text && current[0].actual.text === text &&
+    current[0].canonical.sourceRefs.includes(`author_input:${phase.turnId}`);
+}
+
+function phaseAuthorInputBound(phase) {
+  const records = completedBusinessRecords(phase);
+  return records.length > 0 && records.every(record => authorInputBound(phase, record));
+}
+
+// 当前候选必须由同一次 Writer 的最新应用 Scope 完整供给；历史原文不能代签。
+function revisionSourceCandidateBound(phase, writer, artifact, sourceItem) {
+  if (!writer.ok || !nonBlank(artifact?.artifact_id) || !nonBlank(sourceItem?.body)) return false;
+  const records = phase.calls.records.filter(record => record.provider_call_ref === writer.provider_call_ref);
+  if (records.length !== 1) return false;
+  const record = records[0];
+  const bindings = canonicalRequestBindingsForProviderCall(record, { messages: phase.history.sessionMessages });
+  const binding = bindings?.findLast(item => item.canonical.role === "scope_update");
+  if (!binding || binding.canonical.raw?.canonical_ref?.run_id !== phase.runId ||
+      !authorInputBound(phase, record)) return false;
+  const content = binding.actual.scopeContent;
+  const task = content?.authoring_task, operation = content?.operation, scope = task?.scope;
+  const materials = list(task?.materials).filter(material => material?.kind === "baseline_body");
+  return allOf(
+    content?.work_id === phase.history.record.work_id,
+    task?.kind === "revision",
+    task?.operation_effect === "revise_candidate",
+    task?.source?.kind === "author_action",
+    task?.source?.ref === phase.turnId,
+    scope?.base_ref === artifact.artifact_id,
+    scope?.base_hash === sha256(sourceItem.body),
+    scope?.coverage === "single",
+    isDeepStrictEqual(scope?.refs, [artifact.artifact_id]),
+    materials.length === 1,
+    materials[0]?.ref === artifact.artifact_id,
+    materials[0]?.["complete?"] === true,
+    operation?.role === "creative_execution",
+    operation?.artifact_type === artifact.artifact_type,
+    operation?.context_text === "原候选全文（仅供修订，不是已确认作品事实）：\n" + sourceItem.body,
   );
-  return matches.length === 1 ? matches[0] : null;
 }
 
-function providerContentFor(history, records) {
-  const assistant = assistantProviderMessage(history);
-  return assistant === null ? null : providerContentForAssistant(records, assistant);
-}
-
-function contentOfProviderRecord(record) {
-  return record?.response?.body?.content ?? null;
-}
-
-function providerContentForAssistant(records, assistant) {
-  const record = providerRecordFor(records, assistant);
-  return record === null ? null : contentOfProviderRecord(record);
+// 本冻结场景只有一次指定姓名替换；其余正文逐字保留，标题/理由仍按 Writer 全字段核对。
+export function revisionBodyPreserved(sourceBody, revisionBody) {
+  return typeof sourceBody === "string" && sourceBody.split("沈砚").length === 2 &&
+    revisionBody === sourceBody.replace("沈砚", "林渡");
 }
 
 function decisionTracePresent(dir, completed) {
@@ -437,44 +525,48 @@ function readActionEvidence(evidence, checkpoints, source, revision, sourceArtif
 }
 
 function readFollowupEvidence(followup, sourceArtifact, revisionArtifact, sourceItem, revisionItem) {
-  const requests = followup.calls.records.map(requestFactsFromRecord).filter((request) => request.ok);
-  const bodies = requests.map((request) => request.rawBody);
-  assert(bodies.length > 0, "followup 缺少同次真实请求");
-  const factsList = requests
-    .map((request) => [request, scopeFactsFromRequest(request.rawBody)])
-    .filter(([, facts]) => facts !== null);
-  assert.equal(factsList.length, 1, `followup scope facts 必须唯一，实测 ${factsList.length}`);
-  const [request, facts] = factsList[0];
-  assert(scopeForProviderCall(request.record, { messages: followup.history.sessionMessages }),
-    "followup Scope 必须绑定同次 pcall/prun 的 canonical 应用来源");
-  const scopeChecks = scopeFactsChecks(facts, {
-    source: {
-      artifact_id: sourceArtifact.artifact_id,
-      status: "DISCARDED",
-      title: sourceItem.title,
-      revision_of: null,
-    },
-    revision: {
-      artifact_id: revisionArtifact.artifact_id,
-      status: "ACCEPTED",
-      title: revisionItem.title,
-      revision_of: sourceArtifact.artifact_id,
-    },
+  const records = completedBusinessRecords(followup);
+  assert(records.length > 0, "followup 缺少同次已完成的真实请求");
+  const requests = records.map(requestFactsFromRecord);
+  assert(requests.every(request => request.ok), "followup 请求事实缺失");
+  const bodies = requests.map(request => request.rawBody);
+  const factsList = requests.map(request => {
+    const facts = scopeFactsFromRequest(request.rawBody);
+    assert(facts, "followup scope facts 必须来自每次真实请求");
+    assert(scopeForProviderCall(request.record, { messages: followup.history.sessionMessages }),
+      "followup Scope 必须绑定同次 pcall/prun 的 canonical 应用来源");
+    return facts;
   });
-  const providerContent = providerContentFor(followup.history, followup.calls.records);
+  const expected = {
+    source: { artifact_id: sourceArtifact.artifact_id, status: "DISCARDED",
+      title: sourceItem.title, revision_of: null },
+    revision: { artifact_id: revisionArtifact.artifact_id, status: "ACCEPTED",
+      title: revisionItem.title, revision_of: sourceArtifact.artifact_id },
+  };
+  const reports = factsList.map(facts => scopeFactsChecks(facts, expected));
+  const scopeChecks = {
+    checks: Object.fromEntries(Object.keys(reports[0].checks).map(key =>
+      [key, reports.every(report => report.checks[key])])),
+    measured: { ...reports[0].measured, request_count: reports.length },
+  };
+  const providerContent = providerContentFor(followup.history, followup.calls.records,
+    followup.providerRuns, followup.completed?.assistant_message?.text);
   const replyChecks = followupReplyChecks({
     turnResult: followup.completed,
     providerContent,
-    facts,
+    facts: factsList.at(-1),
   });
-  return { bodies, facts, scopeChecks, replyChecks };
+  return { bodies, facts: factsList.at(-1), scopeChecks, replyChecks };
 }
 
-function runIdentityChecks({ source, revision, followup, sourceItem, writer, sourceArtifact, revisionArtifact, discardAction, config }) {
+function runIdentityChecks({ source, revision, followup, sourceItem, revisionItem, writer, sourceArtifact, revisionArtifact, discardAction, config }) {
   return {
     source_run_calls_owned: allTrue(source.calls.checks),
     revision_run_calls_owned: allTrue(revision.calls.checks),
     followup_run_calls_owned: allTrue(followup.calls.checks),
+    source_author_input_bound: phaseAuthorInputBound(source),
+    revision_author_input_bound: phaseAuthorInputBound(revision),
+    followup_author_input_bound: phaseAuthorInputBound(followup),
     source_run_has_provider_call: source.calls.counts.provider_runs > 0,
     revision_run_has_provider_calls: revision.calls.counts.provider_runs > 0,
     followup_run_has_provider_call: followup.calls.counts.provider_runs > 0,
@@ -483,7 +575,9 @@ function runIdentityChecks({ source, revision, followup, sourceItem, writer, sou
       sourceItem.provider_call_ref === `author_input:${source.turnId}`,
     source_has_no_creative_writer: !canonicalNames(source.history).includes("submit_tentative_artifact"),
     revision_writer_bytes_exact: writer.ok,
-    revision_writer_validation_passed: writerValidationPassed(revision.history),
+    revision_source_candidate_bound: revisionSourceCandidateBound(revision, writer, sourceArtifact, sourceItem),
+    revision_body_preserved: revisionBodyPreserved(sourceItem.body, revisionItem.body),
+    revision_writer_validation_passed: writerValidationPassed(revision.history, writer.provider_call_ref),
     revision_of_source: revisionArtifact.payload.revision_of === sourceArtifact.artifact_id,
     revision_pending_only_revision:
       revision.completed.adoption_state.pending.length === 1 &&
@@ -706,12 +800,12 @@ function restoreChecks(dir, evidence, checkpoints, followup, sessionId, workId, 
 }
 
 function followupChecks(followup, followupEvidence, source, revision) {
-  const requestBody = followupEvidence.bodies[0];
-  const requestRoles = requestBody.messages.map((message) => message.role);
-  const followupCallNames = canonicalNames(followup.history);
+  const followupCalls = assistantCalls(followup.history.transcript);
+  const followupCallNames = followupCalls.map(call => call.name);
   return {
     followup_request_is_new_boundary:
-      requestRoles.every((role) => role !== "assistant" && role !== "tool") &&
+      phaseAuthorInputBound(followup) &&
+      !followupCalls.some(call => call.name === "judgment_decision" && call.arguments?.action === "execute") &&
       !followupCallNames.includes("submit_tentative_artifact") &&
       !followupCallNames.some((name) => forbiddenTool(name)),
     // TurnResultBuilder 对未变化字段按设计省略：followup 无待采纳候选时 adoption_state
@@ -725,6 +819,35 @@ function followupChecks(followup, followupEvidence, source, revision) {
   };
 }
 
+export function pendingRuntimeChecks(config, ready, driverLog, phases) {
+  const checks = { pending_provider_identity_bound:
+    ready?.provider === config.provider && driverLog?.provider === config.provider };
+  if (config.provider !== "splash") return checks;
+  const profile = getRuntimeProfile(COMPACTION_RUNTIME_PROFILE_ID);
+  const actual = config.runtime?.observed?.provider;
+  checks.pending_runtime_bound = config.runtime?.profile === profile.id &&
+    actual?.selected === profile.provider && actual.model === profile.model &&
+    nonBlank(actual.endpoint) && config.preregistration?.model === profile.model &&
+    driverLog.model === profile.model && driverLog.runtime_profile === profile.id &&
+    isDeepStrictEqual(driverLog.budget, config.budget);
+  checks.pending_provider_model_bound = phases.length === 3 && phases.every(phase =>
+    phase.providerRuns.length > 0 && allTrue(phase.calls.checks) &&
+    phase.providerRuns.every(row => row.provider_id === profile.provider && row.model === profile.model));
+  checks.pending_request_runtime_bound = phases.length === 3 && phases.every(phase =>
+    phase.calls.records.length > 0 && phase.calls.records.every(record => {
+      const byRun = phase.providerRuns.filter(row => row.id === record.provider_run_ref);
+      const byCall = phase.providerRuns.filter(row => row.provider_call_ref === record.provider_call_ref);
+      if (byRun.length !== 1 || byCall.length !== 1 || byRun[0] !== byCall[0]) return false;
+      const row = byRun[0], facts = requestFactsFromRecord(record);
+      const compaction = row.purpose === "other" && providerOperation(row) === "transcript_compaction";
+      return facts.ok && facts.format === NATIVE_CHAT_WIRE && record.provider === profile.provider &&
+        facts.rawBody.model === profile.model && facts.rawBody.reasoning_effort === profile.reasoning_effort &&
+        facts.rawBody.max_tokens === (compaction ? 8192 : profile.max_tokens) &&
+        record.request?.url === `${actual?.endpoint?.replace(/\/+$/u, "")}/chat/completions`;
+    }));
+  return checks;
+}
+
 export function verifyPendingBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.slice_id, SLICE_ID, "pending verifier 只接受 b71-authoring-pending");
@@ -735,12 +858,15 @@ export function verifyPendingBatch(dir) {
     minimumWaits: 12,
     requiredKinds: ["input", "ack", "turn", "maintenance", "restore"],
   });
+  assert.equal(common.ready.provider, config.provider, "pending ready 与冻结 provider 不符");
   const evidence = assertProviderAndWire(dir, {
     minUserMessages: 3,
     minTurnResults: 5,
     minProviderStarts: 3,
+    expectProviders: [config.provider],
   });
   const workId = config.target?.work_id;
+  assert.equal(evidence.userMessages.length, 3, "pending 只允许冻结的三条作者输入，不能自动补答或重发");
   const sessionId = config.target?.session_id;
   assert(nonBlank(workId) && nonBlank(sessionId), "pending config 缺 work_id/session_id");
   const checkpoints = Object.fromEntries(
@@ -765,8 +891,13 @@ export function verifyPendingBatch(dir) {
   const followupEvidence = readFollowupEvidence(followup, sourceArtifact, revisionArtifact, sourceItem, revisionItem);
   const action = actionChecks(actions, checkpoints, sourceArtifact, revisionArtifact);
 
+  const ownedCalls = [source, revision, followup].flatMap(phase => phase.calls.records);
   const checks = {
-    ...runIdentityChecks({ source, revision, followup, sourceItem, writer, sourceArtifact, revisionArtifact, discardAction: actions.discardAction, config }),
+    ...runIdentityChecks({ source, revision, followup, sourceItem, revisionItem, writer, sourceArtifact, revisionArtifact, discardAction: actions.discardAction, config }),
+    ...pendingRuntimeChecks(config, common.ready, read(dir, "native-b71-driver-log.json"), [source, revision, followup]),
+    pending_all_calls_accounted: ownedCalls.length === evidence.llmRecords.length &&
+      evidence.llmRecords.every(record => ownedCalls.filter(call =>
+        call.provider_call_ref === record.provider_call_ref && call.provider_run_ref === record.provider_run_ref).length === 1),
     ...action.checks,
     ...canon.checks,
     ...uiAndWhyChecks(dir, evidence, checkpoints, source, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId),
@@ -780,6 +911,8 @@ export function verifyPendingBatch(dir) {
   assert.equal(failed.length, 0, `B71 pending 原生断言失败: ${failed.join(", ")}`);
   const measured = {
     work_id: workId,
+    provider: config.provider,
+    ...(config.runtime ? { runtime: config.runtime, model: config.preregistration.model } : {}),
     session_id: sessionId,
     runs: { source: source.runId, revision: revision.runId, followup: followup.runId },
     turn_results: {
@@ -815,6 +948,7 @@ export function verifyPendingBatch(dir) {
     successPrefix: "B71 CP4b 对话候选作者边界验收通过",
     extra: {
       turn_id: source.completed.turn_id,
+      provider: config.provider,
       turn_ids: [
         source.completed.turn_id,
         revision.completed.turn_id,
@@ -827,7 +961,11 @@ export function verifyPendingBatch(dir) {
         native_request: { followup_scope: followupEvidence.scopeChecks.measured },
         native_call: measured.provider_calls,
       },
-      evidence_boundary: evidenceBoundary(),
+      evidence_boundary: config.provider === "splash"
+        ? "真实 Tauri UI + 三条冻结作者原文 + Splash 实模 + WS/HTTP/持久调用事实；" +
+          "SSE 回复仅签持久 ProviderOutput SHA→canonical→本轮可见回复，raw SSE 原件/终结另核；" +
+          "本批只签当前短作者原文与普通候选链，不覆盖完整 R08 历史/分页/引用矩阵。"
+        : evidenceBoundary(),
       wait_ledger: common.ledger,
       screenshots: common.ui.screenshots,
     },
