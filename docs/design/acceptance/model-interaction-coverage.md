@@ -212,6 +212,8 @@ G2 已有真实观察→下一次请求的核验从其私有 pageCheck 整体迁
 
 现役 B71 处置后原文“资料处理进度怎么样？”要求回应实际候选身份、处置状态与前后继关系。followup Scope 只供应唯一 artifact_ref/status/title/revision_of、计数及覆盖；不得为满足旧 oracle 重新预装候选正文。独立预期从原 source/revision Artifact 与真实采纳回执取得，缺身份/标题/前后继、重复记录、错状态或省略覆盖均失败；候选正文仍由 writerArtifactMatch 和采纳前后 canon 对账逐字核验。回复须绑定同次 Provider 字节并识别已采纳候选和两种处置状态，仅出现正文片段不能替代候选身份。原 body_preview Scope 断言及正文替代身份规则同批退役，原作者输入和实际操作链不变。
 
+**回复语义的验收边界（2026-11-23 前向澄清）。** 机器层继续严格核真实 Scope 的状态、候选身份和前后继、实际作者回执、Provider 原文字节、当前作者边界内的完整 Markdown AX 交付及零额外写入。自然语言是否正确说明两种处置状态、唯一已采纳对象、无待处理事项及作者动作归属，须将该次原始回复与这些已核事实独立审读；不能要求作者界面复述 ACCEPTED/DISCARDED、完整标题或内部 ref，也不能凭这些词出现就推断状态对应正确。现两项 reply.includes 伪语义判据退役，不换中文同义词表。沿 R05 已有 semantic_review（status/reply/expected）、not_signed 与 verdict.mechanism/model_semantics 输出：机制通过时，原 checks/measured 和 summary 都明确模型语义 pending_independent_review。否定、引用、状态反转、对象混淆和无关回复仍不得取得语义签收；保留此层待审不等于降低本节目标或 R08 DoD，历史结果和原生失败不重写。
+
 ### 5.6 维护请求的独立来源与成本边界
 
 维护请求不是新作者输入。成本核验不能要求伪造当前作者消息，也不能仅凭 operation 标签、应用前缀或报告自称通过。复用 `authoring_checkpoint_coverage` 的 canonical 来源校验与 `authoring_history_evidence` 同一只读快照；`request_cost_batch_evidence` 是调用关联消费者，`request_cost_evidence` 仅计量已经绑定的请求材料。

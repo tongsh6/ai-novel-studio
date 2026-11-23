@@ -693,12 +693,6 @@ export function scopeFactsChecks(facts, { source, revision } = {}) {
   };
 }
 
-function acceptedArtifactIdentified(accepted, reply) {
-  return accepted.some((entry) =>
-    (nonBlank(entry.artifact_ref) && reply.includes(entry.artifact_ref)) ||
-    (nonBlank(entry.title) && reply.includes(entry.title)));
-}
-
 function replyNoWrite(turnResult) {
   return allOf(
     get(get(turnResult, "truthfulness"), "production_write_performed") !== true,
@@ -706,19 +700,12 @@ function replyNoWrite(turnResult) {
   );
 }
 
-export function followupReplyChecks({ turnResult, providerContent, facts } = {}) {
+// 这里只签回复交付；状态/对象的自然语言解释由 run 报告保留为独立待审。
+export function followupReplyChecks({ turnResult, providerContent } = {}) {
   const reply = String(get(get(turnResult, "assistant_message"), "text") ?? "");
-  const resolved = resolvedByRefAll(facts);
-  const statuses = [...new Set(resolved.map((entry) => entry.status).filter(nonBlank))];
-  const accepted = resolved.filter((entry) =>
-    entry.status === "ACCEPTED" || entry.status === "EDITED_ACCEPTED");
   return {
     reply_present: reply.trim() !== "",
     reply_exact_provider: allOf(nonBlank(providerContent), reply === providerContent),
-    reply_consumes_resolved_statuses:
-      statusesPresent(resolved, ["ACCEPTED", "DISCARDED"]) &&
-      statuses.every((status) => reply.includes(status)),
-    reply_identifies_accepted_artifact: acceptedArtifactIdentified(accepted, reply),
     reply_no_production_write: replyNoWrite(turnResult),
   };
 }

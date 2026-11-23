@@ -10,6 +10,7 @@ import { broadcastFrames } from "./scenario_evidence.mjs";
 import { wireTerminal } from "./live_run_wait.mjs";
 import { authorVisibleScenarioSpec } from "./authoring_capture_evidence.mjs";
 import { authorBoundary, countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
+import { r05ReplyMatch } from "./authoring_r05_evidence.mjs";
 import { textOf } from "./driver.mjs";
 
 import { turnIdMatches } from "./scenario_driver.mjs";
@@ -342,6 +343,7 @@ async function followupPhase(harness, config, followupText) {
   await harness.runStep("maintenance", "input_ready_restored", () =>
     harness.rawWaitInputReady("b71:pending:restored"),
   );
+  const baselineAuthorCount = countAxAuthorMessages(harness.dumpNodes(), followupText);
   const followup = await sendMessage(harness, followupText, "followup", config);
   const followupResult = await awaitCompleted(harness, {
     topic: followup.topic,
@@ -353,7 +355,15 @@ async function followupPhase(harness, config, followupText) {
   }, "followup", config.budget?.turn_timeout_ms);
   const replyText = String(frameBody(followupResult)?.assistant_message?.text ?? "");
   if (!replyText) throw new Error("followup assistant reply missing");
-  await awaitVisible(harness, [replyText], "followup_reply");
+  await harness.runStep("maintenance", "followup_reply_visible", () =>
+    harness.pollAx(
+      (_text, nodes) => r05ReplyMatch({
+        reply: replyText, nodes, message: followupText, baselineAuthorCount,
+      }).ok,
+      45_000,
+      "b71:followup_reply",
+    ),
+  );
   harness.capture("final");
   return { followup, followupResult, replyText };
 }

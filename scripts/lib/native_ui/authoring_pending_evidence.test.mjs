@@ -675,32 +675,23 @@ test("scope facts 只认最新 applied scope_update，作者引用和历史 scop
   assert.deepEqual(scopeFactsFromRequest({ messages: [scope(1, null), scope(2, facts), authorQuote] }), facts);
   assert.equal(scopeFactsFromRequest({ messages: [scope(1, { ...facts, pending_adoptions: {} })] }), null);});
 
-test("followup 回复必须等于同次 Provider 原字节并识别真实状态及已采纳候选", () => {
-  const facts = {
-    resolved_adoptions: [
-      { status: "DISCARDED", title: SOURCE_TITLE, artifact_ref: SOURCE_ID },
-      { status: "ACCEPTED", title: REVISION_TITLE, artifact_ref: REVISION_ID },
-    ],
-  };
-  const reply = `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。`;
+test("followup 只核原字节与写入边界，合法中文无需英文状态或完整候选标题", () => {
+  const reply = "改过名字的那份已经采纳，原来那份已放弃；目前没有待采纳候选。";
   const turnResult = {
     assistant_message: { text: reply },
     truthfulness: { production_write_performed: false, artifact_adopted: false },
   };
-  const checks = followupReplyChecks({ turnResult, providerContent: reply, facts });
-  assert.equal(Object.values(checks).every(Boolean), true);
-  const mismatched = followupReplyChecks({ turnResult, providerContent: "other", facts });
-  assert.equal(mismatched.reply_exact_provider, false);
-  const generic = followupReplyChecks({
-    turnResult: { ...turnResult, assistant_message: { text: "当前共 0 章，章节索引已就绪。" } },
-    providerContent: "当前共 0 章，章节索引已就绪。",
-    facts,
+  const checks = followupReplyChecks({ turnResult, providerContent: reply });
+  assert.deepEqual(checks, {
+    reply_present: true,
+    reply_exact_provider: true,
+    reply_no_production_write: true,
   });
-  assert.equal(generic.reply_consumes_resolved_statuses, false);
+  const mismatched = followupReplyChecks({ turnResult, providerContent: "other" });
+  assert.equal(mismatched.reply_exact_provider, false);
   const overreach = followupReplyChecks({
     turnResult: { ...turnResult, truthfulness: { production_write_performed: true } },
     providerContent: reply,
-    facts,
   });
   assert.equal(overreach.reply_no_production_write, false);
 });
@@ -829,23 +820,35 @@ test("scope facts 的身份、标题及前后继证据不可缺省", () => {
   assert.equal(scopeFactsChecks(duplicate, { source, revision }).checks.scope_accepted_revision_exact, false);
 });
 
-test("followup 回复识别已采纳候选，正文片段不能替代身份", () => {
+test("followup 词面齐全、状态颠倒或无关回复都不能从机械检查取得语义签收", () => {
   const facts = {
     resolved_adoptions: [
       { status: "DISCARDED", title: SOURCE_TITLE, artifact_ref: SOURCE_ID },
       { status: "ACCEPTED", title: REVISION_TITLE, artifact_ref: REVISION_ID },
     ],
   };
-  const check = (reply) =>
-    followupReplyChecks({
+  for (const [name, reply] of [
+    ["状态颠倒", "ACCEPTED " + SOURCE_TITLE + "；DISCARDED " + REVISION_TITLE + "。"],
+    ["否定实际处置", "ACCEPTED DISCARDED " + REVISION_TITLE + " 尚未被采纳，原稿也没有被放弃。"],
+    ["关键词与问题无关", "ACCEPTED DISCARDED " + REVISION_TITLE + " 只是示例词；当前共 0 章。"],
+    ["计数错误", "ACCEPTED " + REVISION_TITLE + "；DISCARDED " + SOURCE_TITLE + "。当前还有 9 份待采纳，已处置 0 份。"],
+    ["缺少状态的泛化回复", "当前共 0 章，章节索引已就绪。"],
+    ["仅列标题", "ACCEPTED DISCARDED " + REVISION_TITLE],
+    ["仅列身份", "ACCEPTED DISCARDED " + REVISION_ID],
+    ["仅列正文", "ACCEPTED DISCARDED " + REVISION_BODY],
+    ["仅列枚举", "ACCEPTED DISCARDED"],
+  ]) {
+    const checks = followupReplyChecks({
       turnResult: { assistant_message: { text: reply }, truthfulness: {} },
       providerContent: reply,
       facts,
-    }).reply_identifies_accepted_artifact;
-  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_TITLE}`), true);
-  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_ID}`), true);
-  assert.equal(check(`ACCEPTED DISCARDED ${REVISION_BODY}`), false);
-  assert.equal(check("ACCEPTED DISCARDED"), false);
+    });
+    assert.deepEqual(checks, {
+      reply_present: true,
+      reply_exact_provider: true,
+      reply_no_production_write: true,
+    }, name + " 只能核实回复存在、原字节和无写入，不能推出模型理解");
+  }
 });
 
 test("writer 边界对 null item/record 失败关闭而不抛 TypeError", () => {

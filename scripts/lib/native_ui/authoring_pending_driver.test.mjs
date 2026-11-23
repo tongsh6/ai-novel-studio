@@ -22,6 +22,7 @@ const REVISION_BODY = SOURCE_BODY.replace("沈砚", "林渡");
 const SOURCE_TITLE = "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺";
 const REVISION_TITLE = "旧书铺修订稿";
 const TOPIC = `workspace:${WORK}`;
+const FOLLOWUP_MARKDOWN_REPLY = "资料处理结果如下：\n\n- **已采纳**：林渡版已进入作品档案。\n- **已放弃**：沈砚版已放弃。\n\n当前没有待采纳候选。";
 
 const config = {
   slice_id: "b71-authoring-pending",
@@ -58,6 +59,45 @@ function authorTree(container, message, children) {
   ];
 }
 
+// 按真实 AX 角色/会话结构手工构造期望；不调用产品投影或 Markdown 匹配器。
+const CHAT = "0/0/10";
+function textGroup(path, value) {
+  return [node(path, "AXGroup"), node(path + "/0", "AXStaticText", { value })];
+}
+function chatChrome() {
+  return [
+    node("0", "AXWindow"), node("0/0", "AXWebArea"),
+    node("0/0/0", "AXPopUpButton", { title: "AI 助手", desc: "助手名称" }),
+    node(CHAT, "AXGroup", { subrole: "AXLandmarkRegion", title: "会话消息", desc: "会话消息" }),
+  ];
+}
+function chatTurn(offset, message, blocks, authorLabel = "你") {
+  return [
+    ...textGroup(CHAT + "/" + offset, authorLabel),
+    ...textGroup(CHAT + "/" + (offset + 1), message),
+    ...textGroup(CHAT + "/" + (offset + 2), "AI 助手"),
+    ...blocks,
+    node(CHAT + "/" + (offset + 9), "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
+  ];
+}
+function followupTree(offset = 40, { message = config.followup_message, authorLabel = "你", blocks } = {}) {
+  const list = CHAT + "/" + (offset + 4);
+  return chatTurn(offset, message, blocks ?? [
+    ...textGroup(CHAT + "/" + (offset + 3), "资料处理结果如下："),
+    node(list, "AXList", { subrole: "AXContentList" }),
+    node(list + "/0", "AXGroup", { value: "已采纳：林渡版已进入作品档案。" }),
+    node(list + "/0/0", "AXListMarker", { value: "•" }),
+    node(list + "/0/1", "AXStaticText", { value: "已采纳：林渡版已进入作品档案。" }),
+    node(list + "/1", "AXGroup", { value: "已放弃：沈砚版已放弃。" }),
+    node(list + "/1/0", "AXListMarker", { value: "•" }),
+    node(list + "/1/1", "AXStaticText", { value: "已放弃：沈砚版已放弃。" }),
+    ...textGroup(CHAT + "/" + (offset + 5), "当前没有待采纳候选。"),
+  ], authorLabel);
+}
+function outsideReplyCopy() {
+  return textGroup("0/0/90", FOLLOWUP_MARKDOWN_REPLY);
+}
+
 function captureInput(artifact = {
   artifact_id: REVISION_ID, artifact_type: "prose_fragment",
   payload: { items: [{ item_id: "r", title: REVISION_TITLE, body: REVISION_BODY }] },
@@ -73,7 +113,7 @@ function frame(at, direction, value) {
   return { at, direction, frame: value };
 }
 
-function buildWire() {
+function buildWire({ followupReply = FOLLOWUP_MARKDOWN_REPLY } = {}) {
   const at = Date.now();
   const iso = (offset) => new Date(at + offset).toISOString();
   const join = (offset, joinRef) => [
@@ -148,7 +188,7 @@ function buildWire() {
         work_id: WORK,
         session_id: SESSION,
         agent_run: { run_id: FOLLOWUP_RUN, status: "running", parent_turn_ref: FOLLOWUP_TURN },
-        assistant_message: { text: "已处置 ACCEPTED / DISCARDED。" },
+        assistant_message: { text: followupReply },
         adoption_state: { pending: [], resolved: [] },
       }]),
       completed(6002, FOLLOWUP_RUN, FOLLOWUP_TURN),
@@ -156,7 +196,7 @@ function buildWire() {
   };
 }
 
-function fakeHarness(fixture) {
+function fakeHarness(fixture, { followupNodes = followupTree(), previousFollowupNodes = [] } = {}) {
   let whyOpen = false;
   let restored = false;
   const sentMessages = new Set();
@@ -193,7 +233,7 @@ function fakeHarness(fixture) {
       const nodeText = nodes.map((item) => [item.title, item.desc, item.value].filter(Boolean).join(" ")).join("\n");
       const text = whyOpen
         ? `${nodeText}\n参考来源\n回放只读取已保存记录，不会重新调用模型`
-        : `${nodeText}\n已处置 ACCEPTED / DISCARDED。`;
+        : nodeText;
       const hit = predicate(text, nodes);
       if (hit) return { nodes, text };
       throw new Error("fake_ax_timeout");
@@ -202,14 +242,16 @@ function fakeHarness(fixture) {
     capture(name) { this.captures.push(name); return this.dumpNodes(); },
     dumpNodes() {
       const nodes = [
-        ...(sentMessages.has(config.message) ? authorTree("0/1", config.message, [
-          ...itemTree("0/1/2", SOURCE_TITLE, SOURCE_BODY), ...whyTree("0/1"),
-        ]) : []),
-        ...(sentMessages.has(config.revision_message) ? authorTree("0/2", config.revision_message, [
-          ...itemTree("0/2/2", REVISION_TITLE, REVISION_BODY), ...whyTree("0/2"),
-        ]) : []),
+        ...chatChrome(),
+        ...(sentMessages.has(config.message) ? chatTurn(10, config.message,
+          itemTree(CHAT + "/13", SOURCE_TITLE, SOURCE_BODY)) : []),
+        ...(sentMessages.has(config.revision_message) ? chatTurn(20, config.revision_message,
+          itemTree(CHAT + "/23", REVISION_TITLE, REVISION_BODY)) : []),
+        ...(restored ? previousFollowupNodes : []),
+        ...(sentMessages.has(config.followup_message) ? followupNodes : []),
       ];
-      return restored ? nodes.filter((entry) => entry.role !== "AXButton") : nodes;
+      return restored ? nodes.filter((entry) =>
+        !["保存到作品档案", "不保存"].includes(entry.title)) : nodes;
     },
     ensureInput() {
       return {
@@ -243,7 +285,7 @@ test("revealItem 用候选标题+正文定位并滚动所属 AX 结构", async (
   let scrolled = null;
   harness.ensureInput = () => ({ scrollTo: (path) => { scrolled = path; }, key() {} });
   await revealItem(harness, REVISION_TITLE, REVISION_BODY);
-  assert.equal(scrolled, "0/2/2");
+  assert.equal(scrolled, CHAT + "/23");
 });
 
 test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新请求", async () => {
@@ -272,6 +314,42 @@ test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新
   assert.ok(harness.captures.includes("why"));
   assert.ok(harness.captures.includes("final"));
 });
+
+
+test("drivePending 完整两段 Markdown 按各段 AX 交付，不要求原始空行出现在整页文本", async () => {
+  const fixture = buildWire({ followupReply: "第一段说明采纳结果。\n\n第二段说明没有待处理候选。" });
+  const harness = fakeHarness(fixture, { followupNodes: followupTree(40, { blocks: [
+    ...textGroup(CHAT + "/43", "第一段说明采纳结果。"),
+    ...textGroup(CHAT + "/44", "第二段说明没有待处理候选。"),
+  ] }) });
+  await drivePending(harness, config, { capture() {} });
+  assert.equal(harness.uiComplete, "b71-authoring-pending");
+});
+
+test("drivePending 同文旧追问只计同文 baseline，新作者回合完整列表仍可交付", async () => {
+  const harness = fakeHarness(buildWire(), { previousFollowupNodes: followupTree(30) });
+  await drivePending(harness, config, { capture() {} });
+  assert.equal(harness.uiComplete, "b71-authoring-pending");
+});
+
+for (const [name, nodes, previous] of [
+  ["缺末段", () => followupTree().filter(entry => !entry.path.startsWith(CHAT + "/45")), () => []],
+  ["列表正文篡改", () => followupTree().map(entry => entry.path === CHAT + "/44/0/1"
+    ? { ...entry, value: "已采纳：沈砚版已进入作品档案。" } : entry), () => []],
+  ["仅旧同文回合", () => [], () => followupTree(30)],
+  ["错作者角色", () => followupTree(40, { authorLabel: "旁观者" }), () => []],
+  ["错作者原话", () => followupTree(40, { message: "另一份资料进度怎么样？" }), () => []],
+  ["额外助手块", () => [...followupTree(), ...textGroup(CHAT + "/46", "AI 助手"),
+    ...textGroup(CHAT + "/47", "另一条未绑定的助手回复。")], () => []],
+]) {
+  test("drivePending " + name + "不能借会话外完整原文交付", async () => {
+    const harness = fakeHarness(buildWire(), {
+      followupNodes: [...nodes(), ...outsideReplyCopy()], previousFollowupNodes: previous(),
+    });
+    await assert.rejects(() => drivePending(harness, config, { capture() {} }), /fake_ax_timeout|followup_reply/u);
+    assert.equal(harness.uiComplete, undefined);
+  });
+}
 
 const turnIdentity = {
   topic: TOPIC,

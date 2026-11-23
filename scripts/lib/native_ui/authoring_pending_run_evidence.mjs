@@ -33,6 +33,8 @@ import { authoringScope, readAuthoringHistory } from "./authoring_history_eviden
 import { canonicalReplyForProviderCall, canonicalRequestBindingsForProviderCall, joinNativeCallEvidence,
   providerOperation, providerTurnMatchesParent, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { planningCanonSnapshot, readConfig } from "./authoring_capture_evidence.mjs";
+import { countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
+import { r05ReplyMatch } from "./authoring_r05_evidence.mjs";
 import {
   assistantCalls,
   replayPathFor,
@@ -554,7 +556,6 @@ function readFollowupEvidence(followup, sourceArtifact, revisionArtifact, source
   const replyChecks = followupReplyChecks({
     turnResult: followup.completed,
     providerContent,
-    facts: factsList.at(-1),
   });
   return { bodies, facts: factsList.at(-1), scopeChecks, replyChecks };
 }
@@ -763,13 +764,17 @@ function restoreRuntimeChecks(dir, checkpoints, followup) {
   const afterRestore = checkpoints["after-restore"];
   const final = checkpoints.final;
   const followupReply = followup.completed.assistant_message?.text ?? "";
+  const message = frameBody(followup.sent)?.text;
+  const baselineAuthorCount = countAxAuthorMessages(read(dir, "after-restore.ax.json"), message);
+  const replyMatch = r05ReplyMatch({
+    reply: followupReply, nodes: read(dir, "final.ax.json"), message, baselineAuthorCount,
+  });
   return {
     restore_zero_provider_calls: checkpointCountsEqual(afterDiscard, afterRestore),
     followup_new_run_and_provider:
       final.db_counts.agent_runs === afterRestore.db_counts.agent_runs + 1 &&
       final.db_counts.provider_runs > afterRestore.db_counts.provider_runs,
-    followup_reply_visible:
-      nonBlank(followupReply) && textIncludes(dir, "final", [followupReply]),
+    followup_reply_visible: replyMatch.ok,
     production_fingerprint_unchanged: checkProductionFingerprint(dir).unchanged,
   };
 }
@@ -909,7 +914,17 @@ export function verifyPendingBatch(dir) {
 
   const failed = Object.keys(checks).filter((key) => !checks[key]);
   assert.equal(failed.length, 0, `B71 pending 原生断言失败: ${failed.join(", ")}`);
+  const semantics = {
+    semantic_review: {
+      status: "pending_independent_review",
+      reply: followup.completed.assistant_message.text,
+      expected: followupEvidence.facts,
+    },
+    not_signed: ["model_semantic_correctness"],
+    verdict: { mechanism: "pass", model_semantics: "pending_independent_review" },
+  };
   const measured = {
+    ...semantics,
     work_id: workId,
     provider: config.provider,
     ...(config.runtime ? { runtime: config.runtime, model: config.preregistration.model } : {}),
@@ -945,8 +960,9 @@ export function verifyPendingBatch(dir) {
     measured,
     sliceId: SLICE_ID,
     label: "B71 CP4b 对话候选作者边界",
-    successPrefix: "B71 CP4b 对话候选作者边界验收通过",
+    successPrefix: "B71 CP4b 候选链机制核验通过，回复语义待独立审读",
     extra: {
+      ...semantics,
       turn_id: source.completed.turn_id,
       provider: config.provider,
       turn_ids: [
@@ -961,11 +977,11 @@ export function verifyPendingBatch(dir) {
         native_request: { followup_scope: followupEvidence.scopeChecks.measured },
         native_call: measured.provider_calls,
       },
-      evidence_boundary: config.provider === "splash"
+      evidence_boundary: (config.provider === "splash"
         ? "真实 Tauri UI + 三条冻结作者原文 + Splash 实模 + WS/HTTP/持久调用事实；" +
           "SSE 回复仅签持久 ProviderOutput SHA→canonical→本轮可见回复，raw SSE 原件/终结另核；" +
           "本批只签当前短作者原文与普通候选链，不覆盖完整 R08 历史/分页/引用矩阵。"
-        : evidenceBoundary(),
+        : evidenceBoundary()) + " 自然语言对状态、对象与作者动作归属的解释须独立审读，机制结果不签模型语义。",
       wait_ledger: common.ledger,
       screenshots: common.ui.screenshots,
     },

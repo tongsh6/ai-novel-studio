@@ -328,7 +328,7 @@ function revisionSourceScope(mode = "complete") {
 }
 
 function followupReply() {
-  return `当前待采纳 0 份，已处置 2 份：ACCEPTED ${REVISION_TITLE}；DISCARDED ${SOURCE_TITLE}。`;
+  return `资料处理结果如下：\n\n- **已采纳**：ACCEPTED ${REVISION_TITLE}。\n- **已放弃**：DISCARDED ${SOURCE_TITLE}。\n\n当前待采纳 0 份，已处置 2 份。`;
 }
 
 function dbExec(db, sql, params = []) {
@@ -661,23 +661,74 @@ function writeEvidenceFiles(dir) {
   });
 }
 
-function writeAx(dir) {
-  const base = [
-    SOURCE_TITLE,
-    SOURCE_BODY,
-    REVISION_TITLE,
-    REVISION_BODY,
-    ACCEPT_LABEL,
-    DISCARD_LABEL,
-    "为什么",
-    "同步已连接",
-    FOLLOWUP_TEXT,
-    followupReply(),
-  ].join("\n");
+// AX 夹具人工按真实会话层次和 Markdown 段/列表编写，不从产品投影生成。
+const AX_CHAT = "0/0/10";
+function axNode(path, role, fields = {}) {
+  return { path, role, frame: [10, 10, 600, 30], ...fields };
+}
+function axTextGroup(path, value) {
+  return [axNode(path, "AXGroup"), axNode(path + "/0", "AXStaticText", { value })];
+}
+function axTurn(offset, message, blocks, authorLabel = "你") {
+  return [
+    ...axTextGroup(AX_CHAT + "/" + offset, authorLabel),
+    ...axTextGroup(AX_CHAT + "/" + (offset + 1), message),
+    ...axTextGroup(AX_CHAT + "/" + (offset + 2), "AI 助手"),
+    ...blocks,
+    axNode(AX_CHAT + "/" + (offset + 9), "AXButton", { title: "为什么", desc: "查看这轮回应的依据" }),
+  ];
+}
+function axFollowup(offset = 40, { message = FOLLOWUP_TEXT, authorLabel = "你" } = {}) {
+  const list = AX_CHAT + "/" + (offset + 4);
+  return axTurn(offset, message, [
+    ...axTextGroup(AX_CHAT + "/" + (offset + 3), "资料处理结果如下："),
+    axNode(list, "AXList", { subrole: "AXContentList" }),
+    axNode(list + "/0", "AXGroup", { value: "已采纳：ACCEPTED " + REVISION_TITLE + "。" }),
+    axNode(list + "/0/0", "AXListMarker", { value: "•" }),
+    axNode(list + "/0/1", "AXStaticText", { value: "已采纳：ACCEPTED " + REVISION_TITLE + "。" }),
+    axNode(list + "/1", "AXGroup", { value: "已放弃：DISCARDED " + SOURCE_TITLE + "。" }),
+    axNode(list + "/1/0", "AXListMarker", { value: "•" }),
+    axNode(list + "/1/1", "AXStaticText", { value: "已放弃：DISCARDED " + SOURCE_TITLE + "。" }),
+    ...axTextGroup(AX_CHAT + "/" + (offset + 5), "当前待采纳 0 份，已处置 2 份。"),
+  ], authorLabel);
+}
+function candidateAx(offset, message, item, actionable) {
+  const article = AX_CHAT + "/" + (offset + 3);
+  return axTurn(offset, message, [
+    axNode(article, "AXGroup", { subrole: "AXDocumentArticle" }),
+    ...axTextGroup(article + "/0", item.title),
+    ...axTextGroup(article + "/1", item.body),
+    ...(actionable ? [
+      axNode(AX_CHAT + "/" + (offset + 4), "AXButton", { title: ACCEPT_LABEL }),
+      axNode(AX_CHAT + "/" + (offset + 5), "AXButton", { title: DISCARD_LABEL }),
+    ] : []),
+  ]);
+}
+function pendingAx(name, followupNodes = axFollowup()) {
+  return [
+    axNode("0", "AXWindow"), axNode("0/0", "AXWebArea"),
+    axNode("0/0/0", "AXPopUpButton", { title: "AI 助手", desc: "助手名称" }),
+    axNode("0/0/1", "AXPopUpButton", { title: "B71 pending author boundary", desc: "作品" }),
+    axNode("0/0/2", "AXStaticText", { value: "同步已连接" }),
+    axNode(AX_CHAT, "AXGroup", { subrole: "AXLandmarkRegion", title: "会话消息", desc: "会话消息" }),
+    ...candidateAx(10, SOURCE_BODY, sourceItem, ["after-source", "after-revision", "after-accept"].includes(name)),
+    ...(name === "after-source" ? [] : candidateAx(20,
+      "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
+      revisionItem, name === "after-revision")),
+    ...(name === "final" ? followupNodes : []),
+  ];
+}
+function writeAxCapture(dir, name, nodes) {
+  writeJson(path.join(dir, name + ".ax.json"), nodes);
+  fs.writeFileSync(path.join(dir, name + ".text.txt"),
+    nodes.map(node => [node.title, node.desc, node.value].filter(Boolean).join(" ")).filter(Boolean).join("\n"));
+}
+function writeAx(dir, followupNodes = axFollowup()) {
   for (const name of ["after-source", "after-revision", "after-accept", "after-discard", "after-restore", "final"]) {
-    fs.writeFileSync(path.join(dir, `${name}.text.txt`), base);
+    writeAxCapture(dir, name, pendingAx(name, followupNodes));
   }
-  fs.writeFileSync(path.join(dir, "why.text.txt"), `${base}\n${REPLAY_NOTE}`);
+  fs.writeFileSync(path.join(dir, "why.text.txt"),
+    fs.readFileSync(path.join(dir, "after-revision.text.txt"), "utf8") + "\n" + REPLAY_NOTE);
 }
 
 function resumeHttpBody() {
@@ -784,7 +835,9 @@ async function captureHttpFixture(workRoot) {
   };
 }
 
-async function buildBatch(workRoot, { followupAction = null, revisionSource = "complete" } = {}) {
+async function buildBatch(workRoot, {
+  followupAction = null, revisionSource = "complete", reply = followupReply(), followupNodes = axFollowup(),
+} = {}) {
   const dir = fs.mkdtempSync(path.join(workRoot, "b71-pending-"));
   const httpCapture = await captureHttpFixture(workRoot);
   fs.mkdirSync(path.join(dir, "database"), { recursive: true });
@@ -963,8 +1016,7 @@ async function buildBatch(workRoot, { followupAction = null, revisionSource = "c
   fs.writeFileSync(httpCapture.logPath, "");
   capturePending(dir, "after-restore");
 
-  // followup：新 run 的真实请求消费 ACCEPTED/DISCARDED，回复等于同次 Provider 原文。
-  const reply = followupReply();
+  // followup：新 run 的真实请求供给 ACCEPTED/DISCARDED；回复原文供独立审读。
   const followupDecision = { action: followupAction, capability: "planning_read",
     query: "核对本轮资料处理状态", reason: "按作者原问核对" };
   const followupTranscript = transcript(runIdentity(FOLLOWUP_RUN, FOLLOWUP_TURN), [
@@ -1040,7 +1092,7 @@ async function buildBatch(workRoot, { followupAction = null, revisionSource = "c
       assistant_message: { text: reply },
     }]),
   ]);
-  writeAx(dir);
+  writeAx(dir, followupNodes);
   capturePending(dir, "final");
   httpCapture.close();
   return dir;
@@ -1113,9 +1165,36 @@ function mutateCheckpoint(dir, name, fn) {
   writeJson(file, fn(value) ?? value);
 }
 
+function assertSemanticReviewPending(dir, measured, reply) {
+  // 独立验收预期来自本场景真实作者处置，不能从回复词面或产品的报告结果推导。
+  const expected = {
+    pending_adoptions: [],
+    resolved_adoptions: [
+      { status: "DISCARDED", title: SOURCE_TITLE, artifact_ref: SOURCE_ID, revision_of: null },
+      { status: "ACCEPTED", title: REVISION_TITLE, artifact_ref: REVISION_ID, revision_of: SOURCE_ID },
+    ],
+    pending_adoption_count: 0,
+    resolved_adoption_count: 2,
+    omitted_adoptions: 0,
+  };
+  const review = { status: "pending_independent_review", reply, expected };
+  const verdict = { mechanism: "pass", model_semantics: "pending_independent_review" };
+  const checksReport = JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8"));
+  const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
+  for (const [name, report] of [
+    ["returned measured", measured],
+    ["checks measured", checksReport.measured],
+    ["summary", summary],
+  ]) {
+    assert.deepEqual(report.semantic_review, review, name + " 必须保留原文与独立真实预期");
+    assert.deepEqual(report.not_signed, ["model_semantic_correctness"], name + " 未签模型语义");
+    assert.deepEqual(report.verdict, verdict, name + " 机制通过不签语义");
+  }
+}
+
 test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请求", (t) => {
   const dir = batchCopy(t);
-  const { checks } = verifyPendingBatch(dir);
+  const { checks, measured } = verifyPendingBatch(dir);
   assert.equal(checks.canon_accept_only_adds_bound_memory_and_receipt, true);
   assert.equal(checks.revision_writer_bytes_exact, true);
   assert.equal(checks.followup_reply_exact_provider, true);
@@ -1127,8 +1206,101 @@ test("pending 全链正例：三 run、两稿、采纳/放弃、恢复与新请�
   const summary = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
   assert.equal(summary.slice_id, SLICE_ID);
   assert.equal(summary.all_checks_passed, true);
+  assertSemanticReviewPending(dir, measured, followupReply());
 });
 
+
+
+test("pending Markdown 完整两段与列表由当前作者边界交付，Provider 原文字节仍精确", (t) => {
+  const dir = batchCopy(t);
+  const text = fs.readFileSync(path.join(dir, "final.text.txt"), "utf8");
+  assert.equal(text.includes(followupReply()), false);
+  const { checks } = verifyPendingBatch(dir);
+  assert.equal(checks.followup_reply_visible, true);
+  assert.equal(checks.followup_reply_exact_provider, true);
+});
+
+// 原文与 AX 逐例手写；AX 预期不能调用产品渲染/匹配器，也不能由 reply 自动生成。
+for (const [name, reply, visible] of [
+  [
+    "合法中文没有英文状态或完整标题",
+    "\n改过名字的那份已经采纳，原来那份已放弃；目前没有待采纳候选。\n",
+    "改过名字的那份已经采纳，原来那份已放弃；目前没有待采纳候选。",
+  ],
+  [
+    "状态颠倒但英文状态与标题齐全",
+    "\nACCEPTED " + SOURCE_TITLE + "；DISCARDED " + REVISION_TITLE + "。\n",
+    "ACCEPTED " + SOURCE_TITLE + "；DISCARDED " + REVISION_TITLE + "。",
+  ],
+  [
+    "否定实际处置但英文状态与标题齐全",
+    "\nACCEPTED DISCARDED " + REVISION_TITLE + " 尚未被采纳，原稿也没有被放弃。\n",
+    "ACCEPTED DISCARDED " + REVISION_TITLE + " 尚未被采纳，原稿也没有被放弃。",
+  ],
+  [
+    "回复无关但英文状态与标题齐全",
+    "\nACCEPTED DISCARDED " + REVISION_TITLE + " 只是示例词；当前共 0 章，章节索引已就绪。\n",
+    "ACCEPTED DISCARDED " + REVISION_TITLE + " 只是示例词；当前共 0 章，章节索引已就绪。",
+  ],
+  [
+    "计数错误但英文状态与标题齐全",
+    "\nACCEPTED " + REVISION_TITLE + "；DISCARDED " + SOURCE_TITLE + "。当前还有 9 份待采纳，已处置 0 份。\n",
+    "ACCEPTED " + REVISION_TITLE + "；DISCARDED " + SOURCE_TITLE + "。当前还有 9 份待采纳，已处置 0 份。",
+  ],
+  [
+    "泛化回复未回答资料处置",
+    "\n当前共 0 章，章节索引已就绪。\n",
+    "当前共 0 章，章节索引已就绪。",
+  ],
+]) {
+  test("pending " + name + "仅核机制，完整原文与真实预期交独立审读", async () => {
+    const followupNodes = axTurn(40, FOLLOWUP_TEXT, axTextGroup(AX_CHAT + "/43", visible));
+    const dir = await buildBatch(runScope.workDir, { reply, followupNodes });
+    const { checks, measured } = verifyPendingBatch(dir);
+    assert.equal(checks.followup_reply_visible, true);
+    assert.equal(checks.followup_reply_exact_provider, true);
+    assert.equal(checks.followup_reply_no_production_write, true);
+    assert.equal(checks.canon_accept_only_adds_bound_memory_and_receipt, true);
+    assertSemanticReviewPending(dir, measured, reply);
+  });
+}
+
+test("pending 旧同文追问不增加当前基线以外的作者数，新同文回合仍可交付", (t) => {
+  const dir = batchCopy(t), previous = axFollowup(30);
+  writeAxCapture(dir, "after-restore", [...pendingAx("after-restore"), ...previous]);
+  writeAxCapture(dir, "final", [...pendingAx("after-restore"), ...previous, ...axFollowup()]);
+  assert.equal(verifyPendingBatch(dir).checks.followup_reply_visible, true);
+});
+
+for (const [name, nodes, previous] of [
+  ["缺末段", () => axFollowup().filter(node => !node.path.startsWith(AX_CHAT + "/45")), () => []],
+  ["列表正文篡改", () => axFollowup().map(node => node.path === AX_CHAT + "/44/0/1"
+    ? { ...node, value: "已采纳：ACCEPTED 被篡改的旧稿。" } : node), () => []],
+  ["仅旧同文回合", () => [], () => axFollowup(30)],
+  ["错作者角色", () => axFollowup(40, { authorLabel: "旁观者" }), () => []],
+  ["错作者原话", () => axFollowup(40, { message: "另一份资料进度怎么样？" }), () => []],
+  ["额外助手块", () => [...axFollowup(), ...axTextGroup(AX_CHAT + "/46", "AI 助手"),
+    ...axTextGroup(AX_CHAT + "/47", "另一条未绑定的助手回复。")], () => []],
+]) {
+  test("pending " + name + "不能借会话外完整原文通过", (t) => {
+    const dir = batchCopy(t), history = previous();
+    writeAxCapture(dir, "after-restore", [...pendingAx("after-restore"), ...history]);
+    writeAxCapture(dir, "final", [...pendingAx("after-restore"), ...history, ...nodes(),
+      ...axTextGroup("0/0/90", followupReply())]);
+    assert.throws(() => verifyPendingBatch(dir), /followup_reply_visible/u);
+  });
+}
+
+test("pending Markdown 渲染相同也不能放宽 Provider 与 TurnResult 的原文字节绑定", (t) => {
+  const dir = batchCopy(t);
+  mutateJsonl(path.join(dir, "native-transport.jsonl"), rows => rows.map(row => {
+    if (row.frame?.[3] === "turn_result" && row.frame[4]?.turn_id === FOLLOWUP_TURN) {
+      row.frame[4].assistant_message.text = row.frame[4].assistant_message.text.replace("**已采纳**", "已采纳");
+    }
+    return row;
+  }));
+  assert.throws(() => verifyPendingBatch(dir), /followup_reply_exact_provider/u);
+});
 
 test("普通修订只从当前 Writer 调用前最近有效 Scope 取完整源候选", (t) => {
   const { checks } = verifyPendingBatch(batchCopy(t));
