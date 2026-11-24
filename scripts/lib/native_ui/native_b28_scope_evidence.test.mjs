@@ -905,6 +905,88 @@ test("B28 driver leaves a conditional N4 candidate for review without inventing 
   assert.equal(result.pending_count, 1);
   assert.equal(result.adoption, null);
 });
+
+function adoptionDriverFixture(t, { terminal = true } = {}) {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse(AT) + 500 });
+  const proof = adoptionProof();
+  proof.scenario = structuredClone(evidence.SCENARIOS.find(({ id }) => id === "P1"));
+  Object.assign(proof.artifact.payload, structuredClone(wholeCandidateProof().artifact.payload));
+  proof.wire[0].frame[4].text = proof.scenario.input;
+  const actionFrames = proof.wire.splice(-3);
+  const harness = memoryHarness(proof);
+  const events = [], checkpoints = [];
+  const chat = "0/0/10", itemPath = chat + "/4";
+  const node = (path, role, fields = {}) => ({ path, role, frame: [10, 10, 200, 20], ...fields });
+  const text = (path, value) => [node(path, "AXGroup"), node(path + "/0", "AXStaticText", { value })];
+  const item = proof.artifact.payload.items[0];
+  const nodes = [
+    node("0", "AXWindow"), node("0/0", "AXWebArea"),
+    node(chat, "AXGroup", { subrole: "AXLandmarkRegion", title: "会话消息", desc: "会话消息" }),
+    ...text(chat + "/0", "你"), ...text(chat + "/1", proof.scenario.input),
+    ...text(chat + "/2", "AI 助手"),
+    node(itemPath, "AXGroup", { subrole: "AXDocumentArticle" }),
+    node(itemPath + "/0", "AXStaticText", { value: item.title }),
+    node(itemPath + "/1", "AXStaticText", { value: item.body }),
+    node(itemPath + "/2", "AXButton", { title: "保存为章节正文", enabled: true }),
+  ];
+  harness.dumpNodes = () => harness.sent.length ? nodes : [];
+  harness.pollAx = async (check) => { assert(check("", nodes)); return { nodes }; };
+  harness.ensureInput = () => ({ scrollTo() { throw Object.assign(new Error("not scrollable"), { reason: "ax_action_unsupported" }); } });
+  harness.safeClick = (...args) => { harness.clicked.push(args); proof.wire.push(...actionFrames); };
+  harness.capture = (label) => { harness.captured.push(label); events.push(label); return nodes; };
+  const summary = { event: "chapter_summary_maintenance.run.done", outcome: "ok", status: "ACCEPTED",
+    four_column: true, timestamp: "2026-11-23T01:00:02.000Z", work_id: ADOPTION_WORK, chapter_id: "chapter-target" };
+  const ledger = { event: "ledger.update.done", outcome: "ok", timestamp: "2026-11-23T01:00:02.100Z",
+    work_id: ADOPTION_WORK, chapter_id: "chapter-target" };
+  let records = [], observed = false;
+  harness.pollWire = async (read, timeout, label) => {
+    if (label !== "summary_ledger:P1") {
+      const value = read(proof.wire);
+      assert(value, "fixture 必须给出当前回合或真实采纳结果");
+      return value;
+    }
+    assert(timeout > 0 && timeout < budget(1).turn_timeout_ms, "维护沿原回合剩余预算");
+    for (const [index, stage] of [[], [summary], ...(terminal ? [[summary, ledger]] : [])].entries()) {
+      records = stage;
+      t.mock.timers.setTime(Date.parse(AT) + 1500 + index * 500);
+      const value = read(proof.wire);
+      assert(!harness.captured.includes("P1-after"), "维护结算前不得最终截图");
+      assert(!checkpoints.includes("P1"), "维护结算前不得最终 DB 快照");
+      if (value) { observed = true; events.push("maintenance-settled"); return value; }
+    }
+    throw new Error("poll_timeout:summary_ledger:P1");
+  };
+  const options = {
+    readMaintenanceRecords: () => records,
+    captureEvidence: async (id) => {
+      if (id === "P1") assert(observed, "最终快照必须晚于真实维护终态");
+      checkpoints.push(id);
+    },
+  };
+  return { proof, harness, options, events, checkpoints, summary, ledger };
+}
+
+test("B28 P1 waits for both adoption maintenance terminals before final capture", async (t) => {
+  const f = adoptionDriverFixture(t);
+  const result = await runScopeScenario(f.harness, { target: f.proof.target, budget: budget(1) }, f.proof.scenario, f.options);
+  assert.deepEqual(f.harness.sent, ["把第03章整章重写一遍，情节不变。"]);
+  assert.equal(f.harness.clicked.length, 1);
+  assert.deepEqual(f.checkpoints, ["P1-before-adoption", "P1"]);
+  assert(f.events.indexOf("maintenance-settled") < f.events.indexOf("P1-after"));
+  assert.deepEqual(result.adoption.maintenance, { summary: f.summary, ledger: f.ledger });
+});
+
+test("B28 P1 preserves an incomplete maintenance timeout without final capture or author retry", async (t) => {
+  const f = adoptionDriverFixture(t, { terminal: false });
+  await assert.rejects(
+    runScopeScenario(f.harness, { target: f.proof.target, budget: budget(1) }, f.proof.scenario, f.options),
+    /poll_timeout:summary_ledger:P1/,
+  );
+  assert.deepEqual(f.harness.sent, ["把第03章整章重写一遍，情节不变。"]);
+  assert.equal(f.harness.clicked.length, 1);
+  assert.deepEqual(f.checkpoints, ["P1-before-adoption"]);
+  assert(!f.harness.captured.includes("P1-after"));
+});
 test("B28 uses current run pending refs and retains a byte-identical historical N4 candidate separately", () => {
   const p = localCandidateProof();
   const old = structuredClone(p.artifact);

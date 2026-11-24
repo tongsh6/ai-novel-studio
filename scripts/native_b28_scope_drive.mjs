@@ -9,7 +9,7 @@ import {
   NativeScenarioHarness, ROOT, ensureWorkSelected, runEvidenceMode,
 } from "./lib/native_ui/scenario_driver.mjs";
 import {
-  broadcastFrames, frameBody, requestIdentity, requestReplies,
+  broadcastFrames, frameBody, logs, requestIdentity, requestReplies,
 } from "./lib/native_ui/scenario_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import { authorBoundary, countAxAuthorMessages } from "./lib/native_ui/authoring_g2_evidence.mjs";
@@ -17,7 +17,7 @@ import {
   actionAck, actionFrame, actionLabelsFor, actionResult, isPendingWaitMiss,
   locateScopedButton, selectPendingAction,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
-import { capturePendingItemViews } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { capturePendingItemViews, waitAdoptionMaintenance } from "./lib/native_ui/authoring_pending_driver.mjs";
 import { scopePendingArtifacts } from "./native_b28_scope_evidence.mjs";
 
 const EVIDENCE = path.join(ROOT, "scripts/native_b28_scope_evidence.mjs");
@@ -118,7 +118,7 @@ async function adoptPending(harness, config, scenario, turnResult, identity, bas
 }
 
 // 真实 main 直接使用这一消费者；测试注入内存 harness 和只记录的 checkpoint 回调。
-export async function runScopeScenario(harness, config, scenario, { captureEvidence } = {}) {
+export async function runScopeScenario(harness, config, scenario, { captureEvidence, readMaintenanceRecords, now = Date.now } = {}) {
   assert.equal(typeof captureEvidence, "function", "scope scenario 必须有真实 checkpoint 消费者");
   const sent = await sendAuthorInput(harness, config, scenario);
   const outcome = await waitScopeTurn(harness, sent.identity, scenario, config.budget);
@@ -129,9 +129,15 @@ export async function runScopeScenario(harness, config, scenario, { captureEvide
   if (outcome.kind === "turn_result" && scenario.expect.adopt === true && pending.length > 0) {
     adoption = await harness.runStep("adoption", `adopt:${scenario.id}`, () =>
       adoptPending(harness, config, scenario, outcome.result, sent.identity, sent.baselineAuthorCount, captureEvidence));
+    // 保存回执不是后台维护终态；沿原作者回合期限结算后再采样、重开。
+    adoption.maintenance = await waitAdoptionMaintenance({
+      driver: harness, turnResult: outcome.result, identity: sent.identity, artifact: pending[0],
+      since: adoption.clicked_at, deadline: Date.parse(sent.message.at) + config.budget.turn_timeout_ms,
+      label: scenario.id, readRecords: readMaintenanceRecords, now,
+    });
   }
   harness.capture(`${scenario.id}-after`);
-  captureEvidence(scenario.id);
+  await captureEvidence(scenario.id);
   const result = {
     id: scenario.id, kind: scenario.kind, input: scenario.input,
     turn_id: sent.identity.turnId, run_id: sent.identity.runId,
@@ -181,6 +187,7 @@ export async function main(artifact) {
     for (const scenario of config.scenarios) {
       const result = await runScopeScenario(harness, config, scenario, {
         captureEvidence: (checkpoint) => runEvidenceMode(EVIDENCE, "capture", dir, [checkpoint]),
+        readMaintenanceRecords: () => logs(path.join(dir, "app-log")),
       });
       results.push(result);
       writeDriverLog();

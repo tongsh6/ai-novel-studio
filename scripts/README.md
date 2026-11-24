@@ -144,9 +144,9 @@
 | `native_b28_evidence.test.mjs` | B28 全章覆盖、源版本、同章身份、排版保真与越界拒绝的证据检查回归。 |
 | `native_b30_drive.mjs` | B30 原生外部系统 UI 驱动（AX/CGEvent）：两场景确定性矩阵 + strata scoped 真实模型流程；作品切换经真实重开+测试数据准备；模型生命周期记录/结束 unload 验证。 |
 | `native_b30_evidence.mjs` | B30 原生证据核验：场景1 30 项 + 类型边界 T8 6 项、场景2 12 项；strata scoped 模式 26 项（不冒充全矩阵）；只读 DB/transport/app-log/llm-calls/AX/生产指纹。 |
-| `native_b33_drive.mjs` | B33 §元原则整改 CP3 外部原生 Tauri 真实模型驱动（6 场景串行：条件性 no-op/只解释/讨论/守卫/重编号/写章；作者问答自动应答；strata 单槽生命周期记录）。 |
+| `native_b33_drive.mjs` | B33 / R08 外部原生 Tauri 真实模型驱动：冻结场景串行执行，不补话、不重发或自动代答；S4 专属选稿后复用共同采纳维护结算，在原回合期限内观察摘要 / ledger 终态；外部模型生命周期只读记录。 |
 | `native_b33_evidence.mjs` | B33 CP3 证据 prepare/capture/verify（strata provider、零写入差分、seq/正文/角色不变断言、模型 unload 核验、summary）。 |
-| `native_b28_scope_drive.mjs` | B28-SCOPE CP3 外部原生 Tauri 真实模型驱动（7 场景串行：字面替换/否定整章+局部/通读后局部/只读拒改/条件整章/整章重写/仅排版；作者问答与运行暂停自动应答；strata 单槽生命周期记录、结束卸载）。 |
+| `native_b28_scope_drive.mjs` | B28-SCOPE / R08 外部原生 Tauri 真实模型驱动：冻结七场及显式子集，不补话、不重发或自动代答；真实采纳后在原回合期限内等待摘要 / ledger 明确结算，再采最终快照和重开，保留错误 / 超时；外部模型服务不加载或卸载。 |
 | `native_b28_scope_evidence.mjs` | B28-SCOPE CP3 证据 prepare/capture/verify（strata provider、候选 scope/effect、采纳回执、目标段外字节逐字、零写入差分、对照章/章节身份不变、模型 unload 核验、summary）。 |
 | `native_au03_drive.mjs` | AU03-CONTEXT CP3 外部原生 Tauri 真实模型驱动（H3 baseline→外部注入投影表故障→H1 fault→解除→H2 recovery；故障仅外部 harness 执行 DDL，产品无感知；strata 单槽生命周期/卸载）。 |
 | `native_au03_evidence.mjs` | AU03-CONTEXT CP3 证据 prepare/capture/verify（同一 turn provider 请求可用性段、context.assemble source_status、trace unavailable_sources、零 canon 写入、投影表恢复与 unload 核验、summary）。 |

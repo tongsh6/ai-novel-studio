@@ -10,6 +10,7 @@
 // - revision 全 item 集只与同次 writer 响应同 item_id 字段逐字比较；
 // - 新请求必须消费真实 ACCEPTED/DISCARDED refs/状态，回复必须等于同次 Provider 原字节；
 // - canon 分段只允许真实作者动作带来的精确 memory/receipt 增量，其余事实逐表不变。
+import assert from "node:assert/strict";
 import { qualityRevisionArtifactRole } from "../../../frontend/src/lib/agentRunAnchoring.ts";
 import { CARD } from "../../../frontend/src/lib/copy.ts";
 import { compareAuthoringCanonSnapshots } from "./authoring_canon_evidence.mjs";
@@ -565,6 +566,28 @@ export function actionResult(wire, { topic, since, action, actionStatus } = {}) 
   if (conflicts.length > 0) throw conflict("pending_action_result: 同一动作的回执冲突");
   if (matches.length !== 1) throw waitMiss(`pending_action_result: 回执广播必须恰好一条，实测 ${matches.length}`);
   return matches[0];
+}
+
+// 只观察同作品/章/时间窗内的业务结算；source_ref/revision_base 与原始响应仍由后验原件核定。
+export function adoptionMaintenanceOutcome(appRecords, { workId, chapterId, since, until }) {
+  const start = Date.parse(since), end = Date.parse(until);
+  assert(nonBlank(workId) && nonBlank(chapterId) && Number.isFinite(start) && Number.isFinite(end) && end >= start,
+    "adoption maintenance window is not bound");
+  const owned = appRecords.filter((row) => row.work_id === workId && row.chapter_id === chapterId &&
+    Date.parse(row.timestamp) >= start && Date.parse(row.timestamp) <= end);
+  const summary = owned.filter((row) =>
+    ["chapter_summary_maintenance.run.done", "chapter_summary_maintenance.run.error"].includes(row.event));
+  const ledger = owned.filter((row) => ["ledger.update.done", "ledger.update.error"].includes(row.event));
+  assert(summary.length <= 1 && ledger.length <= 1, "adoption maintenance terminal is ambiguous");
+  if (summary.length === 0 || ledger.length === 0) return null;
+  assert(Date.parse(ledger[0].timestamp) >= Date.parse(summary[0].timestamp),
+    "adoption ledger terminal precedes the summary terminal");
+  const validOutcome = (row) => row.event.endsWith(".done") ? row.outcome === "ok" :
+    row.outcome === "error" && nonBlank(row.reason_code) && nonBlank(row.outcome_detail);
+  assert(validOutcome(summary[0]) && validOutcome(ledger[0]), "adoption maintenance outcome is unknown");
+  assert(!summary[0].event.endsWith(".error") || ledger[0].event.endsWith(".error"),
+    "adoption degraded summary contradicts the downstream ledger outcome");
+  return { summary: summary[0], ledger: ledger[0] };
 }
 
 function turnResultParent(record, topic, since, parentTurnRef) {

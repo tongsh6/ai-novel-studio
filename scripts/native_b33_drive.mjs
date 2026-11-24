@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { adoptionMaintenanceOutcome, selectB33PendingArtifact } from "./native_b33_evidence.mjs";
+import { selectB33PendingArtifact } from "./native_b33_evidence.mjs";
 import { readJson } from "./lib/native_ui/driver.mjs";
 import { readStrataState } from "./lib/native_ui/strata_lifecycle.mjs";
 import { CARD } from "../frontend/src/lib/copy.ts";
@@ -19,7 +19,7 @@ import { authorBoundary, countAxAuthorMessages } from "./lib/native_ui/authoring
 import {
   actionAck, actionFrame, actionLabelsFor, actionResult, actionTurnResult, isPendingWaitMiss, locateScopedButton, selectPendingAction,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
-import { revealItem } from "./lib/native_ui/authoring_pending_driver.mjs";
+import { revealItem, waitAdoptionMaintenance as waitPendingAdoptionMaintenance } from "./lib/native_ui/authoring_pending_driver.mjs";
 import {
   NativeScenarioHarness,
   ROOT,
@@ -197,28 +197,11 @@ export async function waitAdoptionMaintenance(
   if (!selection.unique || selection.artifact?.artifact_type !== "prose_fragment") {
     throw new Error("maintenance_source_not_selected:" + scenario.id);
   }
-  const action = selectPendingAction(turnResult, { artifactId: selection.artifact.artifact_id, actionType: "accept" });
-  const wire = driver.transport();
-  const sent = actionFrame(wire, { topic: identity.topic, since: selection.terminal.record.at, action });
-  actionAck(wire, sent, { actionStatus: "accepted" });
-  const receipt = frameBody(actionResult(wire, {
-    topic: identity.topic, since: sent.at, action, actionStatus: "accepted",
-  }));
-  const projection = receipt.persistence?.reading_projection;
-  if (!projection || selection.artifact.target_chapter_ref !== "chapter:" + projection.chapter_id ||
-      receipt.persistence?.persisted !== true || !projection.source_revision_ref) {
-    throw new Error("maintenance_projection_not_bound:" + scenario.id);
-  }
-  return driver.runStep("maintenance", "summary_ledger:" + scenario.id, () => {
-    const remaining = deadline - now();
-    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error("maintenance_turn_budget_exhausted:" + scenario.id);
-    return driver.pollWire(() => adoptionMaintenanceOutcome(readRecords(), {
-      workId: identity.workId, chapterId: projection.chapter_id,
-      since: sent.at, until: new Date(Math.min(now(), deadline)).toISOString(),
-    }), remaining, "summary_ledger:" + scenario.id);
+  return waitPendingAdoptionMaintenance({
+    driver, turnResult, identity, artifact: selection.artifact, since: selection.terminal.record.at,
+    deadline, label: scenario.id, readRecords, now,
   });
 }
-
 async function runScenario(config, scenario) {
   const label = scenario.id;
   const { message, turnId, runId, identity, baselineAuthorCount } =

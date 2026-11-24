@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { adoptionEvidenceChecks, selectB33PendingArtifact } from "../../native_b33_evidence.mjs";
-import { adoptPending } from "../../native_b33_drive.mjs";
+import { adoptPending, waitAdoptionMaintenance } from "../../native_b33_drive.mjs";
 import { buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { canonTables } from "./fixtures/native_b71_revision_facts.mjs";
 import { authorBoundary } from "./authoring_g2_evidence.mjs";
@@ -461,6 +461,25 @@ for (const [name, corrupt] of [
     assert(fixture.trace.dumps.includes("after-reveal"));
   });
 }
+
+test("B33 maintenance wrapper retains the frozen S4 selection and delegates the observed terminal pair", async () => {
+  const proof = scopedAdoptionProof(), at = Date.parse(B33_ACCEPT), polls = [];
+  const records = [
+    { event: "chapter_summary_maintenance.run.done", outcome: "ok", work_id: proof.identity.workId,
+      chapter_id: S4_CHAPTER, timestamp: new Date(at + 500).toISOString() },
+    { event: "ledger.update.done", outcome: "ok", work_id: proof.identity.workId,
+      chapter_id: S4_CHAPTER, timestamp: new Date(at + 600).toISOString() },
+  ];
+  const driver = { transport: () => proof.wire, runStep: async (_kind, _label, run) => run(),
+    pollWire: async (read, remaining, label) => { polls.push({ remaining, label }); return read(proof.wire); } };
+  const run = () => waitAdoptionMaintenance(proof.turnResult, proof.identity, proof.scenario, at + 2000,
+    { driver, readStart: () => proof.start, readRecords: () => records, now: () => at + 1000 });
+  assert.deepEqual(await run(), { summary: records[0], ledger: records[1] });
+  assert.deepEqual(polls, [{ remaining: 1000, label: "summary_ledger:S4" }]);
+  proof.start.chapters[0].seq = 8;
+  await assert.rejects(run, /maintenance_source_not_selected/);
+  assert.equal(polls.length, 1, "a wrong frozen chapter must not borrow completed maintenance");
+});
 
 test("B33 driver does not guess an unknown or ambiguous visible action", async () => {
   for (const title of ["未知动作", "保存为章节正文"]) {

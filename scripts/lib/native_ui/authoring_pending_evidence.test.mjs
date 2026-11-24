@@ -20,6 +20,7 @@ const FLAT_ARTIFACTS = [FLAT_ITEMS.source, FLAT_ITEMS.revision].map((item) => ({
 }));
 import {
   actionAck,
+  adoptionMaintenanceOutcome,
   actionFrame,
   actionLabelsFor,
   actionResult,
@@ -1008,6 +1009,77 @@ test("canonical IR scope_update 直接按 role/provenance/blocks 读取，未知
   assert.deepEqual(scopeFactsFromRequest(ir), facts);
   assert.equal(scopeFactsFromRequest({ ...ir, ir_version: undefined }), null);
   assert.equal(scopeFactsFromRequest({ request_format: "provider_prompt/v1" }), null);
+});
+
+// 手写窗口与终态事实只证明采集结算，不冒充 Provider 或 source revision 的语义验收。
+const MAINTENANCE_WINDOW = { workId: WORK, chapterId: "chapter-maintenance",
+  since: "2026-11-24T01:00:01.000Z", until: "2026-11-24T01:00:04.000Z" };
+function maintenancePair() {
+  return [
+    { event: "chapter_summary_maintenance.run.done", outcome: "ok", work_id: WORK,
+      chapter_id: "chapter-maintenance", timestamp: "2026-11-24T01:00:02.000Z" },
+    { event: "ledger.update.done", outcome: "ok", work_id: WORK,
+      chapter_id: "chapter-maintenance", timestamp: "2026-11-24T01:00:03.000Z" },
+  ];
+}
+
+test("adoption maintenance returns the original terminal pair within the actual window", () => {
+  const records = maintenancePair();
+  const outcome = adoptionMaintenanceOutcome(records, MAINTENANCE_WINDOW);
+  assert.equal(outcome.summary, records[0]);
+  assert.equal(outcome.ledger, records[1]);
+});
+
+for (const [name, change] of [
+  ["only summary", (rows) => rows.slice(0, 1)],
+  ["only ledger", (rows) => rows.slice(1)],
+  ["another work", (rows) => rows.map((row) => ({ ...row, work_id: "another-work" }))],
+  ["another chapter", (rows) => rows.map((row) => ({ ...row, chapter_id: "another-chapter" }))],
+  ["before this accept", (rows) => rows.map((row) => ({ ...row, timestamp: "2026-11-24T01:00:00.000Z" }))],
+  ["after this checkpoint", (rows) => rows.map((row) => ({ ...row, timestamp: "2026-11-24T01:00:05.000Z" }))],
+]) {
+  test("adoption maintenance keeps incomplete evidence pending: " + name, () => {
+    assert.equal(adoptionMaintenanceOutcome(change(maintenancePair()), MAINTENANCE_WINDOW), null);
+  });
+}
+
+for (const summaryFailed of [false, true]) {
+  test("adoption maintenance preserves real failure terminals, summary failed " + summaryFailed, () => {
+    const rows = maintenancePair();
+    for (const row of rows.slice(summaryFailed ? 0 : 1)) {
+      row.event = row.event.replace(".done", ".error");
+      Object.assign(row, { outcome: "error", reason_code: "generation_failed", outcome_detail: "observed failure" });
+    }
+    const outcome = adoptionMaintenanceOutcome(rows, MAINTENANCE_WINDOW);
+    assert.equal(outcome.summary, rows[0]);
+    assert.equal(outcome.ledger, rows[1]);
+    assert.equal(outcome.ledger.outcome, "error");
+  });
+}
+
+for (const [name, change] of [
+  ["duplicate summary", (rows) => rows.push({ ...rows[0] })],
+  ["duplicate ledger", (rows) => rows.push({ ...rows[1] })],
+  ["ledger before summary", (rows) => { rows[1].timestamp = "2026-11-24T01:00:01.500Z"; }],
+  ["unknown done outcome", (rows) => { rows[0].outcome = "unknown"; }],
+  ["error without details", (rows) => { rows[1].event = "ledger.update.error"; rows[1].outcome = "error"; }],
+  ["failed summary followed by successful ledger", (rows) => {
+    Object.assign(rows[0], { event: "chapter_summary_maintenance.run.error", outcome: "error",
+      reason_code: "generation_failed", outcome_detail: "observed failure" });
+  }],
+]) {
+  test("adoption maintenance rejects conflicting evidence: " + name, () => {
+    const rows = maintenancePair();
+    change(rows);
+    assert.throws(() => adoptionMaintenanceOutcome(rows, MAINTENANCE_WINDOW));
+  });
+}
+
+test("adoption maintenance refuses an unbound or reversed window", () => {
+  for (const changes of [{ workId: "" }, { chapterId: "" }, { since: "unknown" },
+    { until: "2026-11-24T01:00:00.000Z" }]) {
+    assert.throws(() => adoptionMaintenanceOutcome(maintenancePair(), { ...MAINTENANCE_WINDOW, ...changes }));
+  }
 });
 
 test("R08 writer 原生 Chat 响应沿共享 reader 核全部 item 原字节，历史/坏 JSON/重复不授信", () => {

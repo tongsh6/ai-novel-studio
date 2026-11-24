@@ -3,7 +3,7 @@
 // 并在 source→revision→Why→accept→discard→restore→followup 顺序推进。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { capturePendingItemViews, drivePending, revealItem, turnOutcome } from "./authoring_pending_driver.mjs";
+import { capturePendingItemViews, drivePending, revealItem, turnOutcome, waitAdoptionMaintenance } from "./authoring_pending_driver.mjs";
 import { actionLabelsFor, pendingSourceMessage } from "./authoring_pending_evidence.mjs";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -623,6 +623,125 @@ const LIVE_PENDING_BUDGET = { batches: 1, author_sends: 3, manual_retries: 0,
 const livePendingConfig = () => ({ ...config, provider: "splash", budget: { ...LIVE_PENDING_BUDGET },
   preregistration: { model: "local/Q4-PLE4" },
   runtime: { profile: "b87-r03-splash-product-maintenance-budget" } });
+
+function maintenanceWaitProof() {
+  const bundle = buildWire(), wire = bundle.wire;
+  const source = wire.find((row) => row.frame?.[3] === "turn_result" && row.frame[4].turn_id === REVISION_TURN);
+  const turnResult = source.frame[4], artifact = bundle.revisionArtifact;
+  Object.assign(artifact, { artifact_type: "prose_fragment", target_chapter_ref: "chapter:chapter-maintenance" });
+  const sent = wire.find((row) => row.frame?.[3] === "author_action" &&
+    row.frame[4].action.action_id === bundle.acceptAction.action_id);
+  const result = wire.find((row) => row.frame?.[3] === "action_result" && row.frame[4].artifact_id === REVISION_ID);
+  result.frame[4].persistence = { persisted: true, reading_projection: {
+    chapter_id: "chapter-maintenance", source_revision_ref: "draft:accepted-prose:1",
+  } };
+  const acceptedAt = Date.parse(sent.at);
+  const proof = { wire, artifact, turnResult, receipt: result.frame[4], clock: acceptedAt + 400,
+    readRecords: [], polls: [], steps: [], acceptedAt };
+  proof.records = [
+    { event: "chapter_summary_maintenance.run.done", outcome: "ok", work_id: WORK,
+      chapter_id: "chapter-maintenance", timestamp: new Date(acceptedAt + 500).toISOString() },
+    { event: "ledger.update.done", outcome: "ok", work_id: WORK,
+      chapter_id: "chapter-maintenance", timestamp: new Date(acceptedAt + 700).toISOString() },
+  ];
+  proof.driver = {
+    transport: () => proof.wire,
+    runStep: async (kind, label, run) => { proof.steps.push({ kind, label }); return run(); },
+    pollWire: async () => { throw new Error("unexpected maintenance poll"); },
+  };
+  proof.options = { driver: proof.driver, turnResult, artifact, since: source.at,
+    identity: { topic: TOPIC, workId: WORK, sessionId: SESSION, turnId: REVISION_TURN, runId: REVISION_RUN },
+    deadline: acceptedAt + 1000, label: "P1", readRecords: () => proof.readRecords, now: () => proof.clock };
+  return proof;
+}
+
+test("maintenance wait keeps an accepted receipt pending until summary and ledger settle within the original budget", async () => {
+  const p = maintenanceWaitProof();
+  p.driver.pollWire = async (read, timeout, label) => {
+    p.polls.push({ timeout, label });
+    assert.equal(read(p.wire), null, "the accepted action alone is not background completion");
+    p.clock = p.acceptedAt + 500;
+    p.readRecords = p.records.slice(0, 1);
+    assert.equal(read(p.wire), null, "summary alone must not finish the wait");
+    p.clock = p.acceptedAt + 800;
+    p.readRecords = p.records;
+    return read(p.wire);
+  };
+  const outcome = await waitAdoptionMaintenance(p.options);
+  assert.equal(outcome.summary, p.records[0]);
+  assert.equal(outcome.ledger, p.records[1]);
+  assert.deepEqual(p.polls, [{ timeout: 600, label: "summary_ledger:P1" }]);
+  assert.deepEqual(p.steps, [{ kind: "maintenance", label: "summary_ledger:P1" }]);
+});
+
+test("maintenance wait also settles an adopted formatting plan", async () => {
+  const p = maintenanceWaitProof();
+  p.artifact.artifact_type = "prose_formatting_plan";
+  p.receipt.artifact_type = "prose_formatting_plan";
+  p.options.label = "P2";
+  p.clock = p.acceptedAt + 800;
+  p.readRecords = p.records;
+  p.driver.pollWire = async (read, remaining, label) => {
+    assert.equal(remaining, 200);
+    assert.equal(label, "summary_ledger:P2");
+    return read(p.wire);
+  };
+  const outcome = await waitAdoptionMaintenance(p.options);
+  assert.equal(outcome.summary, p.records[0]);
+  assert.equal(outcome.ledger, p.records[1]);
+});
+
+test("maintenance wait returns an observed degraded pair without rewriting it as success", async () => {
+  const p = maintenanceWaitProof();
+  for (const row of p.records) {
+    row.event = row.event.replace(".done", ".error");
+    Object.assign(row, { outcome: "error", reason_code: "generation_failed", outcome_detail: "observed failure" });
+  }
+  p.clock = p.acceptedAt + 800;
+  p.readRecords = p.records;
+  p.driver.pollWire = async (read) => read(p.wire);
+  const outcome = await waitAdoptionMaintenance(p.options);
+  assert.equal(outcome.summary, p.records[0]);
+  assert.equal(outcome.ledger, p.records[1]);
+  assert.equal(outcome.summary.outcome, "error");
+});
+
+for (const [name, change] of [
+  ["foreign run", (p) => { p.options.identity.runId = "another-run"; }],
+  ["foreign source turn", (p) => { p.turnResult.available_actions[0].source_turn_ref = "another-turn"; }],
+  ["foreign copied candidate", (p) => { p.options.artifact = { ...p.artifact, target_chapter_ref: "chapter:other" }; }],
+  ["missing accept frame", (p) => { p.wire = p.wire.filter((row) => row.frame?.[3] !== "author_action"); }],
+  ["missing accepted ACK", (p) => { p.wire = p.wire.filter((row) =>
+    !(row.frame?.[3] === "phx_reply" && row.frame[4].response?.action_status === "accepted")); }],
+  ["receipt for another candidate", (p) => { p.receipt.artifact_id = "another-artifact"; }],
+  ["unpersisted receipt", (p) => { p.receipt.persistence.persisted = false; }],
+  ["another chapter projection", (p) => { p.receipt.persistence.reading_projection.chapter_id = "another-chapter"; }],
+  ["missing source revision", (p) => { delete p.receipt.persistence.reading_projection.source_revision_ref; }],
+  ["blank source revision", (p) => { p.receipt.persistence.reading_projection.source_revision_ref = " "; }],
+  ["unrelated candidate", (p) => { p.artifact.artifact_type = "plot_outline"; }],
+]) {
+  test("maintenance wait rejects an unbound adoption before polling: " + name, async () => {
+    const p = maintenanceWaitProof();
+    let polls = 0;
+    p.driver.pollWire = async () => { polls += 1; return { fabricated: true }; };
+    change(p);
+    await assert.rejects(() => waitAdoptionMaintenance(p.options));
+    assert.equal(polls, 0);
+  });
+}
+
+test("maintenance wait preserves a timeout and does not start a fresh budget", async () => {
+  const p = maintenanceWaitProof(), timeout = new Error("frozen_maintenance_timeout");
+  p.driver.pollWire = async (read, remaining) => {
+    assert.equal(remaining, 600);
+    assert.equal(read(p.wire), null);
+    throw timeout;
+  };
+  await assert.rejects(() => waitAdoptionMaintenance(p.options), (error) => error === timeout);
+  p.clock = p.options.deadline;
+  p.driver.pollWire = async () => { assert.fail("exhausted turns must not poll again"); };
+  await assert.rejects(() => waitAdoptionMaintenance(p.options), /maintenance_turn_budget_exhausted/);
+});
 
 test("pending Splash driver 保留三输入/独立动作并记录实际采用的冻结模型与等待预算", async () => {
   const harness = fakeHarness(buildWire()), waits = [], original = harness.pollWire;

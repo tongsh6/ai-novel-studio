@@ -53,7 +53,7 @@ import { referenceLogRows } from "./lib/native_ui/reference_log_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot, compareAuthoringCanonSnapshots, uuidFromHex } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import {
-  actionAck, actionFrame, actionResult, actionTurnResult, canonTableSignature, selectPendingAction,
+  actionAck, actionFrame, actionResult, actionTurnResult, adoptionMaintenanceOutcome, canonTableSignature, selectPendingAction,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -818,27 +818,6 @@ function renderedSummary(text) {
     assert(line.startsWith(prefix) && nonEmpty(line.slice(prefix.length)), "B33 summary line is invalid");
     return prefix + line.slice(prefix.length).trim();
   }).join("\n");
-}
-
-export function adoptionMaintenanceOutcome(appRecords, { workId, chapterId, since, until }) {
-  const start = Date.parse(since), end = Date.parse(until);
-  assert(nonEmpty(workId) && nonEmpty(chapterId) && Number.isFinite(start) && Number.isFinite(end) && end >= start,
-    "B33 maintenance window is not bound");
-  const owned = appRecords.filter((row) => row.work_id === workId && row.chapter_id === chapterId &&
-    Date.parse(row.timestamp) >= start && Date.parse(row.timestamp) <= end);
-  const summary = owned.filter((row) =>
-    ["chapter_summary_maintenance.run.done", "chapter_summary_maintenance.run.error"].includes(row.event));
-  const ledger = owned.filter((row) => ["ledger.update.done", "ledger.update.error"].includes(row.event));
-  assert(summary.length <= 1 && ledger.length <= 1, "B33 maintenance terminal is ambiguous");
-  if (summary.length === 0 || ledger.length === 0) return null;
-  assert(Date.parse(ledger[0].timestamp) >= Date.parse(summary[0].timestamp),
-    "B33 ledger terminal precedes the summary terminal");
-  const validOutcome = (row) => row.event.endsWith(".done") ? row.outcome === "ok" :
-    row.outcome === "error" && nonEmpty(row.reason_code) && nonEmpty(row.outcome_detail);
-  assert(validOutcome(summary[0]) && validOutcome(ledger[0]), "B33 maintenance outcome is unknown");
-  assert(!summary[0].event.endsWith(".error") || ledger[0].event.endsWith(".error"),
-    "B33 degraded summary contradicts the downstream ledger outcome");
-  return { summary: summary[0], ledger: ledger[0] };
 }
 
 function adoptedSummarySource({ config, wire, scenarioScopes, driverLog, snapshots, appRecords }, sourceRef, chapterId) {

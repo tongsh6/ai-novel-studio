@@ -16,6 +16,7 @@ import { textOf } from "./driver.mjs";
 import { turnIdMatches } from "./scenario_driver.mjs";
 import {
   actionAck,
+  adoptionMaintenanceOutcome,
   actionFrame,
   actionLabelsFor,
   actionResult,
@@ -62,6 +63,38 @@ export function turnOutcome(wire, identity) {
   if (terminal?.kind === "completed" && terminal.results.length > 1)
     return { kind: "conflict", reason: "turn_completed_duplicate", records: terminal.results };
   return terminal;
+}
+
+// 调用方选择当前候选；从真实采纳链绑定目标后等维护结算，不凭日志单独签来源或语义成功。
+export async function waitAdoptionMaintenance({
+  driver, turnResult, identity, artifact, since, deadline, label, readRecords, now = Date.now,
+}) {
+  const pending = list(turnResult?.adoption_state?.pending).filter((entry) => entry?.artifact_id === artifact?.artifact_id);
+  assert(sameTurnIdentity(turnResult, identity) && pending.length === 1 &&
+    ["prose_fragment", "prose_formatting_plan"].includes(artifact?.artifact_type),
+    "maintenance_source_not_selected:" + label);
+  assert.deepEqual(pending[0], artifact, "maintenance_source_not_selected:" + label);
+  const action = selectPendingAction(turnResult, { artifactId: artifact.artifact_id, actionType: "accept" });
+  const wire = driver.transport();
+  const sent = actionFrame(wire, { topic: identity.topic, since, action });
+  actionAck(wire, sent, { actionStatus: "accepted" });
+  const receipt = frameBody(actionResult(wire, {
+    topic: identity.topic, since: sent.at, action, actionStatus: "accepted",
+  }));
+  const projection = receipt.persistence?.reading_projection;
+  if (!projection || !nonBlank(projection.chapter_id) ||
+      artifact.target_chapter_ref !== "chapter:" + projection.chapter_id ||
+      receipt.persistence?.persisted !== true || !nonBlank(projection.source_revision_ref)) {
+    throw new Error("maintenance_projection_not_bound:" + label);
+  }
+  return driver.runStep("maintenance", "summary_ledger:" + label, () => {
+    const remaining = deadline - now();
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error("maintenance_turn_budget_exhausted:" + label);
+    return driver.pollWire(() => adoptionMaintenanceOutcome(readRecords(), {
+      workId: identity.workId, chapterId: projection.chapter_id,
+      since: sent.at, until: new Date(Math.min(now(), deadline)).toISOString(),
+    }), remaining, "summary_ledger:" + label);
+  });
 }
 
 function assertSentIdentity(sent, config, label) {
