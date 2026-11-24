@@ -186,6 +186,49 @@ describe("traceSummaryView", () => {
     expect(visibleText).not.toContain("已调用工具");
   });
 
+  it("labels a cancelled confirmation replay as cancelled", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "cancel_waiting",
+      no_tool_reason: "author_action_decision_does_not_call_tool",
+      behavior_trace_refs: [{ event_type: "close", next_status: "CANCELLED" }],
+      replay_result_status: "complete",
+      replay_provider_called: false,
+    });
+    const waiting = toAuthorTraceSummary({ decision_type: "confirmation_required" });
+    const unknown = toAuthorTraceSummary({ decision_type: "unknown" });
+
+    expect(waiting?.decisionLabel).toBe("需要确认");
+    expect(unknown?.decisionLabel).toBe("已记录");
+    expect(view?.decisionLabel).toBe("已取消");
+    expect(view?.decisionLabel).not.toContain("处理中");
+    expect(view?.detailLines).toContain("回放只读取已保存记录，不会重新调用模型。");
+  });
+
+  it.each([
+    ["agent_run_allowed", "允许开始创作"],
+    ["author_confirmed_action", "已确认操作"],
+    ["gate_blocked", "本次操作未执行"],
+    ["run_failed", "本轮未完成"],
+    ["plan_budget_shortfall", "本轮执行额度不足"],
+    ["adopt_persistence_failed", "保存失败"],
+    ["cancel_confirmation", "已取消确认"],
+    ["discard_artifact", "已放弃待采纳内容"],
+    ["edit_then_accept", "修改后已保存"],
+    ["revise_from_findings", "修订稿待采纳"],
+    ["chapter_structure_maintenance", "章节结构维护"],
+    ["character_profile_revision", "角色资料核对与修订"],
+  ])("labels persisted decision %s accurately", (decisionType, label) => {
+    const view = toAuthorTraceSummary({
+      decision_type: decisionType,
+      replay_result_status: "complete",
+      replay_provider_called: false,
+    });
+
+    expect(view?.decisionLabel).toBe(label);
+    expect(view?.decisionLabel).not.toContain("处理中");
+    expect(view?.detailLines).toContain("回放只读取已保存记录，不会重新调用模型。");
+  });
+
   it("adds persisted replay integrity without exposing trace ids", () => {
     const view = toAuthorTraceSummary({
       trace_ref: "trace_secret",

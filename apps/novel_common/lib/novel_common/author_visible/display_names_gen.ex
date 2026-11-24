@@ -7,7 +7,7 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
   只允许通过 `NovelCommon.AuthorVisible.Display` 查询；作者可见面不得直接使用内部 code。
   """
 
-  @source_hash "f43b30101655a1962f0ac097ea557621a6dfe376ca49512dfe744f2dbae96aa7"
+  @source_hash "88e1bf77bf54bddaf096a81a1f7f13ca5dabc6dcf7c133a57ea007ffe5787a62"
 
   @domains %{
     "action" => %{
@@ -64,16 +64,27 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "work_archive" => "作品档案"
     },
     "decision" => %{
+      "adopt_persistence_failed" => "保存失败",
       "adopt_tentative" => "已采用候选",
+      "agent_run_allowed" => "允许开始创作",
       "allow_agent_run" => "允许开始创作",
       "allow_tool" => "允许执行工具",
+      "author_confirmed_action" => "已确认操作",
+      "cancel_confirmation" => "已取消确认",
+      "cancel_waiting" => "已取消",
       "capability_gap" => "能力缺口",
+      "chapter_structure_maintenance" => "章节结构维护",
+      "character_profile_revision" => "角色资料核对与修订",
       "clarification_required" => "需要补充信息",
       "confirmation_required" => "需要确认",
+      "discard_artifact" => "已放弃待采纳内容",
       "downgrade" => "降级为对话",
       "downgrade_to_dialogue" => "转为对话处理",
+      "edit_then_accept" => "修改后已保存",
       "exploration" => "探索方向",
       "fail_with_recovery" => "已降级恢复",
+      "gate_blocked" => "本次操作未执行",
+      "plan_budget_shortfall" => "本轮执行额度不足",
       "recovery" => "已降级恢复",
       "reject" => "已拒绝执行",
       "rejected" => "已拒绝执行",
@@ -81,6 +92,8 @@ defmodule NovelCommon.AuthorVisible.DisplayNames do
       "reply_only" => "AI 回应",
       "require_clarification" => "需要补充说明",
       "require_confirmation" => "需要作者确认",
+      "revise_from_findings" => "修订稿待采纳",
+      "run_failed" => "本轮未完成",
       "tool_allowed" => "允许工具",
       "tool_dispatched" => "已调用工具",
       "unknown" => "已记录"

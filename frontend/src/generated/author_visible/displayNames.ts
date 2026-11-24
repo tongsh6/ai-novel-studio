@@ -1,7 +1,7 @@
 // AUTO-GENERATED FROM docs/design/schemas/author_visible/display_names.json — DO NOT EDIT.
 // Run `pnpm codegen:author-visible` to regenerate. Author-visible surfaces must only use these display names.
 
-export const SOURCE_HASH = "f43b30101655a1962f0ac097ea557621a6dfe376ca49512dfe744f2dbae96aa7";
+export const SOURCE_HASH = "88e1bf77bf54bddaf096a81a1f7f13ca5dabc6dcf7c133a57ea007ffe5787a62";
 
 export const DISPLAY_NAMES = {
   action: {
@@ -64,6 +64,19 @@ export const DISPLAY_NAMES = {
     require_clarification: "需要补充说明",
     downgrade_to_dialogue: "转为对话处理",
     reject: "已拒绝执行",
+    cancel_waiting: "已取消",
+    agent_run_allowed: "允许开始创作",
+    author_confirmed_action: "已确认操作",
+    gate_blocked: "本次操作未执行",
+    run_failed: "本轮未完成",
+    plan_budget_shortfall: "本轮执行额度不足",
+    adopt_persistence_failed: "保存失败",
+    cancel_confirmation: "已取消确认",
+    discard_artifact: "已放弃待采纳内容",
+    edit_then_accept: "修改后已保存",
+    revise_from_findings: "修订稿待采纳",
+    chapter_structure_maintenance: "章节结构维护",
+    character_profile_revision: "角色资料核对与修订",
     fail_with_recovery: "已降级恢复",
     reply_only: "AI 回应",
     exploration: "探索方向",
