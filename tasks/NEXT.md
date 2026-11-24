@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：按作者调度保持 R08，沿原任务 §19 收束本批；本轮实模结果及接续边界见 §19.12–§19.16，不自动进入 R09。R06/R07 的未验收范围和恢复条件保留在 §17.5/§18.7；批次证据只在原任务维护。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：当前范围为 R00–R08、R17–R19；按作者调度保持 R08，沿原任务 §19 收束本批，本轮工程/实模收口与有限剩余项见 §19.45–§19.51。R06/R07 的未验收范围和恢复条件保留在 §17.5/§18.7；批次证据只在原任务维护。原 R09–R16 已独立转入 [B89](slices/B89-author-controlled-execution.md)，不作为 B87 完成前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
@@ -19,9 +19,11 @@
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，**B87 R17 后**按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**，且 **B87 R02/R05 后**（材料/来源结构化稳定）按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序：B87 主线按原任务 §17.5 及共享 README 推进。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
+依赖排序：B87 按原任务 §20 及共享 README 推进。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
 
 ## 阻塞
+
+- **B89（deferred）**：原 R09–R16 独立承接，不阻塞 B87；作者重新排期后恢复，见 [B89](slices/B89-author-controlled-execution.md)。
 
 - **B87 R06**：恢复条件见 [原任务 §17.5](slices/B87-model-interaction-request-projection.md#175-原始范围复核因果边界与受阻后调度)。
 
@@ -37,7 +39,6 @@
 - **B27 CP4 语义（2026-11-13 作者选 A；B87 R08 后）**：用 Splash 定向重跑 5 个 known-gap（M01r2/M02/M08r2/M16r1/M18r1）+ 第二方复核；不全量 retest、不改阈值/分母。预注册 `artifacts/model-contracts/b27-cp4-hardening/preregistration-splash-20261113.json` 已冻结。见 [B27](slices/B27-systematic-prompt-and-intent-integration.md)。
 - **B72 CP1 模型窗口**：离线生成器已入候选，真实模型资源窗口与生成预算未授权；见 [B72](slices/B72-author-behavior-offline-corpus-expansion.md#阻塞记录2026-10-31-cp1)。
 - **VS00F-TRACE CP1（2026-11-13 作者选 A）**：新增最小持久 StateTrace 实体；先冻结 schema/迁移设计并获授权，再实施；字段含 before/after、source refs、mutation receipt、idempotency key。见 [VS00F](slices/VS-00F-five-ledgers-three-state.md)。
-- ~~B71 原生批次复验~~ **已于 2026-11-07 关闭**：`b71-first-consumer` 在 A1 收口后经 SliceVerify canonical IR 观察识别修复（`26824567`）取得 clean HEAD 真实页面 **19/19**（`artifacts/slice-verify/b71-first-consumer-tauri-native-b71-a1-03/`）；根因是 test-support 旧文本识别与 R1 canonical IR 不同步，产品当时进入 `no_progress_stopped` 的行为正确。实模/CP4b-2/CP5 仍不代签；证据与失败批次见 [B71](slices/B71-provider-message-fidelity.md) 原生批次验收状态小节。
 - **B57 CP1 B/C/D（2026-11-13 作者选 A；B87 R02/R07 后）**：授权受控 fixture/seed（隔离 DB），补内容夹带/观察夹带/伪完成三场景；A/E/F 已 PASS。见 [B57](slices/B57-sec-injection-boundary.md)。
 - **P1-AUDIT-BC 页面**：两次 stale projection banner 断言失败，依赖 AU08 投影新鲜度缺口或断言重锚；见 [P1](slices/P1-word-count-audit.md#checkpoint-b-c未做slice-内后续非范围外)。
 - **B01 后续（2026-11-13 作者选 A；B87 R02 后）**：新增 nullable `origin_turn_ref`、`origin_frame_ref` 改 nullable；SQLite 表重建 migration，旧合成值按 legacy 读取、不回填；待实施。见 [B01](2026-10-27-design-to-execution-reconciliation.md)。
@@ -51,6 +52,6 @@
 - **B48 CP3（2026-11-13 作者选 A；B87 R07/R08 后）**：先实现 native_b48_drive/evidence 并注册 allowlist，再用 Splash 按新预注册跑四场景；预注册 `artifacts/b48-cp3/preregistration-splash-20261113.json` 已冻结。见 [B48](slices/B48-character-revision-noop-and-ambiguity.md)。
 - **B28 stage 重复章根因（2026-11-13）**：stage work 在仓库 `data/*.sqlite3` 未检出（可能已删除），数据修复关闭；作者要求“为什么写了重复的章”在 B87 R06 后调查。见 [B28](slices/B28-whole-chapter-revision.md)。
 - **B42 AU-15（2026-11-13 作者选 A；B87 R05 后）**：用 Splash 补 AU-15 预注册/driver，先跑 A0/A1/A2（每场景至少 2 次独立重复）；预注册 `artifacts/model-contracts/b42-au15/preregistration-splash-20261113.json` 已冻结。见 [B42](slices/B42-model-behavior-evidence-tier.md)。
-- **B38 世界规则保存意图（2026-11-13；B87 R07/R09 后）**：允许用 Splash/真实页面主动复现一次；缺陷观察放到请求体重构后，不据此关闭；保持 deferred。见 [B38](slices/B38-world-rule-save-intent.md)。
+- **B38 世界规则保存意图（2026-11-13；B87 请求材料与工具协议稳定后）**：允许用 Splash/真实页面主动复现一次；缺陷观察放到请求体重构后，不据此关闭；保持 deferred。见 [B38](slices/B38-world-rule-save-intent.md)。
 - **延期/条件**：多 Agent/24x7 [B50](slices/B50-multi-agent-current-boundary.md#61-延期实施与重新开放)；I10 盲评 [安排](slices/VS00D-G-GAP-RECONCILIATION.md#i10-人工盲评安排)（B87 R18/R19 后）；B68 Experience [B68](slices/B68-experience-rule-governance.md)（2026-11-13 确认保持 deferred）。
 

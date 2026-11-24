@@ -2,7 +2,7 @@
 
 ## 模型交互协议候选的验收输入
 
-[场景/反例覆盖矩阵](model-interaction-coverage.md) 第 1–4 节与 [VS-00M 设计材料](../contracts/model-interaction/README.md) 的候选归档对应；第 5 节为现役 R03 的真实讨论、交错待答、取消与恢复验收设计，引用 VS-00L/VS-00M 和 B87 §14。设计与离线覆盖均不等于已通过原生页面/实模验收；执行状态仍由 B87 管理。
+[场景/反例覆盖矩阵](model-interaction-coverage.md) 第 1–4 节与 [VS-00M 设计材料](../contracts/model-interaction/README.md) 的候选归档对应；第 5 节为现役 R03 的真实讨论、交错待答、取消与恢复验收设计，引用 VS-00L/VS-00M 和 B87 §14。设计与离线覆盖均不等于已通过原生页面/实模验收；现役 R03 的执行状态仍只见 [B87](../../../tasks/slices/B87-model-interaction-request-projection.md)。当前任务范围为 B87 R00–R08、R17–R19；原 R09–R16 的新增授权治理与可控自动工作验收归 [B89 A01–A08](../../../tasks/slices/B89-author-controlled-execution.md)，作者明确重新排期后才恢复，不阻塞 B87。
 
 > 最后更新：2026-06-22
 >

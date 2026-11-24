@@ -1,4 +1,4 @@
-# VS-00M · 模型交互端到端架构与治理契约（Issue #4 / B87）
+# VS-00M · 模型交互端到端架构与治理契约（B87 / B89 共享设计）
 
 > **完整 JSON 候选审查材料**：[阅读入口](model-interaction/README.md) · [字段规范](model-interaction/01-protocol-spec.md) · [候选 Schema](../schemas/model-interaction/README.md) · [覆盖矩阵](../acceptance/model-interaction-coverage.md)。源包基线为 `f13ff640`；本文件 `04492ea3` 新增的输出通道、tool result envelope、SSE 约束见 [归档差异](model-interaction/integration-notes.md)，仍由 B87 R00/R07/R08 对账。附件入库不改变本文件状态，也不覆盖下文 §6.1。
 
@@ -6,7 +6,7 @@
 >
 > **设计真源**：本文件只负责“模型请求材料—Provider 往返—系统校验—授权/采纳—审计”的增量契约；[VS-00L](VS-00L-authoring-run-transcript-request-ir-contract-pack.md)（Frozen）、[VS-00I](VS-00I-prompt-prefix-stability-contract-pack.md)、[ADR-0033](../adr/ADR-0033-authoring-run-transcript-request-ir-v3.md)、[ADR-0035](../adr/ADR-0035-session-scoped-canonical-authoring-context-v3.md)、[产品愿景与元原则](../00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板) 高于未经批准的本文件字段草案。与 Frozen 不同处在 §8 单独列出，**先裁决后改**，不偷偷实现。
 >
-> **任务唯一状态源**：[B87](../../../tasks/slices/B87-model-interaction-request-projection.md)；[B86](../../../tasks/slices/B86-structured-model-materials-internal-ref-isolation.md) 的 C9 未完成后果并入 B87 R06，原失败证据不销账。**不建立第二套 ModelInteraction 持久事实源、Agent loop、Provider adapter 或能力注册表。**
+> **实施归属（2026-11-24 前向拆分）**：[B87](../../../tasks/slices/B87-model-interaction-request-projection.md) 保留 R00–R08、R17–R19，负责模型交互基础、相应清理、创作回归与终验；[B89](../../../tasks/slices/B89-author-controlled-execution.md) A01–A08 完整承接原 R09–R16 的能力/风险治理、授权模式、确认、委托、自动采纳与 Smart。两项任务各自维护唯一执行状态与独立完成证据，本文件仍为一处共享设计真源；拆分不启动 B89，也不把待裁决语义改为 Accepted/Frozen。[B86](../../../tasks/slices/B86-structured-model-materials-internal-ref-isolation.md) 的 C9 未完成后果仍在 B87 R06，原失败证据不销账。**不建立第二套 ModelInteraction 持久事实源、Agent loop、Provider adapter 或能力注册表。**
 
 ## 1. 产品目标、反目标与优先级
 
@@ -22,6 +22,8 @@ AI Novel Studio 是 **Dialogue-first / Agent-native 的小说创作伙伴**，�
 反目标：预先用 APP 判完作者意图、按自然语言关键词配发专用 Packet、用模糊摘要代替必要正文、用结构化 JSON 外观冒充上下文优化、用模型文本冒充执行成功、为将来可能性搭框架。
 
 ## 2. 系统唯一主链与职责所有权
+
+下述主链表达现役基础及拟建设治理层的职责关系，不宣称所有能力已经实现。模式、长期委托与自动采纳的增量建设归 B89；B87 继续遵守现有身份/作品隔离、对象/版本、预算、确认、作者采纳和真实来源边界，不因批次转出豁免现役缺陷。
 
 ```text
 真实作者输入（author turn，原文字节）
@@ -384,7 +386,7 @@ data 保留原 typed 结果，排除外层已有 call_id 和以下快照字段�
 
 ### 6.4 R08 意图解释、真实作者来源与普通候选修订（实施前裁决）
 
-本节按愿景 §2.3–2.4、VS-00D §11 与 B87 §19 的存在性审查，前向收束现有 Judgment、原文登记及普通候选修订职责。它替代 B33 当前说明中将中文 discussion_only、过去指代与固定 explore-before-ask 当作客观机械事实的部分；B27/B33/B34 历史输入、原始结果和失败证据不改写。本节不改变 R07 的未验收状态，不扩展 R09 能力或 R17 system 生命周期。
+本节按愿景 §2.3–2.4、VS-00D §11 与 B87 §19 的存在性审查，前向收束现有 Judgment、原文登记及普通候选修订职责。它替代 B33 当前说明中将中文 discussion_only、过去指代与固定 explore-before-ask 当作客观机械事实的部分；B27/B33/B34 历史输入、原始结果和失败证据不改写。本节不改变 R07 的未验收状态，不扩展 B89 A01（原 R09）的能力治理或 B87 R17 system 生命周期。
 
 **一次语义判断与规则归属。** 作者的否定、条件、引用、讨论、明确动作和来源选择由现 Judgment 根据真实原话、会话状态与实际材料判断。AuthoringTaskPolicy 承担判断/计划业务语义，AuthoringSemantics 承担现专业调用共同约束，AuthorContentRegistration 承担登记来源与保真规则；JudgmentProtocol 的输出说明仅承担原生工具、正文通道、字段和组合合同。重复业务指令从错误责任位置退役，不在渲染末端去重。删除 discussion_only? 中文正/反词表、依赖该标志的校验/纠错，以及从指代词推导“必须先探索”的机械拒绝；APP 不增加第二意图分类器、文本过滤器或新模型审查回合。结构事实充分不等于文学完成，结构异议不自动成为修改请求，明确效果只能对应实际能力或诚实缺口；资料接收与有内容的讨论保持不同作者效果。
 
@@ -455,6 +457,8 @@ B71 checkpoint 的全会话 pending 权威沿现只读 GET /api/works/:work_id/s
 
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 
+**当前归属**：本节保留单一设计定义。§7.1 的身份、作品隔离、权威执行与独立采纳等既有约束继续适用于 B87；动态可建议集/执行同源、风险治理及 §7.2–7.4 的新增模式、委托和自动采纳建设由 [B89](../../../tasks/slices/B89-author-controlled-execution.md) A01–A08 承接。B87 的完成不等待这些转出功能，但其现役约束、已证缺陷和保留失败不能通过转交销账。本节标题中的“旧 R10”保留 2026-11-13 的历史重排语境，当前批次映射以 B89 为准。
+
 ### 7.1 五个独立判断
 
 ```text
@@ -469,11 +473,15 @@ B71 checkpoint 的全会话 pending 权威沿现只读 GET /api/works/:work_id/s
 
 ### 7.2 风险的唯一派生
 
+本节能力/可建议效果/执行权限的收束归 B89 A01，动态风险与审批审计同源归 B89 A02；各项实施前仍须核现存 owner、真实消费者和受影响的冻结契约。
+
 - 来源基线：既有 `CapabilityRegistryEntry.risk_class`，不是另造新 `RiskClass` 表；动态调整由已有应用权威 gate 的纯规则对 `capability/effect/target/context` 决定。改写已采纳正文、结构重排和核心设定等实际影响需区分；风险的差异必须可重算、可测试、可审计。
 - `MicroPlan.risk_hint` 是模型提示，不是权威风险；`ApprovalAudit` 的风险审计应记录最终系统计算结果，不再维护不同来源的“全部 HIGH”等平行推导。
 - 已有 `capabilities` 分为 **系统注册能力**、**run 可建议效果**、**执行权限**、**采纳授权**。仅把当前可建议/必要只读探索最小信息送模型；完整 registry 可经真实现有探索通道查询，`capability_lookup` 如无真实消费不要先行新增。
 
 ### 7.3 模式语义与决策表（拟冻结）
+
+以下拟冻结产品语义由 B89 A03–A08 承接，模式持久化与设置入口、critical 确认扩展、委托、自动采纳和 Smart 各有独立批次。本次只调整实施归属，不批准该表，也不改变尚未裁决时的现役采纳边界。
 
 | 模式 | 只读（low） | 创建 TENTATIVE / 中风险 | 高风险已采纳对象变更 | critical（合法且可确认） |
 |---|---|---|---|---|
@@ -486,15 +494,15 @@ B71 checkpoint 的全会话 pending 权威沿现只读 GET /api/works/:work_id/s
 - 任何模式下作品边界错误、操作不存在、候选已过期/作品版本变化、预算耗尽先拒绝/缺口，再谈风险。
 - `critical` 的确认绑定到确切对象/effect/版本/后果（`ConfirmationBinding`），作者明确同意后在执行时**再次 gate/rebase**；一项确认不得升级成今后自动通行。原文“同意=执行+采纳”的体验目标只有在**原子、安全且对象类型允许**时成立；创作过程要先生成候选的，不可以把尚未存在的候选预采纳。
 - `full` 自动采纳必须有作者显式 **delegation scope**（作品、操作/effect、目标范围、可选版本、过期/撤销、签发来源、最大影响界限），实际消费时再次验证、记录系统来源 `auto_adopted`，走**现有 AdoptionWorkflow/Repository 原子写入**，可回滚/可追踪；不可通过只改前端开关或模型工具调用实现。遇失败不“补写成功”；重复提交严格幂等。
-- `smart` 不得引入第二 Agent 或规则引擎；只有能用现有 run/风险/委托事实定义可重算策略时才发布，未知/歧义保守退回确认，**不是临时跳过该批就把整体任务标 done**。
+- `smart` 不得引入第二 Agent 或规则引擎；只有能用现有 run/风险/委托事实定义可重算策略时才发布，未知/歧义保守退回确认，**B89 不得跳过 A08 就把自身整体任务标 done；B87 按保留范围独立签收，不等待 Smart 建设**。
 
-**R00 冻结冲突补记**：上述 `full` 目标尚不能覆盖 [ADR-0020](../adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md) 的修订/自动采纳边界，以及 [32 §5.1/§11.1/§13.1](../quality/32-human-approval-policy.md) 的现行 HIGH/CRITICAL 人工采纳、批准主体与 maintenance auto-adoption 约束。R14/R15 必须先明确哪些对象/effect 可被作者事先委托，并逐条修订受影响 Frozen 条款；未裁决前仍执行原边界。`auto_adopted` 若用于未来审计，只能表示实际系统来源/命中策略，**不是新增 adoption_status**；采纳仍使用既有七态，不能写成作者本人点击批准。
+**R00 冻结冲突补记**：上述 `full` 目标尚不能覆盖 [ADR-0020](../adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md) 的修订/自动采纳边界，以及 [32 §5.1/§11.1/§13.1](../quality/32-human-approval-policy.md) 的现行 HIGH/CRITICAL 人工采纳、批准主体与 maintenance auto-adoption 约束。B89 A06/A07（原 R14/R15）必须先明确哪些对象/effect 可被作者事先委托，并逐条修订受影响 Frozen 条款；未裁决前仍执行原边界。`auto_adopted` 若用于未来审计，只能表示实际系统来源/命中策略，**不是新增 adoption_status**；采纳仍使用既有七态，不能写成作者本人点击批准。
 
 ### 7.4 持久化/授权实体红线
 
 `AgentRun.authority_scope`、`AgentRunPolicy.allowed_tool_refs`、`ConfirmationBinding`、`AuthorActionReceiptRepo`、`ApprovalAudit`、作品/会话配置是已经存在的起点，**不等于它们已经支持长期委托的授权生命周期**。
 
-R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承载模式与委托。只有可机械证明无法在现存语义中正确表达授权范围、撤销/并发和审计时，允许**最小必要新实体**，并附替代方案比较、唯一生命周期、消费链和退役清单。禁止先创建“通用 Authorization 服务表集”。
+R00 的历史存在性审计继续保留；B89 A03/A05/A06 按“现存表/列/状态/消费者/事务”复核模式、确认与委托的现役承载能力。只有可机械证明无法在现存语义中正确表达授权范围、撤销/并发和审计时，允许**最小必要新实体**，并附替代方案比较、唯一生命周期、消费链和退役清单。禁止先创建“通用 Authorization 服务表集”。
 
 ## 8. 与冻结设计的差异及先决裁决
 
@@ -503,30 +511,36 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 | 纯对话/旧 Scope 去冗余 | VS-00L/ADR-0035 只认可特定显式 checkpoint/closed tool exchanges；canonical 不删改 | R00/03 明确检查 `covers` 的正确性；如需新覆盖语义先补 Frozen 契约/ADR，连同三 wire/恢复/回查测试一起决定 |
 | 请求材料从文本到结构化 | RequestIR 已有 message+block，但很多 `scope_update` 仍是长文本 | R02 给出现有 IR 消费者/真实 Provider 展开方式；必要时直接重构现役 schema，删旧拼串分支；不做双轨 |
 | 作者可见引用泄漏 | B86 真实模型 C9 失败与两次已撤回实现 | R06 以结构化来源+作者可见字节验证闭环；保留历史失败案例但不保留已撤回代码的兼容 |
-| 授权模式/委托/自动采纳 | Registry 风险基线/Orchestrator/Confirmation/Adoption 已存在，**完整委托能力尚未核实存在** | R09–R14 先冻结授权行为/生命周期，不得以纯文本声明或模型自报代替实际审计与事务；只改现存消费者所需对象 |
+| 授权模式/委托/自动采纳 | Registry 风险基线/Orchestrator/Confirmation/Adoption 已存在，**完整委托能力尚未核实存在** | 由 B89 A01–A08 承接；A03/A06/A07 等相应批次实施前先裁决授权行为、持久生命周期与采纳主体，不得以纯文本声明或模型自报代替实际审计与事务；只改现存消费者所需对象，不作为 B87 的新功能前置 |
 | 快速迭代 clean | 未发布；ADR-0035/VS-00L 已批准不做历史兼容 | 现行代码/Schema 允许无兼容迁移，旧入口在全部实际消费者转移后删除；仍保留用户已创作数据和历史证据的安全边界 |
 
 **作者授权范围**：2026-11-13 已明确授权**修改设计与任务文档并进行整体性重审**；不代表本文件可以无证据宣称实模行为、数据库事务、作者自动采纳已实现，也不自动替代对 Frozen 契约有实质语义改变时必须留下的裁决和证据。
 
+2026-11-24 作者决定将原 R09–R16 从 B87 独立拆出，B87 保留 R00–R08、R17–R19。该决定仅改变任务归属、依赖和各自验收范围，不批准新的权限产品语义，不启动已暂停的授权治理实现，也不修改任何历史证据结论。
+
 ## 9. 验收口径：从证据到真实创作
+
+**分属任务独立验收**：B87 R17–R19 验收 R00–R08 及受影响的现役创作、确认、作者采纳、恢复和三 wire 行为；不要求新增四种模式、长期委托、自动采纳或 Smart。[B89](../../../tasks/slices/B89-author-controlled-execution.md) 必须在 A01–A08 全部功能变更完成后，独立承担本任务的旧规则/重复授权实现清理、真实 Tauri/模型/三 wire、模式/确认/委托/自动采纳事务矩阵，以及对现役创作、采纳和恢复链的回归。B89 不借 B87 R19 的较早结果签收其后续改动，B87 也不等待 B89 的独立终验。以下证据口径按各自任务范围及真实受影响消费者使用。
 
 **机制证据**：结构化输入的 provenance/身份/版本/覆盖/省略；静态 schema/运行时权限不同源的负例；不合法工具/文本引用 fail-closed；重复或交错 checkpoint；跨作品与 stale；真实事务 rollback、撤销、重复提交。
 
-**原生/真实页面证据**：同一作者真实 Tauri 工作台连续输入 3/10/20 轮，真实新消息与 checkpoint 投影；统计查询不读无关正文、纠错讨论不误执行、明确操作正确处理效果缺口；同一会话跨 run、恢复/取消、采纳/自动采纳/拒绝及作者可见状态。外部驱动不植入产品特殊验收分支。
+**原生/真实页面证据**：同一作者真实 Tauri 工作台连续输入 3/10/20 轮，真实新消息与 checkpoint 投影；统计查询不读无关正文、纠错讨论不误执行、明确操作正确处理效果缺口；同一会话跨 run、恢复/取消、现有作者采纳/拒绝及作者可见状态。新增模式、委托/撤销、自动采纳与 Smart 的真实页面矩阵由 B89 在其全部功能落地后的有效基线上独立补齐。外部驱动不植入产品特殊验收分支。
 
 **实模证据**：同源模型/provider/推理预算、样本冻结和请求 A/B；测量 input/output/cached_tokens、TTFT、latency、Tool Call 正确率、事实引用正确率、候选可追溯与作者负担。cached_tokens 是 input_tokens 子集，不能另加；以多个样本/重复试验区分模型性能波动。写作质量必须有正常小说章节材料的连续性、情绪铺垫、目标外正文保真/文学盲评，不能用短 Token 指标代签。
 
-**强制回归**：`mix check`、`mix test`、xref、arch_check、I1/I2/I3、N-NARR、I-CACHE、B71/B81、当前质量清单/真实 Tauri、三 wire；任何 FAIL/BLOCKED 均不算最终 PASS。外部供应商无法测试时明确 known-gap，不声称完成全部支持。
+**强制回归**：`mix check`、`mix test`、xref、arch_check、I1/I2/I3、N-NARR、I-CACHE、B71/B81、当前质量清单/真实 Tauri、三 wire；各自任务必选范围内的任何 FAIL/BLOCKED 均不算该任务最终 PASS。外部供应商无法测试时明确 known-gap，不声称完成全部支持。
 
 ## 10. 实施、替换与退役策略
 
-- 按 [B87](../../../tasks/slices/B87-model-interaction-request-projection.md) 单会话独立批次实施；先重新读取当前分支 HEAD/WIP 与事实/实体审计，再改。
+- 按 [B87](../../../tasks/slices/B87-model-interaction-request-projection.md) 保留批次或 [B89](../../../tasks/slices/B89-author-controlled-execution.md) 独立批次的实际归属实施；各批使用独立会话和自身 scope，先重新读取当前分支 HEAD/WIP 与事实/实体审计，再改。B89 的范围迁移不解除暂停或待裁决条件。
 - **不兼容历史产品协议**：无 legacy adapter、双写、旧工具 schema fallback、临时开关和“未来过渡”分支；现存消费者同批迁移且删旧入口/旧专属测试。代码变更与完整行为验收同批完成。
 - **不是破坏式清空作者资料**：即使未发布，真实作品/会话/已采纳内容/审计证据的丢弃仍需明确告知与备份/数据重置授权；禁止用“无兼容”掩盖误删用户创作事实。
 - 结束时盘点新的/退役的 module、struct、表/列、schema、工具、配置、路由/事件、测试 fixture；新增的均须回答“为何现存不能用”，退役的均不得留零消费者/僵尸适配。
-- 唯一任务状态在 B87；本设计文档不复制 Rxx 状态，`tasks/NEXT.md` 只记录排期，验收/历史批次可在现有 artifacts/ledger 登记。
+- B87 的执行状态只在 B87 总计划，B89 的执行状态只在 B89 总计划；本设计文档不复制 Rxx/Axx 状态，`tasks/NEXT.md` 只记录排期，验收/历史批次可在现有 artifacts/ledger 登记。各自最终完成条件包含本任务全部变更后的清理与集成验收，不能把后续功能证据债务留给另一任务。
 
 ## 11. 本次设计重审摘要（2026-11-13）
+
+本节保留 2026-11-13 的历史设计重排原文。2026-11-24 前向拆分后的实施归属见文首与 §7–§10：原 R09–R16 归 B89 A01–A08，B87 保留 R00–R08、R17–R19；下文历史“整体功能变更之后”的验收要求由两项任务各自履行。
 
 保留：四层逻辑闭环、作者主权、真实来源、源头结构化、场景化验收，以及已记录的 manual/risk_based/full/smart 和 critical/full 用户体验目标。
 
@@ -538,6 +552,8 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 
 ### 12.1 冻结差异处置表
 
+2026-11-24 仅前向更新下表的后续承接任务；R00 原执行事实、候选包基线及各条 Frozen/Proposed/待裁决性质保持。
+
 | 差异 | 当前可核实依据 | 唯一处置与实施前条件 | 首个消费者 |
 |---|---|---|---|
 | 第二 Request/Exchange/ModelInteraction 主模型 | VS-00L §4/§16.1、ADR-0035 决策 1/2；候选规范 §2 明确 Exchange 只是离线容器 | **禁止**新建平行聚合/存储/控制环；候选四层视图只能映射现役事实。R02 在现役 IR 细化，不能照搬候选 Request 顶层替换主链 | Judgment/专业创作 |
@@ -548,10 +564,10 @@ R00/R11/R13 必须按“现存表/列/状态/消费者/事务”评估能否承�
 | 统一七字段工具结果 envelope | VS-00L §16.5/§16.7 区分 observation、validation_result 和真正执行；候选 ToolResult 不等于现役领域 ToolResult | **R07 前向裁决见 §6.3**：现 canonical 增当时 retryable/budget_after 快照，三 wire 只派生七字段；现 call 关联、原 typed data 和结果种类保留，无观察不造 observation_ref，无历史预算不补值；无平行响应实体 | Judgment correction/三 wire/Replay |
 | target / source / observation 引用混用 | 候选规范 §4.3 区分 scope.refs、material_refs、observation_ref、provider_call_ref；§6 约束 used_refs | **R07 按 §6.3 保持分界**；`observed_refs` 由现 Base/Observation 按操作派生，现 chapter_ref 在接收/候选/采纳链保真并核当前 work，不能拿目标 ID 或“可读取”冒充已读，也不能把 observation 身份与领域目标 ID 作字符串集合比较；真实 Base 与真实观察分别校验 | Ref 校验/修订目标范围 |
 | `decision` 派生结构 | 已有 Judgment/AgentPlan/ToolResult/DecisionTrace；候选 Outcome 是观察视图 | **复用现有结果和 trace**；是否需要新字段以真实 caller 为准，禁止新建决策器/持久 Decision 真源；Provider HTTP 不新增自定义顶层业务字段 | JudgmentProtocol → Orchestrator |
-| 四种权限模式/委托/full 自动采纳 | ADR-0033/0035 保留 tentative-first、无模型 adopt/canon_write；VS-00M §7 是拟冻结目标 | **待产品语义及持久生命周期裁决**；模式选择不是任意对象采纳授权。R09–R16 在现存 gate/receipt/事务上补齐，R11/R14 必须证明签发、继承、撤销、到期、并发和范围；未批准前保持现役采纳边界，不能把 map 字段当已实现委托 | 作者设置 → Gate → Adoption |
-| 自动采纳对象与批准主体 | ADR-0020 明确禁止自动采纳/递归修订；32 §5.1/§11.1 固定当前作者批准主体，§13.1 仅允许 LOW maintenance 进入自动采纳候选，HIGH/CRITICAL 仍人工，且不增第八种 adoption 状态 | **待冻结裁决**；R14/R15 必须对正文/修订/维护分别审查委托是否形成合法例外，保留 sibling、只读 evaluator、一次动作边界及真实审计主体。不能以“已有 auto_adoption_hint”推定 full 已合法，也不能直接删原保护测试 | ProseRevision/maintenance/ApprovalAudit/Adoption |
+| 四种权限模式/委托/full 自动采纳 | ADR-0033/0035 保留 tentative-first、无模型 adopt/canon_write；VS-00M §7.3 是拟冻结目标 | **待产品语义及持久生命周期裁决**；模式选择不是任意对象采纳授权。B89 A01–A08 在现存 gate/receipt/事务上补齐，A03/A06 必须证明签发、继承、撤销、到期、并发和范围；未批准前保持现役采纳边界，不能把 map 字段当已实现委托；不作为 B87 保留批次的建设前置 | 作者设置 → Gate → Adoption |
+| 自动采纳对象与批准主体 | ADR-0020 明确禁止自动采纳/递归修订；32 §5.1/§11.1 固定当前作者批准主体，§13.1 仅允许 LOW maintenance 进入自动采纳候选，HIGH/CRITICAL 仍人工，且不增第八种 adoption 状态 | **待冻结裁决**；B89 A06/A07 必须对正文/修订/维护分别审查委托是否形成合法例外，保留 sibling、只读 evaluator、一次动作边界及真实审计主体。不能以“已有 auto_adoption_hint”推定 full 已合法，也不能直接删原保护测试 | ProseRevision/maintenance/ApprovalAudit/Adoption |
 | 三 wire 流式格式 | 现役 `SSEStream.ChatDecoder`、`ResponsesDecoder`、`AnthropicDecoder` 已分开；见下节官方协议 | **技术纠正** §6.1：共享终态语义，不共享 Chat 字段布局；不改 Frozen 原生保真原则。R07 校验真实 SSE 和重组结果边界 | 三 adapter/流式证据采集 |
-| 旧接口与旧证据 | ADR-0035 决策 9/迁移章节、B87 §2.1 | **保持**无历史兼容：当前消费者迁完即删旧入口/专属测试；原始失败证据与真实作品数据不随接口退役销毁 | R17 clean audit |
+| 旧接口与旧证据 | ADR-0035 决策 9/迁移章节、B87 §2.1 | **保持**无历史兼容：各任务的当前消费者迁完即删对应旧入口/专属测试；原始失败证据与真实作品数据不随接口退役销毁 | B87 R17；B89 自身清理与最终集成签收 |
 
 “待冻结”是有明确承接点的设计差异，不等于整项审计无法完成，也不允许后续实现越过该条件。R00 不把 Proposed 自动改成 Frozen，不为未确定的字段先创建迁移或 stub。
 
