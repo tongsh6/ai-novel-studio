@@ -315,7 +315,9 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
   """
   @spec bind_tool_request(ToolRequest.t(), map(), map(), map() | nil) :: ToolRequest.t()
   def bind_tool_request(%ToolRequest{} = request, run, snapshot, author_input \\ nil) do
-    case record_author_input(request_ir(snapshot), author_input, Map.get(run, :author_turn)) do
+    ir = request_ir(snapshot) || initial_tool_request_ir(run, snapshot)
+
+    case record_author_input(ir, author_input, Map.get(run, :author_turn)) do
       {:ok, ir} ->
         input =
           request.input
@@ -336,6 +338,27 @@ defmodule NovelApplication.AgentRunFlows.AuthoringSession do
         invalid_request_ir!()
     end
   end
+
+  # 首次工具入口尚无本 run transcript 时，先把真实父历史组装成请求视图；
+  # authorless 骨架不从 goal 合成作者消息，提交仍沿现边界剥离外 run 历史。
+  defp initial_tool_request_ir(run, %{initial_session_history: history})
+       when not is_nil(history) do
+    transcript =
+      AuthoringTranscript.new(run,
+        base_text: RequestIR.application_base_text(),
+        allow_authorless: true,
+        system: RequestIR.system_envelope(run_role: "creation_run")
+      )
+
+    {:ok, ir} =
+      transcript
+      |> AuthoringSessionHistory.compose(history)
+      |> AuthoringTranscript.to_request_ir()
+
+    ir
+  end
+
+  defp initial_tool_request_ir(_run, _snapshot), do: nil
 
   @doc """
   失败也保留会话与已发生的执行计数；Provider 消耗由真实调用事件累计。
