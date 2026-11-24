@@ -18,6 +18,35 @@ export const NATIVE_DRIVER = "ax-native-system-ui";
 export const APP_BUNDLE = "com.ai-novel-studio.app";
 
 export const read = (dir, file) => JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+export function regularEvidencePath(value, kind) {
+  assert(typeof value === "string" && value.trim() !== "" && path.isAbsolute(value),
+    "evidence path must be explicit and absolute");
+  const stat = fs.lstatSync(value);
+  assert(!stat.isSymbolicLink() && (kind === "directory" ? stat.isDirectory() : stat.isFile()),
+    "evidence must remain at its original regular path");
+  assert.equal(fs.realpathSync(value), path.resolve(value), "evidence path changed identity");
+  return value;
+}
+
+// B33 与 WR02 共用原件 IO；来源登记/预算及纯判据仍归各实际消费者。
+export function readProviderObservation(directory) {
+  regularEvidencePath(directory, "directory");
+  const readyFile = regularEvidencePath(path.join(directory, "provider-stream-ready.json"), "file");
+  const eventsFile = regularEvidencePath(path.join(directory, "provider-stream.jsonl"), "file");
+  const text = fs.readFileSync(eventsFile, "utf8");
+  assert(text.endsWith("\n"), "observation event file is not sealed");
+  const rawDir = regularEvidencePath(path.join(directory, "provider-stream-requests"), "directory");
+  return {
+    directory, ready: JSON.parse(fs.readFileSync(readyFile, "utf8")),
+    events: text.trim().split("\n").map(line => JSON.parse(line)),
+    readBytes(name) {
+      assert(/^request-[1-9][0-9]*(?:\.(?:received|delivered))?\.bin$/u.test(name),
+        "unsafe original byte filename");
+      return fs.readFileSync(regularEvidencePath(path.join(rawDir, name), "file"));
+    },
+  };
+}
+
 export const write = (dir, file, value) => {
   assert(!fs.existsSync(path.join(dir, file)), `证据不得覆盖: ${file}`);
   fs.writeFileSync(path.join(dir, file), JSON.stringify(value, null, 2));

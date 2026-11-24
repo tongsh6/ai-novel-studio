@@ -968,14 +968,29 @@ export function compareAuthoringCanonSnapshots(startValue, finalValue) {
 // start→before-revision：其它表/其它章完全不变；只有目标章可新增/刷新暂定使命，
 // 且 protected 字段、作者版、updated_at 因果都必须成立。v1 快照没有逐章见证，
 // 不能补齐也不能放行设计态变化。
-export function compareSourceDesignSnapshots(startValue, beforeValue, { targetChapterId, targetWorkId } = {}) {
+// 只消费维护 owner 已核定、精确绑定这对原始快照的证据值。
+// 它不是产品授权，也不能扩大其它表或其它设计态的既有保护边界。
+function maintenanceEvidenceMatches(evidence, start, final, workId) {
+  const required = ["provider_observation_bound", "source_versions_bound",
+    "summary_results_bound", "ledger_changes_bound", "protected_rows_unchanged"];
+  return isRecord(evidence) && isRecord(evidence.checks) &&
+    required.every(key => evidence.checks[key] === true) &&
+    Object.values(evidence.checks).every(value => value === true) &&
+    evidence.target_work_id === workId && evidence.start_at === start.at && evidence.final_at === final.at &&
+    isDeepStrictEqual(evidence.ledger_entries?.before, start.tables.ledger_entries) &&
+    isDeepStrictEqual(evidence.ledger_entries?.after, final.tables.ledger_entries);
+}
+
+export function compareSourceDesignSnapshots(startValue, beforeValue,
+  { targetChapterId, targetWorkId, maintenanceEvidence = null } = {}) {
   const { start, final } = requireDesignSnapshots(startValue, beforeValue, "before-revision");
   const { startAt, finalAt } = stageRange(start, final);
   const planning = targetWorkId !== undefined;
   if (planning && targetChapterId !== undefined) invalid("target", "one mission target");
   const table = planning ? "works" : "chapters";
   const targetId = planning ? targetWorkId : targetChapterId;
-  const otherTablesSame = sameTablesExcept(start, final, [table]);
+  const maintenance = planning && maintenanceEvidenceMatches(maintenanceEvidence, start, final, targetWorkId);
+  const otherTablesSame = sameTablesExcept(start, final, [table, ...(maintenance ? ["ledger_entries"] : [])]);
   const rowCountSame = start.tables[table].row_count === final.tables[table].row_count;
   const receiptsSame = tablesWithSameRows(start, final, "author_action_receipts");
   const design = sourceDesignAccounted(start, final, targetId, startAt, finalAt, table);
@@ -984,6 +999,7 @@ export function compareSourceDesignSnapshots(startValue, beforeValue, { targetCh
     checks: {
       [planning ? "canon_unchanged_except_planning_mission" : "canon_unchanged_except_chapter_mission"]: otherTablesSame && rowCountSame,
       [planning ? "planning_mission_change_is_legal" : "chapter_mission_change_is_legal"]: design.valid,
+      ...(maintenanceEvidence === null ? {} : { maintenance_changes_accounted: maintenance }),
       author_action_receipts_unchanged: receiptsSame,
       memory_reference_updates_accounted: accounting.accounted,
     },
@@ -993,6 +1009,7 @@ export function compareSourceDesignSnapshots(startValue, beforeValue, { targetCh
       final_at: final.at,
       [planning ? "target_work_id" : "target_chapter_id"]: targetId ?? null,
       [planning ? "work_design_changes" : "chapter_design_changes"]: design.changes,
+      ...(maintenanceEvidence === null ? {} : { maintenance_evidence: maintenanceEvidence }),
       ...memoryMeasured(start, final, accounting),
     },
   };

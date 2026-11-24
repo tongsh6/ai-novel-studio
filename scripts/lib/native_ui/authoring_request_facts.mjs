@@ -865,9 +865,26 @@ export function plannedExplorationLeaves(payload) {
 }
 
 
+function observationContentSupplied(content) {
+  if (nonBlank(content)) return true;
+  if (!isRecord(content)) return false;
+  return nonBlank(content.summary) ||
+    (isRecord(content.facts) && Object.keys(content.facts).length > 0) ||
+    (Array.isArray(content.facts) && content.facts.length > 0);
+}
+
+// 原 L7 内容/状态判据的唯一 owner；planned Scope 无原生父结果，tool 仍须有效父/叶。
+// 仅说明本次有可见材料，不授予完整覆盖、版本或其它调用的资格。
+export function usableObservationFact(unit) {
+  const usableStatus = status => ["ok", "partial", "truncated"].includes(String(status ?? ""));
+  return (unit?.provenance === "application" ||
+    (unit?.provenance === "tool" && usableStatus(unit.parentStatus))) &&
+    usableStatus(unit.payload?.status) && observationContentSupplied(unit.payload?.content);
+}
+
 // 只归一当前实际请求内的读取叶；不扫描会话历史或累计 refs，不补调用身份。
 // 原生结果仍要求同请求在先唯一调用/唯一结果；计划执行的应用 Scope 保留独立来源。
-function observationFacts(messages) {
+export function observationFacts(messages) {
   const totals = new Map();
   for (const message of messages) {
     for (const result of message.toolResults) {

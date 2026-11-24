@@ -2,6 +2,9 @@
 // 模型未触发的切片进 not_signed，不伪造覆盖。
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
+import * as liveEvidence from "./authoring_live_evidence.mjs";
+import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { b71LiveModelBehavior } from "./authoring_live_evidence.mjs";
 import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 
@@ -628,6 +631,372 @@ test("R08 DB停等但尚无公开业务回包时，最后工具不能取得L6豁
   assert.equal(checks.checks.mechanism.observation_reaches_next_request, false);
   assert(checks.failed_mechanism.includes("tool_call_result_binding"));
 });
+
+const repairSha = bytes => createHash("sha256").update(bytes).digest("hex");
+const repairTime = second => `2026-11-24T12:00:${second}Z`;
+
+function repairSse(text) {
+  return Buffer.from([
+    "data: " + JSON.stringify({ id: "fixture-response",
+      choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] }),
+    "data: " + JSON.stringify({ id: "fixture-response",
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }),
+    "data: [DONE]", "",
+  ].join("\n\n"));
+}
+
+// 仅将独立手写输入行编码为现快照；不调用维护判据反推 expected。
+function refreshRepairCanon(proof) {
+  for (const snapshot of Object.values(proof.snapshots)) {
+    const tables = Object.fromEntries(CANON_TABLES.map(name => [name, []]));
+    tables.works = structuredClone(snapshot.works);
+    tables.chapters = snapshot.chapters.map(({ chapter_id, ...row }) => ({ id: chapter_id, ...row }));
+    for (const name of ["drafts", "scenes", "ledger_entries"]) {
+      tables[name] = structuredClone(snapshot.scope_rows[name]);
+    }
+    tables.author_action_receipts = structuredClone(snapshot.action_receipts);
+    snapshot.authoring_canon = buildAuthoringCanonSnapshot({
+      tables, referenceLogs: [], at: snapshot.at, includeChapterFacts: false, includeWorkFacts: true,
+    });
+  }
+}
+
+// 修改请求后重新封 hash 是刻意的反例：合法 byte seal 本身不能证明源材料正确。
+function rebuildRepairTransport(proof) {
+  const bytes = new Map(), events = [];
+  proof.transportBytes = bytes;
+  proof.providerStream = {
+    directory: proof.config.preregistration.proxy_dir,
+    ready: { mode: "observe", endpoint: proof.config.endpoint,
+      upstream_endpoint: "http://127.0.0.1:7999/v1", max_upstream_requests: null,
+      upstream_requests_admitted: 0, budget_requests_rejected: 0 },
+    events,
+    readBytes(name) {
+      assert(bytes.has(name), "Missing fixture original: " + name);
+      return bytes.get(name);
+    },
+  };
+  const capture = (id, method, request, response, start, end) => {
+    const admitted = events.filter(row => row.event === "upstream_request_forwarded").length;
+    const emit = (event, fields = {}) => events.push({
+      sequence: events.length + 1, event, request_id: id,
+      at: ["upstream_end", "transparent_complete"].includes(event) ? end : start,
+      max_upstream_requests: null, upstream_requests_admitted: admitted + 1,
+      budget_requests_rejected: 0, ...fields,
+    });
+    bytes.set(id + ".bin", request);
+    bytes.set(id + ".received.bin", response);
+    bytes.set(id + ".delivered.bin", Buffer.from(response));
+    emit("request_registered", { method,
+      path: method === "POST" ? "/v1/chat/completions" : "/v1/models",
+      request_sha256: repairSha(request), upstream_admitted: false,
+      forwarded: false, upstream_requests_admitted: admitted });
+    emit("upstream_request_forwarded", { upstream_admitted: true, forwarded: true });
+    emit("response_headers", { response_status: 200, response_encoding: "identity",
+      content_type: method === "POST" ? "text/event-stream" : "application/json" });
+    emit("upstream_end");
+    emit("transparent_complete", { response_complete: true, received_bytes: response.length,
+      delivered_bytes: response.length, received_sha256: repairSha(response),
+      delivered_sha256: repairSha(response) });
+  };
+  proof.llmRecords.forEach((record, index) => {
+    const [start, end] = proof.callWindows[record.provider_call_ref];
+    capture("request-" + (index + 1), "POST", Buffer.from(JSON.stringify(record.request.body)),
+      proof.rawResponses[record.provider_call_ref], start, end);
+  });
+  capture("request-" + (proof.llmRecords.length + 1), "GET", Buffer.alloc(0),
+    Buffer.from('{"data":[]}'), repairTime("08.000"), repairTime("08.010"));
+}
+
+function missionRepairFixture({ maintenance = true } = {}) {
+  const work = "11111111-1111-4111-8111-111111111111";
+  const other = "22222222-2222-4222-8222-222222222222";
+  const a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const endpoint = "http://127.0.0.1:8000/v1", model = "local/Q4-PLE4";
+  const summaryA = "【情节推进】陆青捡起铜钥。\n【人物状态与弧光】陆青留意桥下动静。\n【伏笔动作】（无）\n【情绪基调】警觉。";
+  const summaryB = "【情节推进】陆青交出铜钥。\n【人物状态与弧光】陆青取得守门人的信任。\n【伏笔动作】（无）\n【情绪基调】平静。";
+  const sourceA = "陆青在桥下捡起铜钥。\n他听见桥上传来脚步声。";
+  const sourceB = "陆青把铜钥交给守门人。";
+  const record = (suffix, chapter, text, at) => ({
+    provider: "splash", provider_call_ref: "pcall-" + suffix, provider_run_ref: "prun-" + suffix,
+    work_id: work, session_id: "session-repair",
+    step: chapter ? "chapter_summary" : "author_reasoning",
+    turn_id: chapter ? "unknown" : "turn-repair:agent:1", ts: at,
+    request: {
+      method: "POST", url: endpoint + "/chat/completions",
+      refs: { base_refs: chapter ? ["summary_repair:" + chapter, "chapter:" + chapter] : [],
+        observation_refs: [], used_refs: [] },
+      body: { model, stream: true, reasoning_effort: "high", max_tokens: 32000,
+        messages: [
+          { role: "system", content: chapter
+            ? "本轮任务：章节摘要。目标章 ref：chapter:" + chapter : "请依据已供应材料回应作者。" },
+          { role: "user", content: chapter
+            ? "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + text
+            : "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。" },
+        ],
+      },
+    },
+    response: { status: 200, body: { source: "sse_decoder", tool_calls: [] } },
+  });
+  const scope = { runId: "run-repair", turnId: "turn-repair", workspaceId: "workspace-repair",
+    workId: work, sessionId: "session-repair" };
+  const ledger = (id, fields) => ({ id, work_id: work, design_ref: null, adoption_status: "ACCEPTED",
+    revision: 1, inserted_at: repairTime("03.050"), updated_at: repairTime("03.100"), ...fields });
+  const old = ledger("old-other-work", {
+    work_id: other, ledger: "arc", subject_kind: "character", subject_ref: "other-character",
+    subject_label: "另一作品人物", status: "ON_TRACK", payload: { last_seen_seq: 1 },
+    source_refs: ["chapter_summary:other-chapter"], last_event_chapter: "other-chapter",
+    inserted_at: "2026-11-23T12:00:00.000Z", updated_at: "2026-11-23T12:00:00.000Z",
+  });
+  const start = {
+    at: repairTime("00.000"), action_receipts: [],
+    works: [work, other].map(id => ({ id, title: id === work ? "桥下铜钥" : "另一作品", genre: "悬疑",
+      planning_direction: "{}", revision: 1,
+      inserted_at: "2026-11-23T12:00:00.000Z", updated_at: repairTime("00.000") })),
+    chapters: [a, b].map((chapter_id, index) => ({
+      chapter_id, work_id: work, seq: index + 1, title: index ? "第02章：守门人" : "第01章：桥下",
+      status: "DRAFTING", updated_at: repairTime("00.000"),
+    })),
+    scope_rows: {
+      scenes: [
+        { id: "scene-a1", chapter_id: a, seq: 1 }, { id: "scene-a2", chapter_id: a, seq: 2 },
+        { id: "scene-b1", chapter_id: b, seq: 1 },
+      ],
+      drafts: [
+        { id: "draft-a1", work_id: work, scene_id: "scene-a1", status: "ACCEPTED", revision: 2,
+          content: "陆青在桥下捡起铜钥。" },
+        { id: "draft-a2", work_id: work, scene_id: "scene-a2", status: "ACCEPTED", revision: 5,
+          content: "他听见桥上传来脚步声。" },
+        { id: "draft-b1", work_id: work, scene_id: "scene-b1", status: "ACCEPTED", revision: 7,
+          content: sourceB },
+      ],
+      chapter_summaries: [], ledger_entries: [old],
+    },
+  };
+  const final = structuredClone(start);
+  final.at = repairTime("10.000");
+  if (maintenance) {
+    final.scope_rows.chapter_summaries = [
+      { id: "summary-a", chapter_id: a, summary_text: summaryA, at: "03.000" },
+      { id: "summary-b", chapter_id: b, summary_text: summaryB, at: "07.000" },
+    ].map(({ at, ...row }) => ({
+      ...row, work_id: work, source_ref: "summary_repair:" + row.chapter_id,
+      revision_base: null, status: "ACCEPTED", inserted_at: repairTime(at), updated_at: repairTime(at),
+    }));
+    final.scope_rows.ledger_entries.push(
+      ledger("arc-both", {
+        ledger: "arc", subject_kind: "character", subject_ref: "hero-luqing", subject_label: "陆青",
+        status: "ON_TRACK", payload: { last_seen_seq: 2 },
+        source_refs: ["chapter_summary:" + a, "chapter_summary:" + b], last_event_chapter: b,
+        revision: 2, updated_at: repairTime("07.100"),
+      }),
+      ...[a, b].map((chapter, index) => ledger("emotion-" + index, {
+        ledger: "emotion_curve", subject_kind: "chapter", subject_ref: chapter,
+        subject_label: index ? "第02章·情绪" : "第01章·情绪", status: "UNPLANNED",
+        payload: { intended: null, realized: index ? "平静。" : "警觉。", seq: index + 1 },
+        source_refs: ["chapter_summary:" + chapter], last_event_chapter: chapter,
+        inserted_at: repairTime(index ? "07.050" : "03.050"),
+        updated_at: repairTime(index ? "07.100" : "03.100"),
+      })),
+      ledger("genre", {
+        ledger: "promise", subject_kind: "promise", subject_ref: "genre", subject_label: "类型承诺：悬疑",
+        status: "OPEN", payload: { promise_kind: "genre", content: "悬疑" },
+        source_refs: ["work_profile:" + work], last_event_chapter: null,
+      }),
+    );
+  }
+  const proof = {
+    config: { provider: "splash", model, endpoint, target: { work_id: work, session_id: scope.sessionId },
+      preregistration: { path: "/frozen/wr02/preregistration.json", sha256: "a".repeat(64),
+        proxy_dir: "/frozen/wr02/proxy-01", max_upstream_requests: null } },
+    scenarioScopes: [scope],
+    providerRuns: [{ id: "prun-author", provider_call_ref: "pcall-author", provider_id: "splash",
+      model, agent_run_id: scope.runId, parent_turn_ref: scope.turnId, workspace_id: scope.workspaceId,
+      work_id: work, session_id: scope.sessionId, status: "completed", purpose: "author_reasoning" }],
+    llmRecords: [record("author", null, null, repairTime("01.000")), ...(maintenance ? [
+      record("summary-a", a, sourceA, repairTime("02.000")),
+      record("summary-b", b, sourceB, repairTime("06.000")),
+    ] : [])],
+    snapshots: { start, final },
+    appRecords: maintenance ? [a, b].flatMap((chapter, index) => [
+      { event: "chapter_summary_maintenance.run.done", outcome: "ok", work_id: work,
+        chapter_id: chapter, status: "ACCEPTED", four_column: true,
+        timestamp: repairTime(index ? "07.000" : "03.000") },
+      { event: "ledger.update.done", outcome: "ok", work_id: work, chapter_id: chapter,
+        timestamp: repairTime(index ? "07.200" : "03.200") },
+    ]) : [],
+    rawResponses: { "pcall-author": repairSse("三个后续章节已保留为待采纳草稿。"),
+      "pcall-summary-a": repairSse(summaryA), "pcall-summary-b": repairSse(summaryB) },
+    callWindows: { "pcall-author": [repairTime("01.000"), repairTime("01.500")],
+      "pcall-summary-a": [repairTime("02.000"), repairTime("02.800")],
+      "pcall-summary-b": [repairTime("06.000"), repairTime("06.800")] },
+  };
+  refreshRepairCanon(proof);
+  rebuildRepairTransport(proof);
+  return proof;
+}
+
+const repairPassed = report => Object.keys(report.checks).length > 0 &&
+  Object.values(report.checks).every(value => value === true);
+
+test("WR02 两章 repair 绑定源版本，允许同一 arc 跨两个真实维护窗口更新", () => {
+  const proof = missionRepairFixture();
+  const result = liveEvidence.missionRepairEvidence(proof);
+  assert.equal(repairPassed(result), true, JSON.stringify(result));
+  assert.equal(result.auxiliary.length, 2);
+  assert.deepEqual(result.authorRecords, [proof.llmRecords[0]]);
+  assert.deepEqual(result.auxiliary.map(fact => fact.source_rows.map(row => [row.id, row.revision])),
+    [[["draft-a1", 2], ["draft-a2", 5]], [["draft-b1", 7]]]);
+  assert(result.auxiliary.every(fact => fact.revision_base === null));
+  assert.equal(result.transport.model_POST, 3);
+  assert.equal(result.transport.GET, 1);
+  assert.equal(result.transport.admitted, 4);
+  assert.equal(result.transport.max_upstream_requests, null);
+  assert(proof.snapshots.final.scope_rows.chapter_summaries.every(row => row.revision_base === null));
+  assert(proof.snapshots.final.scope_rows.ledger_entries
+    .flatMap(row => row.source_refs).every(ref => !ref.includes("@")));
+  assert(result.maintenanceEvidence);
+});
+
+test("WR02 零维护保留真实作者调用和 HTTP 分母，并保持原严格零写边界", () => {
+  const proof = missionRepairFixture({ maintenance: false });
+  const result = liveEvidence.missionRepairEvidence(proof);
+  assert.equal(repairPassed(result), true, JSON.stringify(result));
+  assert.deepEqual(result.auxiliary, []);
+  assert.deepEqual(result.authorRecords, [proof.llmRecords[0]]);
+  assert.equal(result.transport.model_POST, 1);
+  assert.equal(result.transport.GET, 1);
+  assert.equal(result.maintenanceEvidence, null);
+  assert.deepEqual(proof.snapshots.final.scope_rows, proof.snapshots.start.scope_rows);
+  proof.snapshots.final.scope_rows.ledger_entries[0].payload.last_seen_seq = 99;
+  refreshRepairCanon(proof);
+  assert.equal(repairPassed(liveEvidence.missionRepairEvidence(proof)), false);
+});
+
+for (const [name, change] of [
+  ["原始请求与 seal 一起改写，但已采纳正文没有该句", p => {
+    p.llmRecords[1].request.body.messages[1].content += "\n这是未采纳的新句。";
+    rebuildRepairTransport(p);
+  }],
+  ["正文相同但实际源 draft revision 已变", p => {
+    p.snapshots.final.scope_rows.drafts[0].revision += 1;
+    refreshRepairCanon(p);
+  }],
+  ["开场候选不能冒充已采纳源", p => {
+    p.snapshots.start.scope_rows.drafts[0].status = "TENTATIVE";
+    p.snapshots.final.scope_rows.drafts[0].status = "TENTATIVE";
+    refreshRepairCanon(p);
+  }],
+  ["正文场次顺序与原请求不一致", p => {
+    for (const snapshot of Object.values(p.snapshots)) {
+      snapshot.scope_rows.scenes[0].seq = 2;
+      snapshot.scope_rows.scenes[1].seq = 1;
+    }
+    refreshRepairCanon(p);
+  }],
+  ["辅助记录只有一半身份命中真实 ProviderRun", p => {
+    p.providerRuns.push({ ...p.providerRuns[0], id: "prun-summary-a", provider_call_ref: "pcall-unrelated" });
+  }],
+  ["辅助调用伪装成本轮作者 ProviderRun", p => {
+    p.llmRecords[1].turn_id = "turn-repair:agent:2";
+    p.providerRuns.push({ ...p.providerRuns[0], id: "prun-summary-a", provider_call_ref: "pcall-summary-a" });
+  }],
+  ["未知辅助角色不得按摘要调用排除", p => { p.llmRecords[1].step = "unknown_background_task"; }],
+  ["完整 byte seal 不能代替完整 SSE 终局", p => {
+    p.rawResponses["pcall-summary-a"] = Buffer.from(
+      'data: {"choices":[{"index":0,"delta":{"content":"未结束"},"finish_reason":null}]}\n\n');
+    rebuildRepairTransport(p);
+  }],
+  ["原始响应被遗漏", p => { p.transportBytes.delete("request-2.received.bin"); }],
+  ["其中一章缺实际 ledger 终态", p => { p.appRecords.splice(3, 1); }],
+  ["只有旧 ledger 成功日志", p => { p.appRecords[3].timestamp = "2026-11-23T12:00:07.200Z"; }],
+  ["同章两个本场 ACCEPTED 摘要造成歧义", p => {
+    p.snapshots.final.scope_rows.chapter_summaries.push({
+      ...p.snapshots.final.scope_rows.chapter_summaries[0], id: "summary-duplicate" });
+  }],
+  ["原始摘要和实际存储不同", p => {
+    p.snapshots.final.scope_rows.chapter_summaries[0].summary_text += "未返回的字句。";
+  }],
+  ["repair不能伪造一个产品未写入的revision_base", p => {
+    p.snapshots.final.scope_rows.chapter_summaries[0].revision_base = "draft:draft-a1:2";
+  }],
+  ["同作品维护不能豁免另一作品原行内容变化", p => {
+    p.snapshots.final.scope_rows.ledger_entries[0].payload.last_seen_seq = 88;
+    refreshRepairCanon(p);
+  }],
+  ["删除旧 ledger 行", p => {
+    p.snapshots.final.scope_rows.ledger_entries.shift();
+    refreshRepairCanon(p);
+  }],
+  ["emotion写向未绑定章", p => {
+    const row = p.snapshots.final.scope_rows.ledger_entries.find(row => row.id === "emotion-0");
+    row.subject_ref = row.last_event_chapter = "unread-chapter";
+    refreshRepairCanon(p);
+  }],
+  ["引入不属于本场的摘要来源", p => {
+    p.snapshots.final.scope_rows.ledger_entries.find(row => row.id === "arc-both")
+      .source_refs.push("chapter_summary:unrelated");
+    refreshRepairCanon(p);
+  }],
+  ["ledger更新时间落在两个真实维护窗口之间的空档", p => {
+    p.snapshots.final.scope_rows.ledger_entries.find(row => row.id === "arc-both")
+      .updated_at = repairTime("05.000");
+    refreshRepairCanon(p);
+  }],
+  ["emotion不能借另一章的维护窗口更新", p => {
+    p.snapshots.final.scope_rows.ledger_entries.find(row => row.id === "emotion-0")
+      .updated_at = repairTime("07.100");
+    refreshRepairCanon(p);
+  }],
+  ["已有有效ACCEPTED摘要不得以repair无故替换", p => {
+    const old = { ...p.snapshots.final.scope_rows.chapter_summaries[0], id: "already-current",
+      summary_text: "【情节推进】已有摘要。\n【人物状态与弧光】（无）\n【伏笔动作】（无）\n【情绪基调】平静。",
+      inserted_at: "2026-11-23T12:00:00.000Z", updated_at: "2026-11-23T12:00:00.000Z" };
+    p.snapshots.start.scope_rows.chapter_summaries.push(structuredClone(old));
+    p.snapshots.final.scope_rows.chapter_summaries.push({
+      ...old, status: "SUPERSEDED", updated_at: repairTime("03.000") });
+  }],
+  ["新增作者采纳回执", p => {
+    p.snapshots.final.action_receipts.push({ id: "unrequested-adoption", work_id: p.config.target.work_id });
+    refreshRepairCanon(p);
+  }],
+  ["原null HTTP cap被替换为有限预算", p => {
+    p.providerStream.ready.max_upstream_requests = 32;
+  }],
+]) {
+  test("WR02 repair 拒绝：" + name, () => {
+    const proof = missionRepairFixture();
+    change(proof);
+    assert.equal(repairPassed(liveEvidence.missionRepairEvidence(proof)), false);
+  });
+}
+
+test("WR02 真实日志形态允许辅助缺owner字段、作者unknown step及原样保留旧information账", () => {
+  const proof = missionRepairFixture();
+  for (const record of proof.llmRecords.slice(1)) {
+    delete record.work_id;
+    delete record.session_id;
+    delete record.workspace_id;
+  }
+  proof.llmRecords[0].step = "unknown";
+  proof.providerRuns[0].purpose = "planner";
+  for (const snapshot of Object.values(proof.snapshots)) {
+    const old = snapshot.scope_rows.ledger_entries[0];
+    old.work_id = proof.config.target.work_id;
+    old.ledger = "information";
+    old.subject_kind = "information";
+  }
+  const arc = proof.snapshots.final.scope_rows.ledger_entries.find(row => row.id === "arc-both");
+  arc.revision = 3;
+  arc.source_refs.reverse();
+  refreshRepairCanon(proof);
+  const result = liveEvidence.missionRepairEvidence(proof);
+  assert.equal(repairPassed(result), true, JSON.stringify(result));
+  assert.equal(result.auxiliary.length, 2);
+  assert.deepEqual(result.authorRecords, [proof.llmRecords[0]]);
+});
+
 test("R08 question子turn由同run终局绑定，真实发布ask可停等并保留未触发L6", () => {
   const args = { question: "请选择要续写的章节。", options: [] };
   const actual = { ...terminalDecisionRecord(), response: { status: 200,

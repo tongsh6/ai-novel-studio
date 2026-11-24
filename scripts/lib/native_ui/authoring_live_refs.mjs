@@ -22,6 +22,7 @@ import {
   observationRefOf,
   parseIrMessage,
   requestFactsFromRecord,
+  usableObservationFact,
 } from "./authoring_request_facts.mjs";
 import { canonicalCoverageForProviderCall, canonicalRequestBindingsForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
 import { auditCanonicalCoverage } from "./authoring_checkpoint_coverage.mjs";
@@ -123,24 +124,13 @@ function canonicalBaseProofs(record, sessionMessages, facts, retainedMessages) {
   return { ok: true, proofs, hasScope: materials.some(({ canonical: message }) => message.role === "scope_update") };
 }
 
-function observationContentSupplied(content) {
-  if (nonBlank(content)) return true;
-  if (!isObject(content)) return false;
-  return nonBlank(content.summary) ||
-    (isObject(content.facts) && Object.keys(content.facts).length > 0) ||
-    (Array.isArray(content.facts) && content.facts.length > 0);
-}
-
 // 实际请求的观察归一由 request facts 唯一负责。应用计划读取属于明确 Base；
 // 本处只认实际材料及有效父/叶状态；现役 Scope 还须与同次登记目录相交。
 function collectToolObservations(boundary, facts, registeredRefs, retainedMessages) {
   const supplied = (ref) => registeredRefs === null || registeredRefs.has(ref);
   for (const unit of facts.observations) {
     if (retainedMessages !== null && !retainedMessages.has(facts.messages[unit.messageIndex])) continue;
-    if (unit.provenance !== "tool" ||
-        !["ok", "partial", "truncated"].includes(String(unit.parentStatus ?? "")) ||
-        !["ok", "partial", "truncated"].includes(String(unit.payload.status ?? "")) ||
-        !observationContentSupplied(unit.payload.content)) continue;
+    if (unit.provenance !== "tool" || !usableObservationFact(unit)) continue;
     for (const ref of refValues(unit.payload.source_refs).filter(supplied)) {
       pushRef(boundary.observation, ref, {
         message_index: unit.messageIndex, channel: "source_refs",

@@ -130,6 +130,10 @@ function scopeMessage() {
     role: "scope_update",
     provenance: "application",
     versions: { ...SCOPE_VERSIONS },
+    base_refs: [
+      { ref: "plan:2:chapter_role" }, { ref: "ledger:information:plan_info_4" },
+      { ref: "plan:2:scene:1" },
+    ],
     source_refs: [
       { ref: "plan:2:chapter_role" },
       { ref: "ledger:information:plan_info_4" },
@@ -243,7 +247,8 @@ function records({ arguments: args, record = {}, scope } = {}) {
       ],
       tools: [],
       projection: { tool_choice: null },
-      refs: {},
+      refs: { base_refs: structuredClone((scope ?? scopeMessage()).base_refs),
+        observation_refs: [], used_refs: [] },
     },
     response_format: "fixture_provider_result/v1",
     response: {
@@ -358,6 +363,402 @@ function narrativeFixture(text) {
   value.missionEvents[0].payload.author_narrative_source = narrativeSource(text);
   return value;
 }
+
+// WR02 的独立事实来自同次 canonical 可见前缀；期待值是供给材料的具体名称/范围，
+// 不从 AuthoringTask 汇合后的 materials 或被验产品函数反推。
+const READ_CHAPTER = "chapter:read-1";
+const READ_SUMMARY = "summary:read-1";
+const DIRECTORY_NOTE = "目录只含所列身份字段，未读取对象正文或完整角色修订基线。";
+const DIRECTORY_LABEL = "【目录只含所列身份字段，未读取对象正文或完整角色修订基线。】第01章：黑市对账夜";
+
+function directoryRead(overrides = {}) {
+  return {
+    status: "ok", source_refs: [READ_CHAPTER], versions: {},
+    coverage: { kind: "directory", coverage_note: DIRECTORY_NOTE },
+    omissions: [], next_offset: null,
+    content: { tool: "list_chapters", summary: "目录已返回一章。",
+      facts: { chapters: [{ ref: READ_CHAPTER, title: "第01章：黑市对账夜" }] },
+      observation_ref: "observation:directory" },
+    ...overrides,
+  };
+}
+
+function readScope(leaf, index) {
+  return {
+    role: "scope_update", provenance: "application",
+    versions: { scope_revision: index + 1, change_reason: "planned_exploration" },
+    source_refs: leaf.source_refs.map(source => typeof source === "string" ? { ref: source } : source),
+    base_refs: [],
+    blocks: [{ type: "scope", content: { work_id: WORK,
+      operation: { role: "planned_exploration", plan_ref: "plan:read", step_ref: `step:${index}`,
+        plan_call_id: "call-read-plan" },
+      facts: { exploration_result: structuredClone(leaf) } } }],
+  };
+}
+
+function missionReadFixture(leaves = [directoryRead()], entries = [
+  { text: "沿已读章节继续铺排。", basis_ref: READ_CHAPTER, basis_label: DIRECTORY_LABEL },
+]) {
+  const mission = missionMap({ must_advance: entries, must_avoid: [] });
+  const value = input({ beforeMission: mission });
+  value.missionKind = "planning";
+  value.requireDerivation = true;
+  value.startWork = { title: "规划目标作品", updated_at: START, mission: null };
+  value.beforeWork = { title: "规划目标作品", updated_at: BEFORE, mission };
+  value.targetWorkId = WORK;
+  value.artifactTargetWork = "规划目标作品";
+  const scope = value.transcript.messages[0];
+  scope.versions.change_reason = "planning_mission";
+  scope.blocks[0].content.operation.mission_inputs.mode = "planning";
+  scope.blocks[0].content.operation.mission_inputs.chapter = null;
+  const args = responseArguments({ must_advance: entries.map(({ text, basis_ref }) => ({ text, basis_ref })),
+    must_avoid: [] });
+  const call = value.transcript.messages[1].blocks[0];
+  call.name = "planning_mission";
+  call.arguments = structuredClone(args);
+  const prefix = leaves.map(readScope);
+  value.transcript.messages.unshift(...prefix);
+  const base = value.sessionMessages.slice(0, 2);
+  value.sessionMessages = [...base, ...value.transcript.messages];
+  const record = value.records[0];
+  record.request_body.messages = structuredClone([...base, ...prefix, scope]);
+  record.request_body.refs = { base_refs: structuredClone(scope.base_refs),
+    observation_refs: leaves.flatMap(leaf => leaf.source_refs), used_refs: [] };
+  record.response.body.tool_calls[0].name = "planning_mission";
+  record.response.body.tool_calls[0].arguments = structuredClone(args);
+  Object.assign(value.missionEvents[0].payload, {
+    basis_refs: [...new Set(entries.map(entry => entry.basis_ref))], dropped_unbound_count: 0,
+    must_advance_count: entries.length, must_avoid_count: 0,
+  });
+  value.missionEvents[0].payload.author_narrative_source.tool_call_name = "planning_mission";
+  return value;
+}
+
+function missionReadChecks(value) {
+  return missionSourceChecks(value).checks;
+}
+
+function missionReadPasses(value) {
+  return Object.values(missionReadChecks(value)).every(Boolean);
+}
+
+function missionCurrentScope(value) {
+  return value.transcript.messages.findLast(message =>
+    message.role === "scope_update" && message.versions.change_reason === "planning_mission");
+}
+
+function syncReadRequest(value) {
+  const reply = value.sessionMessages.findIndex(message =>
+    message.provider_call_ref === PCALL && message.provider_run_ref === PRUN);
+  value.records[0].request_body.messages = structuredClone(value.sessionMessages.slice(0, reply));
+}
+
+test("R06 可见材料：目录精确ref/title补名，原初始输入计数仍为3", () => {
+  const value = missionReadFixture();
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  value.missionEvents[0].payload.input_ref_count = 4;
+  assert.equal(missionReadChecks(value).mission_id_and_event_are_bound, false);
+});
+
+test("R06 可见材料：同ref目录及部分正文独立保序，不升级完整度且摘要不借正文覆盖", () => {
+  const leaf = directoryRead({
+    status: "partial", source_refs: [READ_CHAPTER, READ_SUMMARY], versions: { [READ_CHAPTER]: 2 },
+    coverage: { kind: "chapter", chapter_ref: READ_CHAPTER, prose_range: { start: 1, end: 78 },
+      prose_total_chars: 120, coverage_note: "只含本页正文",
+      chapter_summary: { source_ref: READ_SUMMARY, representation: "preview", status: "partial",
+        returned_graphemes: 12, total_graphemes: 50 } },
+    omissions: ["计划与摘要只供预览"], next_offset: 78,
+    content: { tool: "chapter_read", summary: "这段实际正文不应复制成依据标签。" },
+  });
+  const chapterLabel = DIRECTORY_LABEL +
+    "\n【版本 2；只含本页正文；计划与摘要只供预览】正文第 1–78 字符 / 共 120 字符";
+  const summaryLabel = "【计划与摘要只供预览】章摘要预览：已供给 12 / 50 字符";
+  const value = missionReadFixture([directoryRead(), leaf], [
+    { text: "承接首章。", basis_ref: READ_CHAPTER, basis_label: chapterLabel },
+    { text: "只按摘要预览参考。", basis_ref: READ_SUMMARY, basis_label: summaryLabel },
+  ]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  value.beforeWork.mission.must_advance[0].basis_label = chapterLabel.split("\n").reverse().join("\n");
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：实际读叶在前，当前Scope base_refs授权初始项在后", () => {
+  const leaf = directoryRead({ source_refs: ["plan:2:chapter_role"],
+    versions: { "plan:2:chapter_role": 7 }, coverage: {}, omissions: ["仅此条补充"],
+    content: { tool: "read_plan", summary: "同次已读补充材料" } });
+  const expected = "【版本 7；仅此条补充】同次已读补充材料\n" + LABEL_ADVANCE;
+  const value = missionReadFixture([leaf], [
+    { text: "推进已有计划。", basis_ref: "plan:2:chapter_role", basis_label: expected },
+  ]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  value.beforeWork.mission.must_advance[0].basis_label = LABEL_ADVANCE + "\n" + expected.split("\n")[0];
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：原生wire与canonical绑定后读取同一目录事实，不把wire伪装IR", () => {
+  const value = missionReadFixture();
+  const record = value.records[0];
+  const messages = record.request_body.messages.map(message => {
+    if (message.role === "scope_update") return { role: "user", content: scopeProjection(message) };
+    if (message.role === "application_base") return {
+      role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + MISSION_RULES,
+    };
+    return { role: "user", content: MISSION_AUTHOR };
+  });
+  record.request = { body: { messages: [{ role: "system", content: "system prompt" }, ...messages] } };
+  delete record.request_body;
+  delete record.request_format;
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+});
+
+test("R06 可见材料：同ref多版本逐份保留，不能用后读版本覆盖前页", () => {
+  const second = directoryRead({ versions: { [READ_CHAPTER]: 9 },
+    coverage: { kind: "detail", "complete?": true },
+    content: { tool: "read_detail", summary: "后读材料原文" } });
+  const value = missionReadFixture([directoryRead(), second], [
+    { text: "两份来源均保留。", basis_ref: READ_CHAPTER,
+      basis_label: DIRECTORY_LABEL + "\n【版本 9；本次读取完整】后读材料原文" },
+  ]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  value.beforeWork.mission.must_advance[0].basis_label = "【版本 9；本次读取完整】后读材料原文";
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：recall按memory_ref精配实际JSON预览，不能借另一条文本", () => {
+  const leaf = directoryRead({ source_refs: ["memory:m1", "memory:m2"], coverage: { kind: "recall" },
+    content: { tool: "memory_recall", summary: JSON.stringify({ items: [
+      { memory_ref: "memory:m1", text: "只在前三章成立的线索" },
+      { memory_ref: "memory:m2", text: "另一线索" },
+    ] }) } });
+  const value = missionReadFixture([leaf], [{
+    text: "沿第一条线索推进。", basis_ref: "memory:m1",
+    basis_label: "【仅表示本次可见读取；未声明完整覆盖】只在前三章成立的线索",
+  }]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  value.beforeWork.mission.must_advance[0].basis_label =
+    "【仅表示本次可见读取；未声明完整覆盖】另一线索";
+  assert.equal(missionReadPasses(value), false);
+});
+
+function archiveRead() {
+  return directoryRead({
+    status: "partial", source_refs: ["memory:archive-a", "memory:archive-b"],
+    versions: { "memory:archive-a": 4 }, omissions: ["本页未含其余档案原文"],
+    coverage: { kind: "facet", facet: "items", ref: "archive:characters", sources: [
+      { ref: "memory:archive-a", offset: 2, returned_graphemes: 7, total_graphemes: 20,
+        offset_unit: "unicode_grapheme", version_status: "known", version: 4 },
+      { ref: "memory:archive-b", offset: 0, returned_graphemes: 6, total_graphemes: 6,
+        offset_unit: "unicode_grapheme", version_status: "unknown" },
+    ] },
+    content: { tool: "archive_read", summary: "多条档案混合展示原文，不按分隔符猜拆。", facts: {} },
+  });
+}
+
+test("R06 档案可见材料：多ref按唯一typed范围逐项标明真实来源", () => {
+  const value = missionReadFixture([archiveRead()], [
+    { text: "只使用首条已读范围。", basis_ref: "memory:archive-a",
+      basis_label: "【版本 4；本页未含其余档案原文】档案条目原文第 3–9 字符 / 共 20 字符" },
+    { text: "第二条仍受全叶遗漏限制。", basis_ref: "memory:archive-b",
+      basis_label: "【本页未含其余档案原文】档案条目原文第 1–6 字符 / 共 6 字符" },
+  ]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+});
+
+for (const [name, change] of [
+  ["不能借另一ref范围", leaf => { leaf.coverage.sources[0].ref = "memory:wrong"; }],
+  ["同ref多份typed范围歧义", leaf => { leaf.coverage.sources.push({ ...leaf.coverage.sources[0] }); }],
+]) {
+  test(`R06 档案可见材料：${name}必须正常失败`, () => {
+    const leaf = archiveRead();
+    change(leaf);
+    const value = missionReadFixture([leaf], [{
+      text: "首条档案。", basis_ref: "memory:archive-a",
+      basis_label: "【版本 4；本页未含其余档案原文】档案条目原文第 3–9 字符 / 共 20 字符",
+    }]);
+    assert.doesNotThrow(() => missionSourceChecks(value));
+    assert.equal(missionReadPasses(value), false);
+  });
+}
+
+const STATS_TEXT = "已采纳正文总字数 0；卷数 0；章节数 0；已采纳角色 0；确认记忆 0。";
+const STATS_LABEL = "【仅表示本次可见读取；未声明完整覆盖】档案条目原文第 1–37 字符 / 共 37 字符";
+
+function archiveStatsRead() {
+  return directoryRead({
+    source_refs: ["archive:stats"], versions: {}, omissions: [],
+    coverage: { kind: "facet", facet: "stats", work_id: WORK,
+      summary: { offset: 0, returned_graphemes: 37, total_graphemes: 37,
+        offset_unit: "unicode_grapheme" } },
+    content: { tool: "archive_read", summary: STATS_TEXT, facts: {} },
+  });
+}
+
+function archiveStatsMission(leaf = archiveStatsRead(), label = STATS_LABEL) {
+  return missionReadFixture([leaf], [
+    { text: "尊重已有篇幅。", basis_ref: "archive:stats", basis_label: label },
+    { text: "沿已有结构铺排。", basis_ref: "archive:stats", basis_label: label },
+  ]);
+}
+
+test("R06 单来源档案：真实stats无sources或coverage.ref，两个使命项只绑定typed范围", () => {
+  const value = archiveStatsMission();
+  assert.equal([...STATS_TEXT].length, 37);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+  assert.ok(value.beforeWork.mission.must_advance.every(item => !item.basis_label.includes(STATS_TEXT)));
+});
+
+test("R06 单来源档案：保留实际分页偏移、版本及全叶遗漏", () => {
+  const leaf = archiveStatsRead();
+  leaf.status = "partial";
+  leaf.versions = { "archive:stats": 4 };
+  leaf.next_offset = 20;
+  leaf.omissions = ["只返回本页，其余统计原文未读"];
+  leaf.coverage.summary = { offset: 4, returned_graphemes: 16, total_graphemes: 37,
+    offset_unit: "unicode_grapheme" };
+  leaf.content.summary = STATS_TEXT.slice(4, 20);
+  const value = archiveStatsMission(leaf,
+    "【版本 4；只返回本页，其余统计原文未读】档案条目原文第 5–20 字符 / 共 37 字符");
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+});
+
+test("R06 单来源档案：明确facts名称优先，既有角色详情不降为汇总正文", () => {
+  const leaf = archiveStatsRead();
+  leaf.source_refs = ["character:archive-person"];
+  leaf.coverage = { kind: "detail", summary: leaf.coverage.summary };
+  leaf.content.facts = { character: { character_ref: "character:archive-person", name: "陆沉" } };
+  const value = missionReadFixture([leaf], [{
+    text: "保留人物已有意图。", basis_ref: "character:archive-person",
+    basis_label: "【仅表示本次可见读取；未声明完整覆盖】陆沉",
+  }]);
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+});
+
+test("R06 单来源档案：不能把统计整段正文复制到两个使命依据", () => {
+  const value = archiveStatsMission(archiveStatsRead(),
+    "【仅表示本次可见读取；未声明完整覆盖】" + STATS_TEXT);
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 单来源档案：缺失或非法summary范围必须失败，不回退复制正文", () => {
+  const changes = [null, {}, { offset: -1, returned_graphemes: 10, total_graphemes: 37,
+    offset_unit: "unicode_grapheme" }, { offset: 0, returned_graphemes: 0, total_graphemes: 37,
+    offset_unit: "unicode_grapheme" }, { offset: 30, returned_graphemes: 10, total_graphemes: 37,
+    offset_unit: "unicode_grapheme" }, { offset: 0, returned_graphemes: 37, total_graphemes: 37,
+    offset_unit: "bytes" }];
+  for (const summary of changes) {
+    const leaf = archiveStatsRead();
+    leaf.coverage.summary = summary;
+    const value = archiveStatsMission(leaf, "【仅表示本次可见读取；未声明完整覆盖】" + STATS_TEXT);
+    assert.doesNotThrow(() => missionSourceChecks(value));
+    assert.equal(missionReadPasses(value), false, JSON.stringify(summary));
+  }
+});
+
+test("R06 单来源档案：同叶多ref不能各自借整页summary范围", () => {
+  const leaf = archiveStatsRead();
+  leaf.source_refs.push("archive:other");
+  assert.equal(missionReadPasses(archiveStatsMission(leaf)), false);
+});
+
+test("R06 单来源档案：已有sources列表缺当前ref，不得退回整页summary范围", () => {
+  const leaf = archiveStatsRead();
+  leaf.coverage.sources = [{ ref: "archive:other", ...leaf.coverage.summary }];
+  assert.equal(missionReadPasses(archiveStatsMission(leaf)), false);
+});
+
+for (const status of ["stale", "unavailable", "error"]) {
+  test(`R06 可见材料：${status}读取不能给持久使命补名`, () => {
+    const value = missionReadFixture([directoryRead({ status })]);
+    assert.equal(missionReadPasses(value), false);
+  });
+}
+
+for (const [label, change] of [
+  ["只有ref没有内容", leaf => { leaf.content = { tool: "list_chapters", summary: "", facts: {} }; }],
+  ["目录ref与名称错配", leaf => { leaf.content.facts.chapters[0].ref = "chapter:other"; }],
+  ["目录同ref名称歧义", leaf => {
+    leaf.content.facts.chapters.push({ ref: READ_CHAPTER, title: "同ref的另一个名称" });
+  }],
+  ["从summary猜目录名称", leaf => {
+    leaf.content.facts = {}; leaf.content.summary = "第01章：黑市对账夜";
+  }],
+]) {
+  test(`R06 可见材料：${label}正常打红，不抛TypeError掩盖缺名`, () => {
+    const leaf = directoryRead();
+    change(leaf);
+    const value = missionReadFixture([leaf]);
+    assert.doesNotThrow(() => missionSourceChecks(value));
+    assert.equal(missionReadPasses(value), false);
+  });
+}
+
+test("R06 可见材料：source_refs与累计refs不能代替当前Scope的base_refs授权", () => {
+  const value = missionReadFixture([], [{
+    text: "推进已有计划。", basis_ref: "plan:2:chapter_role", basis_label: LABEL_ADVANCE,
+  }]);
+  missionCurrentScope(value).base_refs = [];
+  syncReadRequest(value);
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：目录只读不能声称已读整章，也不能直接拷贝工具摘要作为名称", () => {
+  for (const basisLabel of [
+    "【本次读取完整】第01章：黑市对账夜", "目录已返回一章。", "第01章：黑市对账夜",
+  ]) {
+    const value = missionReadFixture();
+    value.beforeWork.mission.must_advance[0].basis_label = basisLabel;
+    assert.equal(missionReadPasses(value), false);
+  }
+});
+
+test("R06 可见材料：canonical中没发送的历史观察不得回捞", () => {
+  const value = missionReadFixture();
+  value.records[0].request_body.messages.splice(2, 1);
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：普通Scope伪装读叶不能确权", () => {
+  const value = missionReadFixture();
+  value.transcript.messages[0].blocks[0].content.operation.role = "writer";
+  syncReadRequest(value);
+  assert.equal(missionReadPasses(value), false);
+});
+
+function nativeMissionReadFixture() {
+  const value = missionReadFixture([]);
+  const call = { role: "assistant", provenance: "model",
+    provider_call_ref: "pcall-read", provider_run_ref: "prun-read",
+    blocks: [{ type: "tool_call", call_id: "call-read", name: "planned_exploration",
+      arguments: { steps: [{ tool: "list_chapters" }] } }] };
+  const result = { role: "tool", provenance: "tool_result",
+    blocks: [{ type: "observation", call_id: "call-read", status: "ok",
+      source_refs: [READ_CHAPTER], versions: {}, coverage: {},
+      content: { tool: "planned_exploration", observations: [directoryRead()] } }] };
+  value.transcript.messages.unshift(call, result);
+  value.sessionMessages = [...value.sessionMessages.slice(0, 2), ...value.transcript.messages];
+  syncReadRequest(value);
+  return value;
+}
+
+test("R06 可见材料：原生唯一调用/结果的实际目录叶可补名", () => {
+  const value = nativeMissionReadFixture();
+  assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));
+});
+
+test("R06 可见材料：原生父结果失败即拒绝，不能只看合法子叶状态", () => {
+  const value = nativeMissionReadFixture();
+  value.transcript.messages[1].blocks[0].status = "error";
+  syncReadRequest(value);
+  assert.equal(missionReadPasses(value), false);
+});
+
+test("R06 可见材料：同ref另一来源缺名不能借已读目录名补齐", () => {
+  const missing = directoryRead({ content: { tool: "list_chapters", summary: "确有返回内容",
+    facts: { chapters: [{ ref: READ_CHAPTER }] } } });
+  const value = missionReadFixture([directoryRead(), missing]);
+  assert.doesNotThrow(() => missionSourceChecks(value));
+  assert.equal(missionReadPasses(value), false);
+});
 
 test("R06 两使命共用来源 owner；规划使命必须绑定目标作品、正确工具与实际接收事件", () => {
   const value = input();

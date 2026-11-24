@@ -6,7 +6,8 @@ import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { parseUtcTimestamp } from "./authoring_canon_evidence.mjs";
 import { assistantCalls } from "./authoring_revision_evidence.mjs";
-import { providerResponseForCanonicalCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, providerResponseForCanonicalCall } from "./authoring_call_evidence.mjs";
+import { observationFacts, usableObservationFact } from "./authoring_request_facts.mjs";
 
 const toolName = (input) => input.missionKind === "planning" ? "planning_mission" : "chapter_mission";
 const TENTATIVE = "TENTATIVE";
@@ -118,8 +119,115 @@ function sameRefSet(left, right) {
   return left.length === right.length && left.every((ref) => rightSet.has(ref));
 }
 
+// 具体依据只取同次已绑定请求里的结构事实；目录、正文页、档案条目和摘要
+// 各有自己的精确 ref。标签核验不查询 DB、不按整段摘要猜名称，也不改材料完整度。
+function observedName(payload, ref) {
+  const facts = payload.content?.facts;
+  const character = isRecord(facts?.character) ? [facts.character] : list(facts?.character);
+  const entries = [...list(facts?.chapters), ...list(facts?.characters), ...character]
+    .filter(entry => isRecord(entry) && (entry.ref ?? entry.character_ref) === ref);
+  if (entries.length !== 1) return null;
+  const name = entries[0].title ?? entries[0].name;
+  return nonBlank(name) ? name : null;
+}
+
+function previewRange(preview, ref, name) {
+  return preview?.source_ref === ref && preview.representation === "preview" &&
+    preview.status === "partial" && Number.isSafeInteger(preview.returned_graphemes) &&
+    Number.isSafeInteger(preview.total_graphemes)
+    ? `${name}预览：已供给 ${preview.returned_graphemes} / ${preview.total_graphemes} 字符` : null;
+}
+
+function observedBodyRange(coverage, ref) {
+  const range = coverage?.prose_range;
+  const body = coverage?.chapter_ref === ref &&
+    [range?.start, range?.end, coverage.prose_total_chars].every(Number.isSafeInteger)
+    ? `正文第 ${range.start}–${range.end} 字符 / 共 ${coverage.prose_total_chars} 字符` : null;
+  const parts = [body, previewRange(coverage?.chapter_plan, ref, "章计划"),
+    previewRange(coverage?.chapter_summary, ref, "章摘要")].filter(nonBlank);
+  return parts.length ? parts.join("；") : null;
+}
+
+function observedArchiveRange(range) {
+  if (!isRecord(range)) return null;
+  const { offset, returned_graphemes: returned, total_graphemes: total, offset_unit: unit } = range;
+  if (unit !== "unicode_grapheme" || ![offset, returned, total].every(Number.isSafeInteger) ||
+      offset < 0 || returned <= 0 || offset + returned > total) return null;
+  return `档案条目原文第 ${offset + 1}–${offset + returned} 字符 / 共 ${total} 字符`;
+}
+
+function observedArchiveBasis(payload, ref) {
+  const coverage = payload.coverage;
+  if (coverage?.sources != null) {
+    if (!Array.isArray(coverage.sources)) return null;
+    const matches = coverage.sources.filter(source => source?.ref === ref);
+    return matches.length === 1 ? observedArchiveRange(matches[0]) : null;
+  }
+  const name = observedName(payload, ref);
+  if (name !== null) return name;
+  const sources = list(payload.source_refs);
+  const onlyRef = typeof sources[0] === "string" ? sources[0] : sources[0]?.ref;
+  // stats 等单来源档案的 summary 范围属于该唯一来源；不把汇总正文复制进使命。
+  return sources.length === 1 && onlyRef === ref ? observedArchiveRange(coverage?.summary) : null;
+}
+
+function observedBasis(payload, ref) {
+  const content = payload.content, coverage = payload.coverage;
+  if (coverage?.kind === "directory") return observedName(payload, ref);
+  if (content?.tool === "chapter_read") return observedBodyRange(coverage, ref);
+  if (content?.tool === "archive_read") return observedArchiveBasis(payload, ref);
+  if (coverage?.kind === "recall" && content?.tool === "memory_recall") {
+    let preview;
+    try { preview = JSON.parse(content.summary); } catch { return null; }
+    const matches = list(preview?.items).filter(item => item?.memory_ref === ref);
+    return matches.length === 1 && nonBlank(matches[0].text) ? matches[0].text : null;
+  }
+  return observedName(payload, ref) ??
+    (list(payload.source_refs).length === 1 && nonBlank(content?.summary) ? content.summary : null);
+}
+
+function observedLabel(payload, source) {
+  const ref = typeof source === "string" ? source : source?.ref;
+  const basis = observedBasis(payload, ref);
+  if (!nonBlank(basis)) return null;
+  const coverage = payload.coverage, omissions = list(payload.omissions);
+  const version = (isRecord(source) ? source.version : null) ?? payload.versions?.[ref];
+  const complete = coverage?.["complete?"] === true && payload.status === "ok" &&
+    omissions.length === 0 && payload.next_offset == null;
+  const coverageNote = payload.content?.tool !== "chapter_read" || coverage?.chapter_ref === ref
+    ? coverage?.coverage_note : null;
+  const notes = [coverageNote, ...omissions].filter(nonBlank);
+  const qualifier = complete ? "本次读取完整" :
+    (notes.length ? notes.join("；") : "仅表示本次可见读取；未声明完整覆盖");
+  return `【${version == null ? "" : `版本 ${version}；`}${qualifier}】${basis}`;
+}
+
+function suppliedMissionMaterials(bindings, initial) {
+  const labels = new Map();
+  const add = (ref, label) => {
+    if (nonBlank(ref)) labels.set(ref, [...(labels.get(ref) ?? []), label]);
+  };
+  // 同 ref 的多个版本/页段各自保留；任何已用来源缺名都不能由另一来源代签。
+  for (const unit of observationFacts(bindings.map(binding => binding.actual))) {
+    if (!usableObservationFact(unit)) continue;
+    for (const source of list(unit.payload.source_refs)) {
+      add(typeof source === "string" ? source : source?.ref, observedLabel(unit.payload, source));
+    }
+  }
+  const current = bindings.findLast(binding => binding.canonical.role === "scope_update" &&
+    binding.canonical.provenance === "application");
+  const supplied = new Set(list(current?.canonical.baseRefs).map(source =>
+    typeof source === "string" ? source : source?.ref));
+  for (const [ref, label] of initial.labels) if (supplied.has(ref)) add(ref, label);
+  return { refs: [...labels.keys()], inputRefCount: initial.refs.length,
+    labels: new Map([...labels].map(([ref, parts]) =>
+      [ref, parts.every(nonBlank) ? parts.join("\n") : null])) };
+}
+
 function operationRequest(scope, record, sessionMessages, input) {
-  const projected = scopeForProviderCall(record, { messages: sessionMessages });
+  const bindings = canonicalRequestBindingsForProviderCall(record, { messages: sessionMessages });
+  const projected = bindings?.findLast(binding => binding.canonical.role === "scope_update" &&
+    binding.canonical.provenance === "application")?.actual;
   if (!scope || !projected) return null;
   const content = projected.scopeContent, inputs = content?.operation?.mission_inputs;
   const planning = input.missionKind === "planning";
@@ -128,7 +236,7 @@ function operationRequest(scope, record, sessionMessages, input) {
   const metadata = sourceRefsOf(scope);
   const materials = missionMaterials(content);
   if (!metadata || !materials || !sameRefSet(metadata, materials.refs)) return null;
-  return materials;
+  return suppliedMissionMaterials(bindings, materials);
 }
 
 function missionCalls(transcript, input) {
@@ -241,6 +349,7 @@ function expectedMission(response, request) {
   const refs = new Set(request.refs);
   const advance = labelExpected(response.advance, refs, request.labels);
   const avoid = labelExpected(response.avoid, refs, request.labels);
+  if (advance === null || avoid === null) return null;
   const dropped = response.advance.length + response.avoid.length - advance.length - avoid.length;
   const basisRefs = [...new Set([...advance, ...avoid].map((item) => item.basis_ref))];
   return { advance, avoid, dropped, basisRefs };
@@ -277,7 +386,7 @@ function eventBasisMatches(payload, expected, input) {
   return Boolean(
     isDeepStrictEqual(payload.basis_refs, expected.basisRefs) &&
     payload.dropped_unbound_count === expected.dropped &&
-    payload.input_ref_count === input.request.refs.length &&
+    payload.input_ref_count === input.request.inputRefCount &&
     payload.must_advance_count === expected.advance.length &&
     payload.must_avoid_count === expected.avoid.length,
   );

@@ -13,8 +13,11 @@ import { isVisibleNode } from "./scenario_driver.mjs";
 import { checkAuthorVisibleTexts } from "./author_visible_check.mjs";
 import { missionSourceChecks } from "./authoring_chapter_mission_evidence.mjs";
 import { assistantCalls, sourceMissionEvents, sourceMissionNarrativeContext, validations } from "./authoring_revision_evidence.mjs";
-import { canonicalRequestBindingsForProviderCall, scopeForProviderCall } from "./authoring_call_evidence.mjs";
-import { actionLabelsFor, locatePendingItem, locateScopedButton, selectPendingAction, writerArtifactMatch } from "./authoring_pending_evidence.mjs";
+import { canonicalRequestBindingsForProviderCall, providerOperation, readProviderRuns, scopeForProviderCall } from "./authoring_call_evidence.mjs";
+import { actionLabelsFor, adoptionMaintenanceOutcome, canonTableSignature, locatePendingItem, locateScopedButton, selectPendingAction, writerArtifactMatch } from "./authoring_pending_evidence.mjs";
+import { getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
+import { ledgerChangesBound, observedProviderResponses, providerCallPairs, requiredRows,
+  summaryAuxiliaryFact, summaryRowsAccounted } from "./chapter_summary_maintenance_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import {
   all,
@@ -26,6 +29,7 @@ import {
   frameEvent,
   frameOf,
   read,
+  readProviderObservation,
   sha256,
   shaFile,
   withDb,
@@ -927,6 +931,127 @@ export function missionWriterMaterial(history, calls, mission, kind, writer, tar
     material_field: kind === "planning" ? "planning_mission" : "execution_brief" };
 }
 // WR01/WR02 的实际消费者共用原 native/live owner；无需再造 runner 或让空调用集合代签。
+// WR02 的纯核账入口；作者记录仍交原 canonical/ProviderRun join，不在这里替代它。
+export function missionRepairEvidence({
+  config, llmRecords = [], providerRuns = [], scenarioScopes = [], snapshots = {},
+  appRecords = [], providerStream = null,
+}) {
+  const checks = { provider_observation_bound: false, provider_runs_bound: false,
+    provider_auxiliary_bound: false, source_versions_bound: false, summary_results_bound: false,
+    ledger_changes_bound: false, protected_rows_unchanged: false };
+  const reasons = {};
+  const check = (key, predicate) => {
+    try { checks[key] = predicate() === true; }
+    catch (error) { reasons[key] = error.message; checks[key] = false; }
+  };
+  let observation = null, pairs = [], auxiliary = [];
+  const before = snapshots.start, after = snapshots.final, workId = config?.target?.work_id;
+  check("provider_observation_bound", () => {
+    observation = observedProviderResponses(config, providerStream, llmRecords);
+    if (Object.hasOwn(config.preregistration, "upstream_endpoint")) assert.equal(
+      providerStream.ready.upstream_endpoint, config.preregistration.upstream_endpoint, "proxy upstream changed");
+    return true;
+  });
+  check("provider_runs_bound", () => {
+    pairs = providerCallPairs(llmRecords, providerRuns, scenarioScopes);
+    const authors = pairs.filter(pair => pair.matched);
+    assert(authors.length > 0 && authors.length === providerRuns.length, "author ProviderRun denominator differs");
+    assert(authors.every(({ record, row, owned }) => owned && row && record.step !== "chapter_summary" &&
+      row.provider_id === config.provider && row.model === config.model &&
+      ["completed", "failed", "cancelled"].includes(row.status)), "author provider ownership differs");
+    assert(["provider_call_ref", "provider_run_ref"].every(field =>
+      llmRecords.every(record => typeof record[field] === "string" && record[field] !== "") &&
+      new Set(llmRecords.map(record => record[field])).size === llmRecords.length), "provider identities are duplicated");
+    assert(llmRecords.every(record => record.provider === config.provider &&
+      record.request?.body?.model === config.model), "provider/model differs from frozen runtime");
+    if (config.runtime?.profile) {
+      const profile = getRuntimeProfile(config.runtime.profile);
+      assert(pairs.every(({ record, row }) => record.request.body.reasoning_effort === profile.reasoning_effort &&
+        record.request.body.max_tokens === (row?.purpose === "other" &&
+          providerOperation(row) === "transcript_compaction" ? 8192 : profile.max_tokens)),
+      "actual request settings differ from the frozen runtime");
+    }
+    return true;
+  });
+  check("provider_auxiliary_bound", () => {
+    auxiliary = pairs.filter(pair => !pair.matched).map(({ record }) =>
+      summaryAuxiliaryFact(record, { config, appRecords, snapshots, observation }));
+    return checks.provider_runs_bound && auxiliary.every(fact => fact.bound) &&
+      new Set(auxiliary.map(fact => JSON.stringify([fact.work_id, fact.chapter_id, fact.source_ref]))).size === auxiliary.length;
+  });
+  check("source_versions_bound", () => checks.provider_auxiliary_bound && auxiliary.every(fact =>
+    fact.source_ref === "summary_repair:" + fact.chapter_id && fact.work_id === workId &&
+    // Repo.chapters_missing_summary 排除任何当前 ACCEPTED 摘要，不按版本猜测 stale。
+    !requiredRows(before, "chapter_summaries").some(row => row.work_id === workId &&
+      row.chapter_id === fact.chapter_id && row.status === "ACCEPTED") &&
+    fact.revision_base === null && Array.isArray(fact.source_rows) && fact.source_rows.length > 0 &&
+    fact.source_rows.every(row => row.status === "ACCEPTED" && Number.isSafeInteger(row.revision) && row.revision > 0)));
+  check("summary_results_bound", () =>
+    checks.source_versions_bound && summaryRowsAccounted(before, after, auxiliary));
+  check("ledger_changes_bound", () => {
+    assert(checks.summary_results_bound, "summary source/result proof is incomplete");
+    const sources = [];
+    for (const fact of auxiliary) {
+      const maintenance = adoptionMaintenanceOutcome(appRecords, {
+        workId, chapterId: fact.chapter_id, since: fact.requested_at, until: after.at,
+      });
+      assert(maintenance && maintenance.summary.timestamp === fact.result_at, "repair terminal pair missing");
+      fact.maintenance = maintenance;
+      if (fact.result === "accepted" && maintenance.ledger.event.endsWith(".done")) {
+        sources.push({ chapterId: fact.chapter_id, summaryRef: "chapter_summary:" + fact.chapter_id,
+          from: maintenance.summary.timestamp, to: maintenance.ledger.timestamp });
+      }
+    }
+    return ledgerChangesBound({ before, after, workId, sources });
+  });
+  check("protected_rows_unchanged", () => {
+    assert(before?.at === before?.authoring_canon?.at && after?.at === after?.authoring_canon?.at,
+      "maintenance rows and Canon are not the same checkpoint");
+    for (const table of ["drafts", "chapters", "volumes", "scenes", "characters",
+      "memory_items", "author_action_receipts"]) {
+      const signature = canonTableSignature(before.authoring_canon, table);
+      assert(signature !== null && signature === canonTableSignature(after.authoring_canon, table),
+        "maintenance changed protected table " + table);
+    }
+    assert(isDeepStrictEqual(requiredRows(before, "action_receipts"), requiredRows(after, "action_receipts")),
+      "maintenance introduced an author receipt");
+    return true;
+  });
+  const passed = Object.values(checks).every(value => value === true);
+  const changed = before?.authoring_canon?.tables?.ledger_entries?.canon_sha256 !==
+    after?.authoring_canon?.tables?.ledger_entries?.canon_sha256;
+  const maintenanceEvidence = passed && changed ? {
+    checks: { ...checks }, target_work_id: workId, start_at: before.at, final_at: after.at,
+    ledger_entries: { before: before.authoring_canon.tables.ledger_entries,
+      after: after.authoring_canon.tables.ledger_entries },
+  } : null;
+  return { checks, reasons, authorRecords: pairs.filter(pair => pair.matched).map(pair => pair.record),
+    auxiliary, transport: observation ? { bound: true, ...observation.measured } :
+      { bound: false, reason: reasons.provider_observation_bound }, maintenanceEvidence };
+}
+
+function missionRepairForBatch(dir, config, history, evidence, snapshots, workId) {
+  if (config.provider !== "splash" || config.mission_kind !== "planning") return null;
+  const stream = config.preregistration?.provider_stream;
+  assert(stream, "WR02 lacks its preregistered provider observation");
+  const observed = config.runtime.observed.provider, run = history.record;
+  const providerStream = readProviderObservation(stream.dir);
+  assert.equal(providerStream.ready.mode, stream.mode);
+  assert.equal(providerStream.ready.upstream_endpoint, stream.upstream_endpoint);
+  assert.equal(providerStream.ready.max_upstream_requests, stream.max_upstream_requests);
+  // 仅为纯消费者组装实际身份事实，不写入或补造产品/native config 顶层字段。
+  return missionRepairEvidence({
+    config: { provider: config.provider, model: observed.model, endpoint: observed.endpoint,
+      runtime: config.runtime, target: { work_id: workId, session_id: run.session_id },
+      preregistration: { proxy_dir: stream.dir, max_upstream_requests: stream.max_upstream_requests,
+        upstream_endpoint: stream.upstream_endpoint } },
+    providerRuns: readProviderRuns(dir, history.transcript.run),
+    scenarioScopes: [{ runId: run.id, turnId: run.parent_turn_ref, workspaceId: run.workspace_id,
+      workId, sessionId: run.session_id }],
+    llmRecords: evidence.llmRecords, appRecords: evidence.appRecords, snapshots, providerStream,
+  });
+}
+
 export function verifyMissionBatch(dir) {
   const config = readConfig(dir);
   assert.equal(config.journey, "mission", "使命 verifier 必须来自已登记 mission journey");
@@ -939,14 +1064,17 @@ export function verifyMissionBatch(dir) {
   const evidence = assertProviderAndWire(dir, { expectProviders: [config.provider] });
   const workId = frozenWorkId(dir, config.author_visible_target.work_title);
   const history = readBatchAuthoringHistory(dir, { wire: evidence.wire, messageText: config.message, workId });
-  const calls = config.provider === "splash" ? reconcileNativeCalls(dir, config, history, evidence.llmRecords) :
-    bindNativeCalls(dir, history.transcript.run, history, evidence.llmRecords);
+  const snapshots = { start: read(dir, "b71-start.json"), final: read(dir, "b71-final.json") };
+  const maintenance = missionRepairForBatch(dir, config, history, evidence, snapshots, workId);
+  const authorRecords = maintenance ? maintenance.authorRecords : evidence.llmRecords;
+  const calls = config.provider === "splash" ? reconcileNativeCalls(dir, config, history, authorRecords) :
+    bindNativeCalls(dir, history.transcript.run, history, authorRecords);
   const sent = evidence.userMessages.find(frame => frameBody(frame)?.text === config.message);
   const identity = { runId: history.record.id, turnId: history.record.parent_turn_ref, workId,
     sessionId: history.record.session_id, topic: frameOf(sent)[2], since: sent.at };
   const body = lastCompletedTurn(evidence.wire, identity, "使命消费者缺少同 run 完成结果");
   const events = sourceMissionEvents(evidence.wire, identity).map(frameBody);
-  const start = canonSnapshotOf(read(dir, "b71-start.json")), final = canonSnapshotOf(read(dir, "b71-final.json"));
+  const start = canonSnapshotOf(snapshots.start), final = canonSnapshotOf(snapshots.final);
   const planning = config.mission_kind === "planning";
   const targets = planning ? [workId] : Object.keys(start.chapters).filter(id =>
     start.chapters[id].work_id === workId && start.chapters[id].title === config.author_visible_target.chapter_title);
@@ -966,7 +1094,8 @@ export function verifyMissionBatch(dir) {
     joinedRefs: calls.refs, missionEvents: events, window: { startAt: start.at, beforeAt: final.at },
   });
   const canon = compareSourceDesignSnapshots(start, final,
-    planning ? { targetWorkId: workId } : { targetChapterId: target });
+    planning ? { targetWorkId: workId, maintenanceEvidence: maintenance?.maintenanceEvidence ?? null } :
+      { targetChapterId: target });
   const persisted = withDb(dir, db => all(db,
     "SELECT payload FROM agent_events WHERE run_id = ? AND event_type = 'mission_derived'", [history.record.id]))
     .map(row => JSON.parse(row.payload));
@@ -994,7 +1123,8 @@ export function verifyMissionBatch(dir) {
       start: interval.start, end: interval.end });
   const checks = {
     one_author_send: evidence.userMessages.length === 1 && frameBody(evidence.userMessages[0])?.text === config.message,
-    native_calls: Object.values(calls.checks).every(value => value === true),
+    native_calls: Object.values(calls.checks).every(value => value === true) &&
+      (!maintenance || Object.values(maintenance.checks).every(value => value === true)),
     mission_source_bound: Object.values(source.checks).every(value => value === true),
     mission_persisted_from_same_event: events.length === 1 && persisted.length === 1 &&
       isDeepStrictEqual(events[0].payload, persisted[0]),
@@ -1011,13 +1141,14 @@ export function verifyMissionBatch(dir) {
     production_source_unchanged: fingerprintUnchanged(dir),
   };
   const report = { ok: Object.values(checks).every(value => value === true), scenario_id: config.scenario_id,
-    checks, source, canon, exchange, writer_material: material, views, scan,
+    checks, source, canon, maintenance, exchange, writer_material: material, views, scan,
     semantic_review: "pending_independent_review_of_raw_narrative_and_captured_page",
     not_signed: ["R08_literary_quality_and_capability_exam"] };
   fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(report, null, 2));
   const summary = writeNativeSummary(dir, { sliceId: config.slice_id, provider: config.provider,
     driver: common.ui.driver, scope: common.ui.scope, checks, measured: { mission: source.measured,
-      provider_calls: calls.measured, screenshots: common.ui.screenshots, wait_ledger: common.ledger },
+      provider_calls: calls.measured, auxiliary_maintenance: maintenance,
+      screenshots: common.ui.screenshots, wait_ledger: common.ledger },
     status: report.ok ? "pass" : "fail", extra: { scenario_id: config.scenario_id,
       semantic_review: report.semantic_review, not_signed: report.not_signed } });
   assert(report.ok, `使命原生证据未成立: ${JSON.stringify(checks)}`);

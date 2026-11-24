@@ -688,6 +688,104 @@ for (const scenario of R06_CASES) {
   });
 }
 
+test("R06 WR02 provider stream 在 validate、prepare、readConfig 中保留同一登记身份", () => {
+  const dir = tempDir("r06-provider-stream-");
+  try {
+    const scenario = R06_CASES.find(item => item.id === "wr02-planning-mission-before-outline");
+    splashReady(dir);
+    writeJson(dir, "native-driver-ready.json", { slice_id: scenario.slice_id, provider: "splash" });
+    const manifest = r06Preregistration(dir, scenario);
+    const stream = { dir: path.join(dir, "proxy-01"), mode: "observe",
+      upstream_endpoint: "http://127.0.0.1:8000/v1", max_upstream_requests: null };
+    manifest.scenarios[0].evidence.provider_stream = stream;
+    writeJson(dir, "preregistration.json", manifest);
+    const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+      dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true,
+    });
+    assert.deepEqual(record.provider_stream, stream);
+    prepare(dir);
+    const config = readConfig(dir);
+    assert.deepEqual(config.preregistration.provider_stream, stream);
+    assert.equal(config.preregistration.sha256, shaFile(path.join(dir, "preregistration.json")));
+    assert.deepEqual(config.budget, R06_BUDGET);
+    assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+    assert.equal(config.message, scenario.message);
+    assert.equal(config.target, undefined);
+    assert.equal(config.provider_stream, undefined);
+    assert.equal(fs.existsSync(stream.dir), false, "登记证据位置不创建或伪造代理原件");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("R06 WR02 provider stream 不接受路径猜测、注入模式、新HTTP预算或借用其它场景", () => {
+  const dir = tempDir("r06-provider-stream-invalid-");
+  try {
+    const scenario = R06_CASES.find(item => item.id === "wr02-planning-mission-before-outline");
+    const original = r06Preregistration(dir, scenario);
+    const stream = { dir: path.join(dir, "proxy-01"), mode: "observe",
+      upstream_endpoint: "http://127.0.0.1:8000/v1", max_upstream_requests: null };
+    const invalid = [
+      ["相对路径", { ...stream, dir: "proxy-01" }],
+      ["注入模式", { ...stream, mode: "inject" }],
+      ["改变HTTP预算", { ...stream, max_upstream_requests: 128 }],
+      ["非HTTP上游", { ...stream, upstream_endpoint: "file:///tmp/provider-stream" }],
+    ];
+    const options = { dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true };
+    for (const [label, registration] of invalid) {
+      const bad = structuredClone(original);
+      bad.scenarios[0].evidence.provider_stream = registration;
+      writeJson(dir, "preregistration.json", bad);
+      assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), options),
+        undefined, label);
+      assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
+    }
+    for (const other of R06_CASES.filter(item => item.id !== scenario.id)) {
+      const manifest = r06Preregistration(dir, other);
+      manifest.scenarios[0].evidence.provider_stream = stream;
+      writeJson(dir, "preregistration.json", manifest);
+      assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), options),
+        /only belongs to the registered WR02/u);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("R06 WR02 provider stream 配置副本和冻结原文必须同时核回", () => {
+  const dir = tempDir("r06-provider-stream-binding-");
+  try {
+    const scenario = R06_CASES.find(item => item.id === "wr02-planning-mission-before-outline");
+    splashReady(dir);
+    writeJson(dir, "native-driver-ready.json", { slice_id: scenario.slice_id, provider: "splash" });
+    const manifest = r06Preregistration(dir, scenario);
+    const stream = { dir: path.join(dir, "proxy-01"), mode: "observe",
+      upstream_endpoint: "http://127.0.0.1:8000/v1", max_upstream_requests: null };
+    manifest.scenarios[0].evidence.provider_stream = stream;
+    writeJson(dir, "preregistration.json", manifest);
+    prepare(dir);
+    const original = readConfig(dir);
+    for (const registration of [
+      undefined,
+      { ...stream, dir: path.join(dir, "another-proxy") },
+      { ...stream, upstream_endpoint: "http://127.0.0.1:8001/v1" },
+      { ...stream, max_upstream_requests: 128 },
+    ]) {
+      const changed = structuredClone(original);
+      if (registration === undefined) delete changed.preregistration.provider_stream;
+      else changed.preregistration.provider_stream = registration;
+      writeJson(dir, "native-b71-config.json", changed);
+      assert.throws(() => readConfig(dir), /provider stream metadata differs/u);
+    }
+    const changedManifest = structuredClone(manifest);
+    changedManifest.scenarios[0].evidence.provider_stream.dir = path.join(dir, "another-proxy");
+    const matchingMarker = structuredClone(original);
+    matchingMarker.preregistration.provider_stream = changedManifest.scenarios[0].evidence.provider_stream;
+    writeJson(dir, "preregistration.json", changedManifest);
+    writeJson(dir, "native-b71-config.json", matchingMarker);
+    assert.throws(() => readConfig(dir), /预注册文件已被篡改/u);
+    writeJson(dir, "preregistration.json", manifest);
+    writeJson(dir, "native-b71-config.json", original);
+    assert.deepEqual(readConfig(dir).preregistration.provider_stream, stream);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("R06 三场景启动前拒绝改原话、换slice/作品/seed、追加发送或人工重试", () => {
   const changes = [
     ["原话", (value) => { value.scenarios[0].message += "再多写一章"; }],

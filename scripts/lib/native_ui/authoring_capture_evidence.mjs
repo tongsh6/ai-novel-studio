@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   ROOT,
+  PRODUCTION_TABLES,
   all,
   productionFingerprint,
   productionTableCounts,
@@ -23,6 +24,7 @@ import { DEFAULT_STRATA_MODEL } from "./strata_lifecycle.mjs";
 import { validateAuthorInputs } from "./request_cost_manifest.mjs";
 import { COMPACTION_RUNTIME_PROFILE_ID, RUNTIME_PROFILE_ID, assertManifestRuntime, assertRuntimeFacts, expectedRuntimeFacts, getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { scopeRowValues } from "./chapter_summary_maintenance_evidence.mjs";
 import { referenceLogRows } from "./reference_log_evidence.mjs";
 import { sessionShowCapture } from "./native_http_evidence.mjs";
 import {
@@ -261,6 +263,22 @@ function readAuthorVisibleTarget(scenario, { require = false } = {}) {
   return Object.fromEntries(fields.map(field => [field, value[field]]));
 }
 
+function validatedProviderStream(value) {
+  if (value === undefined) return null;
+  assert(value && typeof value === "object" && !Array.isArray(value), "provider_stream must be an object");
+  assert.deepEqual(Object.keys(value).sort(),
+    ["dir", "max_upstream_requests", "mode", "upstream_endpoint"], "unknown provider_stream metadata");
+  assert(typeof value.dir === "string" && path.isAbsolute(value.dir) &&
+    path.resolve(value.dir) === value.dir, "provider_stream.dir must be an explicit absolute path");
+  assert.equal(value.mode, "observe", "WR02 provider stream must only observe");
+  assert.equal(value.max_upstream_requests, null, "WR02 retains its original null HTTP cap");
+  assert(typeof value.upstream_endpoint === "string" && value.upstream_endpoint !== "",
+    "provider_stream upstream missing");
+  const upstream = new URL(value.upstream_endpoint);
+  assert(["http:", "https:"].includes(upstream.protocol), "provider_stream upstream is not HTTP");
+  return { ...value };
+}
+
 export function validatePreregistrationFile(
   file,
   { dir, provider = "strata",
@@ -332,6 +350,9 @@ export function validatePreregistrationFile(
     typeof scenario.id === "string" && scenario.id.trim() !== "" ? scenario.id : null;
   if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
   const spec = authorVisibleScenarioSpec(actualScenarioId);
+  const providerStream = validatedProviderStream(scenario.evidence.provider_stream);
+  if (providerStream) assert(provider === "splash" && spec?.mission_kind === "planning",
+    "provider_stream metadata only belongs to the registered WR02 live scenario");
   const behavior = spec?.mode === "behavior";
   let runtimeProfile = null;
   if (provider === "splash") {
@@ -394,6 +415,7 @@ export function validatePreregistrationFile(
     model: value.model.model,
     scenario_id: actualScenarioId,
     author_visible_target: authorVisibleTarget,
+    ...(providerStream ? { provider_stream: providerStream } : {}),
     ...(owned ? { slice_id: spec.slice_id, seed: scenario.seed, budget: value.budget } : {}),
     ...(runtimeProfile ? { runtime_profile: runtimeProfile } : {}),
     ...(behavior ? { behavior_case_id: spec.case_id, steps } : {}),
@@ -424,6 +446,8 @@ function checkPreregistration(dir, config) {
     b71Live: true, behaviorCaseId: config.journey === "behavior" ? config.behavior?.case_id ?? null : null });
   assert.equal(marker.id, record.id, "预注册 id 与配置不一致");
   assert.equal(marker.sha256, record.sha256, "预注册文件已被篡改");
+  assert.deepEqual(marker.provider_stream ?? null, record.provider_stream ?? null,
+    "provider stream metadata differs from the frozen preregistration");
   assert.equal(config.message, record.message, "配置作者输入与预注册不一致");
   if (record.seed) {
     assert.deepEqual(config.seed, record.seed, "配置 seed 与预注册不一致");
@@ -661,6 +685,7 @@ export function prepare(dir) {
             id: preregistration.id,
             sha256: preregistration.sha256,
             model: preregistration.model,
+            ...(preregistration.provider_stream ? { provider_stream: preregistration.provider_stream } : {}),
           },
         }
       : {}),
@@ -704,15 +729,38 @@ export function prepare(dir) {
   });
 }
 
-export function planningCanonSnapshot(dir, { includeChapterFacts = true, includeWorkFacts = false } = {}) {
-  return withDb(dir, (db) => buildAuthoringCanonSnapshot({
-    tables: Object.fromEntries(CANON_TABLES.map((table) =>
-      [table, all(db, `SELECT * FROM ${table} ORDER BY id`)])),
-    referenceLogs: referenceLogRows(db),
-    at: new Date().toISOString(),
-    includeChapterFacts,
-    includeWorkFacts,
-  }));
+function planningSnapshotData(dir,
+  { includeChapterFacts = true, includeWorkFacts = false, includeMaintenance = false } = {}) {
+  return withDb(dir, db => {
+    db.exec("BEGIN");
+    try {
+      const tables = Object.fromEntries(CANON_TABLES.map(table =>
+        [table, all(db, "SELECT * FROM " + table + " ORDER BY id")]));
+      const at = new Date().toISOString();
+      const authoring_canon = buildAuthoringCanonSnapshot({
+        tables, referenceLogs: referenceLogRows(db), at, includeChapterFacts, includeWorkFacts,
+      });
+      if (!includeMaintenance) return { authoring_canon };
+      const chapters = scopeRowValues("chapters", tables.chapters).map(row => ({
+        chapter_id: row.id, work_id: row.work_id, seq: row.seq, title: row.title, status: row.status,
+      }));
+      return {
+        at, authoring_canon, chapters, works: scopeRowValues("works", tables.works),
+        db_production_counts: Object.fromEntries(PRODUCTION_TABLES.map(table =>
+          [table, Number(all(db, "SELECT COUNT(*) AS n FROM " + table)[0].n)])),
+        action_receipts: scopeRowValues("author_action_receipts", tables.author_action_receipts),
+        scope_rows: Object.fromEntries(["drafts", "scenes", "chapter_summaries", "ledger_entries"]
+          .map(table => [table, scopeRowValues(table, tables[table] ??
+            all(db, "SELECT * FROM " + table + " ORDER BY id"))])),
+      };
+    } finally {
+      db.exec("ROLLBACK");
+    }
+  });
+}
+
+export function planningCanonSnapshot(dir, options = {}) {
+  return planningSnapshotData(dir, options).authoring_canon;
 }
 
 const isWhyCheckpoint = (planning, checkpoint) =>
@@ -749,12 +797,14 @@ function behaviorStateFacts(dir, target, sessionCapture, sessionCaptureWindow) {
 }
 
 function writeRunCheckpoint(dir, checkpoint, canon,
-  { includeChapterFacts = true, includeWorkFacts = false, stateTarget = null,
+  { includeChapterFacts = true, includeWorkFacts = false, includeMaintenance = false, stateTarget = null,
     sessionCapture = null, sessionCaptureWindow = null } = {}) {
+  const captured = canon ? planningSnapshotData(dir,
+    { includeChapterFacts, includeWorkFacts, includeMaintenance }) : {};
   write(dir, `b71-${checkpoint}.json`, {
     checkpoint,
-    db_production_counts: productionTableCounts(dir),
-    ...(canon ? { authoring_canon: planningCanonSnapshot(dir, { includeChapterFacts, includeWorkFacts }) } : {}),
+    db_production_counts: captured.db_production_counts ?? productionTableCounts(dir),
+    ...captured,
     ...(stateTarget ? {
       state_facts: behaviorStateFacts(dir, stateTarget, sessionCapture, sessionCaptureWindow),
       session_capture: sessionCapture, session_capture_window: sessionCaptureWindow,
@@ -816,6 +866,7 @@ export function capture(dir, checkpoint, { sessionCapture = null, sessionCapture
   return writeRunCheckpoint(dir, checkpoint, canon, {
     includeChapterFacts: !(live || confirmation || autoMaintenance),
     includeWorkFacts: mission,
+    includeMaintenance: mission,
     stateTarget: behavior ? config.target : null,
     sessionCapture, sessionCaptureWindow,
   });

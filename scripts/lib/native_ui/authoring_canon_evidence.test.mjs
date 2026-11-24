@@ -1290,8 +1290,8 @@ test("works 的 canon hash 只排除最近打开时钟 updated_at，其它作品
 });
 
 
-function planningSnapshot({ planningMission = null, revision = 1, at = START, changes = {}, otherWorks = [] } = {}) {
-  const tables = baseTables();
+function planningSnapshot({ planningMission = null, revision = 1, at = START, changes = {}, otherWorks = [], tableChanges = {} } = {}) {
+  const tables = { ...baseTables(), ...tableChanges };
   tables.works = [{
     id: WORK, title: "原作品名", genre: "原类型", inserted_at: START,
     revision, updated_at: at,
@@ -1509,6 +1509,88 @@ test("v2 evidence 明确种类，不从旧字段形状猜测或补默认设计�
       /invalid_authoring_canon_snapshot/u, String(kind));
   }
 });
+
+// WR02 repair 的许可来自独立核账结果；本层只消费绑定本次快照的证据值。
+// 正文/结构/receipt 仍由原 Canon 门保护，不复制摘要或 ledger 业务规则。
+function repairCanonFixture() {
+  const old = { id: "ledger-old-other", work_id: OTHER_WORK, ledger: "arc",
+    subject_ref: "character:other", subject_kind: "character", subject_label: "他作角色",
+    status: "ACTIVE", payload: {}, source_refs: ["chapter_summary:other-chapter"],
+    last_event_chapter: "other-chapter", adoption_status: "ACCEPTED", revision: 4,
+    inserted_at: "2026-10-31T08:00:00.000Z", updated_at: "2026-10-31T08:00:00.000Z" };
+  const added = { id: "ledger-repair-emotion", work_id: WORK, ledger: "emotion_curve",
+    subject_ref: "chapter-row", subject_kind: "chapter", subject_label: "第一章",
+    status: "UNPLANNED", payload: { realized: "平静。" },
+    source_refs: ["chapter_summary:chapter-row"], last_event_chapter: "chapter-row",
+    adoption_status: "ACCEPTED", revision: 1,
+    inserted_at: "2026-11-01T08:00:06.000Z", updated_at: "2026-11-01T08:00:06.000Z" };
+  const start = planningSnapshot({ tableChanges: { ledger_entries: [old] } });
+  const final = planningSnapshot({
+    planningMission: mission({ derived_at: "2026-11-01T08:00:05.000Z" }),
+    revision: 2, at: FINAL, tableChanges: { ledger_entries: [old, added] },
+  });
+  // 人工预置的完整核账结论；未调用待测 repair owner 生成 expected。
+  const maintenanceEvidence = {
+    checks: { provider_observation_bound: true, source_versions_bound: true,
+      summary_results_bound: true, ledger_changes_bound: true, protected_rows_unchanged: true },
+    target_work_id: WORK, start_at: START, final_at: FINAL,
+    ledger_entries: {
+      before: structuredClone(start.tables.ledger_entries),
+      after: structuredClone(final.tables.ledger_entries),
+    },
+  };
+  return { start, final, maintenanceEvidence };
+}
+
+test("WR02 Canon 仅接受绑定本场前后快照的真实维护核账，默认仍拒绝 ledger 变化", () => {
+  const { start, final, maintenanceEvidence } = repairCanonFixture();
+  assert.equal(Object.values(compareSourceDesignSnapshots(start, final,
+    { targetWorkId: WORK }).checks).every(Boolean), false);
+  const accepted = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK, maintenanceEvidence });
+  assert.equal(Object.values(accepted.checks).every(Boolean), true,
+    "已独立证明的旧章 repair delta 不能继续被无条件 ledger 相等判据误拒");
+  assert.equal(compareAuthoringCanonSnapshots(start, final).checks.no_canon_write, false);
+});
+
+test("WR02 零维护保持原严格 Canon 比较，不要求或制造辅助调用证明", () => {
+  const start = planningSnapshot();
+  const final = planningSnapshot({ planningMission: mission(), revision: 2, at: FINAL });
+  const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK });
+  assert.equal(Object.values(result.checks).every(Boolean), true);
+});
+
+for (const [name, change] of [
+  ["另一作品", (e) => { e.target_work_id = OTHER_WORK; }],
+  ["另一开场", (e) => { e.start_at = "2026-11-01T07:59:59.000Z"; }],
+  ["另一终场", (e) => { e.final_at = "2026-11-01T08:00:11.000Z"; }],
+  ["源版本未核实", (e) => { e.checks.source_versions_bound = false; }],
+  ["原始流未核实", (e) => { e.checks.provider_observation_bound = false; }],
+  ["摘要未核实", (e) => { e.checks.summary_results_bound = false; }],
+  ["ledger未核实", (e) => { e.checks.ledger_changes_bound = false; }],
+  ["正文未核实", (e) => { e.checks.protected_rows_unchanged = false; }],
+  ["空检查集合", (e) => { e.checks = {}; }],
+  ["只报计数", (e) => { delete e.ledger_entries.after.rows_sha256; }],
+  ["不同的前态", (e) => { e.ledger_entries.before.canon_sha256 = "0".repeat(64); }],
+  ["不同的后态", (e) => { e.ledger_entries.after.rows_sha256 = "0".repeat(64); }],
+]) {
+  test("WR02 Canon 拒绝不能绑定当前维护的证据：" + name, () => {
+    const { start, final, maintenanceEvidence } = repairCanonFixture();
+    change(maintenanceEvidence);
+    const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK, maintenanceEvidence });
+    assert.equal(Object.values(result.checks).every(Boolean), false);
+  });
+}
+
+for (const table of ["drafts", "chapters", "volumes", "scenes", "characters", "author_action_receipts"]) {
+  test("WR02 维护核账不能豁免 " + table + " 的同计数内容变化", () => {
+    const { start, final, maintenanceEvidence } = repairCanonFixture();
+    // 保持 ledger 的核账完全正确，只改另一受保护表的实际内容签名。
+    final.tables[table].rows_sha256 = "9".repeat(64);
+    final.tables[table].canon_sha256 = "9".repeat(64);
+    const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK, maintenanceEvidence });
+    assert.equal(Object.values(result.checks).every(Boolean), false);
+  });
+}
 
 test("live canon 快照：includeChapterFacts=false 不解析章节设计态（真实 seed 缺 decided_at 仍可取表级签名）", () => {
   // 真实 b71-first-consumer seed 的 chapter_mission 缺 decided_at；live 场景 L9 只
