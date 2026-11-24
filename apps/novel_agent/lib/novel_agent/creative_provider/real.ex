@@ -212,45 +212,55 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp exchange_error(code, reason),
     do: provider_error(code, inspect(reason), provider_error_type(reason))
 
-  defp candidate_feedback(%CreativeProviderResult{errors: [error | _]}) do
-    %{reason_code: error.code, detail: %{}, message: error.message}
+  defp candidate_feedback(%CreativeProviderResult{errors: [error | _] = errors}) do
+    %{
+      reason_code: error.code,
+      detail: %{errors: Enum.map(errors, &Map.take(&1, [:code, :message]))},
+      message: Enum.map_join(errors, "\n", & &1.message)
+    }
   end
 
-  # 阶段输出/companion 范围校验属于同一次工具交换：在 parse 成功路径内拒绝，
-  # 由 NativeToolExchange 用原 call_id 回流并共享同一重试预算。
-  defp parse_native_result(result, request, actual_request) do
-    result
-    |> decode_native_result(request)
-    |> enforce_companion_scope(request)
-    |> enforce_artifact_shape(request)
-    |> validate_used_context_refs(actual_request)
-  end
+  # 候选结构与真实材料资格各有独立输入；同一响应已证的错误一次回流，
+  # 不让条目失败隐藏合法形状的引用问题，也不让坏形状进入资格推断。
+  defp parse_native_result(%{tool_calls: [call]} = result, request, actual_request) do
+    report = call |> map_get(:arguments) |> map_get(:self_report)
+    refs_shape = ToolOutputContract.validate_creative_self_report_refs(report)
 
-  defp validate_used_context_refs(%CreativeProviderResult{status: :ok} = result, actual_request) do
-    used = Map.get(result.self_report || %{}, :used_context_refs, [])
+    parsed =
+      result
+      |> decode_native_result(request, refs_shape)
+      |> enforce_companion_scope(request)
+      |> enforce_artifact_shape(request)
 
-    case RequestIR.validate_used_refs(actual_request, used) do
-      :ok ->
-        result
-
-      {:error, _reason} ->
-        provider_error(
-          "used_context_refs_invalid",
-          "used_context_refs 必须来自本次实际供应的 Base 或 Observation；作者消息来源、未读及其它调用的引用不具备资格"
-        )
+    case used_context_ref_errors(refs_shape, report, actual_request) do
+      [] -> parsed
+      errors -> %CreativeProviderResult{status: :error, errors: parsed.errors ++ errors}
     end
   end
 
-  defp validate_used_context_refs(result, _actual_request), do: result
+  defp used_context_ref_errors(:ok, report, actual_request) when is_map(report) do
+    with used when is_list(used) <- map_get(report, :used_context_refs),
+         {:error, _reason} <- RequestIR.validate_used_refs(actual_request, used) do
+      [
+        %{
+          code: "used_context_refs_invalid",
+          message: "used_context_refs 必须来自本次实际供应的 Base 或 Observation；作者消息来源、未读及其它调用的引用不具备资格"
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp used_context_ref_errors(_refs_shape, _report, _actual_request), do: []
 
   # 单工具交换由 NativeToolExchange 的允许响应门保证（恰好一个具名 tool call）；
   # 这里不再保留「无 tool call → 解析纯文本 JSON」的退役 fallback。
-  defp decode_native_result(%{tool_calls: [call]} = result, request) do
+  defp decode_native_result(%{tool_calls: [call]} = result, request, refs_shape) do
     arguments = map_get(call, :arguments)
 
     with :ok <- validate_native_content(result),
-         :ok <-
-           ToolOutputContract.validate_creative_self_report_refs(map_get(arguments, :self_report)),
+         :ok <- refs_shape,
          true <-
            ToolArgumentSchema.valid?(
              arguments,

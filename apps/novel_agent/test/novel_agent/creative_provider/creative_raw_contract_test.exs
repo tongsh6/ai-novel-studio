@@ -290,22 +290,13 @@ defmodule NovelAgent.CreativeProvider.CreativeRawContractTest do
       }
     ]
 
-    state = start_supervised!({Agent, fn -> {results, []} end}, id: make_ref())
-
-    execution = %Execution{
-      result_fn: fn ir ->
-        Agent.get_and_update(state, fn
-          {[result | remaining], calls} -> {{:ok, result}, {remaining, calls ++ [ir]}}
-          {[], calls} -> {{:error, :unexpected_extra_call}, {[], calls ++ [ir]}}
-        end)
-      end
-    }
+    {execution, calls} = captured_provider(results)
 
     assert {%{status: :ok, items: [%{item_id: "corrected", body: "沈砚没有追问。"}]}, session} =
              Real.generate_with_session(request, execution)
 
     assert session.provider_call_count == 2
-    assert [first_request, corrected_request] = Agent.get(state, fn {_, calls} -> calls end)
+    assert [first_request, corrected_request] = calls.()
     assert first_request.refs == corrected_request.refs
 
     assert [
@@ -319,6 +310,147 @@ defmodule NovelAgent.CreativeProvider.CreativeRawContractTest do
              )
 
     assert {:ok, ["raw-corrected"]} = RequestIR.pending_call_ids(session.request_ir)
+  end
+
+  test "同一候选的结构与引用错误一次回流，修正后才交付原字节", %{request: request} do
+    invalid = %{
+      "items" => [Map.delete(@item, "title")],
+      "self_report" => %{"used_context_refs" => ["chapter:raw-base", "turn:raw-author"]}
+    }
+
+    corrected = Map.put(@arguments, "self_report", %{"used_context_refs" => ["chapter:raw-base"]})
+
+    {execution, calls} =
+      captured_provider([
+        native_response("compound-first", invalid),
+        native_response("compound-corrected", corrected)
+      ])
+
+    parent = self()
+
+    validator = fn result ->
+      send(parent, {:application_validated, result.items})
+      :ok
+    end
+
+    assert {%{status: :ok, items: [item]}, session} =
+             Real.generate_with_session(request, execution, validate_result: validator)
+
+    assert session.provider_call_count == 2
+    assert [first, second] = calls.()
+    assert first.refs == second.refs
+    assert raw_arguments(second, "compound-first") == invalid
+    assert [receipt] = failed_receipts(second)
+    assert receipt.call_id == "compound-first"
+    assert receipt.reason_code == "provider_response_invalid"
+    assert receipt.retryable == true
+
+    assert receipt.budget_after["exchange"] == %{
+             "provider_call_budget" => 2,
+             "provider_call_count" => 1
+           }
+
+    assert [
+             %{"code" => "provider_response_invalid"},
+             %{"code" => "used_context_refs_invalid"}
+           ] = receipt.detail["errors"]
+
+    assert receipt.detail["message"] =~ "原始候选参数不符合本次工具 schema"
+    assert receipt.detail["message"] =~ "used_context_refs 必须来自本次实际供应的 Base 或 Observation"
+    assert item.title == " 雨夜 Ω "
+    assert item.body == " \r\n雨滴落在桌沿。\n\n沈砚收回了手。\t\r\n"
+    assert item.rationale == "让迟疑落在动作上。\n保留停顿。"
+    assert_receive {:application_validated, [^item]}
+    refute_receive {:application_validated, _}
+    assert {:ok, ["compound-corrected"]} = RequestIR.pending_call_ids(session.request_ir)
+  end
+
+  for {label, second_item, expected_codes} <- [
+        {"只修标题", @item, ["used_context_refs_invalid"]},
+        {"两项仍错", Map.delete(@item, "title"),
+         ["provider_response_invalid", "used_context_refs_invalid"]}
+      ] do
+    test "复合错误的第二次输出#{label}仍整体拒收且不增加预算", %{request: request} do
+      first_arguments = %{
+        "items" => [Map.delete(@item, "title")],
+        "self_report" => %{"used_context_refs" => ["chapter:raw-base", "turn:raw-author"]}
+      }
+
+      second_arguments = %{
+        "items" => [unquote(Macro.escape(second_item))],
+        "self_report" => %{"used_context_refs" => ["chapter:raw-base", "turn:raw-author"]}
+      }
+
+      {execution, calls} =
+        captured_provider([
+          native_response("compound-first", first_arguments),
+          native_response("compound-last", second_arguments)
+        ])
+
+      parent = self()
+      validator = fn _result -> send(parent, :invalid_application_dispatch) end
+
+      assert {%{status: :error, items: [], companion_artifacts: [], errors: errors}, session} =
+               Real.generate_with_session(request, execution, validate_result: validator)
+
+      assert Enum.map(errors, & &1.code) == unquote(expected_codes)
+      assert session.provider_call_count == 2
+      assert [_first, second] = calls.()
+      assert raw_arguments(second, "compound-first") == first_arguments
+      assert raw_arguments(session.request_ir, "compound-last") == second_arguments
+      assert [first_receipt, last_receipt] = failed_receipts(session.request_ir)
+
+      assert [
+               %{"code" => "provider_response_invalid"},
+               %{"code" => "used_context_refs_invalid"}
+             ] = first_receipt.detail["errors"]
+
+      assert last_receipt.call_id == "compound-last"
+      assert last_receipt.reason_code == hd(unquote(expected_codes))
+      assert last_receipt.retryable == false
+
+      assert last_receipt.budget_after["exchange"] == %{
+               "provider_call_budget" => 2,
+               "provider_call_count" => 2
+             }
+
+      assert Enum.map(last_receipt.detail["errors"], & &1["code"]) == unquote(expected_codes)
+      assert {:ok, []} = RequestIR.pending_call_ids(session.request_ir)
+      refute_receive :invalid_application_dispatch
+    end
+  end
+
+  test "坏报告或引用形状不被过滤或猜成独立的引用资格错误", %{request: request} do
+    for {report, expected_code} <- [
+          {42, "provider_response_invalid"},
+          {false, "provider_response_invalid"},
+          {[], "provider_response_invalid"},
+          {nil, "provider_response_invalid"},
+          {%{"used_context_refs" => nil}, "invalid_used_context_refs"},
+          {%{"used_context_refs" => false}, "invalid_used_context_refs"},
+          {%{"used_context_refs" => "turn:raw-author"}, "invalid_used_context_refs"},
+          {%{"used_context_refs" => %{"ref" => "turn:raw-author"}}, "invalid_used_context_refs"},
+          {%{"used_context_refs" => ["chapter:raw-base", nil]}, "invalid_used_context_refs"},
+          {%{"used_context_refs" => ["turn:raw-author", " \t"]}, "invalid_used_context_refs"}
+        ] do
+      arguments = %{"items" => [Map.delete(@item, "title")], "self_report" => report}
+      {execution, _calls} = captured_provider([native_response("bad-shape", arguments)])
+      parent = self()
+      validator = fn _result -> send(parent, :invalid_application_dispatch) end
+
+      assert {%{status: :error, errors: [%{code: ^expected_code}]}, session} =
+               Real.generate_with_session(request, execution,
+                 validate_result: validator,
+                 max_provider_calls: 1
+               )
+
+      assert raw_arguments(session.request_ir, "bad-shape") == arguments
+      assert [receipt] = failed_receipts(session.request_ir)
+      assert receipt.reason_code == expected_code
+      refute receipt.detail["message"] =~ "used_context_refs 必须来自"
+      assert receipt.retryable == false
+      refute_receive :invalid_application_dispatch
+    end
   end
 
   test "发给模型的 root item self_report 与接收边界使用闭合字段", %{request: request} do
@@ -335,5 +467,42 @@ defmodule NovelAgent.CreativeProvider.CreativeRawContractTest do
              ["assumptions", "intended_reader_effect", "risk_flags", "used_context_refs"]
 
     refute Map.has_key?(schema["properties"]["items"]["items"]["properties"], "provider_call_ref")
+  end
+
+  defp native_response(id, arguments) do
+    %{
+      content: "",
+      tool_calls: [%{id: id, name: "submit_tentative_artifact", arguments: arguments}]
+    }
+  end
+
+  defp captured_provider(results) do
+    state = start_supervised!({Agent, fn -> {results, []} end}, id: make_ref())
+
+    execution = %Execution{
+      result_fn: fn ir ->
+        Agent.get_and_update(state, fn
+          {[result | remaining], calls} -> {{:ok, result}, {remaining, calls ++ [ir]}}
+          {[], calls} -> {{:error, :unexpected_extra_call}, {[], calls ++ [ir]}}
+        end)
+      end
+    }
+
+    {execution, fn -> Agent.get(state, fn {_remaining, calls} -> calls end) end}
+  end
+
+  defp raw_arguments(ir, id) do
+    [arguments] =
+      for %{role: "assistant", blocks: blocks} <- ir.messages,
+          %{type: "tool_call", call_id: ^id, arguments: arguments} <- blocks,
+          do: arguments
+
+    arguments
+  end
+
+  defp failed_receipts(ir) do
+    for %{role: "tool", blocks: blocks} <- ir.messages,
+        %{type: "validation_result", status: "failed"} = receipt <- blocks,
+        do: receipt
   end
 end
