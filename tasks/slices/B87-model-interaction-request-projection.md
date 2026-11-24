@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing / NOT PASS（2026-11-24 重核）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 已有各自边界内的签收；R06–R08 的实现、真实失败与缺证分列如下；R17–R19 未满足开工前置。当前核定与有限接续见 §21，B87 / Issue #4 尚未完成。
+**状态**：**doing / NOT PASS（2026-11-24 重核并推进）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 与 R07 已有各自边界内的签收；R07 已补齐真实执行 / 采纳 / 回放及取消标题缺口，同源五场与原 scope 完整工程门禁通过，核定与最终交付出口见 §22.11；R06 / R08 的真实失败与有限剩余项继续保留；R17–R19 未满足开工前置。开工盘点见 §21，原失败与签收撤回历史见 §22.1–§22.10；B87 / Issue #4 尚未完成。
 
 | 批次 | 当前核定 | 已成立的交付 / 尚缺内容 | 依据 |
 |---|---|---|---|
@@ -13,13 +13,13 @@
 | R04 唯一 Scope 与三 wire | **应用范围 PASS** | 应用契约签收；旧原生 FAIL 与未观测项仍在原件 | §15.6 |
 | R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
 | R06 作者可见表达 | **实现完成；blocked / NOT PASS** | C9、WR02 普通作者说明仍有内部操作名泄漏；WR01 live 终局 / 恢复缺证 | §17.4–§17.5 |
-| R07 真实工具与接收闭环 | **实现完成；blocked / NOT PASS** | 专属原生矩阵、采纳后动作 Replay / Why、原 scope completion 待补；旧 SecurityAgent 阻塞仅为当次事实 | §18.5–§18.8、§21.1 |
+| R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
 | R08 目标、范围与来源语义 | **doing / NOT PASS** | GREEN09 与九批有限实模已交付；事实夸大、T1 歧义选错、P2 未交付保留；P1 采集缺证已补齐，机械核账缺口另列 | §19.45–§19.51、§21.2–§21.3 |
 | R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
 | R18 长篇创作全链回归 | **未开始；前置未满足** | 等 R02–R08 与 R17 完成；负责专业创作质量回归 | §20.2 |
 | R19 最终 A/B 与关闭 | **未开始；前置未满足** | 等 R00–R08、R17 / R18 PASS；保留原三轮及最终实模 / Tauri 验收 | §20.2 |
 
-以上是 **6 / 12 批已有各自范围签收**的盘点，不是工作量等权的“完成度 50%”。本次核定没有重跑前六批，也没有用后继工程结果覆盖原始失败。
+以上是 **7 / 12 批已有各自范围签收**的盘点，仅表示批次数量，不换算成工作量完成百分比。本次没有重跑已签的前六批，也没有用后继工程结果覆盖原始失败。
 
 - **当前范围与排期（2026-11-24）**：B87 仅保留 **R00–R08、R17–R19**；原 R09–R16 的任务卡与后续验收转入 [B89](B89-author-controlled-execution.md)，继续遵守作者暂停指令。执行边界以 §20 为准；下述旧排期、§1 重排背景及各历史批次记录按当时事实保留。
 
@@ -2698,7 +2698,7 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 
 ## 18. R07 独立实施、阶段验证与原生恢复（2026-11-21—22）
 
-**状态：blocked，R07 NOT PASS。** 实现与阶段推送已完成，真实页面及原 scope completion 未闭合，恢复入口见 §18.7。开工从已推送 clean `2ca4b7d71c5e8b5feac16478d01700b9f6d86779` 开始，分支不变；R06 的 blocked/失败责任见 §17.5。独立审查上下文仅接受本批卡与共享 README，自行核愿景、设计和真实消费者。原 scope 为 `artifacts/slice-verify/b87-r07-20261121/scope.json`，scope_id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；实际 `scope-begin-01` 退出 0、源不变。下文 R7 指该父目录。§18.1–18.3 保留实施前裁决，实际执行与失败见 §18.4–18.7；阶段工程结果不代签批次。
+**阶段状态（截至 2026-11-22）：blocked，R07 NOT PASS；当前签收复核见 §22.10。** 当时实现与阶段推送已完成，真实页面及原 scope completion 未闭合，恢复入口见 §18.7。开工从已推送 clean `2ca4b7d71c5e8b5feac16478d01700b9f6d86779` 开始，分支不变；R06 的 blocked/失败责任见 §17.5。独立审查上下文仅接受本批卡与共享 README，自行核愿景、设计和真实消费者。原 scope 为 `artifacts/slice-verify/b87-r07-20261121/scope.json`，scope_id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；实际 `scope-begin-01` 退出 0、源不变。下文 R7 指该父目录。§18.1–18.3 保留实施前裁决，实际执行与失败见 §18.4–18.7；阶段工程结果不代签批次。
 
 ### 18.1 七问
 
@@ -3763,7 +3763,7 @@ B87 仍保留现有作者确认和采纳权威、作品隔离、目标/版本/�
 
 ### 20.3 既有状态、证据与接续
 
-R06 blocked/NOT PASS、R07 blocked/NOT PASS、R08 doing/NOT PASS 及各自原始范围/失败/缺证继续有效。R08 原三轮仍是关键验收依据，§19.51 的有限剩余项不变；其中“目录与真实效果对齐”的未来工程承接改指 B89 A01（原 R09），B30 实际结构维护、R08 事实/对象语义、R07 接收器和 B28 采集责任仍按原 owner 分别处理。
+**本节记录拆分当时的状态**：R06 blocked/NOT PASS、R07 blocked/NOT PASS、R08 doing/NOT PASS；各自原始范围及失败/缺证原件保留。当前 R07 已按 §22.11 在原范围签收，R06 / R08 仍未通过。R08 原三轮仍是关键验收依据，§19.51 的有限剩余项不变；其中“目录与真实效果对齐”的未来工程承接改指 B89 A01（原 R09），B30 实际结构维护、R08 事实/对象语义、R07 接收器和 B28 采集责任仍按原 owner 分别处理。
 
 原 R08 任务卡、实施 scope、最终工程交付索引与历史实模原件保留；离线候选包的固定源正文/哈希不重写。项目画像的身份、生命周期和保护约束不改，历史范围摘要不作为新任务前置；当前范围以本节为准，NEXT 仅提供当前调度导航。
 
@@ -3812,3 +3812,262 @@ R06 blocked/NOT PASS、R07 blocked/NOT PASS、R08 doing/NOT PASS 及各自原始
 - **有限后续归属**：上述四项登记为现 B28 证据消费者 `native_b28_scope_evidence.mjs` 的辅助维护核账缺口，复用现 B33 对真实摘要材料 / 源版本 / 原始流 / DB / ledger 的判据处理；既有原报告与严格创作边界保留。不新造产品功能、不扩大 R08 语义分母、不追加本次模型批次。它不阻断 R07 独立机制补证；B87 主线继续恢复 R07，R06 / R08 真实语义失败仍待原范围处理。
 
 原生与首轮工程源指纹均为 `d99a1eba3a07dd2d61352e1acba3b24ba975d542f548f013a262725927063e18`；定向测试到该源只差本总文档末尾空行修正。此处是实测后的状态回填；后续交付索引须单列文档变化与源码身份，不能把原生原件重签成另一源码或 B28 全矩阵 / R08 PASS。
+
+## 22. R07 专属机制验收恢复（2026-11-24）
+
+**本轮接续开工时：doing / NOT PASS；当前签收结果见 §22.11。** P1 有限接续已以 `cb802ddf` / `1fee5e56` 分组提交并推送；其交付索引为 `artifacts/slice-verify/b87-r08-20261122/status-p1-20261124-01/delivery-final-01.json`。本轮按作者“核定后继续推进”恢复 R07 自身缺证，不等待 B28 后验核账、R06 全部作者语言问题或 B89。R07 原范围、原实现与历史失败保持，不能由本轮一个页面补采代签整批。
+
+### 22.1 开工边界、七问与查重
+
+R07 使用全新编码会话，从共享 README / R07 卡恢复；接续基线为干净且远端一致的 `1fee5e56136d217c3ce9fb1e9815633ac4eba8b4`。**沿用原 scope** `artifacts/slice-verify/b87-r07-20261121/scope.json`，id `fea89dc3-ca2b-4a6d-bcbb-02b2db4b5b2e`，SHA `f9e0db9d68f0ceb0aa069eba5571c8a0f216a5410dac6a995fe6569c237bf2e4`；不重新 begin 缩小历史增量。当前接续快照与运行证据保存在原证据根的 `resume-20261124-01/`。
+
+| 七问 | 本次答案 |
+|---|---|
+| Contract | R07、VS-00M §6.3 / §12.1、现 TurnResult / action_result、采纳 receipt、Trace / Replay / state_trace_refs；不增产品契约。 |
+| Invariant | 真实 accept 动作回合、source turn、artifact、adopted state 与唯一 receipt 一一绑定；采纳后 Why 必须回查该动作，窗口内 0 Provider / 0 额外 Canon。原生成回合 Why 断言保留。 |
+| Boundary | 现外部 pending driver / evidence / run_evidence、必要现测试及 fixture / 索引；禁止改产品按钮、API、schema、权限模式、模型提示或 B89。 |
+| Consumer | `drivePending` 保留实际 accept TurnResult；按该作者块内的真实动作说明唯一定位 Why；真实 `getTurnReplay` 回流由现 `verifyPendingBatch` 核验。 |
+| Proof | 错消息 / 旧轮 / 重复文本 / 多义按钮、错 work / session / action / source / artifact / adopted ref、缺或重复 Replay、Why 窗口额外调用 / 写入均拒绝；回执与持久回放按真实形状相互核对。 |
+| Acceptance Driver | 原四场真实 Tauri 机制矩阵：WR02、revision、confirmation reject、pending；统一 `slice_verify`，独立目录 / scope start / finish / 实际退出码。零外部实模，不新增语义评分。 |
+| Exploration | 无新增作品事实或模型知识入口；仅观察已有作者动作与其持久回放，不改变 Base / Observation 引用资格。 |
+
+**存在性审计**：现 WorkspaceChat 已为每条 assistant TurnResult 提供 Why 并按其 turn_id 请求 Replay；现 pending evidence 已有作者边界、同级消息、唯一按钮判据，现 `native_http_evidence.replayCapture` 和 pending run evidence 已有真实 acceptTurn / receipt。裁决为 **reuse**，仅在现 owner 补动作消息定位与绑定；新增模块、表、持久字段、产品 API / UI、runner 均为 **none**。禁止硬编码历史 AX 路径、点“最后一个为什么”或借原生成回合的回放替代动作回放。
+
+### 22.2 有限验证与签收条件
+
+1. 定向机制测试覆盖新动作 Why 及旧生成 Why；相邻 B28 / B33 回归确认 P1 维护等待仍有效。原负例不得删除或放宽。
+2. 代码 / 文档稳定后冻结当前源码、每场原输入 / seed / 实际 slice / 预算 / 新目录，再顺序执行四场原生；使用现 `test_env` 所有权与清理回路，不并行操作窗口。confirmation 输出目录名含 `b71-authoring-confirmation`，实际 slice 身份仍为 `b71-first-consumer`。
+3. 先由现 `task_done_check` 为原 scope 生成真实 execution start，结束用实际日志 / exit 生成 binding；缺证即保留缺证，不补造成功。pending 还必须采纳后真实 Why、放弃、重开与后续状态全部闭合。
+4. 四场按各自断言核定后，使用原 R07 scope、该 scope 下真实 pending summary / binding 运行完整 `task_done` 和 full 静态扫描；单份工程 manifest 不能代表四场自动通过。R07 签收仍须逐项覆盖原 DoD，任何真实剩余项继续明列，不连带关闭 R06 / R08 或 Issue #4。
+
+### 22.3 首轮四场的真实结果与有限修复边界
+
+本轮定向机制回归最终为 **596 / 596**、exit 0、skip / cancel 均 0，原 red 和 fixture 误序失败保留。`mechanism-green-03/` 普通 Git 快照为 `9b9ba0c0…`；原 scope 的当前快照为 `de436d1f…`，逐项对账唯一差别是原 baseline 保留的 R09–R16 八个 missing 标记，实际源码、HEAD 和 WIP 一致，见 `source-fingerprint-reconciliation.json`。四场预注册 `native-preregistration-01.json` 在运行前冻结，四场执行均使用原 scope，源前后均为 `de436d1f7709d2a4b8c93c08e6effa4550ee6b6274fd9f8e00d7136bc463de87`，没有外部模型调用或批内重试。
+
+| 原生场景 / 接续目录 | 实际结果 | 本次结论 |
+|---|---|---|
+| pending / `native-pending-01` | exit 0，89 / 89，binding passed，owner 已清理 | 生成 Why、真实采纳后动作 Why、放弃、恢复与追问本场通过；独审 14 组核账全部成立 |
+| WR02 / `native-wr02-01` | exit 0，14 / 14，binding passed，owner 已清理 | 原使命纠错、候选 / Why 与恢复本场通过；不代签 R06 的 live 作者语言 |
+| revision / `native-revision-01` | exit 1，无 summary；binding 因缺本次输出而拒绝，owner 已清理 | 原正文与质量卡已成功；实际局部修订子运行在 step 3 报 `interaction_persistence_failed`。底层原因仍须核原流 / DB，不能归为窗口权限或把缺报告记为通过 |
+| confirmation reject / `native-reject-01` | exit 1，无 summary；binding 因缺本次输出而拒绝，owner 已清理 | 产品已给 `needs_confirmation` 与两枚真实动作；driver 在点击前报 `card_text_lines_missing`，没有发出作者拒绝动作，不能声称拒绝产品链已失败或通过 |
+
+上述目录均在 `resume-20261124-01/`。pending 独审为 `native-pending-01/independent-pending-review-foundation.json`，SHA `e65af3bb1bff7c8d3364466f12d1dd6b41c96c0d6799cde52e8d0e699a277a6d`；真实 action HTTP、TurnResult、持久 state refs、receipt 与实际 memory / mutation / source revision 互相闭合，动作 Why 窗口零 Provider / 零额外 Canon。该独审仅签本场，原语义未签与 gate-order 未记录边界保留。**四场尚未全部通过，原 scope full completion 尚未执行，R07 继续 NOT PASS。**
+
+**confirmation 的可证根因与最小处理。** 现 `confirmationCardLines` 从 `harness.axText` 的装饰文本中找“需要确认”前缀；本次真实 AX 标题在节点 `value`，装饰表示为 `(value=需要确认)`，因此漏收已可见的真实卡片。Contract / Invariant 沿 §22.1，补充为当前作者消息内真实卡片标题、正文与唯一动作一一对应；Boundary 限现 `authoring_confirmation_evidence.mjs`、真实 driver 调用及原测试。存在性审计复用现 AX 节点 / 消息范围与 `locateMessageCardButton`，迁移到真实节点字段，退役本消费者对装饰字符串的解析，不改全局 harness 输出、产品 UI / API / 验证门或模型协议，也不新增框架 / module。Proof 使用本次真实 AX 形状独立手写正例与缺标题 / 正文、非节点输入和现错轮 / 缺失 / 重复 / disabled 按钮反例；现唯一消息 / 按钮边界不得放宽。Acceptance Driver 仅在代码与定向回归通过后，另冻同场新目录、同输入 / seed / 预算，先保留 01 失败再做有限补证；不重发外部模型，不借 pending / WR02 抹去失败。Exploration 无新增事实或来源资格。revision 尚在独立诊断，未据错误码直接修改产品或替身。
+
+### 22.4 同轮真实消费者与修订会话接续的根因处理
+
+进一步独立核查确认，confirmation 还有同一采集链的第二个形状缺口：真实标题与正文位于同级 AX group，按钮也是同级节点；现 `locateMessageCardButton` 沿候选 artifact 的共同祖先定位，将整条 chat 当成卡片，随后正确地被作者消息边界拒绝。旧嵌套 fixture 没有覆盖真实形状。最小范围追加现 `authoring_pending_evidence.mjs` 的该入口，查重确认现役调用者为 confirmation owner；复用本文件既有消息块、兄弟顺序和唯一按钮判据，支持实际同级卡片，不复制作者块算法、不伪造 AX 树、不将标题冒作正文。pending 候选 / 动作 Why 以及 P1 维护等待不改。实际标题 / 正文 / 按钮须在同一当前作者消息内；错轮、跨卡片拼接、重复卡 / 按钮、候选 article 伪标题、缺正文、隐藏 / disabled 均须拒绝。首轮失败保持。
+
+**revision 的已证根因**：本次父 run 已 completed，并已保存 canonical 会话；child 首个 Provider 请求却只有 application base 与 scope update 两条，漏了父段 20 条非 base 历史。child 纠错段的原生 call_id 与父段已有值碰撞；提交把真实父历史与 child 段合并后，由现 `RequestIR.validate_call_bindings` 严格返回 `duplicate_call_id`，上层转成 `interaction_persistence_failed`。真实日志显示 BEGIN 后读取会话即 ROLLBACK，尚未 INSERT interaction / child 段 / 候选，不是已证 SQLite 锁或 SQL 约束故障。当前 `AuthoringSession.with_request_view` 在没有本 run transcript 时只放入 `initial_session_history`，而工具入口 `bind_tool_request` 经 `request_ir(snapshot)` 取得 nil，没有消费它；judgment 入口已有消费者。不得换 fixture call_id 或放宽提交检查掩盖真实接续遗漏。
+
+| 补充七问 | 有限实施边界 |
+|---|---|
+| Contract | 现 AuthoringSession / AuthoringTranscript / AuthoringSessionHistory 的 canonical request view 与本 run 段分离；修订工具首次请求也必须消费真实同会话父历史。 |
+| Invariant | 原父消息 / 原生调用字节与来源保留；历史仅供请求、不重复持久化；新段只存本 run；真实 duplicate / orphan、跨作品 / 会话、范围、版本与采纳检查不放宽。 |
+| Boundary | 产品仅现 `agent_run_flows/authoring_session.ex` 的工具请求绑定 owner；测试复用 `authoring_session_test.exs` 与 `agent_run_prose_revision_flow_test.exs`。不改 Provider 替身的固定 call_id、不加产品特例、重试、模型提示、数据字段或新模块。 |
+| Consumer | `with_request_view` → `bind_tool_request`；nil transcript 且已有真实 initial history 时，以当前 run 的 authorless 段经现 compose 生成请求视图。已有 transcript 沿原路，无历史维持现行为，不从目标补造作者消息。 |
+| Proof | 先将真实父 run 经现 bounded flow 提交到同一 session，再从其 TurnResult 启 child；首次请求含父原文与闭合调用，纠错请求保留前缀和失败回执，最终 canonical / trace / interaction 一致且父段未变。故意重新混入父 canonical call_id 的负例仍精确拒绝，持久事实不前进。 |
+| Acceptance Driver | 两组测试先独立 RED，再最小实现与相关 GREEN；产品改动后按既有完整后端 / 不变量门禁复验，再冻结新源、同输入 / seed / 预算和新目录补原 revision / reject 场景，最终 pending 与原 scope full gate 绑定最终源码。首轮两场成功及两场失败都保留原身份。 |
+| Exploration | 只恢复已有真实历史的供应，不引入新作品事实 / 来源资格，也不改变修订目标或派发权限。 |
+
+两组改动分别由现 owner 承担，测试和原生执行前统一冻结共享源码，禁止在他组运行中改文件。`RequestIR` / `AuthoringCheckpoint` 的严格检查与原 fixture 保持，若新反例不支持上述因果就停止该实现并保留结果；此节不预填修复成功或 R07 PASS。
+
+### 22.5 已修复事实与测试职责整理
+
+confirmation 四文件修复已独审并经 `reject-nodes-green-01` **663 / 663**、exit 0 验证，原 scope 源前后同 `53e0b347…`。产品首次工具历史供应经 `revision-history-green-02` **27 tests / 0 failures**、exit 0 验证，源前后同 `4b179d2f…`；真实父历史完整进入首次请求，纠错前缀、实际 2 Provider / 1 tool、child 仅保存本段、父完整 DB 不变、局部范围外原字节与严格重复编号拒绝均实际通过。两份成功原件各保留本身源码身份，不能互相重签。原首轮四场成败与所有失败原件不回填。
+
+产品只在现 `AuthoringSession.bind_tool_request` 的首次入口消费已取得的真实历史，复用现 authorless / compose / to_request_ir；已有 IR 优先，无历史仍 nil。系统封包最终复用 `RequestIR.system_envelope(run_role: "creation_run")` 的既有默认规则，没有新增提示规则。真实工具说明仍沿现续行投影进入 application_notice；这不等于修复前无历史请求与修复后有历史请求的 system 字节完全相同。
+
+过程证据分列：`revision-history-red-bind-01` 真正命中 nil IR；`revision-history-red-flow-01/02` 分别因新测试前置缺真实章节、测试持久读取注入未开启而未到 child，属于前置失败；`revision-history-red-flow-03` 才实际命中已持久父历史未进入 child，Mix 实际失败码均为 2，不改写成 1。`revision-history-duplicate-control-01` 为严格拒绝对照，实际通过。`revision-history-green-01` 为 26 / 27，持久 transcript 与 SliceVerify 公开日志混用了表示层；日志按既有规则裁掉 provider_state/provider_session，原失败输出又被 inspect 截断，不能凭该轮说其余全部相同。GREEN02 仅对齐这两私有字段，保留其它全量严格相等及父 DB 完整不变；实过后才确认公开表示其余字段与顺序一致，并已补不截断的失败诊断。
+
+**工程预检的真实新阻断**：`preflight-01` 的格式与 diff 检查均为 0，模块规模检查 exit 1：`authoring_session_test.exs` 810 行超过未登记 800 行门槛；`agent_run_prose_revision_flow_test.exs` 1569 行超过既有 1307 + 66 行界限，NEXT 检查尚未到达。不得删除断言、压行或抬 baseline 过门。
+
+**前向测试归属裁决（替换 §22.4 的两个测试落点，生产范围不变）**：新增纯测试文件 `apps/novel_application/test/novel_application/authoring_session_tool_history_test.exs`，模块 `NovelApplication.AgentRunFlows.AuthoringSessionToolHistoryTest`，集中迁入本轮首次工具绑定、真实父子修订及严格重复编号拒绝三例和必要私有夹具。三个文件合计仍为 27 例，所有原断言保持；旧 unit / flow 的原有测试不删。首个消费者是 ExUnit 对现 AuthoringSession / ProseRevisionService / canonical commit 的实链回归，不增加任何产品模块 / API / 字段 / Provider 替身。
+
+存在性审计：现 B81 CP2 session derivation 负责计划 / 使命等专业请求，history 负责 fetch / compose / strip，persistence 负责 snapshot；将真实 Gateway 父子环境分别塞入这些 owner 会混入不同职责。现 support 仅有清理、事件与 compaction，没有等价父子 Gateway harness。选择一个职责集中测试模块，直接复用现 TestAgenticLoopFixtures、Relay、Cleanup；不另造共享测试框架。原例仍使用的局部值构造 / 入口调用可在新模块保留最少必要私有夹具，明确承担有限测试重复成本，不能复制生产运行算法、Provider 实现或 cleanup。预估新模块约 580–620 行，旧 unit 约 761、flow 约 1323；最终以实际模块门禁为准，不预写通过。
+
+迁移后核三例名称、全部断言、原父 helper 与合计测试数，运行同等定向回归和格式 / 规模 / diff / NEXT 预检，再冻结当前源码进入完整 mix check、修后同源四场和原 scope full task_done。此整理只解决本次必要测试的职责与规模，不扩展 B87 产品范围或启动 B89。
+
+### 22.6 修后同源矩阵与原 scope 工程出口
+
+测试职责迁移已实际完成。`test-history-split-green-01` 为 **27 / 27、exit 0**；`preflight-test-split-02` 的格式、diff、模块规模、NEXT 四项均 **exit 0**，两场源前后均为 `bab9dbd49334efb71c70232a02df564d1c2686c52fd0939151f4755cafdb0628`。新测试模块实际 588 行；原两个测试文件分别为 761 / 1323 行，已逐字节恢复到当前 HEAD。迁移前三个完整测试块及 20 个 helper 定义 / 分支的归一内容 SHA 均一致；不存在减例或放宽断言。生产文件 SHA 仍为 `d5bf68e4fa777c445fc6241101bac33a6ba817f1a34324bdb973ac60dd54a6b7`，全部 scripts JS 字节保持，原件见 `preflight-test-split-02/migration-identity.json`。原 663 / 663 Node 与 27 / 27 后端结果各保留原指纹。
+
+**以下为运行前登记，不预填结果。** 本节稳定后停止源码 / 文档编辑，沿原 R07 scope 运行完整 `mix check`，包括其实际 alias 的强制零警告编译、两类 codegen、enum lint、零环、全部后端测试、架构 / ADR 与 I-CACHE；完整静态扫描不能替代这次后端全回归。执行保存在 `full-mix-check-01/`，必须记录真实退出码、日志、owned 清理及前后源码身份。
+
+完整后端通过且当前源码未变后，另冻 `native-preregistration-02.json` / `native-source-before-02.json`，按 **revision → confirmation reject → pending → WR02** 顺序重验原四场。本次重验的理由是首次工具请求这个共同产品入口已修复，同时确认卡消费者已修复；不是只因文档变动循环运行。沿首轮原输入 / seed / 实际 slice / 环境 / 预算，tag 与独立目录改用 `…-20261124-02` / `native-<case>-02`，仍为 slice_verify、0 外部模型、0 人工 / harness 批内重试。每场实际 execution start / finish 绑定原 scope；新失败另存，不能覆盖 01 或手造 summary。
+
+四场分别按真实断言与原 R07 七步 DoD 核定。七字段工具回执、合法 refs / 效果 / 作品 / 版本、原参数拒收与两次有界纠错、候选 / 采纳状态分离、三 wire 原生协议等继承 §18 的现 owner，并由当前完整相关门禁复验；卡片中的旧别名与待对账字段按 VS-00M §6.1 / §6.3 / §12.1 对应现 `submit_tentative_artifact` / rationale / self_report 与 Base / Observation，不能再造同义工具或来源账本。机制四场不代签 R06 / R08 作者语言或三家官方供应商实测。
+
+四场全部实过后，用原 `scope.json`、本次 `b71-authoring-pending` summary 与 `native-pending-02/execution/binding.json` 执行完整 `task_done.sh --scope … --slice b71-authoring-pending --ui-summary … --ui-binding … --top 10`，原件在 `engineering-f0-01/`。完整扫描 / 实际 manifest / 检查 binding 与各 native binding 分列，不以一份工程 manifest 代签其它三场；不使用 quick / skip、不重新 begin 缩小范围。**在这些实际结果产生前，R07 继续 NOT PASS，B87 / R06 / R08 状态与 B89 deferred 保持。**
+
+### 22.7 正式验收出口的实际阻断与有限修复
+
+`full-mix-check-01` 已在冻结源 `03a5d545453e88cfa05191faee5a3ae408a942ddf8c69181517d3be0e9a67ed4` 上实际通过：**3835 tests / 0 failures，exit 0**，其余实际 alias 检查也为 0；owned 已回收，源码前后相同。其测试排除项仍按现仓库配置，不代签外部模型。矩阵 02 的 revision 已 **64 / 64、exit 0、binding passed**；独审 `native-revision-02/independent-revision-review-foundation.json`（SHA `13601f056a1fa4e24c5eb23fcfda14752ae973b02da9cbaba4daa79c898b5dab`）确认真实父历史、两次有界调用、child 段不复制父历史、局部范围外字节、候选未采纳与 child Why 零副作用。本场只有修订受理回执，`state_trace_refs=[]` 合法，不能声称已采纳。
+
+`native-reject-02` 的真实 driver 已完成 reject、Why 与恢复；内层 driver / runner 均 exit 0，但正式 `native-b71-checks.json` 和 `summary.json` 均未生成，外层因缺输出而 exit 1，binding 未成立。源码前后未变。根因是现 `tauri_slice_verify.sh` 在 confirmation 等前置停机分支直接调用 EXIT trap 的 `cleanup`；该函数最后 `exit "$original"`，使后面的正式 verifier 永远不可达。不能以 batch 打印的 PASS 或 `native-ui-complete.json` 代签。另一个现有合同缺口是 confirmation summary 未输出 `task_done_check` 必需的 `all_checks_passed`。pending02 / WR02-02 尚未启动；02 全部原件不补写、不重算，01 也保持原样。
+
+| 补充七问 | 有限实施边界 |
+|---|---|
+| Contract | 现 runner 停机所有权与现 confirmation verifier / summary 输出合同；正式验收必须实际执行并产出本次报告。 |
+| Invariant | 原失败码、清理失败优先级、R01 失败前采集、owned 全树回收、严格 binding 规则保持；清理失败和判据失败都不得变成成功。 |
+| Boundary | 仅现 `scripts/tauri_slice_verify.sh`、`scripts/lib/native_ui/authoring_confirmation_evidence.mjs`、`scripts/tauri_slice_verify_provider_stream.test.mjs`、`scripts/lib/native_ui/authoring_confirmation_evidence_io.test.mjs` 四文件；不改产品、batch PASS 条件、task_done 门槛或既有 fixture。 |
+| Consumer | 同文件抽出现有可返回资源回收，EXIT wrapper 仍负责退出；confirmation / memory-detail / auto-maintenance / answer-mode 既有前置停机分支成功返回后继续正式 verifier。summary 在作者可见检查已并入后，从最终 failed 计算真实布尔值。 |
+| Proof | 实际 shell 子进程证明回收成功后 verifier 可达、回收失败不可继续 / exit 0、verifier 失败码保留、原失败码及 R01 先采后回收保持；正式 IO 正负例分别输出 true / false，失败不得形成成功绑定。 |
+| Acceptance Driver | 定向 RED / GREEN 与相关预检，独审后统一冻结；新 `full-mix-check-02`、`native-preregistration-03.json` 与新 03 独立目录按 **reject → revision → pending → WR02** 顺序完成原四场，再使用原 scope 与 pending03 的真实 summary / binding 执行 §22.6 所登记的 F0 全门禁。 |
+| Exploration | 无新增作品事实、来源资格或语义评分；只恢复已有正式验收链，B89 继续 deferred。 |
+
+存在性审计裁决为 **reuse**：保留现 shell owner、资源回收调用及两个现测试 owner，不新增生命周期框架、报告 writer、入口或模块；只分离“回收后返回”和“EXIT 最终退出”两个已有责任。共享前置停机的四种 journey 用当前机制测试覆盖，不增加本轮原生矩阵场次。新矩阵保持原输入 / seed / slice / 预算与 0 外部模型、0 人工 / harness 批内重试，原 scope 不 reset / 不缩小；新的 source identity 如实记录。**此为修复前登记，尚未预签实现、03 矩阵或 R07 PASS。**
+
+### 22.8 修复交接与原连续拒收终局的现役入口补证
+
+§22.7 四文件修复已完成并经独审：`reject-verifier-red-02` 为 **41 总 / 31 通过 / 10 失败，exit 1**，均到达目标反例；`reject-verifier-green-01` 的 14 文件相关回归为 **734 / 734、exit 0**，owned 已完整回收，源前后同 `6b82990ac1a667a8dab89a8f54b0de4655828d3bb365ceba0dc6eb40c615c847`。RED01 最后一例因新 AX 文件名不在现扫描集合而未到目标，原件保留；RED02 复用既有 `02-card.text.txt` 才命中，未扩 scanner。GREEN 相比 RED02 仅两个实现 owner 改变，反例未改绿。
+
+`reject-verifier-preflight-01` 实际 exit 1，只是全局 diff 检查发现两测试及本总文档三个 EOF 空行；其余六项语法 / 规模 / NEXT 均通过。两测试随后各只删末尾一个 LF，字节证明与最终四文件 SHA 在 `reject-verifier-handoff-01/handoff.json`（SHA `4031112cdef03480d6e203562b5c8005f983a6600a255e73758a47777d1cbe0f`），其余源不变；本次登记同时收齐主文 EOF，原失败预检不改写。全部执行已终态，之后统一预检及完整后端，不为末尾空行另刷 734 结果。
+
+**原要求复核。** §18.3 / §18.7 还登记了真实入口的连续拒收终局。原四场中的 WR02 / revision 是首次拒收后第二次纠正，不能代签连续拒收后终止。现严格机制测试已经覆盖两次上限、末次 retryable=false 和零派发；本次仍补真实页面证明，不通过改签收文案移除这一剩余项，也不把它转交 R08 / B89。
+
+| 补证七问 | 现役复用与有限边界 |
+|---|---|
+| Contract | 原 R07 有界纠错、真实终局与可恢复反馈；保持既有两次判断窗口和权限 / 预算。 |
+| Invariant | 两次原非法参数均机械拒绝，终局不可宣称执行成功，不产生候选 / 采纳 / 创作写入；后续独立正常输入可恢复。原失败调用、最后回执及页面状态必须互相对应。 |
+| Boundary | **零新增产品 / fixture / driver / verifier 源码**。复用现 `au01-frame-validation-friendly-error`、`SliceVerify` 的 `AU01BADFRAME` 刺激、B40 family driver / evidence 与原 seed；本次仅运行编排、原始采集和独立核验。 |
+| Consumer | 现 `tauri_slice_verify.sh` 的 B40 native family 外部驱动入口；ready 后由 `native_b40_family_drive.mjs` 发坏输入与恢复输入，完成后 runner 进入 `native_b40_family_evidence.mjs` 正式 verifier 并退出。 |
+| Proof | 正式 summary / 本场原 scope binding 外，独立核两次真实 Provider 请求与非法响应、同一回合的 validation / 预算 / Trace / 运行终态、零业务派发与 Canon 边界、实际失败提示及下一轮恢复；不能仅凭界面文字或浅层总分签收。 |
+| Acceptance Driver | 仅一场 `r07-terminal-20261124-01`，2 次作者输入，0 外部模型、0 人工 / harness 重试；ready 上限 300000ms、owned 总上限 900000ms，内层原 input / ack / turn / maintenance / idle 的 30 / 30 / 120 / 180 / 120 秒不增。 |
+| Exploration | 不新增模型语义评分或作品事实；只是用已有固定非法刺激证明原接收器真实失败后的状态和恢复。 |
+
+存在性审计裁决 **reuse**：场景和两段输入已在 `scripts/native_b40_family_evidence.mjs`，非法 fixture 已在 `apps/novel_agent/test/support/provider/slice_verify.ex`，默认 seed 为 `scripts/seed_au03_long_session_compression.exs`，当前作者材料选择已有明确消费者。原输入逐字保持：坏轮“AU01BADFRAME：请模拟创作引擎产出带禁止语义的 frame，工作台应拦截并友好提示。”；恢复轮“frame 校验失败后继续聊一个雨夜开场的悬疑气质。”。不新建 wrapper 文件；在现 `test_env` owned 生命周期内编排两个已有入口，等待真实 `native-driver-ready.json` 后才起 driver，并等待 driver 与 runner 都终态。原 transport proxy 必开，保留原始 WS / HTTP / Provider 证据。
+
+正式输出为现 `writeNativeSummary` 生成的 `summary.json`：surface=tauri、driver=ax-native-system-ui、实际 slice、all_checks_passed=true；`native-ui-complete.json` 只作独立 driver sidecar，不能替代 summary。现 checker 不变，新增独审若发现深层不变量失败，仍不得以正式浅层报告通过替签。
+
+本节稳定后冻结 `native-preregistration-03.json`：原四场的输入 / seed / 预算均不变，加入以上唯一终局补证，顺序为 **reject → terminal → revision → pending → WR02**；终局用 `native-terminal-01/` 与实际 AU01 native 目录，另外四场仍为 03 独立目录。统一预检、`full-mix-check-02`、五场各自真实 start / finish / binding 及独审满足后，才进入 §22.6 的原 scope `engineering-f0-01`，以 pending03 真实 binding 作工程入口。新增第五场是补齐 §18 的原剩余证明，不是扩展共享清理四 journey 的产品验收。**此处只登记，尚未预签新场景、F0 或 R07。**
+
+### 22.9 R07 原范围机制签收与最终交付身份出口
+
+**本节原拟完整签收曾因 §22.10 的漏项被撤回；补修后的当前签收见 §22.11。** 以下五场、机制正负例、独立原件与原 scope F0 工程结果保持当时事实；取消标题在该轮尚未闭合，这些历史成功不能自动代签完整任务。R06、R08 与 B87 / Issue #4 仍为 NOT PASS，B89 继续 deferred。§18 与 §22.1–§22.8 的失败、前置错误和未执行记录保留历史身份，不改绿。
+
+#### 已实际完成的 F0
+
+统一冻结源为 `372decc01a428c3519144e3d4ad50291a2a05480375d8aae06839fbdd0be2c3c`，HEAD `1fee5e56136d217c3ce9fb1e9815633ac4eba8b4`。预注册 `native-preregistration-03.json` SHA 为 `9a13545a4cab592deb43a9af5a7c46ca14475cd2f31600de442aa2b5640fb40e`；以下接续目录均位于 `artifacts/slice-verify/b87-r07-20261121/resume-20261124-01/`。
+
+| 实际场景 | 本次正式结果 | 接续目录与核定边界 |
+|---|---|---|
+| 作者拒绝确认 | **11 / 11 required；2 项 NA；exit 0** | `native-reject-03`；唯一实际拒绝、CANCELLED receipt、child 零 Provider / 工具 / steps、动作 Why 与恢复。重复分支因按钮已不可操作而未发送第二请求，不扩大为后端重复请求实测。 |
+| 连续拒收终局与恢复 | **29 / 29；exit 0** | `native-terminal-01`；真实两次非法响应、预算耗尽后终止、末次 retryable=false、零业务派发 / 候选 / 采纳 / Canon，下一独立正常输入恢复。 |
+| 局部修订 | **64 / 64；exit 0** | `native-revision-03`；真实父历史进入 child 首请求、原 call 有界纠错、局部范围外字节、候选未采纳和 child Why。 |
+| 待采纳与动作回放 | **89 / 89；exit 0** | `native-pending-03`；真实采纳四向 state refs / receipt / Canon、生成及动作 Why 零额外调用 / 写入、放弃、重开与追问。 |
+| 使命纠错及候选恢复 | **14 / 14；exit 0** | `native-wr02-03`；首次拒收后纠正、真实 Writer、候选与执行状态、Why、恢复。 |
+
+五场各有运行前真实 execution start、正式 summary、实际日志 / exit 和 `execution/binding.json`，全部 binding passed、errors=[]、源码前后同 F0；owned 均已完整回收。全程 slice_verify，0 外部模型调用、0 人工补发、0 批次重跑。reject03 首次 Why 面板等待超时后，实际触发了 driver 既有的有界 UI 取证重试，随后真实 Replay 成功；该过程保留于日志与独审，没有补发作者拒绝动作或模型调用。先前“0 人工 / harness 批内重试”的概括不能理解成所有内部 UI 动作均未重试，冻结预注册与实际记录并列保留。03 的成功不覆盖 01/02 失败；它们分别由已登记的实质修复产生新的证据身份。
+
+独立终局审阅为 `native-terminal-01/independent-terminal-review-adversarial.json`（SHA `d4c9ae86d981ff4336da98f8b1e63eabd7c71fb6e5682c7a2a4069765807f00a`）：坏轮两条原响应逐字相同，第二请求保留首请求完整前缀并追加真实失败 pair；最终持久配对为 `call_judgment_decision:2`，原 provider_call_id 不变，budget=2 / count=2 / retryable=false。坏 run failed/stopped、execution_steps/tool_calls=0，恢复新 run 仅一次 Provider 后 completed/stopped；wire / DB 与实际失败、恢复截图逐项一致。因此 §18 登记的连续拒收终局页面缺证在本场闭合。
+
+独立拒绝审阅为 `native-reject-03/independent-reject-review-foundation.json`（SHA `c7088b7a46e5e354d0458c2cc80568b93792e8b292647a96599bbfdb871bb337`）。正式 summary 的 required 11 项全 true、failed=[]；C7 / C12 是 reject 模式下的 null / NA。root 原派生 result 的 `failed_checks` 将这两个非必需 null 误列，原派生文件保留，按正式合同和独审解释，未改正式报告或门槛。拒绝前已有四次父规划 Provider，拒绝后的 child 实际为零；历史 WAITING 记录保留，由真实 CANCELLED 决策关闭当前动作。WAL 文件存在但为 0 bytes，SHM 保留；封存后只读核库，不删除旁车。
+
+revision02 的独审及 pending01 的独审各保持原 source / 原场身份（见 §22.3 / §22.7）；03 在共同产品与 harness 修复后重新执行并独立绑定当前源，不能把旧独审改签成 03。从末次 734 / 734 Node GREEN 到 F0 统一源仅有两个测试 EOF 与主文登记变化，字节链见交接原件；当前 `preflight-final-source-01` 八项全部 exit 0，`full-mix-check-02` 为 **3835 tests / 0 failures、exit 0**，均源前后不变。全量后端仍按仓库配置排除 integration / real_llm，不伪称官方供应商已测。
+
+`engineering-f0-01` 已实际 exit 0，完整静态扫描 passed；原 scope manifest 为 `artifacts/slice-verify/task-completion-20261124T073611Z-87169/manifest.json`，SHA `8adfd2f69fd93d8a85cf0189f20751626534e854a1bd1b3b57325cbff58849ad`，status=completed、static_scan_mode=full、ui_required=true，绑定本次 pending03。其 task_acceptance=not_asserted 按原义保留：工程门禁只证明工程执行，任务签收由本节逐项事实决定。原 scope id / SHA 未变，历史 R09–R16 八个 missing 标记仍保留，未重新 begin 或缩小增量。
+
+#### 原七步 DoD 的完成映射
+
+| 原步骤 | 当前真实 owner 与完成证据 |
+|---|---|
+| 1. Schema / 互斥 / 组合 / 版本 | 现 JudgmentToolContract / JudgmentDecisionToolContract / ToolArgumentSchema 同源校验，operation / plan / schema 正负例经当前完整门禁；当前版本为 b26-tools-v8，§18 的 v6 是当时事实。 |
+| 2. 真实引用 / 作品 / 版本 / 目标 / 效果 | JudgmentProtocol、RequestIR、现 PendingArtifact / 章节索引 / AdoptionBoundary / Freshness；未知或带说明 ID、跨作品、坏 ref、未来 / 失效来源与过期采纳严格拒绝。 |
+| 3. 建议到实际执行 / 候选 / 采纳分离 | NativeToolExchange → Toolbox / TraceWriter → TurnResult / Replay / AgentRunState；五场按真实 execution_counts、receipt、state refs 和持久事实区分，不以 schema passed 当作执行或采纳。 |
+| 4. 有界纠错 / 非法组合 / call 闭合 | 现两次窗口、RequestIR / Checkpoint 严格校验及原组合 / 重复 / 未闭合负例；WR02 / revision 的纠正成功与 terminal 的连续拒收终止分别实测，不扩大原目标 / 权限 / 预算。 |
+| 5. 七字段真实回执 | 现 RequestIR.Projection 从 canonical observation / validation_result 派生七字段，真实 call 与预算快照严格对应；失败、末次不可重试和无历史 null 不改成成功。 |
+| 6. 候选原参数 / 范围 / 来源 | 现 ToolOutputContract / Real → Adapter → Assembler / Adoption 严格闭合；VS-00M 对账后的实际 `submit_tentative_artifact`、rationale、self_report、task / scope 材料、Base / Observation 承担原目标，不重复注册旧 prospective 别名或平行账本。 |
+| 7. content / decision / 三 wire | 当前冻结合同允许 nil 或空串，非空与纯空白双正文整次 provider_response_invalid，最多两次；decision 仅在应用派生。Chat / Responses / Anthropic 各按自身 SSE / 终态 / call 关联机制复验。Responses / Anthropic 的 eventsource 注入与 Chat loopback 反例不是三家官方供应商实模。 |
+
+本签收覆盖 R07 的接收、执行事实、采纳与回放机制。R06 作者语言、R08 目标 / 范围 / 来源语义、R18 长篇质量、B89 后继授权能力及官方供应商实测仍由原 owner 负责，不能从这些机制分数外推。
+
+#### 原拟最终文档身份出口 F1（尚未启动，先由 §22.10 补修）
+
+本节和顶部 / NEXT 是 F0 实过后的状态回填。停止写源后，先保存 `f1-documentation-identity.json`，逐项证明 F0 → F1 **仅本总文档与 NEXT 两文件改变**，其它 Git-visible 字节 / 模式及原 scope 历史条目完全相同。F0 五场、全后端和独审保留 F0 身份，不重签为新 source。
+
+随后另冻 `native-preregistration-f1-01.json`，只运行一次当前源 pending 场景 `r07-pending-20261124-f1-01` / `native-pending-f1-01`，形成真实本次 start / finish / binding，再沿原 scope 运行完整 `engineering-f1-01`。仍为原输入 / seed / 预算，0 外部模型、0 人工补发、0 批次重跑；driver 原有的有界 UI 取证预算保持，任何实际内部重试均据实记录。只改文档无需重新跑五场或全后端。
+
+本段不预填 F1 成功。真实 F1 结果、manifest、文档差异证明、分组提交 / 推送与最终源码字节等价核账统一写入接续目录 `delivery-final-01.json`，之后不为补记其终态再次改变 Git-visible 文档。任一真实失败必须保留并在交付说明中明确。普通提交分为产品历史接续与新测试、现原生 harness 与回归、任务状态文档三组；提交后证明文件字节 / 模式与 F1 受验源相同，不宣称在新 commit HEAD 上重新执行过旧证据。
+
+### 22.10 签收复核发现的取消标题漏映射与有限补修
+
+**本节记录补修开工时的撤回：§22.9 的完整 R07 PASS 推论撤回，当时恢复 NOT PASS、6 / 12 批签收；当前结果见 §22.11。** 五场正式结果、F0 工程通过和已证零执行 / 真实回执继续有效；工程成功不能覆盖原范围中漏核的作者可见状态。当时最终 F1 尚未启动，也没有发生本轮提交 / 推送。本节先解决原缺口，再重新签收与登记最终身份出口，不将其转给 R06 / R08 / B89。
+
+根因已经亲核：reject03 实际 Replay `trace_summary.decision_type=cancel_waiting`，behavior.next_status=CANCELLED、child cancelled/stopped，原 Why 截图 / AXHeading 却为“处理中”。现 `WorkspaceChat` 取得 Replay 后用其 trace_summary 更新视图，并直接以 `decisionLabel` 作为 Dialog.Title；`traceSummaryView → displayName('decision', …)` 查现作者显示名表，SSOT 与生成物均缺少已经存在的 cancel_waiting，于是落入 decision 域 fallback“处理中”。这不是 run 再次开始，也不是普通栏目标题；已知 unknown 本身有“已记录”，不能据此替错误标题辩护。§17.5 已把此类 Why 状态问题归 R07，必须同批闭合。
+
+原证据保留：`03-why.ax.json` SHA `056d5200e3ea6e1ac33d89bacce44aaea94e6a16c69fc259381e359817314e89`，真实 http-11 Replay body SHA `a8258418a942486d245b84d78f4e31b23c9316440ba657460f94bf5d1be884ac`。原 reject03 独审的“非阻断 / PASS”推论在本节明确撤回其支持完整 R07 签收的部分；不修改原审阅文件，原 receipt / Canon / Provider / 终局等实测事实仍按原件成立。
+
+| 补修七问 | 有限边界 |
+|---|---|
+| Contract | 现作者显示名 SSOT 与系统 TraceSummary 展示；已经取消的真实决策必须显示“已取消”。不改模型原叙述。 |
+| Invariant | 原 cancel_waiting / CANCELLED / run状态 / Replay 字节与调用数不变；只把既有真实决策投影为正确作者标题，不能修改通用 fallback 掩盖缺登记。 |
+| Boundary | 仅 `docs/design/schemas/author_visible/display_names.json`、现两个生成物 `apps/novel_common/lib/novel_common/author_visible/display_names_gen.ex` / `frontend/src/generated/author_visible/displayNames.ts`、现 `frontend/src/lib/__tests__/traceSummaryView.test.ts`。不新增状态、API、工具、组件或平行映射。 |
+| Consumer | 现 codegen 的双端生成链与 `traceSummaryView / WorkspaceChat Dialog.Title`；已取消字段来自真实 Replay，不从说明文本猜测。 |
+| Proof | 真实 cancel_waiting 形状的 view 回归先 RED，修后标题必须为独立期望“已取消”；现 unknown / 合法其它决策及 fallback 保持，codegen 双端严格 check、相邻回归与前端完整检查通过。 |
+| Acceptance Driver | 全源稳定后完整 mix check、新 04 四场与终局02保持原输入 / seed / 内层预算、0 外部模型 / 人工补发 / 批次重跑；既有有界 UI 取证动作如实记录。新 reject 必须独审真实 AXHeading=已取消、同动作 Replay / CANCELLED / 零执行与恢复，不以旧 11 项报告代替标题断言。随后原 scope 新 `engineering-f0-02` 全门禁。 |
+| Exploration | 无新作品事实或语义评分；既有系统取消结果的忠实展示，属于 R07 原作者可见执行状态。 |
+
+存在性审计为 **reuse**：补的是现有 cancel_waiting 的显示名登记，不是新增协议 enum。源头只有 display_names.json；前端 / 后端生成物同步其同一 source_hash，不手写第二张转换表。所有源文件仍经带 revision 的编辑工具修改；CLI 执行只读 `mix codegen.author_visible --check`；前端生成器没有 --check 且会无条件写源，因此只复用其纯渲染算法与现 Prettier 配置做全文精确对比，不直接运行写源生成器。既有 734 Node 与两次 3835 后端、五场 03 / terminal01、F0-01 均封存各自 source，新的结果另存。**补修与补验实过前，不重新签 R07。**
+
+#### 22.10.1 同一显示名来源的有限遗漏闭集
+
+cancel_waiting 窄修已真实通过：`why-cancel-label-green-01` **28 / 28**，完整 `why-cancel-label-frontend-check-01` 为 **58 文件、594 / 594**，格式 / 类型 / lint 均通过；`why-cancel-label-preflight-01` 六项均 exit 0。源前后同 `3a1f0b467956b89b05ffc3cb2fe315b0e767e253e0f96c03655490b1c6b31f87`，全部 owned finalized。双生成物 source_hash 为 `caf63c6af9a7a1ea541b94f080e6bf71566ed21772c587f30c4eda091ec8a43b`。这些结果仅证明该补项，未据此重新签整批。
+
+随后只读核现 trace_summary 的直接构造、动态 merge、TraceWriter 映射与持久 DecisionTrace → Replay，共定位 28 个相关生产文件；除已修项外，确认以下 **12 个当前应用固定码**同表缺登记。它们已有真实消费者，均非模型自由叙述或未来功能。为避免逐例漏补，本次在原四文件内一次补齐这份闭集，字段 / 行为 / 状态 / 通用 fallback 不变。
+
+| 当前真实码 | 生产事实 / 既有 owner | 独立作者标题期望 |
+|---|---|---|
+| agent_run_allowed | TraceWriter 对现 allow_agent_run 的映射；许可尚不代表执行完成 | 允许开始创作 |
+| author_confirmed_action | AuthorActionDecision 的作者确认与关闭等待；工具 / 写入 truthfulness 均 false | 已确认操作 |
+| gate_blocked | ToolConfirmation 在作者确认后重裁决仍阻断，未执行 / 写入 | 本次操作未执行 |
+| run_failed | AgentRunServer 的真实失败 / 可恢复终局 | 本轮未完成 |
+| plan_budget_shortfall | AgentRunServer 的步骤额度不足、等待作者调整 | 本轮执行额度不足 |
+| adopt_persistence_failed | AdoptionWorkflow 的保存失败 / failed_recoverable | 保存失败 |
+| cancel_confirmation | AdoptionWorkflow 取消采纳确认，草稿仍 pending、未覆盖正文 | 已取消确认 |
+| discard_artifact | AdoptionWorkflow / PendingArtifactWorkflow 实际放弃待采纳内容 | 已放弃待采纳内容 |
+| edit_then_accept | AdoptionWorkflow 按修改意见实际采纳，具有真实 state refs / receipt | 修改后已保存 |
+| revise_from_findings | ProseRevisionService 已组装修订候选，仍 tentative、未自动采纳 | 修订稿待采纳 |
+| chapter_structure_maintenance | PendingArtifactWorkflow 的维护拒绝与待采纳计划共用码，经 TraceReplayService 投影；不能统一写已完成 | 章节结构维护 |
+| character_profile_revision | PendingArtifactWorkflow 的资料无变化与待采纳修订共用码，经 TraceReplayService 投影；不能统一写已修改 | 角色资料核对与修订 |
+
+此表是现显示源的补齐与测试独立期望，不成为第二运行 enum 或字典。仅写回原 SSOT 并按原算法同步双端生成物，现 traceSummaryView 回归分别证明上述标签及既有等待 / unknown / fallback 对照；先保留真实 RED，再 GREEN、完整前端和原只读预检。后三种主题 / 许可类标题不冒称执行完成，失败类不冒称可以无条件重试，修订候选不冒称已经保存。
+
+**明确排除**：`author_action` 是缺字段兜底，当前有 trace_ref 的真实动作生产者均显式给 decision_type，未找到本次业务产物；不将它伪装成已发生分支。AgentNextStepDecision 的 execute_step / goal_satisfied / await_author / no_progress 是内部下一步状态，不作为这些 trace_summary 决策输出，亦不加入。没有新增治理框架、公共协议或 B89 功能。
+
+七问沿 §22.10：Contract / Consumer 扩到上述已有生产者的同一展示责任；Invariant、四文件 Boundary、真实原件 Proof、原预算 / 五场 Acceptance Driver 和无新增事实的 Exploration 均保持。此轮源码稳定后才运行既定 full-mix-check-03、04 四场与 terminal02、原 scope F0-02；这些尚未启动，没有重跑正在执行的批次。任何新增失败仍另存，不回填此前 28 / 594 或旧五场。
+
+### 22.11 R07 原范围最终核定与交付收口
+
+**核定：R07 原范围 PASS；B87 仍 doing / NOT PASS。** §22.10 的取消标题漏项及同一显示源的有限遗漏闭集已补齐，重新完成五场真实原生、独立审阅与原 scope 完整工程门禁。R00–R05 与 R07 合计 **7 / 12 批**在各自范围签收，只表示批次数量；R06 / R08 未通过，R17–R19 前置仍未满足，B89 继续 deferred。旧 01/02/03 的失败、缺证和 §22.9 签收撤回事实保留。
+
+#### 已实际完成的新 F0
+
+本次统一源为 `096577cd8b9a906f986c70374b80832a3cbaab0af5ec5e2248d4c1a582a4ef26`，提交前 HEAD 为 `1fee5e56136d217c3ce9fb1e9815633ac4eba8b4`。原 R07 scope id / SHA 和八个历史 missing 条目未变。新预注册 `native-preregistration-04.json` SHA 为 `ca1a23576069ebf63a7cd3ad40f6308d4dc9e1ee93eb4b3f07da3fe836996ecb`；以下接续目录均在 `artifacts/slice-verify/b87-r07-20261121/resume-20261124-01/`。
+
+显示修复仍只有原 SSOT、双端生成物与既有 view 测试四文件；两端 source_hash 均为 `88e1bf77bf54bddaf096a81a1f7f13ca5dabc6dcf7c133a57ea007ffe5787a62`。真实 RED 保留：取消标题 1 项失败、其余 12 码分别失败；GREEN 为 **40 / 40**，完整前端为 **58 文件、606 / 606**，格式 / 类型 / lint 及六项只读预检全部通过。独审确认 RED 到 GREEN 测试未改，生产差异仅为登记项和生成哈希，通用 fallback / unknown 不变。`full-mix-check-03` 实际 **3835 tests / 0 failures、exit 0**；这些新检查均源前后不变，后端仍按原配置排除 integration / real_llm。
+
+| 新场景 | 实际正式结果 | 原件与核定内容 |
+|---|---|---|
+| 拒绝确认 | **11 / 11 required；2 NA；exit 0** | `native-reject-04`；实际 Why 标题“已取消”，同动作 Replay / CANCELLED receipt / child stopped 对齐，拒绝后零 Provider / 工具 / steps / Canon 变更。 |
+| 连续拒收终止及恢复 | **29 / 29；exit 0** | `native-terminal-02`；两次非法响应、末次不可重试、零业务派发 / 候选 / 采纳，下一独立正常输入恢复。 |
+| 局部修订 | **64 / 64；exit 0** | `native-revision-04`；父历史进入 child 首请求，真实 call 纠错、范围外字节与候选 / 采纳分离、Why。 |
+| 待采纳与动作回放 | **89 / 89；exit 0** | `native-pending-04`；真实采纳回执 / state refs / Canon、生成及动作 Why、放弃、重开与追问。 |
+| 使命纠错及候选恢复 | **14 / 14；exit 0** | `native-wr02-04`；原参数拒收与纠正、真实 Writer、候选状态、Why 与恢复。 |
+
+五场全部 binding passed、errors=[]、源码前后同本次 F0，owned 全部 finalized / scope_removed。场景输入、seed 和既有内层预算保持；0 外部模型调用、0 次人工补发作者输入、0 整批重启。reject04 的 Why 首次面板等待超时后发生一次既有有界 AXPress 重试，最终仅发出一次 Replay GET；此 UI 取证恢复不隐去，也不计成再次发送作者拒绝。
+
+`native-reject-04/independent-reject-review-foundation.json`（SHA `30db312454555d7f8b9a56ad06b3fbe04bfea62ea00aee52c098c903978f16b9`）亲核截图、唯一 AXHeading“已取消”（AX SHA `9720883b158e68b3ff0f4fa591c71c504f0e3f367abc431e319bf925010435bb`）、实际 HTTP Replay、DB 与恢复，31 项跨源断言全真。39 份原件封存前后 SHA 不变。合法取消回执 0→1，八表 Canon 不变；恢复后 works 行哈希变化而 Canon 哈希不变，不能写全库字节不变。重复分支因动作已不可用而未发送第二请求，不外推为本场后端重复请求实测。
+
+`native-terminal-02/independent-terminal-review-adversarial.json`（SHA `7a81f9787a17ebe9e3ab9793c7b416cd0b8576b2e959ea424139d5e1ab074ed1`）独立核两条实际非法响应、第二请求完整前缀和真实失败 pair；末次 budget=2 / count=2 / retryable=false，坏 run failed/stopped、Provider=2 / tool=0 / steps=0，恢复新 run Provider=1 后 completed/stopped。实际截图 / AX、wire / DB 和零候选 / 采纳 / Canon 对齐，55 份审阅输入 / 控制原件 SHA 不变。两场独审仅签各自有限目标；R07 全部七步 DoD 由 root 结合 §22.9 的现 owner 映射、当前完整检查与五场逐项核定。
+
+`engineering-f0-02` 已实际 exit 0，原 scope 完整静态扫描 passed，manifest 为 `artifacts/slice-verify/task-completion-20261124T083259Z-2353/manifest.json`（SHA `7da816b01fa4c927ed66eb352c465500af5aa9e8caa3165d1d1e2b7e475b957e`），status=completed、static_scan_mode=full、ui_required=true，绑定 pending04。其 task_acceptance=not_asserted 按原义保留；工程执行证据与本节任务核定分开记录。R06 作者语言、R08 目标 / 范围 / 来源语义、R18 长篇质量与最终官方供应商实测保持原归属。
+
+#### 最终文档身份与提交出口 F1
+
+本节及顶部 / NEXT 是上述实过 F0 的状态回填。停止写源后，以 `f1-documentation-identity.json` 逐项核 F0→F1 仅本总文档与 NEXT 两文件变化，其余源码 / 模式及历史 scope 条目相同；五场、后端和独审保留 F0 身份。另冻 `native-preregistration-f1-01.json`，只运行一次当前源 pending 场景 `r07-pending-20261124-f1-01`，取得真实 start / finish / binding 后沿原 scope 运行完整 `engineering-f1-01`；保持原输入 / seed / 预算与现有有界 UI 取证规则。
+
+本段不预填 F1、提交或推送成功。它们的实际结果、manifest、文档差异证明、源码字节等价和远端 HEAD 核账统一封存为 `delivery-final-01.json`，随后不为补记终态再次修改受验文档。正常提交分四组：产品历史接续与新测试 2 文件、作者显示名与回归 4 文件、原生 harness 与回归 13 文件、主文 / NEXT 2 文件。提交后核文件字节和模式等于 F1 受验源，不声称旧检查在新 commit HEAD 上重新运行。
+
+**后续主线**：R06 按 §17.5 先核能够解释首次合法技术化叙述的源头责任；R08 按 §19.51 / §21 保留事实夸大、T1 歧义自选与 P2 未交付等有限剩余项，原三轮仍是关键验收依据。P1 采集缺证已由 §21.3 的新证据闭合，四项辅助维护核账留现 B28 owner；历史 UNKNOWN / 失败不改绿。R06 / R08 各自通过后再进入 R17→R18→R19，B89 不构成其前置。

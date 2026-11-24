@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：当前范围为 R00–R08、R17–R19；按作者调度保持 R08，沿原任务 §19 收束本批，本轮工程/实模收口与有限剩余项见 §19.45–§19.51。R06/R07 的未验收范围和恢复条件保留在 §17.5/§18.7；批次证据只在原任务维护。原 R09–R16 已独立转入 [B89](slices/B89-author-controlled-execution.md)，不作为 B87 完成前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)，批次 A–E 状态只在原计划维护。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。后续处理 R06/R08 的原范围可证根因与有限剩余项；各自通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
