@@ -70,28 +70,28 @@ defmodule NovelDomain.ChapterMission do
   end
 
   @doc """
-  依据绑定（I-M1）：只保留 `basis_ref` 在 `known_refs` 内的条目，其余进 `dropped`。
-  `label_fun` 用于回填 `basis_label`（材料文本），让 writer prompt 不必反查 ref。
-  过滤后两列表都为空且无 statement → 标记 degraded（`mission_unbound`）。
+  依据绑定（I-M1）：ref 与具体依据来自同一批实际材料条目。
+  未供应的 ref 进入 dropped；已供应且被引用的材料缺依据时返回装配错误。
+  同 ref 各份来源保序保留，不用后一份的名称、版本或完整度覆盖前一份。
   """
-  @spec bind(t(), Enumerable.t(), (String.t() -> String.t() | nil)) :: t()
-  def bind(%__MODULE__{} = mission, known_refs, label_fun \\ fn _ -> nil end) do
-    known = MapSet.new(known_refs)
+  @spec bind(t(), [map()]) :: {:ok, t()} | {:error, {:mission_material_label_missing, String.t()}}
+  def bind(%__MODULE__{} = mission, materials) do
+    sources = Enum.group_by(materials, & &1.ref)
 
-    {advance, dropped_a} = split_bound(mission.must_advance, known, label_fun)
-    {avoid, dropped_b} = split_bound(mission.must_avoid, known, label_fun)
+    with {:ok, advance, dropped_a} <- split_bound(mission.must_advance, sources),
+         {:ok, avoid, dropped_b} <- split_bound(mission.must_avoid, sources) do
+      mission = %{
+        mission
+        | must_advance: Enum.take(advance, @max_items),
+          must_avoid: Enum.take(avoid, @max_items),
+          dropped: dropped_a ++ dropped_b
+      }
 
-    mission = %{
-      mission
-      | must_advance: Enum.take(advance, @max_items),
-        must_avoid: Enum.take(avoid, @max_items),
-        dropped: dropped_a ++ dropped_b
-    }
-
-    if advance == [] and avoid == [] and is_nil(mission.statement) do
-      %{mission | degraded: true, degraded_reason: "mission_unbound"}
-    else
-      mission
+      if advance == [] and avoid == [] and is_nil(mission.statement) do
+        {:ok, %{mission | degraded: true, degraded_reason: "mission_unbound"}}
+      else
+        {:ok, mission}
+      end
     end
   end
 
@@ -240,35 +240,36 @@ defmodule NovelDomain.ChapterMission do
 
   # ── helpers ─────────────────────────────────────────
 
-  defp split_bound(items, known, label_fun) do
-    Enum.reduce(items, {[], []}, fn item, {kept, dropped} ->
-      case bind_item(item, known, label_fun) do
-        {:ok, bound} -> {kept ++ [bound], dropped}
-        :unbound -> {kept, dropped ++ [item]}
+  defp split_bound(items, sources) do
+    Enum.reduce_while(items, {:ok, [], []}, fn item, {:ok, kept, dropped} ->
+      case bind_item(item, sources) do
+        {:ok, bound} -> {:cont, {:ok, kept ++ [bound], dropped}}
+        :unbound -> {:cont, {:ok, kept, dropped ++ [item]}}
+        {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
 
-  defp bind_item(%{"basis_ref" => ref} = item, known, label_fun) when is_binary(ref) do
-    if MapSet.member?(known, ref) do
-      {:ok, put_basis_label(item, item["basis_label"] || label_fun.(ref))}
-    else
-      :unbound
+  defp bind_item(%{"basis_ref" => ref} = item, sources) when is_binary(ref) do
+    case Map.fetch(sources, ref) do
+      :error ->
+        :unbound
+
+      {:ok, materials} ->
+        labels = Enum.map(materials, &content_text(Map.get(&1, :basis_label)))
+
+        if Enum.any?(labels, &is_nil/1),
+          do: {:error, {:mission_material_label_missing, ref}},
+          else: {:ok, Map.put(item, "basis_label", Enum.join(labels, "\n"))}
     end
   end
 
-  defp bind_item(_item, _known, _label_fun), do: :unbound
-
-  defp put_basis_label(item, nil), do: item
-  defp put_basis_label(item, label), do: Map.put(item, "basis_label", label)
+  defp bind_item(_item, _sources), do: :unbound
 
   defp basis_suffix(%{"basis_label" => label}) when is_binary(label) and label != "",
-    do: "（依据：#{short(label)}）"
+    do: "（依据：#{label}）"
 
   defp basis_suffix(_item), do: ""
-
-  defp short(text) when byte_size(text) > 80, do: String.slice(text, 0, 80) <> "…"
-  defp short(text), do: text
 
   defp normalize_items(items) when is_list(items) do
     items

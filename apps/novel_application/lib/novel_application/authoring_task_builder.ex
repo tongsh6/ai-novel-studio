@@ -9,10 +9,10 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   - 放入 `ToolRequest.input` 时用 `to_input/1`（JSON-safe map），adapter 经共同契约恢复并校验。
   """
 
+  alias NovelApplication.AuthoringReadMaterials
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
-  alias NovelCommon.RequestIR
 
   @doc """
   构造并校验 task；失败返回 `{:error, {code, detail}}`，调用方不得降级猜意图。
@@ -797,69 +797,41 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     )
   end
 
-  @doc "本次实际可见读取的材料元数据；来源分类供任务、使命与证据校验共同消费。"
-  @spec request_read_materials(RequestIR.t() | nil) :: [map()]
-  def request_read_materials(nil), do: []
+  defp task_read_materials(attrs) do
+    materials = AuthoringReadMaterials.from_request(attrs[:request_ir])
+    sources = Enum.group_by(materials, & &1.ref)
 
-  def request_read_materials(%RequestIR{} = request) do
-    request
-    |> RequestIR.usable_observations()
-    |> Enum.flat_map(&read_observation_materials/1)
-    |> Enum.uniq_by(&{&1.ref, &1[:version], &1[:complete?], &1.provenance})
+    materials
+    |> Enum.map(& &1.ref)
+    |> Enum.uniq()
+    |> Enum.map(&task_read_material(Map.fetch!(sources, &1)))
   end
 
-  defp read_observation_materials(observation) do
-    coverage = observation[:coverage] || %{}
-    omissions = List.wrap(observation[:omissions])
-    complete? = complete_read_coverage?(observation, coverage, omissions)
+  defp task_read_material([material]), do: Map.drop(material, [:provenance, :basis_label])
 
-    notes =
-      [coverage[:coverage_note] || coverage["coverage_note"] | omissions]
-      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
-      |> Enum.join("；")
+  defp task_read_material(materials) do
+    versions = materials |> Enum.map(&Map.get(&1, :version)) |> Enum.uniq()
+    consistent_version? = length(versions) == 1
+    complete? = consistent_version? and Enum.all?(materials, &(&1.complete? == true))
+    version = if consistent_version?, do: hd(versions)
+    note = if not complete?, do: Enum.map_join(materials, "\n", &read_material_note/1)
 
-    note = if notes == "", do: "仅表示本次可见读取；未声明完整覆盖", else: notes
-
-    observation[:source_refs]
-    |> List.wrap()
-    |> Enum.flat_map(&read_source_material(&1, observation, complete?, note))
+    material(:observation, hd(materials).ref,
+      version: version,
+      complete?: complete?,
+      omission_note: note
+    )
   end
 
-  defp complete_read_coverage?(observation, coverage, omissions) do
-    (coverage[:complete?] || coverage["complete?"]) == true and
-      observation[:status] == "ok" and omissions == [] and is_nil(observation[:next_offset])
-  end
+  # AuthoringTask 每个 ref 只有一项；各来源限定仍保留，不能复制正文或任取一个版本。
+  defp read_material_note(material) do
+    note = material[:omission_note] || "本次读取完整"
 
-  defp read_source_material(source, observation, complete?, note) do
-    {ref, version} = read_source_identity(source)
-    versions = observation[:versions] || %{}
-
-    if blank?(ref) do
-      []
-    else
-      [
-        material(:observation, ref,
-          version: version || Map.get(versions, ref),
-          complete?: complete?,
-          omission_note: if(complete?, do: nil, else: note)
-        )
-        |> Map.put(:provenance, observation[:provenance] || "tool_result")
-      ]
+    case material[:version] do
+      nil -> note
+      version -> "版本 #{version}；#{note}"
     end
   end
-
-  defp task_read_materials(attrs) do
-    attrs[:request_ir]
-    |> request_read_materials()
-    |> Enum.map(&Map.delete(&1, :provenance))
-  end
-
-  defp read_source_identity(ref) when is_binary(ref), do: {ref, nil}
-
-  defp read_source_identity(source) when is_map(source),
-    do: {source[:ref] || source["ref"], source[:version] || source["version"]}
-
-  defp read_source_identity(_source), do: {nil, nil}
 
   defp revision_materials(attrs, base_ref) do
     [

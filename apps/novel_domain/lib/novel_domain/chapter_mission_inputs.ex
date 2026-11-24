@@ -4,8 +4,9 @@ defmodule NovelDomain.ChapterMissionInputs do
 
   输入：目标章的设计态（`ChapterPlanDirection` + 场次）、进度态（五本账条目 +
   已写进度 + 全书骨架）、在场角色阵容。输出：一组带稳定 `ref` 的材料条目——
-  推理步的模型只能引用这些 ref 作为依据，不在集合内的依据由
-  `NovelDomain.ChapterMission.bind/2` 机械丢弃（I-M1）。
+  推理步按实际请求供应本组材料，并可引用同次可见读取的来源。
+  `NovelDomain.ChapterMission.bind/2` 从实际材料条目绑定 ref 与具体依据；
+  未供应的依据机械丢弃（I-M1），已供应却缺依据的条目返回装配错误。
 
   选取口径不新设阈值（I-M5，用户 2026-08-11 两次否决全局阈值）：
   - 伏笔：有预期（chapter/volume 型）的按预期临近排序、已超期标注；无预期型只计数；

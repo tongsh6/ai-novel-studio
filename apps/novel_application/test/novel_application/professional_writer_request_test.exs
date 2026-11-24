@@ -510,6 +510,12 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
     assert Enum.map(mission.must_advance, & &1["basis_ref"]) ==
              ["chapter:visible-page", "memory:application-read"]
 
+    [page, application] = mission.must_advance
+    assert page["basis_label"] =~ "正文第 68–80 字符 / 共 160 字符"
+    assert page["basis_label"] =~ "只读取本页"
+    refute page["basis_label"] =~ "VISIBLEPAGE91"
+    assert application["basis_label"] =~ "APPLICATIONPAGE91"
+
     assert length(mission.dropped) == 2
     assert meta.provider_call_count == 1
     assert_receive {:r05_visible_mission, prompt}
@@ -613,7 +619,12 @@ defmodule NovelApplication.ProfessionalWriterRequestTest do
     visible = %{
       status: "partial",
       source_refs: [%{ref: "chapter:visible-page"}],
-      coverage: %{complete?: false},
+      coverage: %{
+        complete?: false,
+        chapter_ref: "chapter:visible-page",
+        prose_range: %{start: 68, end: 80},
+        prose_total_chars: 160
+      },
       omissions: ["只读取本页"],
       next_offset: 80,
       content: %{summary: "VISIBLEPAGE91", tool: "chapter_read", facts: %{}}

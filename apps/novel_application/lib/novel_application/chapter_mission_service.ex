@@ -7,7 +7,8 @@ defmodule NovelApplication.ChapterMissionService do
   - 结构、来源或可见字段不合约时携带原因重试一次，与计划起草器同模式。
   - 作者说明只取 `arguments.author_reasoning` 原字节，content 只能缺席或为空。
     闭合 schema、原始调用来源与全部作者可见字段均验收后，使命才能进入简报、
-    持久化和叙事事件；任何拒收都由同一原生交换有界纠正。
+    持久化和叙事事件；模型协议拒收由同一原生交换有界纠正。
+  - 实际材料绑定在解析成功后完成；应用缺失依据时闭合原调用，不消耗模型纠错。
   - 失败返回 `{:error, reason, meta}`，meta 带真实 `provider_call_count` 供预算核算；
     flow 按用户拍板「降级继续写」处理，本模块不做任何权威层写入（I-M2）。
   """
@@ -16,9 +17,10 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
-  alias NovelApplication.AuthoringTaskBuilder
+  alias NovelApplication.AuthoringReadMaterials
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
+  alias NovelCommon.RequestIR.Compaction
   alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.ChapterPlanDirection
@@ -55,19 +57,19 @@ defmodule NovelApplication.ChapterMissionService do
 
     case request_ir(inputs, kind, opts) do
       {:ok, ir} ->
-        derive_with_execution(ir, inputs, provider_execution, kind)
+        derive_with_execution(ir, provider_execution, kind)
 
       {:error, reason} ->
         {:error, reason, %{provider_call_count: 0}}
     end
   end
 
-  defp derive_with_execution(ir, inputs, provider_execution, kind) do
+  defp derive_with_execution(ir, provider_execution, kind) do
     provider_execution = Execution.with_content_visibility(provider_execution, :developer)
 
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
-        derive_from_exchange(ir, result_fn, inputs, kind)
+        derive_from_exchange(ir, result_fn, kind)
 
       _ ->
         {:error, :provider_execution_missing,
@@ -225,20 +227,30 @@ defmodule NovelApplication.ChapterMissionService do
   end
 
   # 调用、失败回流与会话状态都由共享原生交换维护；本模块只解释使命契约。
-  defp derive_from_exchange(ir, result_fn, inputs, kind) do
+  defp derive_from_exchange(ir, result_fn, kind) do
     {parsed, session} =
       NativeToolExchange.run(
         ir,
         result_fn,
         tool_name(kind),
-        &parse_mission(&1, inputs, ir, kind),
+        fn result, _attempt, actual_request -> parse_mission(result, actual_request, kind) end,
         &exchange_error(&1, &2, tool_name(kind)),
         retry_transport: false,
         feedback: &mission_feedback(&1, kind)
       )
 
     case parsed do
-      %{status: :ok, mission: mission} ->
+      %{status: :ok} ->
+        complete_mission(parsed, session, kind)
+
+      %{status: :error, reason: reason} ->
+        {:error, reason, AuthoringOperation.metadata(session)}
+    end
+  end
+
+  defp complete_mission(parsed, session, kind) do
+    case bound_mission(parsed.arguments, parsed.narrative_source, parsed.actual_request) do
+      {:ok, mission} ->
         meta =
           AuthoringOperation.complete(session, "#{tool_name(kind)}_validated", %{
             mission_ref: ChapterMission.ref(mission),
@@ -249,41 +261,72 @@ defmodule NovelApplication.ChapterMissionService do
         {:ok, mission,
          Map.merge(meta, Map.take(parsed, [:narrative, :narrative_source, :provider_call_ref]))}
 
-      %{status: :error, reason: reason} ->
-        {:error, reason, AuthoringOperation.metadata(session)}
+      {:error, {:mission_material_label_missing, ref} = reason} ->
+        meta =
+          session
+          |> AuthoringSession.validate_provider_result(
+            "failed",
+            "mission_material_label_missing",
+            %{
+              basis_ref: ref,
+              production_write_performed: false,
+              execution_authorized: false,
+              canon_written: false
+            }
+          )
+          |> AuthoringOperation.metadata()
+
+        {:error, reason, meta}
     end
   end
 
-  defp parse_mission(provider_result, inputs, ir, kind) do
+  defp parse_mission(provider_result, actual_request, kind) do
     with {:ok, args} <- tool_arguments(provider_result, kind),
          {:ok, narrative, source} <- narrative(provider_result, args, tool_name(kind)),
          :ok <- validate_mission_text(args) do
-      mission = bound_mission(args, source, inputs, ir)
-
       %{
         status: :ok,
-        mission: mission,
+        arguments: args,
+        actual_request: actual_request,
         narrative: narrative,
         narrative_source: source,
-        provider_call_ref: mission.provider_call_ref
+        provider_call_ref: source.provider_call_ref
       }
     else
       {:error, reason} -> mission_error(reason)
     end
   end
 
-  defp bound_mission(args, source, inputs, ir) do
-    read_refs = ir |> AuthoringTaskBuilder.request_read_materials() |> Enum.map(& &1.ref)
-    known_refs = MapSet.union(ChapterMissionInputs.refs(inputs), MapSet.new(read_refs))
+  defp bound_mission(args, source, actual_request) do
+    materials =
+      AuthoringReadMaterials.from_request(actual_request) ++ initial_materials(actual_request)
 
     args
     |> ChapterMission.new()
     |> Map.put(:mission_id, NovelFoundation.ID.unique("cm"))
     |> Map.put(:provider_call_ref, source.provider_call_ref)
-    |> ChapterMission.bind(
-      known_refs,
-      &ChapterMissionInputs.label(inputs, &1)
-    )
+    |> ChapterMission.bind(materials)
+  end
+
+  defp initial_materials(actual_request) do
+    scope =
+      actual_request.messages
+      |> Compaction.project()
+      |> Enum.reverse()
+      |> Enum.find(&(&1.role == "scope_update" and &1.provenance == "application"))
+
+    case scope do
+      %{blocks: [%{type: "scope", content: content}], base_refs: base_refs} ->
+        refs = MapSet.new(base_refs, &map_get(&1, :ref))
+        items = get_in(content, ["operation", "mission_inputs", "items"]) || []
+
+        for item <- items, MapSet.member?(refs, item["ref"]) do
+          %{ref: item["ref"], basis_label: item["text"]}
+        end
+
+      _ ->
+        []
+    end
   end
 
   defp exchange_error("native_tool_call_required", _detail, tool_name),
