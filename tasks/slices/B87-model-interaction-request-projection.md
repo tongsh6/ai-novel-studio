@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing / NOT PASS（2026-11-24 重核并推进）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 与 R07 已有各自边界内的签收；R07 已补齐真实执行 / 采纳 / 回放及取消标题缺口，同源五场与原 scope 完整工程门禁通过，核定与最终交付出口见 §22.11；R06 / R08 的真实失败与有限剩余项继续保留；R17–R19 未满足开工前置。开工盘点见 §21，原失败与签收撤回历史见 §22.1–§22.10；B87 / Issue #4 尚未完成。
+**状态**：**doing / NOT PASS（2026-11-25 重核并推进）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 与 R07 已有各自边界内的签收；R07 已补齐真实执行 / 采纳 / 回放及取消标题缺口，同源五场与原 scope 完整工程门禁通过，核定与最终交付出口见 §22.11；R06 / R08 的真实失败与有限剩余项继续保留；R17–R19 未满足开工前置。开工盘点见 §21，原失败与签收撤回历史见 §22.1–§22.10；B87 / Issue #4 尚未完成。
 
 | 批次 | 当前核定 | 已成立的交付 / 尚缺内容 | 依据 |
 |---|---|---|---|
@@ -12,7 +12,7 @@
 | R03 Checkpoint 与恢复 | **应用范围 PASS** | 当前覆盖、来源与恢复消费者完成；旧实模 partial / 未执行轮次保留 | §14.48–§14.52 |
 | R04 唯一 Scope 与三 wire | **应用范围 PASS** | 应用契约签收；旧原生 FAIL 与未观测项仍在原件 | §15.6 |
 | R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
-| R06 作者可见表达 | **既有机制实现；blocked / NOT PASS** | C9、WR02 作者说明与 WR01 live 缺证保留；§24 称谓窗口已停止，按 §25 修复使命依据绑定并核 WR02 维护边界 | §17.4–§17.5、§24–§25 |
+| R06 作者可见表达 | **既有机制实现；blocked / NOT PASS** | C9、WR02 作者说明与 WR01 live 缺证保留；§25 真实 WR02 保留 FAIL；§26 已实现只读归因/计数修正，独审未发现可证产品修复，完整交付见该节出口 | §17.4–§17.5、§24–§26 |
 | R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
 | R08 目标、范围与来源语义 | **doing / NOT PASS** | GREEN09 与九批有限实模已交付；事实夸大、T1 歧义选错及 P2 原失败保留；P2 复合错误反馈按 §23 有限接续，P1 采集终态已补、机械核账另列 | §19.45–§19.51、§21.2–§21.3、§23 |
 | R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
@@ -4201,3 +4201,57 @@ WR02 核账必须证明：新 04–06 候选不采纳、原正文/结构/回执�
 新实模仍为“请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。”，沿原 seed_wr01_chapter_mission 与 b87-r03-splash-product-maintenance-budget；执行前冻结源码、预算、命令、Provider observe 原始流与所需证据。一批一次输入、零人工/harness重试；模型原纠错预算不变。若模型本次未引用新增读叶，只签实际覆盖，不冒认已验证该实模分支。正式失败、缺证或独立作者语言负面结论即停止本窗口，不追加实模、不自动进入C9/WR01；通过后才另核原C9责任并前向登记必要后续。
 
 本接续最终事实、失败/缺证、源码身份、工程/实机/语义、静态处置、分组commit和远端核账统一记录在 binding-20261124-01/delivery-final-01.json，原始结果不可改写；不在冻结后为了补日志反复改受验源码。完整R06 DoD未满足仍NOT PASS，R08、R17–R19与B89前置不变。
+
+## 26. R06 只读因果核验、引用计数与首次作者说明责任审查（2026-11-25）
+
+### 26.1 授权、基线与已知失败
+
+作者在核对方案及成功把握后明确“开工”。本检查点先修已证实的两个外部证据错误，并独立定位首次作者说明的责任链；不以核验修正代签作者表达或整个 R06。开工基线为 clean ecb622bcc5f32f7b036564a6929110a3c4d629a7，与 origin/develop/dialogue-based-novel-workbench 一致；开始前由原 task_done --begin 封存 causality-20261125-01/scope.json，scope_id=7ca45234-df93-41fc-8696-dd02f38648fc，SHA=db90b184a9b50e3085be3977f955319ead9b6715e0f41e8b68af524f64904a9e。基线源码指纹仍为 0f83bfdb49a9c740a8594d00c696bce74d785d9dd714fabe5b9aae7087aed464；baseline-compile-01 已 exit 0、源码前后相同。
+
+§25 最终结果由 binding-20261124-01/delivery-final-01.json 核定：唯一真实 WR02 正式 13/14 FAIL，why_and_restore_read_only=false；窗口前已启动的 request11 在窗口内完成，llm_records 6→7，ProviderRun 数仍 5；没有窗口内新 POST/gateway start。全部 14 HTTP、两次旧章摘要及派生账本经独审闭合，但首次作者说明与语义仍有负面结论，R06 blocked / NOT PASS。初始输入及原 derived 事件均为4，reader却把初始与读取ref并集7记成 input_ref_count；实际新读取ref选用数为0。原件与原FAIL继续保留。
+
+**本节开工状态：有限检查点 doing；R06 父任务仍 blocked / NOT PASS，B87 维持 7/12。** 本次所有结果与提交身份统一以 §26.4 的交付出口为准，不预填未来验收。
+
+### 26.2 七问与现役归属
+
+| 七问 | 本次裁决 |
+|---|---|
+| Contract | VS-00M §6 的本次只读因果与计数裁决、现 ChapterSummary/Ledger 核账、原 R06 作者出口、I1/N-NARR；原产品配置/权限/原文保持。 |
+| Invariant | 查看依据/恢复不触发新模型调用或作者写入；仅唯一且已核清的窗口前维护请求完成可解释增量；未知/额外变化失败；初始输入、供应并集与实际使用分别记实；旧正式FAIL不重签。 |
+| Boundary | 现 scripts/lib/native_ui 的 WR02 live、维护纯核账、使命报告及其同责测试/必要driver观察；当前契约、总任务、NEXT/目录说明。首次作者说明审查覆盖现应用链但先只读；无因果证据不改生产。 |
+| Consumer | 现 WR02 Why/恢复检查、missionSourceChecks.measured 与其正式外部报告；严格 Canon 与原始全量 HTTP 核账仍独立成立。 |
+| Proof | 无变化；唯一旧请求完成；新调用/重试/旧任务新POST；同名错请求/版本/缺终态；混入额外增量/错窗口；初始数与并集不同、同ref多来源不重复计数、未知请求。旧原件仅在新目录产出独立诊断。 |
+| Acceptance Driver | 复用现确定性 WR02 Tauri；没有作者行为修改时不凭空增加实模。只有实质源头修复或必要真实缺证、独立反例与完整工程通过后，才另行前向冻结原输入/seed/runtime/预算的有限实模。 |
+| Exploration | 本步不增加作品知识、固定材料包、探索额度或Agent循环；实际观察、版本和覆盖只沿现所有者消费，新ref未选中如实记未覆盖。 |
+
+| 拟改对象 | 查重与决策 | 当前消费者与旧路径 |
+|---|---|---|
+| WR02 只读核验 | 现 readOnly 全局计数深等及 providerFreeInterval 同时排除开始/完成时间，不能辨识已有请求完成。现 missionRepairEvidence 已核全量HTTP、实际辅助请求、源/版本/响应/摘要/ledger；reuse/refactor-and-retire。 | WR02 复用该证据核精确增量，退役本场把全局计数恒等当因果证明的接线；通用严格默认保留。现模块内实施，不增加业务实体或第二解析器。 |
+| WR02 同次采样与输入边界 | 全仓检索 readProviderReadOnlySnapshot/provider_identities/input_events_before/first_input_attempt/summaryCompletionReadOnlyEvidence 无既有定义；原 readProviderCounts 与 native 输入 attempt/JSONL 已有 owner。reuse/refactor。 | scenario_evidence 单次日志数组派生 counts.llm_records 与 completed_calls，同次 DB 行集合派生 counts.provider_runs 与 provider_run_ids；旧 counts 消费者保留原两字段。仅 WR02 增 provider_identities、input_events_before 与 first_input_attempt，after 完成后记 end；维护 owner 核原身份集合与原 JSONL 首 attempt，允许合法 relaunch 换代，不靠计数凑平。缺采集旧证据保持缺证。 |
+| input_ref_count | suppliedMissionMaterials 已保留 inputRefCount，eventBasisMatches 已使用它；requestMeasured 误取 refs.length，missionSourceChecks 测量组装又丢掉初始数。refactor。 | 使命外部报告保留初始数及未知请求，供应并集独立测量；产品 derived 事件与接收不变。 |
+| supplied_ref_count | 全仓 apps/scripts/frontend/quality/docs/tasks 检索 supplied_ref_count/available_ref_count/eligible_ref_count 无既有同义测量；仅在现报告增加独立字段，非产品状态/协议实体。 | requestMeasured 投影已存在的供应ref并集；与 input_ref_count 含义独立，实际保留依据仍用原 retained_basis_refs。 |
+| 首次作者说明责任链 | AuthoringTaskPolicy、JudgmentToolContract/AuthoringSemantics、实际首次请求、author_reasoning 与 AgentNarrativeSource/消费者均已存在。先审职责冲突与实际数据，不增新叙述服务。 | 若找到可解释首次失败的冲突，先在本节/唯一合同裁定责任再实施；如果输入已经清楚正确，则明确没有可证结构修复，保留模型语义未通过。 |
+
+实施前核实 app-log 的 provider_gateway.complete.start 原行未持久化 pcall/prun：Gateway 虽设置上下文，LogEmit 的字段投影没有这两个引用。本次不虚构该字段；沿现 observedProviderResponses 对原始请求/响应及实际 LLM 双引用的唯一绑定，以 HTTP requested_at 证明请求在窗口前已发出。全量 app start 集合独立核窗口内没有任何新启动；缺失或非法时间仍失败，不用 duration 回推。没有必要为外部因果证明新增产品日志字段或第二请求解析器。
+
+同义实体审查包括现模块职责/调用者、当前结构与相关Git历史。无新领域实体、表、列、产品字段、Tool/API、模型Provider、预算、策略开关。不得因现大文件规模而新增豁免、压行或拆空壳；若需抽取职责，须先补实际消费者及旧入口退役依据。
+
+### 26.3 首次说明与跨批责任
+
+独立审阅只沿“任务规则→判断契约→实际首次请求→首次原输出→来源与展示消费者”核是否存在要求解释内部路由/预算与面向作者的职责冲突。早先判断与后续使命/Writer按各自真实请求时点审读；下游改动不能解释已发布的首次输出。没有具体因果链，不把换字段名、自然名称包装、词面黑名单或追加提示词写成根因修复；原文不得由应用或页面改写。
+
+独立审查已封存 independent-first-narrative-audit-01.json（SHA-256：4574ff6faa50d5f48c38543c24d3cacce756aece6eebfa0478aa59c203d98185）。首次判断 request-3 与 request-4 均为无作者正文的 explore；两次读取后的 request-5 才是首次直接接受的 execute.author_reasoning，request-7 才进入使命阶段。request-3/5 的 system 与 application_base 各自同哈希，首次说明前没有 application_notice、纠错响应或旧 author_reasoning；现规则明确面向作者及创作目的，不要求正文解释内部路由。profile_selection.summary 在接受后才复制 narrative，不能倒作首次输出的原因；原始 SSE、canonical 与首次/恢复页面原文一致。历史强制复述观察、探索必带作者正文及“预算耗尽只能回复/澄清”冲突已经退役。本次未找到可证的最小结构修复，故不改生产、不追加真实模型样本；内部路由论证残留继续留在 R06，真实预算限制不得按词面禁用。原始请求路径/哈希、八个产品模块和历史提交由该独审报告逐项留证。
+
+Writer 只按本次 actual prepared request 的 source_ref/version/representation/coverage/omissions核供给。若明确装配把旧事实当当前、摘要当全文、后台已读当Writer已读，回现owner修；输入正确后的覆盖夸大与来源语义归R08，重复情节及专业质量归R18，当前不增加固定第二章材料包、不等待所有摘要、不扩大R06或启动B89。分流不销账，也不放过确证的供给错误。
+
+### 26.4 验证与停止条件
+
+先固定能打红的同责反例，再实施并做定向回归；旧真实原件仅只读核对/隔离副本诊断，不能调用会覆盖旧summary的verifier。全体改动稳定后停止写源，封存本次源码身份，执行适用完整工程、原生确定性WR02、同scope完整task_done/full扫描与Top10独审。范围外既有I3 Layer-A等失败保持原归属，不能由本次局部通过代签。
+
+如果独立审查没有找到可证源头修复，本次以证据修正及明确责任结论交付，不为测“是否偶然说好”追加真实模型样本。若存在实质修复且必要前提通过，新真实WR02仍固定原作者原话/seed/Splash runtime/预算，一批一次发送、零人工或harness重试；未覆盖分支、正式失败、缺证或R06范围内作者语言负面结论均如实保留并停止该窗口。只有WR02本阶段达标后才按原任务核准C9/WR01有限后续；不能以Why转绿替代完整R06 DoD。
+
+冻结前的两项修正已实现并有同责反例：使命计数回归 83/83；Why 核验在 root 复核中补齐“采样起点之后、首 attempt 之前”的 HTTP/app 新启动反例，先真实打红再收紧整个 start→end 边界，最终相关回归 449/449。初轮 API 缺实现 RED、初次计数组装丢字段失败、夹缝反例与 EOF 空行格式检查失败均保留原件，不重写成成功。独立计数代码审查为 NO_BLOCKING_FINDING，完整冻结门禁及只读核验独审以交付出口的实际结果核定。
+
+旧真实场景已仅用现 readConfig/readBatchAuthoringHistory/missionSourceChecks 在隔离 DB 副本重算：input_ref_count=4、supplied_ref_count=7、实际新读叶选用=0，原源检查全部成立；原 DB、配置、快照、原始调用及正式 summary/failure 前后哈希不变。记录在 mission-actual-diagnostic-02/result.json（SHA-256：84dae05dbf3b68cf04595bf0a38cf672f9c1ece26019599d4a71fbd30c05f47b）；01 的诊断入口错误保持，不冒充产品失败。旧正式 13/14 FAIL 与作者语义结论均保留。
+
+本接续机器证据在 artifacts/slice-verify/b87-r06-20261121/causality-20261125-01/。最终实现/审查结论、原件哈希、验证/失败、源码身份、提交/远端核账统一在该目录 delivery-final-01.json；文档先登记出口，冻结后不为追写日志反复改变受验源码。当前父任务与B87状态保持，下一独立范围以原任务实际前置核准。
