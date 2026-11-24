@@ -18,7 +18,8 @@ import {
 import { textOf } from "./lib/native_ui/driver.mjs";
 import { authorBoundary, axTurnOutcome, countAxAuthorMessages, readingPageFailure,
   withinAuthorBoundary } from "./lib/native_ui/authoring_g2_evidence.mjs";
-import { all, assertRecordFresh, createAxObservation, frameOf, logs, sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
+import { all, assertRecordFresh, createAxObservation, frameOf, jsonl, logs, readProviderReadOnlySnapshot,
+  sentUserMessages, turnFacts, withDb, write } from "./lib/native_ui/scenario_evidence.mjs";
 import { lastCompletedTurn } from "./lib/native_ui/authoring_run_evidence.mjs";
 import { sourceMissionEvents, sourceMissionNarrativeContext } from "./lib/native_ui/authoring_revision_evidence.mjs";
 import { capturePendingItemViews, isScrollUnsupported } from "./lib/native_ui/authoring_pending_driver.mjs";
@@ -109,7 +110,9 @@ async function captureMissionNarrative(config, context, baselineAuthorCount, pha
   const initialViews = await captureMissionNarrative(config, context, baselineAuthorCount, "initial");
   const artifactType = config.mission_kind === "planning" ? "outline_draft" : "prose_fragment";
   const candidateViews = await capturePendingCandidates(config, baselineAuthorCount, { artifactType, prefix: "mission-candidate" });
-  const readOnlyStart = harness.nowIso(), before = readProviderCounts();
+  const readOnlyStart = harness.nowIso(), before = readProviderReadOnlySnapshot(dir);
+  const inputPath = path.join(dir, "native-input-events.jsonl");
+  const inputEventsBefore = config.mission_kind === "planning" ? jsonl(inputPath).length : null;
   const why = await observeWhy();
   if (!why.opened || why.close_error) throw new Error("mission_why_not_observed");
   await harness.runStep("restore", "close_app_and_relaunch", () => harness.rawCloseAppAndRelaunch());
@@ -118,9 +121,19 @@ async function captureMissionNarrative(config, context, baselineAuthorCount, pha
   await ensureWorkSelected(harness, config.author_visible_target.work_title, "mission:restored");
   const restoredViews = await captureMissionNarrative(config, context, baselineAuthorCount, "restored");
   const restoredCandidates = await capturePendingCandidates(config, baselineAuthorCount, { artifactType, prefix: "mission-restored-candidate" });
+  const after = readProviderReadOnlySnapshot(dir), readOnlyEnd = harness.nowIso();
+  let inputEvidence = {};
+  if (config.mission_kind === "planning") {
+    const events = jsonl(inputPath);
+    const index = events.findIndex((row, position) => position >= inputEventsBefore && row.event === "attempt");
+    inputEvidence = { provider_identities: { before: before.identities, after: after.identities },
+      input_events_before: inputEventsBefore,
+      first_input_attempt: index < 0 ? null : { line: index + 1, record: events[index] } };
+  }
   return { initial_views: initialViews, restored_views: restoredViews, candidate_views: candidateViews,
     restored_candidate_views: restoredCandidates, why,
-    read_only: { start: readOnlyStart, end: harness.nowIso(), before, after: readProviderCounts() } };
+    read_only: { start: readOnlyStart, end: readOnlyEnd, before: before.counts, after: after.counts,
+      ...inputEvidence } };
 }
 // B82 G2/G3 只按作者可见页面动作：作品名、章名、阅读原文、自然原话、可见终局。
 // 不读应用 DB、turn/run refs 或 wire 来推进；原始 wire/日志仍由外部代理采集供诊断。
@@ -330,10 +343,7 @@ async function waitVisibleOutcome(message, { baselineAuthorCount, observation, c
     throw error;
   }
 }
-const readProviderCounts = () => ({
-  llm_records: logs(path.join(dir, "llm-calls")).length,
-  provider_runs: withDb(dir, (db) => Number(all(db, "SELECT COUNT(*) AS c FROM provider_runs")[0].c)),
-});
+const readProviderCounts = () => readProviderReadOnlySnapshot(dir).counts;
 
 function readRunRow({ turnId, runId }) {
   return withDb(dir, (db) => all(db,

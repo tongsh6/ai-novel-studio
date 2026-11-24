@@ -8,6 +8,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import * as scenarioEvidence from "./scenario_evidence.mjs";
 import {
   PRODUCTION_TABLES,
   assertCommonEvidence,
@@ -331,6 +333,79 @@ test("productionTableCounts 只读合成 SQLite 的生产表计数且不遗留 W
   const dbFile = template.files.get(PRODUCTION_DB_REL);
   assert.equal(fs.existsSync(`${dbFile}-wal`), false);
   assert.equal(fs.existsSync(`${dbFile}-shm`), false);
+});
+
+
+function withProviderReadOnlyFixture(callback) {
+  const template = fixture(productionDbFixtureSpec);
+  return withWorkingCopy(template, copy => {
+    const db = new DatabaseSync(path.join(copy.dir, PRODUCTION_DB_REL));
+    try {
+      db.exec("CREATE TABLE provider_runs (id TEXT PRIMARY KEY)");
+      db.prepare("INSERT INTO provider_runs (id) VALUES (?)").run("prun-real");
+    } finally { db.close(); }
+    const logDir = path.join(copy.dir, "llm-calls");
+    fs.mkdirSync(logDir);
+    const logFile = path.join(logDir, "calls.jsonl");
+    const pair = { provider_call_ref: "pcall-real", provider_run_ref: "prun-real" };
+    fs.writeFileSync(logFile, JSON.stringify(pair) + "\n");
+    return callback(copy.dir, logFile, pair);
+  });
+}
+
+test("WR02 provider snapshot 从同次实际日志与 DB 行同时取得计数和身份", () => {
+  withProviderReadOnlyFixture((dir, logFile, pair) => {
+    const original = fs.readFileSync(logFile);
+    const result = scenarioEvidence.readProviderReadOnlySnapshot(dir);
+    assert.deepEqual(result, {
+      counts: { llm_records: 1, provider_runs: 1 },
+      identities: { completed_calls: [pair], provider_run_ids: ["prun-real"] },
+    });
+    assert.deepEqual(fs.readFileSync(logFile), original);
+    assert.equal(fs.existsSync(path.join(dir, PRODUCTION_DB_REL) + "-wal"), false);
+  });
+});
+
+test("WR02 provider snapshot 不把读取后才追加的完成混进同一次身份集合", t => {
+  withProviderReadOnlyFixture((dir, logFile, pair) => {
+    const originalRead = fs.readFileSync;
+    let reads = 0;
+    const hook = t.mock.method(fs, "readFileSync", (file, ...args) => {
+      const bytes = originalRead(file, ...args);
+      if (file === logFile) {
+        reads++;
+        fs.appendFileSync(logFile, JSON.stringify({
+          provider_call_ref: "pcall-arriving", provider_run_ref: "prun-arriving" }) + "\n");
+      }
+      return bytes;
+    });
+    let result;
+    try { result = scenarioEvidence.readProviderReadOnlySnapshot(dir); }
+    finally { hook.mock.restore(); }
+    assert.equal(reads, 1);
+    assert.deepEqual(result.counts, { llm_records: 1, provider_runs: 1 });
+    assert.deepEqual(result.identities.completed_calls, [pair]);
+    assert.equal(scenarioEvidence.logs(path.dirname(logFile)).length, 2);
+  });
+});
+
+test("WR02 provider snapshot 保留缺失或重复 pair 交由核验拒绝，不过滤为干净数字", () => {
+  withProviderReadOnlyFixture((dir, logFile, pair) => {
+    fs.writeFileSync(logFile, [pair, {}, pair].map(row => JSON.stringify(row)).join("\n") + "\n");
+    const result = scenarioEvidence.readProviderReadOnlySnapshot(dir);
+    assert.equal(result.counts.llm_records, 3);
+    assert.deepEqual(result.identities.completed_calls,
+      [pair, { provider_call_ref: null, provider_run_ref: null }, pair]);
+  });
+});
+
+test("WR02 provider snapshot 缺实际 DB 集合时不得返回部分成功快照", () => {
+  withProviderReadOnlyFixture((dir) => {
+    const db = new DatabaseSync(path.join(dir, PRODUCTION_DB_REL));
+    try { db.exec("DROP TABLE provider_runs"); }
+    finally { db.close(); }
+    assert.throws(() => scenarioEvidence.readProviderReadOnlySnapshot(dir), /provider_runs/);
+  });
 });
 
 test("checkProductionFingerprint 比对批次前后产品源码指纹", (t) => {

@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import * as liveEvidence from "./authoring_live_evidence.mjs";
+import * as summaryEvidence from "./chapter_summary_maintenance_evidence.mjs";
+import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
 import { b71LiveModelBehavior } from "./authoring_live_evidence.mjs";
 import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
@@ -839,6 +841,262 @@ function missionRepairFixture({ maintenance = true } = {}) {
 
 const repairPassed = report => Object.keys(report.checks).length > 0 &&
   Object.values(report.checks).every(value => value === true);
+
+
+function readOnlyRepairFixture({ maintenance = true } = {}) {
+  const proof = missionRepairFixture({ maintenance });
+  if (maintenance) proof.callWindows["pcall-summary-b"][0] = repairTime("02.500");
+  rebuildRepairTransport(proof);
+  // 实际 app JSONL start 没有 pcall/prun；不能在 fixture 中补造身份。
+  proof.appRecords.push(...proof.llmRecords.map(record => ({
+    event: "provider_gateway.complete.start", provider: "splash",
+    timestamp: record.provider_call_ref === "pcall-summary-b"
+      ? repairTime("02.400") : proof.callWindows[record.provider_call_ref][0],
+  })));
+  const ready = { run_ref: "native-wr02", bundle_identifier: "test.studio",
+    app_path: "/fixture/Studio.app" };
+  const target = { bundle_identifier: ready.bundle_identifier, app_path: ready.app_path,
+    executable_path: ready.app_path + "/Contents/MacOS/app", pid: 101 };
+  const inputEvents = [
+    { schema: "native-input-event/v1", event: "attempt", gesture: "click",
+      at: repairTime("03.000"), run_ref: ready.run_ref, generation: 0, target },
+    { schema: "native-input-event/v1", event: "result", gesture: "click",
+      at: repairTime("03.010"), run_ref: ready.run_ref, generation: 0, target },
+    { schema: "native-input-event/v1", event: "attempt", gesture: "scroll_to",
+      at: repairTime("04.000"), run_ref: ready.run_ref, generation: 0, target },
+    { schema: "native-input-event/v1", event: "attempt", gesture: "click",
+      at: repairTime("04.100"), run_ref: ready.run_ref, generation: 0, target },
+    { schema: "native-input-event/v1", event: "relaunch", gesture: "relaunch",
+      at: repairTime("04.500"), run_ref: ready.run_ref, generation: 1,
+      target: { ...target, pid: 202 }, from_pid: 101 },
+    { schema: "native-input-event/v1", event: "attempt", gesture: "click",
+      at: repairTime("05.000"), run_ref: ready.run_ref, generation: 1,
+      target: { ...target, pid: 202 } },
+  ];
+  const pairs = proof.llmRecords.map(({ provider_call_ref, provider_run_ref }) =>
+    ({ provider_call_ref, provider_run_ref }));
+  const beforePairs = maintenance ? pairs.slice(0, 2) : pairs;
+  return { proof, ready, inputEvents, providerRunIds: ["prun-author"],
+    interval: {
+      start: repairTime("03.500"), end: repairTime("08.500"),
+      before: { llm_records: beforePairs.length, provider_runs: 1 },
+      after: { llm_records: pairs.length, provider_runs: 1 },
+      provider_identities: {
+        before: { completed_calls: structuredClone(beforePairs), provider_run_ids: ["prun-author"] },
+        after: { completed_calls: structuredClone(pairs), provider_run_ids: ["prun-author"] },
+      },
+      input_events_before: 2,
+      first_input_attempt: { line: 3, record: structuredClone(inputEvents[2]) },
+    } };
+}
+
+function readOnlyRepairReport(input, { withMaintenance = true } = {}) {
+  return summaryEvidence.summaryCompletionReadOnlyEvidence({
+    interval: input.interval, inputEvents: input.inputEvents, ready: input.ready,
+    providerRunIds: input.providerRunIds, appRecords: input.proof.appRecords,
+    llmRecords: input.proof.llmRecords,
+    maintenance: withMaintenance ? liveEvidence.missionRepairEvidence(input.proof) : null,
+  });
+}
+
+test("WR02 Why 因果核验：完整旧章证明允许唯一已启动请求完成，所有 HTTP 分母原样保留", () => {
+  const input = readOnlyRepairFixture();
+  assert.equal(repairPassed(liveEvidence.missionRepairEvidence(input.proof)), true);
+  // 旧正式表达式拒绝此真实的 2→3 完成增量；原严格 helper 本身继续保持 false。
+  assert.equal(providerFreeInterval({ appRecords: input.proof.appRecords,
+    llmRecords: input.proof.llmRecords, start: input.interval.start, end: input.interval.end }), false);
+  const result = readOnlyRepairReport(input);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.completed_calls_added.map(row =>
+    [row.provider_call_ref, row.provider_run_ref, row.request_id]),
+  [["pcall-summary-b", "prun-summary-b", "request-3"]]);
+  assert.deepEqual(result.count_delta, { llm_records: 1, provider_runs: 0 });
+  assert.deepEqual(result.before, input.interval.before);
+  assert.deepEqual(result.after, input.interval.after);
+  assert.equal(result.transport.http_requests, 4);
+  assert.equal(result.transport.model_POST, 3);
+  assert.equal(result.transport.GET, 1);
+  assert.equal(result.transport.requests.length, 4);
+  assert.equal(result.transport.max_upstream_requests, null);
+});
+
+test("WR02 Why 因果核验：slice_verify 零增量仍核新采集且复用严格区间，不虚构 HTTP", () => {
+  const input = readOnlyRepairFixture({ maintenance: false });
+  input.proof.llmRecords[0].provider = "slice_verify";
+  const result = readOnlyRepairReport(input, { withMaintenance: false });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.completed_calls_added, []);
+  assert.deepEqual(result.count_delta, { llm_records: 0, provider_runs: 0 });
+  assert.equal(result.transport, null);
+});
+
+test("WR02 Why 因果核验：集合重排与真实 restore 换 PID/generation 不改变成员事实", () => {
+  const input = readOnlyRepairFixture();
+  input.interval.provider_identities.after.completed_calls.reverse();
+  const result = readOnlyRepairReport(input);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(input.interval.first_input_attempt.record.generation, 0);
+  assert.equal(input.inputEvents.at(-1).generation, 1);
+});
+
+test("WR02 Why 因果核验：每个完成增量分别绑定，不能把两次完成折成一个净计数", () => {
+  const input = readOnlyRepairFixture();
+  input.interval.start = repairTime("01.600");
+  input.proof.callWindows["pcall-summary-a"][0] = repairTime("01.570");
+  input.proof.callWindows["pcall-summary-b"][0] = repairTime("01.580");
+  const starts = input.proof.appRecords.filter(row => row.event === "provider_gateway.complete.start");
+  starts[1].timestamp = repairTime("01.560");
+  starts[2].timestamp = repairTime("01.570");
+  rebuildRepairTransport(input.proof);
+  input.inputEvents[0].at = repairTime("01.550");
+  input.inputEvents[1].at = repairTime("01.560");
+  input.interval.provider_identities.before.completed_calls.splice(1);
+  input.interval.before.llm_records = 1;
+  const result = readOnlyRepairReport(input);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.completed_calls_added.map(row => row.provider_call_ref).sort(),
+    ["pcall-summary-a", "pcall-summary-b"]);
+  assert.equal(result.count_delta.llm_records, 2);
+});
+
+for (const [name, change] of [
+  ["旧原件缺身份采样", p => { delete p.interval.provider_identities; }],
+  ["缺首个输入原件", p => { delete p.interval.first_input_attempt; }],
+  ["错首输入行号", p => { p.interval.first_input_attempt.line = 4; }],
+  ["复制行不是原行", p => { p.interval.first_input_attempt.record.gesture = "activate"; }],
+  ["只挑最终点击而跳过滚动", p => {
+    p.interval.first_input_attempt = { line: 4, record: structuredClone(p.inputEvents[3]) };
+  }],
+  ["移动 bookmark 隐去窗口内早期滚动", p => {
+    p.interval.input_events_before = 3;
+    p.interval.first_input_attempt = { line: 4, record: structuredClone(p.inputEvents[3]) };
+  }],
+  ["跨批原输入", p => {
+    p.inputEvents[2].run_ref = "other-run";
+    p.interval.first_input_attempt.record = structuredClone(p.inputEvents[2]);
+  }],
+  ["跨应用原输入", p => {
+    p.inputEvents[2].target = { ...p.inputEvents[2].target, app_path: "/foreign/Studio.app" };
+    p.interval.first_input_attempt.record = structuredClone(p.inputEvents[2]);
+  }],
+  ["首输入缺 generation", p => {
+    delete p.inputEvents[2].generation;
+    p.interval.first_input_attempt.record = structuredClone(p.inputEvents[2]);
+  }],
+  ["首输入时间未知", p => {
+    p.inputEvents[2].at = "unknown";
+    p.interval.first_input_attempt.record = structuredClone(p.inputEvents[2]);
+  }],
+  ["窗口倒置", p => { p.interval.end = repairTime("03.000"); }],
+  ["计数字符串不能冒充观测", p => { p.interval.after.llm_records = "3"; }],
+  ["净计数与实际成员不符", p => { p.interval.after.llm_records = 2; }],
+  ["重复完成 pair", p => {
+    p.interval.provider_identities.after.completed_calls.push(
+      structuredClone(p.interval.provider_identities.after.completed_calls[2]));
+    p.interval.after.llm_records++;
+  }],
+  ["缺一半 pair", p => {
+    delete p.interval.provider_identities.before.completed_calls[1].provider_run_ref;
+  }],
+  ["before 未知 pair", p => {
+    p.interval.provider_identities.before.completed_calls[1].provider_call_ref = "pcall-unknown";
+  }],
+  ["删除旧成员再用新增抵消", p => {
+    p.interval.provider_identities.after.completed_calls.shift();
+    p.interval.after.llm_records--;
+  }],
+  ["完成集合含未实际记录的调用", p => {
+    p.interval.provider_identities.after.completed_calls.push({
+      provider_call_ref: "pcall-unknown", provider_run_ref: "prun-unknown" });
+    p.interval.after.llm_records++;
+  }],
+  ["ProviderRun 数量相同但身份替换", p => {
+    p.interval.provider_identities.after.provider_run_ids = ["prun-replacement"];
+  }],
+  ["ProviderRun 快照不能取代实际最终 DB 集合", p => { p.providerRunIds = ["prun-other"]; }],
+  ["ProviderRun 重复身份不能凑计数", p => {
+    p.interval.provider_identities.before.provider_run_ids.push("prun-author");
+    p.interval.before.provider_runs++;
+  }],
+  ["未采样的实际终局日志", p => {
+    p.interval.provider_identities.after.completed_calls.pop();
+    p.interval.after.llm_records--;
+  }],
+  ["作者完成不能借章摘要证明", p => {
+    p.interval.provider_identities.before.completed_calls.shift();
+    p.interval.before.llm_records--;
+  }],
+  ["HTTP 在采样起点之后、首输入之前发起", p => {
+    p.proof.callWindows["pcall-summary-b"][0] = repairTime("03.600");
+    rebuildRepairTransport(p.proof);
+  }],
+  ["应用在采样起点之后、首输入之前启动", p => {
+    p.proof.appRecords.find(row => row.event === "provider_gateway.complete.start").timestamp = repairTime("03.600");
+  }],
+  ["HTTP 在首输入同刻开始也不是早已开始", p => {
+    p.proof.callWindows["pcall-summary-b"][0] = repairTime("04.000");
+    rebuildRepairTransport(p.proof);
+  }],
+  ["旧后台任务在窗口内新发 POST", p => {
+    p.proof.callWindows["pcall-summary-b"][0] = repairTime("04.010");
+    rebuildRepairTransport(p.proof);
+  }],
+  ["原 HTTP 缺终局", p => {
+    p.proof.providerStream.events = p.proof.providerStream.events.filter(row =>
+      !(row.request_id === "request-3" && row.event === "transparent_complete"));
+  }],
+  ["原 HTTP 到 after 采样结束仍未完成", p => {
+    p.proof.callWindows["pcall-summary-b"][1] = repairTime("09.000");
+    rebuildRepairTransport(p.proof);
+  }],
+  ["应用在首输入同刻启动", p => {
+    p.proof.appRecords.find(row => row.event === "provider_gateway.complete.start").timestamp = repairTime("04.000");
+  }],
+  ["未知应用启动也不能被后台标签豁免", p => {
+    p.proof.appRecords.push({ event: "provider_gateway.complete.start",
+      timestamp: repairTime("04.010"), purpose: "old_background_job" });
+  }],
+  ["应用启动时间缺失", p => {
+    delete p.proof.appRecords.find(row => row.event === "provider_gateway.complete.start").timestamp;
+  }],
+  ["原响应缺失", p => { p.proof.transportBytes.delete("request-3.received.bin"); }],
+  ["源正文版本被换", p => {
+    p.proof.snapshots.final.scope_rows.drafts[2].revision++;
+    refreshRepairCanon(p.proof);
+  }],
+  ["维护账本缺终局", p => {
+    p.proof.appRecords = p.proof.appRecords.filter(row =>
+      !(row.event === "ledger.update.done" && row.chapter_id.startsWith("bbbb")));
+  }],
+  ["受保护正文变化", p => {
+    p.proof.snapshots.final.scope_rows.drafts[0].content += "未获采纳的改写。";
+    refreshRepairCanon(p.proof);
+  }],
+]) {
+  test("WR02 Why 因果核验拒绝：" + name, () => {
+    const input = readOnlyRepairFixture();
+    change(input);
+    const result = readOnlyRepairReport(input);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert(Object.values(result.checks).some(value => value === false));
+  });
+}
+
+test("WR02 Why 因果核验：没有完整维护证明不能接收任何完成增量", () => {
+  assert.equal(readOnlyRepairReport(readOnlyRepairFixture(), { withMaintenance: false }).ok, false);
+});
+
+test("WR02 Why 因果核验：零增量也不能跳过新采样或原严格启动区间", () => {
+  for (const change of [
+    p => { delete p.interval.provider_identities; },
+    p => { p.interval.first_input_attempt.line++; },
+    p => { p.proof.appRecords[0].timestamp = repairTime("04.000"); },
+  ]) {
+    const input = readOnlyRepairFixture({ maintenance: false });
+    change(input);
+    assert.equal(readOnlyRepairReport(input, { withMaintenance: false }).ok, false);
+  }
+});
 
 test("WR02 两章 repair 绑定源版本，允许同一 arc 跨两个真实维护窗口更新", () => {
   const proof = missionRepairFixture();

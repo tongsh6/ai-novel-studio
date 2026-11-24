@@ -187,6 +187,24 @@ export function withDb(dir, fn) {
 
 export const all = (db, sql, params = []) => db.prepare(sql).all(...params);
 
+// 单次日志读取/单次实际行查询同时产生 count 与成员，不能再次读取后猜测增量。
+// 缺失、重复身份保留原样给纯核验拒绝；没有有效结果时不发布部分快照。
+export function readProviderReadOnlySnapshot(dir) {
+  const records = logs(path.join(dir, "llm-calls"));
+  const providerRuns = withDb(dir, db => all(db, "SELECT id FROM provider_runs ORDER BY id"));
+  return {
+    counts: { llm_records: records.length, provider_runs: providerRuns.length },
+    identities: {
+      completed_calls: records.map(record => ({
+        provider_call_ref: record.provider_call_ref ?? null,
+        provider_run_ref: record.provider_run_ref ?? null,
+      })),
+      provider_run_ids: providerRuns.map(row => row.id),
+    },
+  };
+}
+
+
 // 生产事实表（不含 trace/交互日志）：原生批次前后必须逐表计数一致，证明本轮没有
 // 隐式采纳/写入；trace 持久化本身是验收要求，不算生产写入。
 export const PRODUCTION_TABLES = Object.freeze([

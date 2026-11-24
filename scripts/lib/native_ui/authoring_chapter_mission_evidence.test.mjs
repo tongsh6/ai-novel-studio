@@ -453,6 +453,40 @@ function syncReadRequest(value) {
   value.records[0].request_body.messages = structuredClone(value.sessionMessages.slice(0, reply));
 }
 
+test("R06 计数口径：初始输入与新增读取的供应并集分别报告", () => {
+  const result = missionSourceChecks(missionReadFixture());
+  assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify(result.checks));
+  assert.equal(result.measured.input_ref_count, 3);
+  assert.equal(result.measured.supplied_ref_count, 4);
+  assert.deepEqual(result.measured.retained_basis_refs, [READ_CHAPTER]);
+});
+
+test("R06 计数口径：同ref重复来源不增加供应引用数", () => {
+  const value = missionReadFixture([directoryRead(), directoryRead()], [
+    { text: "按两次目录证据继续规划。", basis_ref: READ_CHAPTER,
+      basis_label: DIRECTORY_LABEL + "\n" + DIRECTORY_LABEL },
+  ]);
+  const result = missionSourceChecks(value);
+  assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify(result.checks));
+  assert.equal(result.measured.input_ref_count, 3);
+  assert.equal(result.measured.supplied_ref_count, 4);
+  assert.deepEqual(result.measured.retained_basis_refs, [READ_CHAPTER]);
+});
+
+test("R06 计数口径：仅初始材料时两种计数相同", () => {
+  const result = missionSourceChecks(input());
+  assert.ok(Object.values(result.checks).every(Boolean), JSON.stringify(result.checks));
+  assert.equal(result.measured.input_ref_count, 3);
+  assert.equal(result.measured.supplied_ref_count, 3);
+});
+
+test("R06 计数口径：没有可核请求时保持未知而非零", () => {
+  const result = missionSourceChecks({});
+  assert.equal(Object.values(result.checks).every(Boolean), false);
+  assert.equal(result.measured.input_ref_count, null);
+  assert.equal(result.measured.supplied_ref_count, null);
+});
+
 test("R06 可见材料：目录精确ref/title补名，原初始输入计数仍为3", () => {
   const value = missionReadFixture();
   assert.ok(missionReadPasses(value), JSON.stringify(missionReadChecks(value)));

@@ -17,7 +17,7 @@ import { canonicalRequestBindingsForProviderCall, providerOperation, readProvide
 import { actionLabelsFor, adoptionMaintenanceOutcome, canonTableSignature, locatePendingItem, locateScopedButton, selectPendingAction, writerArtifactMatch } from "./authoring_pending_evidence.mjs";
 import { getRuntimeProfile } from "./request_cost_runtime_recipe.mjs";
 import { ledgerChangesBound, observedProviderResponses, providerCallPairs, requiredRows,
-  summaryAuxiliaryFact, summaryRowsAccounted } from "./chapter_summary_maintenance_evidence.mjs";
+  summaryAuxiliaryFact, summaryCompletionReadOnlyEvidence, summaryRowsAccounted } from "./chapter_summary_maintenance_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 import {
   all,
@@ -29,7 +29,9 @@ import {
   frameEvent,
   frameOf,
   read,
+  jsonl,
   readProviderObservation,
+  readProviderReadOnlySnapshot,
   sha256,
   shaFile,
   withDb,
@@ -1118,9 +1120,13 @@ export function verifyMissionBatch(dir) {
   const views = missionViewChecks(dir, config, common, driver, context, observation.baselineAuthorCount);
   const scan = capturedSurfaceScan(dir, common);
   const interval = driver.mission?.read_only;
-  const readOnly = interval && isDeepStrictEqual(interval.before, interval.after) &&
+  const readOnly = planning ? summaryCompletionReadOnlyEvidence({
+    interval, inputEvents: jsonl(path.join(dir, "native-input-events.jsonl")), ready: common.ready,
+    providerRunIds: readProviderReadOnlySnapshot(dir).identities.provider_run_ids,
+    appRecords: evidence.appRecords, llmRecords: evidence.llmRecords, maintenance,
+  }) : { ok: Boolean(interval && isDeepStrictEqual(interval.before, interval.after) &&
     providerFreeInterval({ appRecords: evidence.appRecords, llmRecords: evidence.llmRecords,
-      start: interval.start, end: interval.end });
+      start: interval.start, end: interval.end })) };
   const checks = {
     one_author_send: evidence.userMessages.length === 1 && frameBody(evidence.userMessages[0])?.text === config.message,
     native_calls: Object.values(calls.checks).every(value => value === true) &&
@@ -1136,18 +1142,18 @@ export function verifyMissionBatch(dir) {
     narrative_visible_and_restored: views.initial && views.restored,
     candidate_visible_and_restored: missionCandidateViews(dir, common, driver, artifacts[0], body,
       config.message, observation.baselineAuthorCount),
-    why_and_restore_read_only: Boolean(driver.mission?.why?.opened && !driver.mission.why.close_error && readOnly),
+    why_and_restore_read_only: Boolean(driver.mission?.why?.opened && !driver.mission.why.close_error && readOnly.ok),
     author_visible_no_internal_tokens: scan.ok,
     production_source_unchanged: fingerprintUnchanged(dir),
   };
   const report = { ok: Object.values(checks).every(value => value === true), scenario_id: config.scenario_id,
-    checks, source, canon, maintenance, exchange, writer_material: material, views, scan,
+    checks, source, canon, maintenance, read_only: readOnly, exchange, writer_material: material, views, scan,
     semantic_review: "pending_independent_review_of_raw_narrative_and_captured_page",
     not_signed: ["R08_literary_quality_and_capability_exam"] };
   fs.writeFileSync(path.join(dir, "native-b71-checks.json"), JSON.stringify(report, null, 2));
   const summary = writeNativeSummary(dir, { sliceId: config.slice_id, provider: config.provider,
     driver: common.ui.driver, scope: common.ui.scope, checks, measured: { mission: source.measured,
-      provider_calls: calls.measured, auxiliary_maintenance: maintenance,
+      provider_calls: calls.measured, auxiliary_maintenance: maintenance, read_only: readOnly,
       screenshots: common.ui.screenshots, wait_ledger: common.ledger },
     status: report.ok ? "pass" : "fail", extra: { scenario_id: config.scenario_id,
       semantic_review: report.semantic_review, not_signed: report.not_signed } });

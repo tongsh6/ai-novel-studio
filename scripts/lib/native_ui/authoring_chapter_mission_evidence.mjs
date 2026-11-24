@@ -520,7 +520,8 @@ function requestMeasured(request) {
   return {
     retained_basis_refs: Array.isArray(basisRefs) ? basisRefs : [],
     dropped_basis_count: field(expected, "dropped"),
-    input_ref_count: Array.isArray(field(request, "refs")) ? request.refs.length : null,
+    input_ref_count: field(request, "inputRefCount"),
+    supplied_ref_count: Array.isArray(field(request, "refs")) ? request.refs.length : null,
   };
 }
 
@@ -600,7 +601,7 @@ export function missionSourceChecks(input = {}) {
     checks: checksFor(input, active, changedFacts, calls),
     measured: measured({
       ...input,
-      request: { refs: Array.isArray(refs) ? refs : [], expected },
+      request: { refs, inputRefCount: field(request, "inputRefCount"), expected },
     }, call, changed),
   };
 }

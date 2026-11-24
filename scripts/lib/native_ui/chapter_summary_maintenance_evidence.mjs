@@ -8,6 +8,7 @@ import { closedSseData } from "../../native_provider_stream_proxy.mjs";
 import { parseUtcTimestamp, uuidFromHex } from "./authoring_canon_evidence.mjs";
 import { canonTableSignature } from "./authoring_pending_evidence.mjs";
 import { providerTurnMatchesParent } from "./authoring_call_evidence.mjs";
+import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
 
 const nonEmpty = value => typeof value === "string" && value.trim() !== "";
 
@@ -391,4 +392,158 @@ export function ledgerChangesBound({ before, after, workId, sources }) {
       "ledger row is outside the actual maintenance windows");
   }
   return true;
+}
+
+// WR02 Why/恢复只读核账：身份快照决定实际增量，原 HTTP 决定请求启动因果。
+// app start 原件没有双引用；它只独立执行全量窗口内零启动判据。
+function completedCallMembers(rows, label) {
+  assert(Array.isArray(rows), label + " completed calls missing");
+  assert(rows.every(row => nonEmpty(row?.provider_call_ref) && nonEmpty(row?.provider_run_ref)),
+    label + " provider pair incomplete");
+  for (const field of ["provider_call_ref", "provider_run_ref"]) {
+    assert(new Set(rows.map(row => row[field])).size === rows.length, label + " duplicate " + field);
+  }
+  return new Map(rows.map(row => [JSON.stringify([row.provider_call_ref, row.provider_run_ref]), row]));
+}
+
+function providerRunMembers(ids, label) {
+  assert(Array.isArray(ids) && ids.every(nonEmpty), label + " ProviderRun ids missing");
+  assert(new Set(ids).size === ids.length, label + " duplicate ProviderRun id");
+  return [...ids].sort();
+}
+
+function readOnlyInputBoundary(interval, inputEvents, ready) {
+  const start = parseUtcTimestamp(interval?.start), end = parseUtcTimestamp(interval?.end);
+  assert(end >= start && Array.isArray(inputEvents), "read-only interval/input originals missing");
+  const bookmark = interval.input_events_before, copied = interval.first_input_attempt;
+  assert(Number.isSafeInteger(bookmark) && bookmark >= 0 && bookmark < inputEvents.length,
+    "read-only input bookmark invalid");
+  const index = inputEvents.findIndex((row, position) => position >= bookmark && row.event === "attempt");
+  assert(index >= 0 && copied?.line === index + 1 &&
+    isDeepStrictEqual(copied.record, inputEvents[index]), "first input is not the original first attempt");
+  const first = inputEvents[index], target = first.target;
+  assert(first.schema === "native-input-event/v1" && nonEmpty(ready?.run_ref) &&
+    first.run_ref === ready.run_ref && Number.isSafeInteger(first.generation) && first.generation >= 0 &&
+    Number.isSafeInteger(target?.pid) && target.pid > 0 &&
+    nonEmpty(ready.bundle_identifier) && target.bundle_identifier === ready.bundle_identifier &&
+    nonEmpty(ready.app_path) && target.app_path === ready.app_path &&
+    target.executable_path === ready.app_path + "/Contents/MacOS/" + (ready.native_executable ?? "app"),
+  "first input belongs to another run/app or lacks its historical target");
+  const from = parseUtcTimestamp(first.at);
+  assert(from >= start && from <= end, "first input is outside the captured interval");
+  assert(inputEvents.slice(0, bookmark).filter(row => row.event === "attempt")
+    .every(row => parseUtcTimestamp(row.at) <= start), "bookmark skipped an input after interval start");
+  return { start, from, end };
+}
+
+function readOnlyProviderMembers(interval, llmRecords, providerRunIds, boundary) {
+  const actual = completedCallMembers(llmRecords, "actual logs");
+  const sets = {};
+  for (const name of ["before", "after"]) {
+    const counts = interval[name], identities = interval.provider_identities?.[name];
+    assert(counts && isDeepStrictEqual(Object.keys(counts).sort(), ["llm_records", "provider_runs"]) &&
+      Object.values(counts).every(value => Number.isSafeInteger(value) && value >= 0),
+    name + " counts are not the two observed integer fields");
+    const calls = completedCallMembers(identities?.completed_calls, name);
+    const runs = providerRunMembers(identities?.provider_run_ids, name);
+    assert(counts.llm_records === calls.size && counts.provider_runs === runs.length,
+      name + " counts differ from their actual identity observations");
+    assert([...calls.keys()].every(key => actual.has(key)), name + " completion absent from actual logs");
+    sets[name] = { calls, runs };
+  }
+  assert(sets.after.calls.size === actual.size, "final actual logs differ from after snapshot");
+  assert([...sets.before.calls.keys()].every(key => sets.after.calls.has(key)), "completed call was removed");
+  assert(isDeepStrictEqual(sets.before.runs, sets.after.runs) &&
+    isDeepStrictEqual(sets.after.runs, providerRunMembers(providerRunIds, "final actual DB")),
+  "ProviderRun identities changed or differ from actual DB");
+  assert([...actual.values()].every(record => parseUtcTimestamp(record.ts) <= boundary.end) &&
+    [...sets.before.calls.keys()].every(key => parseUtcTimestamp(actual.get(key).ts) <= boundary.from),
+  "completion snapshot includes a future log");
+  return { actual, added: [...sets.after.calls.keys()].filter(key => !sets.before.calls.has(key))
+    .map(key => actual.get(key)) };
+}
+
+function prestartedSummaryCompletions(maintenance, members, boundary) {
+  const required = ["provider_observation_bound", "provider_runs_bound", "provider_auxiliary_bound",
+    "source_versions_bound", "summary_results_bound", "ledger_changes_bound", "protected_rows_unchanged"];
+  assert(required.every(key => maintenance?.checks?.[key] === true) &&
+    Object.values(maintenance.checks).every(value => value === true), "complete maintenance proof required");
+  const transport = maintenance.transport;
+  assert(transport?.bound === true && Array.isArray(transport.requests), "raw HTTP observation is unbound");
+  const posts = transport.requests.filter(row => row.method === "POST");
+  assert(posts.length === members.actual.size, "HTTP POST denominator differs from actual completions");
+  for (const request of posts) {
+    const key = JSON.stringify([request.provider_call_ref, request.provider_run_ref]);
+    const record = members.actual.get(key);
+    const requested = parseUtcTimestamp(request.requested_at), completed = parseUtcTimestamp(request.completed_at);
+    assert(record && requested <= parseUtcTimestamp(record.ts) && completed >= requested &&
+      completed <= boundary.end, "HTTP request/completion is outside the observed completion snapshot");
+    assert(requested < boundary.start || requested > boundary.end, "new POST inside Why/restore interval");
+  }
+  return members.added.map(record => {
+    const match = row => row.provider_call_ref === record.provider_call_ref &&
+      row.provider_run_ref === record.provider_run_ref;
+    const requests = posts.filter(match), facts = maintenance.auxiliary.filter(match);
+    assert(requests.length === 1 && facts.length === 1, "completion is not one uniquely bound maintenance request");
+    const request = requests[0], fact = facts[0];
+    assert(fact.bound === true && fact.kind === "chapter_summary" &&
+      ["accepted", "degraded", "provider_failed"].includes(fact.result) &&
+      fact.request_id === request.request_id && fact.requested_at === request.requested_at &&
+      fact.completed_at === request.completed_at && parseUtcTimestamp(request.requested_at) < boundary.start,
+    "completion is not the same prestarted original HTTP request");
+    assert(fact.maintenance?.summary?.timestamp === fact.result_at && fact.maintenance?.ledger,
+      "maintenance terminal is missing");
+    return { provider_call_ref: record.provider_call_ref, provider_run_ref: record.provider_run_ref,
+      request_id: request.request_id, requested_at: request.requested_at, completed_at: request.completed_at,
+      logged_at: record.ts, result: fact.result, summary_id: fact.summary_id ?? null };
+  });
+}
+
+export function summaryCompletionReadOnlyEvidence({
+  interval, inputEvents, ready, providerRunIds, llmRecords, appRecords, maintenance = null,
+}) {
+  const checks = { input_boundary_bound: false, provider_snapshots_bound: false,
+    no_new_application_start: false, completed_calls_explained: false };
+  const reasons = {}, added = [];
+  let boundary, members;
+  const check = (name, predicate) => {
+    try { checks[name] = predicate() === true; }
+    catch (error) { reasons[name] = error.message; }
+  };
+  check("input_boundary_bound", () => {
+    boundary = readOnlyInputBoundary(interval, inputEvents, ready);
+    return true;
+  });
+  check("provider_snapshots_bound", () => {
+    assert(boundary, "input boundary is unbound");
+    members = readOnlyProviderMembers(interval, llmRecords, providerRunIds, boundary);
+    return true;
+  });
+  check("no_new_application_start", () => {
+    assert(boundary && Array.isArray(appRecords), "application starts/boundary missing");
+    const starts = appRecords.filter(row => row.event === "provider_gateway.complete.start");
+    assert(starts.length > 0, "application start originals missing");
+    return starts.every(row => {
+      const at = parseUtcTimestamp(row.timestamp);
+      return at < boundary.start || at > boundary.end;
+    });
+  });
+  check("completed_calls_explained", () => {
+    assert(members && boundary, "provider identity snapshots are unbound");
+    if (members.added.length === 0) {
+      // slice_verify 也必须先通过采样/输入证明；零增量沿用现严格默认，不虚构外部 HTTP。
+      return providerFreeInterval({ appRecords, llmRecords, start: interval.start, end: interval.end });
+    }
+    added.push(...prestartedSummaryCompletions(maintenance, members, boundary));
+    return true;
+  });
+  const counts = interval?.before && interval?.after &&
+    ["before", "after"].every(name => ["llm_records", "provider_runs"]
+      .every(field => Number.isSafeInteger(interval[name][field])));
+  return { ok: Object.values(checks).every(value => value === true), checks, reasons,
+    before: interval?.before ?? null, after: interval?.after ?? null,
+    first_input_attempt: interval?.first_input_attempt ?? null,
+    count_delta: counts ? { llm_records: interval.after.llm_records - interval.before.llm_records,
+      provider_runs: interval.after.provider_runs - interval.before.provider_runs } : null,
+    completed_calls_added: added, transport: maintenance?.transport ?? null };
 }
