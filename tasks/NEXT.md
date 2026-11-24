@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。R06 按 §24 推进现有能力称谓供给的有限验证，先 WR02，失败即停止该假设；R08 按 §23 保留有限剩余项。各自通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。R06 按 §25 修复使命材料同源绑定并核清 WR02 维护边界，再冻结一次 WR02，失败即停止本窗口；R08 按 §23 保留有限剩余项。各自通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
