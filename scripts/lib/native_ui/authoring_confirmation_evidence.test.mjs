@@ -865,21 +865,108 @@ test("executedConfirmationTurnResult / rejectConfirmationTurnResult：时间窗�
 });
 
 
-test("confirmationCardLines：标题/三类正文语义与缺失边界", () => {
-  assert.deepEqual(confirmationCardLines("  需要确认  \n 确认对象：正文草稿 "), {
-    title: "需要确认",
-    body: "确认对象：正文草稿",
+function flatConfirmationPage() {
+  const node = (path, role, fields = {}) => ({
+    path, role, title: "", desc: "", value: "", enabled: true, frame: [20, 100, 600, 24], ...fields,
   });
-  assert.deepEqual(confirmationCardLines("需要确认\n确认前不会调用工具"), {
-    title: "需要确认",
-    body: "确认前不会调用工具",
-  });
-  assert.deepEqual(confirmationCardLines("需要确认\n确认后系统会重新检查当前作品状态"), {
-    title: "需要确认",
-    body: "确认后系统会重新检查当前作品状态",
-  });
-  assert.equal(confirmationCardLines("需要确认\n其它文案"), null);
-  assert.equal(confirmationCardLines("确认对象：正文草稿"), null);
+  const text = (path, value) => node(path, "AXStaticText", { value });
+  const cardTitle = "需要确认";
+  const cardBody = "检测到高风险行动，需作者确认：重写本章正文。 确认对象：正文写作。 确认前不会调用工具或写入作品事实；确认后系统会重新检查当前作品状态，再决定是否执行。";
+  // 手写 WKWebView 实际扁平形状：标题组、正文组和两枚按钮都是会话区域的兄弟。
+  const nodes = [
+    node("0", "AXGroup"),
+    node("0/0", "AXGroup"), text("0/0/0", "你"),
+    node("0/1", "AXGroup"), text("0/1/0", CONFIRMATION_REQUEST),
+    node("0/2", "AXGroup"), text("0/2/0", "写作搭档"),
+    node("0/3", "AXGroup"), text("0/3/0", cardTitle),
+    node("0/4", "AXGroup"), text("0/4/0", cardBody),
+    node("0/5", "AXButton", { title: "确认执行" }),
+    node("0/6", "AXButton", { title: "拒绝" }),
+    node("0/7", "AXGroup"), text("0/7/0", "你"),
+    node("0/8", "AXGroup"), text("0/8/0", "另一轮作者问题"),
+    node("0/9", "AXButton", { title: "拒绝" }),
+  ];
+  return { nodes, node, text, cardTitle, cardBody };
+}
+
+test("confirmationCardLines：读取原始静态节点，返回实际匹配字节", () => {
+  const { nodes, cardTitle, cardBody } = flatConfirmationPage();
+  assert.deepEqual(confirmationCardLines(nodes), { title: cardTitle, body: cardBody });
+  const titleField = nodes.map((entry) => entry.path === "0/3/0"
+    ? { ...entry, title: cardTitle, value: "" } : entry);
+  assert.deepEqual(confirmationCardLines(titleField), { title: cardTitle, body: cardBody });
+  const spacedBody = "  确认对象：正文草稿  ";
+  const originalBytes = nodes.map((entry) => entry.path === "0/4/0"
+    ? { ...entry, value: spacedBody } : entry);
+  assert.deepEqual(confirmationCardLines(originalBytes), { title: cardTitle, body: spacedBody });
+});
+
+test("confirmationCardLines：保留三类正文语义，退役装饰字符串入口", () => {
+  const { nodes } = flatConfirmationPage();
+  for (const body of ["确认对象：正文草稿", "确认前不会调用工具", "确认后系统会重新检查当前作品状态"]) {
+    const input = nodes.map((entry) => entry.path === "0/4/0" ? { ...entry, value: body } : entry);
+    assert.deepEqual(confirmationCardLines(input), { title: "需要确认", body });
+  }
+  for (const input of [null, undefined, "需要确认\n确认对象：正文草稿", "(value=需要确认)\n(value=确认对象：正文草稿)"]) {
+    assert.equal(confirmationCardLines(input), null);
+  }
+  assert.equal(confirmationCardLines(nodes.map((entry) => entry.path === "0/4/0"
+    ? { ...entry, value: "其它文案" } : entry)), null);
+  assert.equal(confirmationCardLines(nodes.filter((entry) => entry.path !== "0/3/0")), null);
+  assert.equal(confirmationCardLines(nodes.filter((entry) => entry.path !== "0/4/0")), null);
+  assert.equal(confirmationCardLines(nodes.map((entry) => entry.path === "0/3/0"
+    ? { ...entry, role: "AXButton" } : entry)), null);
+});
+
+test("确认卡真实扁平节点：原值提取后仍由本轮作者范围唯一定位两枚按钮", () => {
+  const { nodes, cardTitle, cardBody } = flatConfirmationPage();
+  const lines = confirmationCardLines(nodes);
+  assert.deepEqual(lines, { title: cardTitle, body: cardBody });
+  const options = { cardTitle: lines.title, cardBody: lines.body,
+    authorBoundary: authorBoundary(nodes, CONFIRMATION_REQUEST, 0) };
+  assert.equal(locateConfirmationButton(nodes, { ...options, label: "确认执行" }).button?.path, "0/5");
+  assert.equal(locateConfirmationButton(nodes, { ...options, label: "拒绝" }).button?.path, "0/6");
+});
+
+test("确认卡扁平定位不借整段会话、其他卡或其他作者轮次", async (t) => {
+  const page = flatConfirmationPage();
+  const { nodes, node, text, cardTitle, cardBody } = page;
+  const current = nodes.filter((entry) => entry.path === "0" || Number(entry.path.split("/")[1]) <= 6);
+  const beforeBody = current.filter((entry) => entry.path === "0" || Number(entry.path.split("/")[1]) < 4);
+  const cases = [
+    ["真实同级结构", nodes, 0, true],
+    ["正文缺失", nodes.filter((entry) => entry.path !== "0/4/0"), 0, false],
+    ["正文来自下一作者块", nodes.filter((entry) => entry.path !== "0/4/0").map((entry) =>
+      entry.path === "0/8/0" ? { ...entry, value: cardBody } : entry), 0, false],
+    ["标题与兄弟卡正文拼接", [...beforeBody,
+      node("0/4", "AXGroup"), text("0/4/0", "另一张卡片"),
+      node("0/5", "AXGroup"), text("0/5/0", cardBody),
+      node("0/6", "AXButton", { title: "确认执行" }), node("0/7", "AXButton", { title: "拒绝" })], 0, false],
+    ["同块两套确认卡", [...current,
+      node("0/7", "AXGroup"), text("0/7/0", cardTitle),
+      node("0/8", "AXGroup"), text("0/8/0", cardBody),
+      node("0/9", "AXButton", { title: "确认执行" }), node("0/10", "AXButton", { title: "拒绝" })], 0, false],
+    ["同卡重复拒绝按钮", [...current, node("0/7", "AXButton", { title: "拒绝" })], 0, false],
+    ["缺按钮不能借下一作者块", nodes.filter((entry) => entry.path !== "0/6"), 0, false],
+    ["旧同文作者轮有卡但本轮无卡", [...current,
+      node("0/7", "AXGroup"), text("0/7/0", "你"),
+      node("0/8", "AXGroup"), text("0/8/0", CONFIRMATION_REQUEST)], 1, false],
+    ["候选 article 冒充确认卡标题", nodes.map((entry) => entry.path === "0/3"
+      ? { ...entry, subrole: "AXDocumentArticle" } : entry), 0, false],
+    ["按钮不能冒充卡标题静态节点", nodes.map((entry) => entry.path === "0/3/0"
+      ? { ...entry, role: "AXButton" } : entry), 0, false],
+    ["禁用拒绝按钮", nodes.map((entry) => entry.path === "0/6"
+      ? { ...entry, enabled: false } : entry), 0, false],
+    ["不可见拒绝按钮", nodes.map((entry) => entry.path === "0/6"
+      ? { ...entry, frame: [0, 0, 0, 0] } : entry), 0, false],
+  ];
+  for (const [name, input, baseline, expected] of cases) {
+    await t.test(name, () => {
+      const actual = locateConfirmationButton(input, { cardTitle, cardBody, label: "拒绝",
+        authorBoundary: authorBoundary(input, CONFIRMATION_REQUEST, baseline) });
+      assert.equal(actual.ok, expected, actual.reason);
+    });
+  }
 });
 
 test("C7 tool_failed：真实失败 tool_result + trace + truthfulness 才成立", () => {

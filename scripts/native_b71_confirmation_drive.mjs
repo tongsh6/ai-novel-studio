@@ -478,7 +478,7 @@ async function run() {
   const sourceTurnId = String(needsBody.turn_id ?? request.turnId);
   const action = selectConfirmationAction(needsBody, spec.action_type);
   const cardProbe = await waitCardVisible();
-  const cardLines = confirmationCardLines(cardProbe.text);
+  const cardLines = confirmationCardLines(cardProbe.nodes);
   if (!cardLines) throw new Error("b71-confirmation:card_text_lines_missing");
   const cardFacts = {
     card_title: cardLines.title,

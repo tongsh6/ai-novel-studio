@@ -7,6 +7,7 @@ import fs from "node:fs";
 import test from "node:test";
 import { scopeWireMessage } from "./fixtures/authoring_request_ir.mjs";
 import { authorBoundary } from "./authoring_g2_evidence.mjs";
+import * as pendingRules from "./authoring_pending_evidence.mjs";
 // 真实批次 cp4b-pending-02 的原始 AX dump（nonce 脱敏）：Why/候选 article/动作按钮是
 // 同一 AXWebArea 下的同级兄弟，用于锁定扁平树定位语义，不用合成完美树替代真实形状。
 const FLAT_AX = JSON.parse(
@@ -288,6 +289,50 @@ test("Why 仅在真实 artifact 所属作者块定位，缺按钮和多义不借
   const missing = nodes.filter((entry) => entry.path !== "0/2/3");
   assert.equal(locateWhyButton(missing, { ...options, authorBoundary: authorBoundary(missing, REVISION_MESSAGE, 0) }).reason,
     "action_missing");
+});
+
+
+// 原生 after-accept 的同级形状：同一作者轮里生成、采纳、后续助手各有 Why。
+function actionMessageNodes() {
+  const group = (path, value) => [node(path, "AXGroup"), text(path + "/0", value)];
+  return [
+    node("9", "AXPopUpButton", { title: "写作搭档", desc: "助手名称" }),
+    ...authorTree("0", REVISION_MESSAGE, [
+      ...group("0/2", "写作搭档"), ...group("0/3", "已生成待采纳候选。"), button("0/4", "为什么"),
+      ...group("0/5", "写作搭档"), ...group("0/6", "这份修订已保存。"), button("0/7", "为什么"),
+      ...group("0/8", "写作搭档"), ...group("0/9", "另一个助手消息。"), button("0/10", "为什么"),
+    ]),
+  ];
+}
+
+test("采纳 Why 按真实动作原文和当前作者内的助手消息段唯一定位", () => {
+  const nodes = actionMessageNodes();
+  const options = { assistantText: "这份修订已保存。", authorBoundary: authorBoundary(nodes, REVISION_MESSAGE, 0) };
+  assert.equal(pendingRules.locateActionWhyButton(nodes, options).button.path, "0/7");
+  const missing = nodes.filter(entry => entry.path !== "0/7");
+  assert.equal(pendingRules.locateActionWhyButton(missing, options).reason, "action_missing");
+  const priorAuthor = authorBoundary(nodes, SOURCE_MESSAGE, 0);
+  assert.equal(pendingRules.locateActionWhyButton(nodes, { ...options, authorBoundary: priorAuthor }).ok, false);
+});
+
+test("采纳 Why 不借候选正文、别轮、重复消息或后一助手按钮", async (t) => {
+  const mutations = {
+    "候选 article 夹带": nodes => nodes.map(entry => entry.path === "0/6" ? { ...entry, subrole: "AXDocumentArticle" } : entry),
+    "动作文字缺失": nodes => nodes.filter(entry => entry.path !== "0/6/0"),
+    "同轮同文多义": nodes => nodes.map(entry => entry.path === "0/9/0" ? { ...entry, value: "这份修订已保存。" } : entry),
+    "两个 Why 多义": nodes => [...nodes, button("0/7/0", "为什么")],
+    "下一作者轮": nodes => nodes.map(entry => entry.path === "0/5/0" ? { ...entry, value: "你" } : entry),
+    "下一助手的 Why": nodes => nodes.filter(entry => entry.path !== "0/7"),
+    "按钮禁用": nodes => nodes.map(entry => entry.path === "0/7" ? { ...entry, enabled: false } : entry),
+    "按钮不可见": nodes => nodes.map(entry => entry.path === "0/7" ? { ...entry, frame: [0, 0, 0, 0] } : entry),
+  };
+  for (const [name, mutate] of Object.entries(mutations)) await t.test(name, () => {
+    const nodes = mutate(actionMessageNodes());
+    const result = pendingRules.locateActionWhyButton(nodes, {
+      assistantText: "这份修订已保存。", authorBoundary: authorBoundary(nodes, REVISION_MESSAGE, 0),
+    });
+    assert.equal(result.ok, false);
+  });
 });
 
 test("真实 available_actions 必须唯一定位目标；缺/重复/错绑/禁用都拒绝", () => {

@@ -788,14 +788,24 @@ setup_isolated_macos_keychain() {
 
 cleanup() {
   local original=$?
-  local cleanup_failed=0
   # EXIT清理必须完整执行；监督已失败后再次stop不能用TERM打断剩余资源回收。
   trap '' TERM INT
-  # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
-  # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
   if (( original != 0 )) && [[ "$NATIVE_SYSTEM_DRIVER" == "1" && "$SLICE_ID" == "b87-r01-request-cost" ]]; then
     node "$PROJECT_ROOT/scripts/native_request_cost_drive.mjs" "$ARTIFACT_DIR" --failure-evidence >"$ARTIFACT_DIR/failure-capture-cleanup.log" 2>&1 || true
   fi
+  if ! stop_owned_runtime; then
+    echo "[tauri-slice-verify] cleanup failed (original exit=$original)" >&2
+    if (( original == 0 )); then original=1; fi
+  fi
+  exit "$original"
+}
+
+stop_owned_runtime() {
+  # 成功的前置回收保留首次动作证据；EXIT不重复覆盖native-app-cleanup.json。
+  if (( OWNED_RUNTIME_STOPPED == 1 )); then return 0; fi
+  local cleanup_failed=0
+  # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
+  # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
   reap_process_tree "$UI_DRIVER_PID" 3 3 || cleanup_failed=1
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
     # macOS重开可能归launchd；独立包路径维持本批归属，不对同名作者实例发信号。
@@ -810,12 +820,10 @@ cleanup() {
   fi
   # 原生批次使用独立 DB；失败也保留完整数据，不在退出时抹掉证据。
   if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then reset_test_db >/dev/null 2>&1 || cleanup_failed=1; fi
-  if (( cleanup_failed != 0 )); then
-    echo "[tauri-slice-verify] cleanup failed (original exit=$original)" >&2
-    if (( original == 0 )); then exit 1; fi
-  fi
-  exit "$original"
+  if (( cleanup_failed == 0 )); then OWNED_RUNTIME_STOPPED=1; fi
+  return "$cleanup_failed"
 }
+OWNED_RUNTIME_STOPPED=0
 trap cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
@@ -1758,12 +1766,13 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/model_contracts/request_cost_baseline.mjs" verify "$ARTIFACT_DIR"
     elif is_b71_family_slice "$SLICE_ID"; then
       # 批次运行态停止必须在 verify 之前采集——EXIT cleanup 在 verify 之后执行，
-      # 届时 app/后端仍在运行。需要运行态停止判据的 journey 前置 cleanup
+      # 届时 app/后端仍在运行。需要运行态停止判据的 journey 前置可返回的回收
       # （confirmation=C11；memory-detail=D8；auto-maintenance=C10；answer-mode=D5；
       # 均检查 app/端口/llm-calls 停止；2026-11-08 补 auto-maintenance，2026-11-10 补
       # answer-mode，此前该 journey 的 D5 因 verify 时 app 仍运行而必然 fail）。
       if node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(["confirmation","memory-detail","auto-maintenance","answer-mode"].includes(j.journey)?0:1)' "$ARTIFACT_DIR/native-b71-config.json" 2>/dev/null; then
-        cleanup >/dev/null 2>&1 || true
+        # 本函数由if调用，不能依赖set -e；回收失败必须显式阻断验收。
+        stop_owned_runtime || return $?
         sleep 1
       fi
       node "$PROJECT_ROOT/scripts/native_b71_evidence.mjs" verify "$ARTIFACT_DIR"

@@ -63,6 +63,86 @@ test("capturePending 在写 DB 前拒绝错 journey/未知 checkpoint/覆盖/跳
   assert.throws(() => capturePending(skip, "after-source"), /必须在 start 之后登记/);
 });
 
+
+function acceptWhyProof() {
+  const workId = "work-accept", sessionId = "session-accept";
+  const action = { action_id: "accept:artifact-revision", action_type: "accept",
+    idempotency_key: "idem-accept", source_turn_ref: "turn-revision", target_ref: "artifact-revision" };
+  const state = { event_type: "candidate_adopted", production_write_performed: true,
+    action_turn_ref: "turn_adopt-current", source_turn_ref: "turn-revision",
+    artifact_id: "artifact-revision", candidate_ref: "artifact-revision",
+    adopted_state_ref: "memory-accepted", state_trace_ref: "state-accepted",
+    mutation_ref: "mutation-accepted", source_revision_ref: "mutation:mutation-accepted" };
+  const turnResult = { work_id: workId, session_id: sessionId, turn_id: "turn_adopt-current",
+    parent_turn_id: "turn-revision", trace_summary: { state_trace_ref: "state-accepted", state_trace_refs: [state] },
+    adoption_state: { resolved: [{ artifact_id: "artifact-revision", adoption_status: "ACCEPTED",
+      adopted_state_ref: "memory-accepted", state_trace_ref: "state-accepted", mutation_ref: "mutation-accepted" }] } };
+  const receipt = { id: "receipt-accepted", work_id: workId, session_id: sessionId,
+    action_id: action.action_id, action_type: "accept", idempotency_key: action.idempotency_key,
+    source_turn_ref: action.source_turn_ref, status: "accepted",
+    result: { action_id: "adopt:artifact-revision", action_type: "adopt", artifact_id: "artifact-revision",
+      decision: "ACCEPTED", status: "accepted", persistence: { persisted: true, memory_status: "CONFIRMED",
+        memory_item_id: "memory-accepted", mutation_id: "mutation-accepted", source_revision_ref: "mutation:mutation-accepted" } } };
+  const before = { at: "2026-11-24T06:00:01.000Z", llm_count: 3, provider_start_count: 3,
+    db_counts: { provider_runs: 3, agent_runs: 2 }, memory_items: [{ id: "memory-accepted", content: "作者原文", reference_count: 0 }],
+    receipts: [structuredClone(receipt)], canon: { at: "2026-11-24T06:00:01.000Z",
+      tables: { memory_items: { row_count: 1, rows_sha256: "rows", canon_sha256: "canon" } }, memory_reference_logs: [] } };
+  const after = structuredClone(before);
+  after.at = after.canon.at = "2026-11-24T06:00:03.000Z";
+  const body = { work_id: workId, session_id: sessionId, turn_id: turnResult.turn_id,
+    trace_summary: { state_trace_refs: [structuredClone(state)], replay_provider_called: false } };
+  const wire = [{ at: "2026-11-24T06:00:02.000Z", direction: "http", method: "GET", status: 200,
+    path: "/api/works/work-accept/sessions/session-accept/turns/turn_adopt-current/replay",
+    scope: { kind: "replay", work_id: workId, session_id: sessionId, turn_id: turnResult.turn_id },
+    body_state: { complete: true, json: "valid" }, body }];
+  return { wire, checkpoints: { "before-accept-why": before, "after-accept-why": after },
+    action, turnResult, receipt, workId, sessionId };
+}
+
+test("采纳 Why 绑定真实 action Replay、状态引用及持久 receipt，观察窗口零额外效果", () => {
+  const checks = pendingEvidence.acceptWhyChecks(acceptWhyProof());
+  assert(Object.values(checks).every(Boolean), JSON.stringify(checks));
+});
+
+test("采纳 Why 拒绝错绑、额外引用、重放调用和观察窗口写入", async (t) => {
+  const mutations = {
+    "生成轮 Replay": f => { f.wire[0].path = f.wire[0].path.replace("turn_adopt-current", "turn-revision"); },
+    "HTTP 错作品": f => { f.wire[0].body.work_id = "other"; },
+    "HTTP 错会话": f => { f.wire[0].body.session_id = "other"; },
+    "HTTP 错动作轮": f => { f.wire[0].body.turn_id = "other"; },
+    "capture 错 scope": f => { f.wire[0].scope.turn_id = "other"; },
+    "重复 Replay": f => { f.wire.push(structuredClone(f.wire[0])); },
+    "动作错 parent": f => { f.turnResult.parent_turn_id = "other"; },
+    "动作错 work": f => { f.turnResult.work_id = "other"; },
+    "动作错 session": f => { f.turnResult.session_id = "other"; },
+    "错 action ref": f => { f.wire[0].body.trace_summary.state_trace_refs[0].action_turn_ref = f.turnResult.trace_summary.state_trace_refs[0].action_turn_ref = "other"; },
+    "错 source ref": f => { f.wire[0].body.trace_summary.state_trace_refs[0].source_turn_ref = f.turnResult.trace_summary.state_trace_refs[0].source_turn_ref = "other"; },
+    "错 artifact ref": f => { f.wire[0].body.trace_summary.state_trace_refs[0].artifact_id = f.turnResult.trace_summary.state_trace_refs[0].artifact_id = "other"; },
+    "错 adopted ref": f => { f.wire[0].body.trace_summary.state_trace_refs[0].adopted_state_ref = f.turnResult.trace_summary.state_trace_refs[0].adopted_state_ref = "other"; },
+    "重复采纳 ref": f => { f.wire[0].body.trace_summary.state_trace_refs.push(structuredClone(f.wire[0].body.trace_summary.state_trace_refs[0])); },
+    "没有生产写入": f => { f.wire[0].body.trace_summary.state_trace_refs[0].production_write_performed = false; },
+    "receipt 内部状态相反": f => { f.receipt.result.status = "discarded"; },
+    "receipt 错 memory": f => { f.receipt.result.persistence.memory_item_id = "other"; },
+    "receipt 错 mutation": f => { f.receipt.result.persistence.mutation_id = "other"; },
+    "resolved 错 state": f => { f.turnResult.adoption_state.resolved[0].state_trace_ref = "other"; },
+    "Replay 重新调模型": f => { f.wire[0].body.trace_summary.replay_provider_called = true; },
+    "多 LLM 日志": f => { f.checkpoints["after-accept-why"].llm_count++; },
+    "多 Provider start": f => { f.checkpoints["after-accept-why"].provider_start_count++; },
+    "多 Provider run": f => { f.checkpoints["after-accept-why"].db_counts.provider_runs++; },
+    "多 Agent run": f => { f.checkpoints["after-accept-why"].db_counts.agent_runs++; },
+    "Canon 行发生变化": f => { f.checkpoints["after-accept-why"].canon.tables.memory_items.rows_sha256 = "changed"; },
+    "原文变化": f => { f.checkpoints["after-accept-why"].memory_items[0].content = "另一个正文"; },
+    "引用计数变化": f => { f.checkpoints["after-accept-why"].memory_items[0].reference_count++; },
+    "引用日志增加": f => { f.checkpoints["after-accept-why"].canon.memory_reference_logs.push({ id: "extra" }); },
+    "回执增加": f => { f.checkpoints["after-accept-why"].receipts.push({ id: "extra" }); },
+  };
+  for (const [name, mutate] of Object.entries(mutations)) await t.test(name, () => {
+    const f = acceptWhyProof();
+    mutate(f);
+    assert(Object.values(pendingEvidence.acceptWhyChecks(f)).some(value => !value), name);
+  });
+});
+
 // SSE 原日志只记录工具事实；成功正文的独立事实来自持久 ProviderOutput 的 SHA。
 // 期望正文在夹具中预先给定，不能从待检 canonical 消息反推输出行。
 function replyProof() {

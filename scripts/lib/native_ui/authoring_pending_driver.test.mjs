@@ -1,6 +1,6 @@
 // B71 pending 外部驱动编排的 fake-harness 行为测试：不启动 GUI、不写产品。
 // 证明驱动只消费真实 TurnResult/available_actions，按候选可见标题/正文定位按钮，
-// 并在 source→revision→Why→accept→discard→restore→followup 顺序推进。
+// 并在 source→revision→Why→accept→action Why→discard→restore→followup 顺序推进。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { capturePendingItemViews, drivePending, revealItem, turnOutcome, waitAdoptionMaintenance } from "./authoring_pending_driver.mjs";
@@ -22,6 +22,7 @@ const REVISION_BODY = SOURCE_BODY.replace("沈砚", "林渡");
 const SOURCE_TITLE = "把这份大纲直接存档为作品设定：主角沈砚经营旧书铺";
 const REVISION_TITLE = "旧书铺修订稿";
 const TOPIC = `workspace:${WORK}`;
+const ACCEPT_REPLY = "已通过采纳边界，采纳内容已进入已决状态。";
 const FOLLOWUP_MARKDOWN_REPLY = "资料处理结果如下：\n\n- **已采纳**：林渡版已进入作品档案。\n- **已放弃**：沈砚版已放弃。\n\n当前没有待采纳候选。";
 
 const config = {
@@ -138,6 +139,7 @@ function buildWire({ followupReply = FOLLOWUP_MARKDOWN_REPLY } = {}) {
       parent_turn_id: parentTurn,
       work_id: WORK,
       session_id: SESSION,
+      assistant_message: { text: payload.action_type === "accept" ? ACCEPT_REPLY : "原稿已放弃。" },
       adoption_state: { pending: [], resolved: [{ artifact_id: artifactId, adoption_status: payload.action_type === "accept" ? "ACCEPTED" : "DISCARDED" }] },
     }]),
   ];
@@ -179,6 +181,10 @@ function buildWire({ followupReply = FOLLOWUP_MARKDOWN_REPLY } = {}) {
       completed(2002, REVISION_RUN, REVISION_TURN),
       frame(iso(2500), "http", null),
       ...action(3000, "req-accept", acceptAction, "accepted", "adopt", REVISION_ID, REVISION_TURN, "turn-accept"),
+      { at: iso(3500), direction: "http", method: "GET", status: 200,
+        path: `/api/works/${WORK}/sessions/${SESSION}/turns/turn-accept/replay`,
+        scope: { kind: "replay", work_id: WORK, session_id: SESSION, turn_id: "turn-accept" },
+        body_state: { complete: true, json: "valid" }, body: { work_id: WORK, session_id: SESSION, turn_id: "turn-accept" } },
       ...action(4000, "req-discard", discardAction, "discarded", "discard", SOURCE_ID, SOURCE_TURN, "turn-discard"),
       { at: iso(4500), direction: "http", method: "GET", path: `/api/works/${WORK}/sessions/resume`, status: 200 },
       ...join(5000, "join-b"),
@@ -199,6 +205,7 @@ function buildWire({ followupReply = FOLLOWUP_MARKDOWN_REPLY } = {}) {
 function fakeHarness(fixture, { followupNodes = followupTree(), previousFollowupNodes = [] } = {}) {
   let whyOpen = false;
   let restored = false;
+  let accepted = false;
   const sentMessages = new Set();
   const harness = {
     provider: "slice_verify",
@@ -247,6 +254,8 @@ function fakeHarness(fixture, { followupNodes = followupTree(), previousFollowup
           itemTree(CHAT + "/13", SOURCE_TITLE, SOURCE_BODY)) : []),
         ...(sentMessages.has(config.revision_message) ? chatTurn(20, config.revision_message,
           itemTree(CHAT + "/23", REVISION_TITLE, REVISION_BODY)) : []),
+        ...(accepted ? [...textGroup(CHAT + "/30", "AI 助手"), ...textGroup(CHAT + "/31", ACCEPT_REPLY),
+          node(CHAT + "/32", "AXButton", { title: "为什么" })] : []),
         ...(restored ? previousFollowupNodes : []),
         ...(sentMessages.has(config.followup_message) ? followupNodes : []),
       ];
@@ -260,7 +269,8 @@ function fakeHarness(fixture, { followupNodes = followupTree(), previousFollowup
       };
     },
     safeClick(node) {
-      this.log.push({ op: "click", title: node.title });
+      this.log.push({ op: "click", title: node.title, path: node.path });
+      if (node.title === "保存到作品档案") accepted = true;
       if (node.title === "为什么") whyOpen = true;
       return { ok: true };
     },
@@ -299,6 +309,8 @@ test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新
     "before-why",
     "after-why",
     "after-accept",
+    "before-accept-why",
+    "after-accept-why",
     "after-discard",
     "after-restore",
     "final",
@@ -312,6 +324,10 @@ test("drivePending 按可见候选结构完成三输入/两动作/Why/恢复/新
   assert.equal(harness.driverLog.value.discard_action_id, fixture.discardAction.action_id);
   assert.equal(harness.driverLog.value.followup_run_id, FOLLOWUP_RUN);
   assert.ok(harness.captures.includes("why"));
+  assert.ok(harness.captures.includes("accept-why"));
+  assert.equal(harness.driverLog.value.accept_turn_id, "turn-accept");
+  assert.deepEqual(harness.log.filter(entry => entry.op === "click" && entry.title === "为什么")
+    .map(entry => entry.path), [CHAT + "/29", CHAT + "/32"]);
   assert.ok(harness.captures.includes("final"));
 });
 
@@ -327,7 +343,7 @@ test("drivePending 完整两段 Markdown 按各段 AX 交付，不要求原始�
 });
 
 test("drivePending 同文旧追问只计同文 baseline，新作者回合完整列表仍可交付", async () => {
-  const harness = fakeHarness(buildWire(), { previousFollowupNodes: followupTree(30) });
+  const harness = fakeHarness(buildWire(), { previousFollowupNodes: followupTree(40), followupNodes: followupTree(50) });
   await drivePending(harness, config, { capture() {} });
   assert.equal(harness.uiComplete, "b71-authoring-pending");
 });
@@ -336,7 +352,7 @@ for (const [name, nodes, previous] of [
   ["缺末段", () => followupTree().filter(entry => !entry.path.startsWith(CHAT + "/45")), () => []],
   ["列表正文篡改", () => followupTree().map(entry => entry.path === CHAT + "/44/0/1"
     ? { ...entry, value: "已采纳：沈砚版已进入作品档案。" } : entry), () => []],
-  ["仅旧同文回合", () => [], () => followupTree(30)],
+  ["仅旧同文回合", () => [], () => followupTree(40)],
   ["错作者角色", () => followupTree(40, { authorLabel: "旁观者" }), () => []],
   ["错作者原话", () => followupTree(40, { message: "另一份资料进度怎么样？" }), () => []],
   ["额外助手块", () => [...followupTree(), ...textGroup(CHAT + "/46", "AI 助手"),

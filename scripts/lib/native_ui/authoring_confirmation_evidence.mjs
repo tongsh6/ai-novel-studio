@@ -95,13 +95,15 @@ export function locateConfirmationButton(nodes, { label, cardTitle, cardBody, au
 const isCardTitleLine = (line) => line === CARD_TITLE || line.startsWith(CARD_TITLE);
 const isCardBodyLine = (line) => CARD_BODY_MARKERS.some((marker) => line.includes(marker));
 
-// 从 AX 纯文本中提取确认卡可定位文案行（「需要确认」标题行 + 块内唯一正文行）。
-export function confirmationCardLines(axText) {
-  const lines = String(axText ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "");
-  const titleLine = lines.find(isCardTitleLine);
+// 原始静态节点才是定位输入；证据展示文本的 (value=...) 不参与卡片匹配。
+export function confirmationCardLines(nodes) {
+  if (!Array.isArray(nodes)) return null;
+  const lines = nodes
+    .filter((node) => node?.role === "AXStaticText")
+    .map((node) => [node.title, node.desc, node.value]
+      .filter((part) => part !== null && part !== undefined && String(part).trim() !== "")
+      .join(" "));
+  const titleLine = lines.find((line) => isCardTitleLine(line.trim()));
   if (!titleLine) return null;
   const bodyLine = lines.find((line) => line !== titleLine && isCardBodyLine(line));
   return bodyLine ? { title: titleLine, body: bodyLine } : null;
@@ -398,6 +400,7 @@ function buildConfirmationSummary(batch, result, authorVisible) {
     mode: batch.mode,
     request: batch.config.message,
     verified_at: new Date().toISOString(),
+    all_checks_passed: result.failed.length === 0,
     checks: Object.fromEntries(Object.entries(result.checks).map(([key, value]) => [key, value.ok])),
     checks_detail: result.checks,
     required: result.required,

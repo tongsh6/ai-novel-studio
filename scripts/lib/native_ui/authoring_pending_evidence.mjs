@@ -3,9 +3,10 @@
 // 本模块只消费外部驱动/AX/真实 WS 帧/Provider 记录/实际请求 scope facts 与
 // 只读 checkpoint 事实；不做 I/O、不启 GUI、不按“最新/首个/末个”猜身份。
 // 关键边界：
-// - 保存/放弃/Why 都按候选可见标题+正文定位；真实 WKWebView 扁平 AX 树里按钮与候选
+// - 候选保存/放弃/Why 按可见标题+正文定位；真实 WKWebView 扁平 AX 树里按钮与候选
 //   article 是同级兄弟，故路径归属不成立时按「同级兄弟顺序 + 用户消息 marker」切出本
 //   消息块，块内唯一命中并禁止借用兄弟候选按钮；缺失/多义/跨块/不可见 fail closed；
+// - 动作 Why 另按真实回复原文与可见助手名切开本轮消息，不能借候选或相邻助手的 Why；
 // - author_action 帧、ACK、action_result、动作 TurnResult 各自按请求/广播身份唯一绑定；
 // - revision 全 item 集只与同次 writer 响应同 item_id 字段逐字比较；
 // - 新请求必须消费真实 ACCEPTED/DISCARDED refs/状态，回复必须等于同次 Provider 原字节；
@@ -61,6 +62,8 @@ export const PENDING_CHECKPOINTS = Object.freeze([
   "before-why",
   "after-why",
   "after-accept",
+  "before-accept-why",
+  "after-accept-why",
   "after-discard",
   "after-restore",
   "final",
@@ -380,10 +383,84 @@ export function locateWhyButton(nodes, options = {}) {
   return locateArtifactButton(nodes, { ...options, label: "为什么" }, (text) => text.includes("为什么"));
 }
 
-// 确认卡不是 artifact；仅复用同一消息/唯一按钮内核，不绕过 pending 的分组约束。
+
+// 作者轮可含生成与多个动作消息；动作原文和可见助手名共同切出唯一消息段。
+export function locateActionWhyButton(nodes, { assistantText, authorBoundary } = {}) {
+  if (!Array.isArray(nodes)) return { ok: false, reason: "nodes_missing" };
+  if (!nonBlank(assistantText)) return { ok: false, reason: "action_message_missing" };
+  const names = nodes.filter(node => node?.role === "AXPopUpButton" && node.desc === "助手名称");
+  if (names.length !== 1 || !nonBlank(names[0].title)) return { ok: false, reason: "assistant_name_ambiguous" };
+  const matches = nodes.filter(node => node?.role === "AXStaticText" && nodeText(node) === assistantText &&
+    articleFor(nodes, node) === null).map(node => {
+    const bounded = itemMessageBlock(nodes, node.path, authorBoundary);
+    return bounded.ok ? { node, block: bounded.block } : null;
+  }).filter(Boolean);
+  if (matches.length !== 1) return { ok: false, reason: matches.length ? "action_message_ambiguous" : "action_message_missing" };
+  const { node: message, block } = matches[0];
+  const peers = siblingNodes(nodes, block.level).filter(node => inMessageBlock(node, block));
+  const root = ancestors(message.path).find(path => parentPath(path) === block.level);
+  const messageIndex = peers.findIndex(node => node.path === root);
+  const isAssistant = node => node.role === "AXGroup" &&
+    siblingNodes(nodes, node.path).map(nodeText).filter(nonBlank).length === 1 &&
+    siblingNodes(nodes, node.path).some(child => nodeText(child) === names[0].title);
+  const owner = peers.slice(0, messageIndex).findLast(isAssistant);
+  if (!owner) return { ok: false, reason: "action_message_owner_missing" };
+  const start = peers.indexOf(owner);
+  const next = peers.findIndex((node, index) => index > start && isAssistant(node));
+  const span = { level: block.level, paths: peers.slice(start, next < 0 ? peers.length : next).map(node => node.path) };
+  if (nodes.some(node => node.subrole === "AXDocumentArticle" && inMessageBlock(node, span))) {
+    return { ok: false, reason: "action_message_contains_candidate" };
+  }
+  const buttons = nodes.filter(node => node.role === "AXButton" && inMessageBlock(node, span) &&
+    exactButtonLabel(nodeText(node), "为什么", node) &&
+    lastPathIndex(ancestors(node.path).find(path => parentPath(path) === block.level)) > lastPathIndex(root));
+  return selectedButton(buttons, owner.path, root);
+}
+
+// 确认卡不是 artifact；标题、正文和按钮可以是本轮作者块内的同级节点。
 export function locateMessageCardButton(nodes, options = {}) {
   if (!nonBlank(options.label)) return { ok: false, reason: "label_missing" };
-  return locateOwnedButton(nodes, { ...options, matcher: exactButtonLabel });
+  if (!Array.isArray(nodes)) return { ok: false, reason: "nodes_missing" };
+  if (!nonBlank(options.itemTitle) || !nonBlank(options.itemBody)) {
+    return { ok: false, reason: "item_input_missing" };
+  }
+  const staticMatches = (text) => nodes.filter((node) =>
+    node?.role === "AXStaticText" && nodeText(node) === text);
+  const titles = staticMatches(options.itemTitle);
+  const bodies = staticMatches(options.itemBody);
+  if (titles.length === 0 || bodies.length === 0) return { ok: false, reason: "item_missing" };
+  const candidates = titles.map((title) => ({
+    title, bounded: itemMessageBlock(nodes, title.path, options.authorBoundary),
+  }));
+  const current = candidates.filter((candidate) => candidate.bounded.ok);
+  if (current.length === 0) return candidates[0].bounded;
+  if (current.length !== 1) return { ok: false, reason: "item_ambiguous" };
+  const { title, bounded: { block } } = current[0];
+  const localBodies = bodies.filter((body) => inMessageBlock(body, block));
+  if (localBodies.length === 0) return { ok: false, reason: "item_outside_author_block" };
+  if (localBodies.length !== 1) return { ok: false, reason: "item_ambiguous" };
+  const body = localBodies[0];
+  if (articleFor(nodes, title) || articleFor(nodes, body)) {
+    return { ok: false, reason: "foreign_item_in_block" };
+  }
+  if (!isVisible(title) || !isVisible(body)) return { ok: false, reason: "item_not_visible" };
+  const rootOf = (node) => ancestors(node.path).find((part) => parentPath(part) === block.level);
+  const titleRoot = rootOf(title);
+  const bodyRoot = rootOf(body);
+  if (titleRoot === bodyRoot) {
+    return locateOwnedButton(nodes.filter((node) => inMessageBlock(node, block)),
+      { ...options, matcher: exactButtonLabel });
+  }
+  const peers = siblingNodes(nodes, block.level).filter((node) => inMessageBlock(node, block));
+  const titleIndex = peers.findIndex((node) => node.path === titleRoot);
+  const bodyIndex = peers.findIndex((node) => node.path === bodyRoot);
+  if (bodyIndex !== titleIndex + 1) return { ok: false, reason: "card_body_outside_title" };
+  // 真实扁平卡的动作紧随正文；遇到下一组内容即停止，不借后面的卡或消息。
+  const afterBody = peers.slice(bodyIndex + 1);
+  const end = afterBody.findIndex((node) => node.role !== "AXButton");
+  const actions = afterBody.slice(0, end < 0 ? afterBody.length : end);
+  return selectedButton(actions.filter((node) => exactButtonLabel(nodeText(node), options.label, node)),
+    titleRoot, bodyRoot);
 }
 
 function requireTurnId(turnResult) {

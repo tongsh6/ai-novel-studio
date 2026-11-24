@@ -10,7 +10,9 @@
 // 反例（删表、删 llm-calls）仍取自己的可写副本。真实消费者仍是
 // `readConfirmationDbFacts` / `observeConfirmationRuntime` / `scanAuthorVisibleBatch`。
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { after, before } from "node:test";
@@ -26,10 +28,13 @@ import {
   observeConfirmationRuntime,
   readConfirmationDbFacts,
   scanAuthorVisibleBatch,
+  verifyConfirmationBatch,
 } from "./authoring_confirmation_evidence.mjs";
 import { confirmationInput } from "./fixtures/authoring_confirmation_scenarios.mjs";
 import {
   CONFIRMATION_DB_REL,
+  assembleConfirmationBatchCase,
+  confirmationBatchFixtureSpec,
   confirmationAxFixtureSpec,
   confirmationReaderFixtureSpec,
   confirmationRuntimeFixtureSpec,
@@ -248,4 +253,79 @@ test("AX 断言层：text.txt 可见文本同样扫描真实内部 token", () =>
   assert.equal(scan.ok, false);
   assert(scan.hits.some((hit) => hit.token === "slice_verify" && hit.file === "01-source.text.txt"));
   assert.deepEqual(scan.scanned_files, ["01-source.text.txt"]);
+});
+
+// The existing complete batch fixture is owned by this test family. Only the OS
+// observation boundary is mocked; the public verifier reads/writes real files.
+function withSummaryBatch(t, fn) {
+  const originalExec = childProcess.execFileSync;
+  t.mock.method(childProcess, "execFileSync", (command, args, options) => {
+    if (command === "ps") return "";
+    if (command === "lsof" || command === "pgrep") {
+      const error = new Error(command + ": no matching entries");
+      error.status = 1;
+      throw error;
+    }
+    return originalExec(command, args, options);
+  });
+  syncBuiltinESMExports();
+  try {
+    return withWorkingCopy(
+      materializeFixture(confirmationBatchFixtureSpec(), { scope: runScope }),
+      (copy) => {
+        assembleConfirmationBatchCase(copy.dir);
+        return fn(copy.dir);
+      },
+      { scope: runScope },
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+}
+
+function readSummaryOutputs(dir) {
+  return {
+    summary: JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8")),
+    checks: JSON.parse(fs.readFileSync(path.join(dir, "native-b71-checks.json"), "utf8")),
+  };
+}
+
+test("formal confirmation summary records positive completion from the public verifier", (t) => {
+  withSummaryBatch(t, (dir) => {
+    const verified = verifyConfirmationBatch(dir);
+    const { summary, checks } = readSummaryOutputs(dir);
+    assert.deepEqual(checks.failed, []);
+    assert.deepEqual(summary, verified.summary);
+    assert.equal(summary.slice_id, "b71-first-consumer");
+    assert.equal(summary.surface, "tauri-native");
+    assert.equal(summary.driver, "ax-native-system-ui");
+    assert.equal(summary.all_checks_passed, true);
+    assert.equal(summary.verdict.mechanism, "pass");
+  });
+});
+
+test("failed runtime cleanup writes a negative formal summary and the verifier throws", (t) => {
+  withSummaryBatch(t, (dir) => {
+    const file = path.join(dir, "native-app-cleanup.json");
+    const cleanup = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...cleanup, remaining: [{ pid: 411, command: "fixture app" }] }));
+    assert.throws(() => verifyConfirmationBatch(dir), /C11_cleanup/u);
+    const { summary, checks } = readSummaryOutputs(dir);
+    assert.deepEqual(checks.failed, ["C11_cleanup"]);
+    assert.equal(summary.all_checks_passed, false);
+    assert.equal(summary.verdict.mechanism, "fail");
+  });
+});
+
+test("the final author-visible failure makes an otherwise passing batch summary negative", (t) => {
+  withSummaryBatch(t, (dir) => {
+    fs.writeFileSync(path.join(dir, "02-card.text.txt"), "Value: slice_verify\n");
+    assert.throws(() => verifyConfirmationBatch(dir), /author_visible_no_internal_tokens/u);
+    const { summary, checks } = readSummaryOutputs(dir);
+    assert.deepEqual(checks.failed, ["author_visible_no_internal_tokens"]);
+    assert.equal(summary.author_visible.ok, false);
+    assert.equal(summary.all_checks_passed, false);
+    assert.equal(summary.verdict.mechanism, "fail");
+  });
 });

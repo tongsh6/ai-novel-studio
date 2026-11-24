@@ -688,6 +688,56 @@ function whyReplayBound(evidence, checkpoints, revision, workId, sessionId) {
   );
 }
 
+
+function whyCanonFacts(checkpoint) {
+  const { at: _at, ...canon } = checkpoint.canon;
+  return { canon, memory_items: checkpoint.memory_items, receipts: checkpoint.receipts };
+}
+
+// 采纳 Replay 必须由真实动作轮、持久状态与 receipt 交叉对账；生成轮 Why 不能代签。
+export function acceptWhyChecks({ wire, checkpoints, action, turnResult, receipt, workId, sessionId }) {
+  const before = checkpoints["before-accept-why"], after = checkpoints["after-accept-why"];
+  const turnId = turnResult.turn_id, artifactId = action.target_ref;
+  const capture = replayCapture(wire, { workId, sessionId, turnId, from: before.at, to: after.at });
+  const replay = capture.body?.trace_summary;
+  const refs = list(replay?.state_trace_refs), sourceRefs = list(turnResult.trace_summary?.state_trace_refs);
+  const state = refs.length === 1 ? refs[0] : null;
+  const resolved = list(turnResult.adoption_state?.resolved);
+  const entry = resolved.length === 1 ? resolved[0] : null;
+  const result = receipt.result, persistence = result?.persistence;
+  const expected = actionResultIdentityFor(action);
+  const actionBound = nonBlank(turnId) && turnId !== action.source_turn_ref &&
+    turnResult.work_id === workId && turnResult.session_id === sessionId &&
+    turnResult.parent_turn_id === action.source_turn_ref &&
+    entry?.artifact_id === artifactId && entry?.adoption_status === "ACCEPTED";
+  const receiptBound = receipt.work_id === workId && receipt.session_id === sessionId &&
+    receipt.action_id === action.action_id && receipt.action_type === "accept" &&
+    receipt.idempotency_key === action.idempotency_key && receipt.source_turn_ref === action.source_turn_ref &&
+    receipt.status === "accepted" && result?.status === "accepted" && result?.decision === "ACCEPTED" &&
+    result?.action_id === expected?.action_id && result?.action_type === expected?.action_type &&
+    result?.artifact_id === artifactId && persistence?.persisted === true && persistence?.memory_status === "CONFIRMED";
+  return {
+    accept_why_action_turn_bound: actionBound,
+    accept_why_replay_scoped_http: capture.ok && capture.body.work_id === workId &&
+      capture.body.session_id === sessionId && capture.body.turn_id === turnId,
+    accept_why_state_trace_bound: actionBound && receiptBound && refs.length === 1 && sourceRefs.length === 1 &&
+      isDeepStrictEqual(refs, sourceRefs) && state?.event_type === "candidate_adopted" &&
+      state?.production_write_performed === true && state?.kind == null &&
+      state?.action_turn_ref === turnId && state?.source_turn_ref === action.source_turn_ref &&
+      state?.artifact_id === artifactId && state?.candidate_ref === artifactId &&
+      nonBlank(state?.adopted_state_ref) && state.adopted_state_ref === persistence.memory_item_id &&
+      state.adopted_state_ref === entry.adopted_state_ref &&
+      nonBlank(state.state_trace_ref) && state.state_trace_ref === entry.state_trace_ref &&
+      state.state_trace_ref === turnResult.trace_summary.state_trace_ref &&
+      nonBlank(state.mutation_ref) && state.mutation_ref === persistence.mutation_id &&
+      state.mutation_ref === entry.mutation_ref &&
+      nonBlank(state.source_revision_ref) && state.source_revision_ref === persistence.source_revision_ref,
+    accept_why_receipt_bound: receiptBound,
+    accept_why_zero_provider_calls: checkpointCountsEqual(before, after) && replay?.replay_provider_called === false,
+    accept_why_zero_canon_writes: isDeepStrictEqual(whyCanonFacts(before), whyCanonFacts(after)),
+  };
+}
+
 function uiAndWhyChecks(dir, evidence, checkpoints, source, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId) {
   const whyText = axText(dir, "why");
   const whyRefs = [
@@ -905,6 +955,9 @@ export function verifyPendingBatch(dir) {
       evidence.llmRecords.every(record => ownedCalls.filter(call =>
         call.provider_call_ref === record.provider_call_ref && call.provider_run_ref === record.provider_run_ref).length === 1),
     ...action.checks,
+    ...acceptWhyChecks({ wire: evidence.wire, checkpoints, action: actions.acceptAction,
+      turnResult: frameBody(actions.acceptTurn), receipt: action.acceptReceipt, workId, sessionId }),
+    accept_why_replay_visible: textIncludes(dir, "accept-why", ["参考来源", "不会重新调用模型"]),
     ...canon.checks,
     ...uiAndWhyChecks(dir, evidence, checkpoints, source, revision, sourceItem, revisionItem, sourceArtifact, workId, sessionId),
     ...restoreChecks(dir, evidence, checkpoints, followup, sessionId, workId, sourceArtifact, revisionArtifact, sourceItem, revisionItem),

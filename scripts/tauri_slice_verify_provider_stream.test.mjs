@@ -20,6 +20,8 @@ function section(start, end) {
 const startProxy = section("start_owned_provider_stream_proxy() {", "\nstart_owned_backend() {");
 const startBackend = section("start_owned_backend() {", "\nrestart_owned_backend() {");
 const cleanup = section("cleanup() {", "\ntrap cleanup EXIT");
+const cleanupTraps = section("trap cleanup EXIT", "\nwait_for_url() {");
+const verifyNative = section("verify_native_slice() {", "\nprint_native_slice_diagnostics() {");
 let scope;
 test.before(() => { scope = openTestRunScope(); });
 test.after(() => { scope?.close(); });
@@ -46,7 +48,7 @@ if (process.env.CASE !== "timeout") fs.writeFileSync(path.join(dir,"provider-str
 process.on("SIGTERM", () => { for (const server of servers) server.close(); });
 `;
 
-function run(t, mode = "", overrides = {}, extra = "") {
+function run(t, mode = "", overrides = {}, extra = "", setup = () => {}) {
   const dir = fs.mkdtempSync(path.join(scope.workDir, "provider-runner-"));
   t.after(() => fs.rmSync(dir, {recursive:true,force:true}));
   fs.mkdirSync(path.join(dir,"scripts/lib"),{recursive:true});
@@ -57,6 +59,7 @@ function run(t, mode = "", overrides = {}, extra = "") {
   fs.writeFileSync(path.join(dir,"scripts/native_request_cost_drive.mjs"),`import fs from "node:fs";const dir=process.argv[2];const pid=JSON.parse(fs.readFileSync(dir+"/fixture-owner.json")).pid;process.kill(pid,0);fs.writeFileSync(dir+"/captured-before-cleanup","owned proxy still alive");`);
   fs.writeFileSync(path.join(dir,"bin/mix"),'#!/bin/bash\nprintf "%s\\n" "$NOVEL_SPLASH_ENDPOINT" >> "$ARTIFACT_DIR/backend-endpoints"\n');
   fs.chmodSync(path.join(dir,"bin/mix"),0o755);
+  setup(dir);
   if(mode === "stale") fs.writeFileSync(path.join(dir,"artifacts/provider-stream-ready.json"),"{}");
   const script = `set -euo pipefail
 set -m
@@ -65,7 +68,7 @@ PHX_PID=""; TAURI_PID=""; UI_DRIVER_PID=""; NATIVE_PROXY_PID=""; TAURI_CONFIG_OV
 PROVIDER_STREAM_PID=""; PROVIDER_STREAM_ENDPOINT=""; PROVIDER_STREAM_PORT=""; PROVIDER_STREAM_CONTROL_PORT=""
 reset_test_db() { :; }
 ${cleanup}
-trap cleanup EXIT
+${cleanupTraps}
 ${startProxy}
 ${startBackend}
 start_owned_provider_stream_proxy
@@ -152,4 +155,123 @@ test("actual runner connects supervision, both owned ports and preflight before 
   const restart=section("restart_owned_backend() {",'\nRUNTIME_FACTS_PATH=""');
   assert.match(restart,/start_owned_backend/);
   assert.doesNotMatch(restart,/start_owned_provider_stream_proxy/);
+});
+
+// R07: execute the real verifier function in its conditional-call context. The
+// disposable proxy is the only live child; native cleanup and verifier are files
+// in this test run's owned directory, never the user's app or a model service.
+function writeLifecycleFixture(dir, journey) {
+  const artifactDir = path.join(dir, "artifacts");
+  fs.writeFileSync(path.join(artifactDir, "native-b71-config.json"), JSON.stringify({ journey }));
+  fs.writeFileSync(path.join(dir, "scripts/lib/native_app_ownership.mjs"), [
+    'import fs from "node:fs";',
+    'import path from "node:path";',
+    'const dir = process.argv[2];',
+    'const countFile = path.join(dir, "cleanup-count");',
+    'const count = Number(fs.existsSync(countFile) ? fs.readFileSync(countFile, "utf8") : 0) + 1;',
+    'fs.writeFileSync(countFile, String(count));',
+    'fs.writeFileSync(path.join(dir, "native-app-cleanup.json"), JSON.stringify({actions:[{event:"fixture_stop",ordinal:count}],remaining:[]}));',
+    'if (process.env.CLEANUP_FAILURE === "always" || (process.env.CLEANUP_FAILURE === "once" && count === 1)) {',
+    '  const failure = path.join(dir, "failure.json");',
+    '  if (!fs.existsSync(failure)) fs.writeFileSync(failure, JSON.stringify({reason:"fixture_cleanup_failure"}));',
+    '  process.exit(17);',
+    '}',
+  ].join("\n"));
+  fs.writeFileSync(path.join(dir, "scripts/native_b71_evidence.mjs"), [
+    'import fs from "node:fs";',
+    'import path from "node:path";',
+    'const dir = process.argv[3];',
+    'if (process.argv[2] !== "verify") throw new Error("expected the actual verify entry");',
+    'const owner = JSON.parse(fs.readFileSync(path.join(dir, "fixture-owner.json"), "utf8"));',
+    'let alive = true;',
+    'try { process.kill(owner.pid, 0); } catch (error) { if (error.code !== "ESRCH") throw error; alive = false; }',
+    'const countFile = path.join(dir, "cleanup-count");',
+    'fs.writeFileSync(path.join(dir, "verifier-observation.json"), JSON.stringify({owned_proxy_alive:alive,cleanup_calls:Number(fs.existsSync(countFile) ? fs.readFileSync(countFile,"utf8") : 0)}));',
+    'if (process.env.VERIFIER_SIGNAL) process.kill(process.ppid, process.env.VERIFIER_SIGNAL);',
+    'process.exit(Number(process.env.VERIFIER_STATUS || "0"));',
+  ].join("\n"));
+}
+
+function runNativeVerification(t, journey, overrides = {}) {
+  return run(t, "", overrides, verifyNative + [
+    "",
+    "is_b71_family_slice() { return 0; }",
+    "if verify_native_slice; then",
+    '  echo "verifier function succeeded"',
+    "else",
+    "  status=$?",
+    '  exit "$status"',
+    "fi",
+  ].join("\n"), (dir) => writeLifecycleFixture(dir, journey));
+}
+
+function readLifecycleResult(dir) {
+  const artifactDir = path.join(dir, "artifacts");
+  const observationFile = path.join(artifactDir, "verifier-observation.json");
+  return {
+    observation: fs.existsSync(observationFile) ? JSON.parse(fs.readFileSync(observationFile, "utf8")) : null,
+    cleanupCalls: Number(fs.readFileSync(path.join(artifactDir, "cleanup-count"), "utf8")),
+    cleanup: JSON.parse(fs.readFileSync(path.join(artifactDir, "native-app-cleanup.json"), "utf8")),
+  };
+}
+
+for (const journey of ["confirmation", "memory-detail", "auto-maintenance", "answer-mode"]) {
+  test(journey + " stops owned runtime, reaches verifier and preserves the first cleanup record", (t) => {
+    const { result, dir } = runNativeVerification(t, journey);
+    assert.equal(result.status, 0, result.stderr);
+    const actual = readLifecycleResult(dir);
+    assert.deepEqual(actual.observation, { owned_proxy_alive: false, cleanup_calls: 1 });
+    assert.equal(actual.cleanupCalls, 1, "EXIT must not overwrite successful pre-verification cleanup");
+    assert.deepEqual(actual.cleanup.actions, [{ event: "fixture_stop", ordinal: 1 }]);
+  });
+}
+
+test("a journey without pre-stop verifies while its owned child is alive, then EXIT cleans it", (t) => {
+  const { result, dir } = runNativeVerification(t, "pending");
+  assert.equal(result.status, 0, result.stderr);
+  const actual = readLifecycleResult(dir);
+  assert.deepEqual(actual.observation, { owned_proxy_alive: true, cleanup_calls: 0 });
+  assert.equal(actual.cleanupCalls, 1);
+});
+
+for (const failure of ["always", "once"]) {
+  test("pre-stop failure stays nonzero and never invokes verifier: " + failure, (t) => {
+    const { result, dir } = runNativeVerification(t, "confirmation", { CLEANUP_FAILURE: failure });
+    assert.notEqual(result.status, 0);
+    assert.equal(readLifecycleResult(dir).observation, null);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "artifacts/failure.json"), "utf8")).reason, "fixture_cleanup_failure");
+  });
+}
+
+test("verifier failure survives conditional invocation and EXIT keeps the first cleanup evidence", (t) => {
+  const { result, dir } = runNativeVerification(t, "confirmation", { VERIFIER_STATUS: "7" });
+  assert.equal(result.status, 7, result.stderr);
+  const actual = readLifecycleResult(dir);
+  assert.deepEqual(actual.observation, { owned_proxy_alive: false, cleanup_calls: 1 });
+  assert.equal(actual.cleanupCalls, 1);
+  assert.deepEqual(actual.cleanup.actions, [{ event: "fixture_stop", ordinal: 1 }]);
+});
+
+for (const [signal, status] of [["SIGTERM", 143], ["SIGINT", 130]]) {
+  test(signal + " remains effective after successful pre-stop", (t) => {
+    const { result, dir } = runNativeVerification(t, "confirmation", { VERIFIER_SIGNAL: signal });
+    assert.equal(result.status, status, result.stderr);
+    assert.equal(readLifecycleResult(dir).cleanupCalls, 1);
+  });
+}
+
+for (const [original, expected] of [[0, 1], [9, 9]]) {
+  test("EXIT cleanup failure preserves the original failure or fails an original success: " + original, (t) => {
+    const { result } = run(t, "", { CLEANUP_FAILURE: "always" }, "exit " + original,
+      (dir) => writeLifecycleFixture(dir, "confirmation"));
+    assert.equal(result.status, expected, result.stderr);
+  });
+}
+
+test("R01 captures failure before the first reap even when cleanup later fails", (t) => {
+  const { result, dir } = run(t, "", {
+    B71_AUTO_MAINTENANCE: "0", SLICE_ID: "b87-r01-request-cost", REQUEST_COST_LENGTH: "10", CLEANUP_FAILURE: "always",
+  }, 'UI_DRIVER_PID="$PROVIDER_STREAM_PID"\nexit 9', (dir) => writeLifecycleFixture(dir, "confirmation"));
+  assert.equal(result.status, 9, result.stderr);
+  assert.equal(fs.readFileSync(path.join(dir, "artifacts/captured-before-cleanup"), "utf8"), "owned proxy still alive");
 });

@@ -2,8 +2,8 @@
 //
 // 只通过真实 Tauri 窗口的可见语义（作品菜单/AX 文本/按钮/输入框）与真实
 // WS/HTTP 传输帧推进；不做 Channel/HTTP 业务写入，不读取产品验收开关。
-// 保存/放弃/Why 都先按候选可见标题+正文定位其所属 AX 结构，再在该结构内
-// 唯一命中按钮；缺失/多义直接失败，不使用全局 first/last。
+// 候选的保存/放弃/Why 按可见标题+正文定位；采纳动作的 Why 按真实动作回复、
+// 当前作者轮与可见助手消息段定位。按钮必须唯一，缺失/多义失败，不用全局 first/last。
 import assert from "node:assert/strict";
 import { frameBody, frameEvent, frameOf } from "./scenario_driver.mjs";
 import { broadcastFrames } from "./scenario_evidence.mjs";
@@ -12,6 +12,7 @@ import { authorVisibleScenarioSpec } from "./authoring_capture_evidence.mjs";
 import { authorBoundary, countAxAuthorMessages } from "./authoring_g2_evidence.mjs";
 import { r05ReplyMatch } from "./authoring_r05_evidence.mjs";
 import { textOf } from "./driver.mjs";
+import { replayCapture } from "./native_http_evidence.mjs";
 
 import { turnIdMatches } from "./scenario_driver.mjs";
 import {
@@ -25,6 +26,7 @@ import {
   locatePendingItem,
   locateScopedButton,
   locateWhyButton,
+  locateActionWhyButton,
   pendingSourceMessage,
   PENDING_REVISION_MESSAGE,
   PENDING_FOLLOWUP_MESSAGE,
@@ -315,6 +317,27 @@ async function openRevisionWhy(harness, {
   );
 }
 
+
+async function openActionWhy(harness, acceptTurn, { message, baselineAuthorCount }) {
+  const body = frameBody(acceptTurn);
+  const locate = nodes => locateActionWhyButton(nodes, { assistantText: body?.assistant_message?.text,
+    authorBoundary: authorBoundary(nodes, message, baselineAuthorCount) });
+  const rendered = await harness.runStep("maintenance", "accept_why_target", () =>
+    harness.pollAx((_text, nodes) => locate(nodes).ok, 30_000, "b71:accept-why-target"));
+  const located = locate(rendered.nodes);
+  await harness.runStep("maintenance", "open_accept_why", () => harness.safeClick(located.button, "b71:accept-why"));
+  const why = await harness.runStep("maintenance", "accept_why_visible", () =>
+    harness.pollAx(text => text.includes("参考来源") && text.includes("不会重新调用模型"), 30_000, "b71:accept-why"));
+  await harness.runStep("maintenance", "accept_why_replay", () => harness.pollWire(wire => {
+    const replay = replayCapture(wire, { workId: body.work_id, sessionId: body.session_id,
+      turnId: body.turn_id, from: acceptTurn.at });
+    if (replay.ok) return replay;
+    if (replay.reason === "capture_missing") return null;
+    throw new Error("pending_accept_why_replay:" + replay.reason);
+  }, 30_000, "b71:accept-why-replay"));
+  return why;
+}
+
 async function closeWhy(harness) {
   await harness.runStep("maintenance", "close_why", async () => {
     harness.ensureInput().key("escape", { focusRequired: false });
@@ -489,7 +512,7 @@ export async function drivePending(harness, config, { capture }) {
   const acceptFrame = await awaitActionFrame(harness, acceptIdentity);
   await awaitActionAck(harness, acceptFrame, "accepted", "accept_ack");
   await awaitActionResult(harness, { ...acceptIdentity, actionStatus: "accepted" }, "accept_action_result");
-  await awaitActionTurn(
+  const acceptTurn = await awaitActionTurn(
     harness,
     { topic: source.topic, since: acceptFrame.at, parentTurnRef: revisionBody.turn_id },
     "accept_turn_result",
@@ -501,6 +524,15 @@ export async function drivePending(harness, config, { capture }) {
   );
   harness.capture("after-accept");
   capture("after-accept");
+  harness.capture("before-accept-why");
+  capture("before-accept-why");
+  const acceptWhy = await openActionWhy(harness, acceptTurn, {
+    message: revisionText, baselineAuthorCount: revisionBaselineAuthorCount,
+  });
+  harness.capture("accept-why");
+  await closeWhy(harness);
+  harness.capture("after-accept-why");
+  capture("after-accept-why");
 
   const discardAction = selectPendingAction(sourceBody, {
     artifactId: sourceArtifact.artifact_id,
@@ -569,6 +601,8 @@ export async function drivePending(harness, config, { capture }) {
     revision_run_id: revision.runId,
     revision_artifact_id: revisionArtifact.artifact_id,
     accept_action_id: acceptAction.action_id,
+    accept_turn_id: frameBody(acceptTurn).turn_id,
+    accept_why_text: acceptWhy.text,
     discard_action_id: discardAction.action_id,
     followup_turn_id: followup.turnId,
     followup_run_id: followup.runId,

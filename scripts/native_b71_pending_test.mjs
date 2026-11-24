@@ -47,6 +47,16 @@ const FOLLOWUP_TEXT = "资料处理进度怎么样？";
 const ACCEPT_LABEL = "保存到作品档案";
 const DISCARD_LABEL = "不保存";
 const REPLAY_NOTE = "参考来源\n回放只读取已保存记录，不会重新调用模型";
+const ACCEPT_TURN = "turn_adopt-fixture";
+const ACCEPT_REPLY = "已通过采纳边界，采纳内容已进入已决状态。";
+const ACCEPT_STATE_REF = {
+  event_type: "candidate_adopted", production_write_performed: true,
+  action_turn_ref: ACCEPT_TURN, source_turn_ref: REVISION_TURN,
+  artifact_id: REVISION_ID, candidate_ref: REVISION_ID, adopted_state_ref: MEMORY,
+  state_trace_ref: "state_trace:accepted-fixture", mutation_ref: MUTATION,
+  source_revision_ref: "mutation:" + MUTATION,
+};
+
 
 const sourceItem = {
   item_id: `ai_${SOURCE_TURN}`,
@@ -486,6 +496,7 @@ function insertAcceptFacts(dir) {
           memory_item_id: MEMORY,
           memory_status: "CONFIRMED",
           mutation_id: MUTATION,
+          source_revision_ref: "mutation:" + MUTATION,
           persisted: true,
         },
         status: "accepted",
@@ -584,6 +595,15 @@ function bindAckRun(records, runId) {
 
 function actionRecords(topic, joinRef, requestRef, action, { actionType, artifactId, status, parentTurn, turnId }) {
   const at = nowIso();
+  const turn = turnResultBody({ turnId, parentTurnId: parentTurn, runId: null, pending: [],
+    resolved: [{ artifact_id: artifactId, adoption_status: action.action_type === "accept" ? "ACCEPTED" : "DISCARDED" }] });
+  if (status === "accepted") {
+    turn.assistant_message.text = ACCEPT_REPLY;
+    turn.trace_summary = { trace_ref: "trace:" + ACCEPT_TURN,
+      state_trace_ref: ACCEPT_STATE_REF.state_trace_ref, state_trace_refs: [ACCEPT_STATE_REF] };
+    Object.assign(turn.adoption_state.resolved[0], { adopted_state_ref: MEMORY,
+      state_trace_ref: ACCEPT_STATE_REF.state_trace_ref, mutation_ref: MUTATION });
+  }
   return [
     wireFrame(at, "sent", [joinRef, requestRef, topic, "author_action", { action }]),
     wireFrame(at, "received", [joinRef, requestRef, topic, "phx_reply", {
@@ -596,13 +616,7 @@ function actionRecords(topic, joinRef, requestRef, action, { actionType, artifac
       artifact_id: artifactId,
       status,
     }]),
-    wireFrame(at, "received", [null, null, topic, "turn_result", turnResultBody({
-      turnId,
-      parentTurnId: parentTurn,
-      runId: null,
-      pending: [],
-      resolved: [{ artifact_id: artifactId, adoption_status: action.action_type === "accept" ? "ACCEPTED" : "DISCARDED" }],
-    })]),
+    wireFrame(at, "received", [null, null, topic, "turn_result", turn]),
   ];
 }
 
@@ -617,7 +631,9 @@ function writeEvidenceFiles(dir) {
     ready_at: readyAt,
     app_path: "/tmp/B71 Pending.app",
   });
-  for (const name of ["01-workbench", "after-source", "after-revision", "why", "after-accept", "after-discard", "after-restore", "final"]) {
+  const captures = ["01-workbench", "after-source", "after-revision", "why", "after-accept",
+    "before-accept-why", "accept-why", "after-accept-why", "after-discard", "after-restore", "final"];
+  for (const name of captures) {
     jpeg(path.join(dir, `${name}.jpg`));
   }
   writeJson(path.join(dir, "native-ui-complete.json"), {
@@ -625,7 +641,7 @@ function writeEvidenceFiles(dir) {
     driver: NATIVE_DRIVER,
     app_bundle: APP_BUNDLE,
     scope: SLICE_ID,
-    screenshots: ["01-workbench.jpg", "after-source.jpg", "after-revision.jpg", "why.jpg", "after-accept.jpg", "after-discard.jpg", "after-restore.jpg", "final.jpg"],
+    screenshots: captures.map(name => name + ".jpg"),
   });
   const commands = [];
   const events = [];
@@ -711,10 +727,15 @@ function pendingAx(name, followupNodes = axFollowup()) {
     axNode("0/0/1", "AXPopUpButton", { title: "B71 pending author boundary", desc: "作品" }),
     axNode("0/0/2", "AXStaticText", { value: "同步已连接" }),
     axNode(AX_CHAT, "AXGroup", { subrole: "AXLandmarkRegion", title: "会话消息", desc: "会话消息" }),
-    ...candidateAx(10, SOURCE_BODY, sourceItem, ["after-source", "after-revision", "after-accept"].includes(name)),
+    ...candidateAx(10, SOURCE_BODY, sourceItem,
+      ["after-source", "after-revision", "after-accept", "before-accept-why", "after-accept-why"].includes(name)),
     ...(name === "after-source" ? [] : candidateAx(20,
       "请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。",
       revisionItem, name === "after-revision")),
+    ...(!["after-source", "after-revision"].includes(name) ? [
+      ...axTextGroup(AX_CHAT + "/30", "AI 助手"), ...axTextGroup(AX_CHAT + "/31", ACCEPT_REPLY),
+      axNode(AX_CHAT + "/32", "AXButton", { title: "为什么" }),
+    ] : []),
     ...(name === "final" ? followupNodes : []),
   ];
 }
@@ -724,11 +745,14 @@ function writeAxCapture(dir, name, nodes) {
     nodes.map(node => [node.title, node.desc, node.value].filter(Boolean).join(" ")).filter(Boolean).join("\n"));
 }
 function writeAx(dir, followupNodes = axFollowup()) {
-  for (const name of ["after-source", "after-revision", "after-accept", "after-discard", "after-restore", "final"]) {
+  for (const name of ["after-source", "after-revision", "after-accept", "before-accept-why",
+    "after-accept-why", "after-discard", "after-restore", "final"]) {
     writeAxCapture(dir, name, pendingAx(name, followupNodes));
   }
   fs.writeFileSync(path.join(dir, "why.text.txt"),
     fs.readFileSync(path.join(dir, "after-revision.text.txt"), "utf8") + "\n" + REPLAY_NOTE);
+  fs.writeFileSync(path.join(dir, "accept-why.text.txt"),
+    fs.readFileSync(path.join(dir, "after-accept.text.txt"), "utf8") + "\n" + REPLAY_NOTE);
 }
 
 function resumeHttpBody() {
@@ -772,7 +796,10 @@ function httpFixtureServer() {
     const pathname = new URL(request.url, "http://127.0.0.1").pathname;
     const body = pathname.endsWith("/sessions/resume")
       ? resumeHttpBody()
-      : { work_id: WORK, session_id: SESSION, turn_id: REVISION_TURN };
+      : pathname.endsWith("/turns/" + ACCEPT_TURN + "/replay")
+        ? { work_id: WORK, session_id: SESSION, turn_id: ACCEPT_TURN,
+          trace_summary: { state_trace_refs: [ACCEPT_STATE_REF], replay_provider_called: false } }
+        : { work_id: WORK, session_id: SESSION, turn_id: REVISION_TURN };
     const payload = JSON.stringify(body);
     response.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
     response.end(payload);
@@ -994,9 +1021,14 @@ async function buildBatch(workRoot, {
     artifactId: REVISION_ID,
     status: "accepted",
     parentTurn: REVISION_TURN,
-    turnId: "turn-accept",
+    turnId: ACCEPT_TURN,
   }));
   capturePending(dir, "after-accept");
+  capturePending(dir, "before-accept-why");
+  await httpCapture.get(`/api/works/${WORK}/sessions/${SESSION}/turns/${ACCEPT_TURN}/replay`);
+  addWire(dir, fs.readFileSync(httpCapture.logPath, "utf8").split("\n").filter(Boolean).map(JSON.parse));
+  fs.writeFileSync(httpCapture.logPath, "");
+  capturePending(dir, "after-accept-why");
 
   // discard：只新增原稿 receipt，已采纳全文不变。
   insertDiscardFact(dir);
@@ -1266,9 +1298,9 @@ for (const [name, reply, visible] of [
 }
 
 test("pending 旧同文追问不增加当前基线以外的作者数，新同文回合仍可交付", (t) => {
-  const dir = batchCopy(t), previous = axFollowup(30);
+  const dir = batchCopy(t), previous = axFollowup(40);
   writeAxCapture(dir, "after-restore", [...pendingAx("after-restore"), ...previous]);
-  writeAxCapture(dir, "final", [...pendingAx("after-restore"), ...previous, ...axFollowup()]);
+  writeAxCapture(dir, "final", [...pendingAx("after-restore"), ...previous, ...axFollowup(50)]);
   assert.equal(verifyPendingBatch(dir).checks.followup_reply_visible, true);
 });
 
@@ -1276,7 +1308,7 @@ for (const [name, nodes, previous] of [
   ["缺末段", () => axFollowup().filter(node => !node.path.startsWith(AX_CHAT + "/45")), () => []],
   ["列表正文篡改", () => axFollowup().map(node => node.path === AX_CHAT + "/44/0/1"
     ? { ...node, value: "已采纳：ACCEPTED 被篡改的旧稿。" } : node), () => []],
-  ["仅旧同文回合", () => [], () => axFollowup(30)],
+  ["仅旧同文回合", () => [], () => axFollowup(40)],
   ["错作者角色", () => axFollowup(40, { authorLabel: "旁观者" }), () => []],
   ["错作者原话", () => axFollowup(40, { message: "另一份资料进度怎么样？" }), () => []],
   ["额外助手块", () => [...axFollowup(), ...axTextGroup(AX_CHAT + "/46", "AI 助手"),
@@ -1441,6 +1473,25 @@ test("缺失 Why 持久 replay 不能通过", (t) => {
   mutateJsonl(path.join(dir, "native-transport.jsonl"), (rows) =>
     rows.filter((row) => !(row.direction === "http" && String(row.path).includes(`/turns/${REVISION_TURN}/replay`))));
   assert.throws(() => verifyPendingBatch(dir), /why_replay_scoped_http/);
+});
+
+
+test("采纳 Why 缺独立动作 Replay 不能借用原生成 Why", (t) => {
+  const dir = batchCopy(t);
+  mutateJsonl(path.join(dir, "native-transport.jsonl"), rows =>
+    rows.filter(row => !(row.direction === "http" && String(row.path).includes("/turns/" + ACCEPT_TURN + "/replay"))));
+  assert.throws(() => verifyPendingBatch(dir), /accept_why_replay_scoped_http/);
+});
+
+test("采纳 Why 窗口额外调用或引用写入不能被后续快照掩盖", async (t) => {
+  for (const [name, mutate, expected] of [
+    ["Provider", checkpoint => { checkpoint.provider_start_count++; }, /accept_why_zero_provider_calls/],
+    ["Canon", checkpoint => { checkpoint.memory_items[0].reference_count++; }, /accept_why_zero_canon_writes/],
+  ]) await t.test(name, child => {
+    const dir = batchCopy(child);
+    mutateCheckpoint(dir, "after-accept-why", checkpoint => { mutate(checkpoint); return checkpoint; });
+    assert.throws(() => verifyPendingBatch(dir), expected);
+  });
 });
 
 test("accept 额外新增 memory/receipt 不能通过", (t) => {
