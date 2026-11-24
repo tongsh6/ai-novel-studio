@@ -3,6 +3,7 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
 
   alias NovelApplication.AuthoringTaskPolicy
   alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.AuthorVisible.Display
 
   test "shared rules come from the single common source (no duplicate copy)" do
     rules = AuthoringTaskPolicy.rules()
@@ -44,6 +45,46 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
 
     refute AuthoringTaskPolicy.judgment_rules() =~ "整体缺口说明与最近可行路径"
     assert AuthoringTaskPolicy.judgment_rules() =~ "不能用近似工具填平"
+  end
+
+  test "能力目录补充已登记作者称谓并保留机器标识与既有效果" do
+    assert [outline, archive] =
+             AuthoringTaskPolicy.operation_data(
+               capabilities: ["plot_outline", "work_archive_read"]
+             )
+
+    assert outline == %{
+             name: "plot_outline",
+             display_name: "大纲规划",
+             effect_summary: "生成章节/卷纲候选，不冒充已存在章节的重编号或移动。",
+             read_scopes: ["author_text", "plot_summary", "beat_list"],
+             write_scopes: ["volume_plan", "chapter_outline", "plot_beat"],
+             output_contract_ref: "tentative_artifact_v2",
+             risk_class: :medium
+           }
+
+    assert archive == %{
+             name: "work_archive_read",
+             display_name: "作品档案查阅",
+             effect_summary: "- work_archive_read：批量只读作品档案、结构与统计，不生成候选，不保存或登记任何内容。"
+           }
+  end
+
+  test "未登记 capability 称谓不借用其他 kind 或通用兜底名，也不产生许可" do
+    assert Display.known?(:tool, "text_analysis")
+
+    for name <- ["revise_adopted_content", "text_analysis", "make_magic", "大纲规划"] do
+      assert [%{name: ^name} = entry] =
+               AuthoringTaskPolicy.operation_data(capabilities: [name])
+
+      refute Map.has_key?(entry, :display_name)
+    end
+
+    assert {:error, :unsupported_judgment_capabilities} =
+             AuthoringTaskPolicy.validate_judgment_options([capabilities: ["make_magic"]], [])
+
+    assert {:error, :unsupported_judgment_capabilities} =
+             AuthoringTaskPolicy.validate_judgment_options([capabilities: ["大纲规划"]], [])
   end
 
   test "version and content hash are stable and detect rule text changes" do

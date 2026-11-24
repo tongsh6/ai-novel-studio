@@ -90,6 +90,14 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     end
   end
 
+  test "固定目录中的作者称谓不授予当前 Scope 未开放的能力" do
+    assert_capability_correction("plot_outline", "character_design")
+  end
+
+  test "作者称谓不能替代 capability 机器标识且仍在原两次预算内纠正" do
+    assert_capability_correction("大纲规划", "plot_outline")
+  end
+
   test "已列名但未开放的探索操作不能作为当前替代路径" do
     invalid = gap_call(["chapter_read"])
     corrected = %{gap_call(["ask_author"]) | id: "tool-gap-current-profile"}
@@ -401,6 +409,82 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert_receive {:provider_request, _first}
     assert_receive {:provider_request, _second}
     refute_receive {:provider_request, _third}, 10
+  end
+
+  defp assert_capability_correction(unavailable, allowed) do
+    author = "  先给出候选。\n原文中的 plot_outline 保持原样。  "
+    reasoning = "  我会按当前材料提出候选。\n由你决定是否采纳。  "
+    invalid = execute_call(%{"capability" => unavailable, "author_reasoning" => reasoning})
+
+    corrected = %{
+      execute_call(%{"capability" => allowed, "author_reasoning" => reasoning})
+      | id: "tool-capability-corrected"
+    }
+
+    second = judgment_response("", [corrected], "capability-corrected")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([judgment_response("", [invalid], "capability-invalid"), second]),
+               %{},
+               judgment_input(capabilities: [allowed]) |> Map.put(:author_text, author)
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.capability == allowed
+    assert judgment.provider_call_count == 2
+    assert judgment.narrative == reasoning
+    assert [original, accepted] = blocks(judgment.transcript, "tool_call")
+    assert original.arguments == invalid.arguments
+    assert accepted.arguments == corrected.arguments
+    assert [failed, passed] = blocks(judgment.transcript, "validation_result")
+    assert failed.call_id == original.call_id
+    assert failed.status == "failed"
+    assert failed.reason_code == "capability_not_available"
+    assert failed.retryable == true
+    assert failed.budget_after == exchange_budget(1)
+    assert passed.call_id == accepted.call_id
+    assert passed.status == "passed"
+    assert passed.retryable == false
+    assert passed.budget_after == exchange_budget(2)
+
+    assert_receive {:provider_request, first_request}
+    assert_receive {:provider_request, corrected_request}
+    assert corrected_request.run == first_request.run
+    assert corrected_request.tools == first_request.tools
+    assert [correction] = blocks(corrected_request, "validation_result")
+    assert correction == failed
+    refute_receive {:provider_request, _third}, 10
+
+    assert [scope] = blocks(first_request, "scope")
+    assert scope.content["operation"]["available_operations"] == [allowed]
+    base = Enum.find(first_request.messages, &(&1.role == "application_base"))
+    assert [%{type: "text", text: base_text}] = base.blocks
+
+    [_, definitions_json] =
+      String.split(
+        base_text,
+        "判断角色固定定义（不是当前许可；当前允许集、目标、权限和预算以最新 Scope 为准）：\n",
+        parts: 2
+      )
+
+    definitions = Jason.decode!(definitions_json)
+
+    assert Enum.any?(definitions["capabilities"], fn entry ->
+             entry["name"] == "plot_outline" and entry["display_name"] == "大纲规划"
+           end)
+
+    user = Enum.find(first_request.messages, &(&1.role == "user"))
+    assert [%{type: "text", text: ^author}] = user.blocks
+
+    assert :ok =
+             AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
+               "prun-judgment-operation-2" => %{
+                 second.provider_output
+                 | provider_call_ref: "pcall-judgment-operation-2",
+                   provider_run_ref: "prun-judgment-operation-2"
+               }
+             })
   end
 
   defp assert_target_correction(judgment, invalid, corrected, reason) do

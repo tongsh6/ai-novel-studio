@@ -8,6 +8,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   """
 
   alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.AuthorVisible.Display
 
   @version "b27-task-v6"
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
@@ -194,23 +195,30 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> then(&(:sha256 |> :crypto.hash(&1) |> Base.encode16(case: :lower)))
   end
 
-  @doc "当前真实能力目录的结构投影；名称与效果仍来自既有 registry。"
+  @doc "当前真实能力目录的结构投影；机器名与效果仍来自 registry，作者称谓只取 Display 已登记的 capability。"
   def operation_data(options) do
     Enum.map(Keyword.get(options, :capabilities, []), fn name ->
-      case NovelApplication.CapabilityRegistry.get(name) do
-        nil ->
-          %{name: name, effect_summary: operation(name)}
+      definition =
+        case NovelApplication.CapabilityRegistry.get(name) do
+          nil ->
+            %{name: name, effect_summary: operation(name)}
 
-        entry ->
-          entry
-          |> Map.take([
-            :effect_summary,
-            :read_scopes,
-            :write_scopes,
-            :output_contract_ref,
-            :risk_class
-          ])
-          |> Map.put(:name, name)
+          entry ->
+            entry
+            |> Map.take([
+              :effect_summary,
+              :read_scopes,
+              :write_scopes,
+              :output_contract_ref,
+              :risk_class
+            ])
+            |> Map.put(:name, name)
+        end
+
+      if Display.known?(:capability, name) do
+        Map.put(definition, :display_name, Display.label(:capability, name))
+      else
+        definition
       end
     end)
   end
