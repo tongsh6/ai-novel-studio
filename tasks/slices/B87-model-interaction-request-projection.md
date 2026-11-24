@@ -2,7 +2,24 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing（2026-11-24：R00 已提交 465b1a3f；R01 可靠测量基线见 §11.21；R02、R03、R04 分别按 §13.10、§14.52、§15.6 的应用范围签收。R05 按 §16.39 签收最小可信材料、真实探索回流、专业基线与结构化范围的应用目标，实施 HEAD 为 636d526d；原 scope F0 已完成，文档提交后的 F1 原生及工程身份由该节指向的独立原件核账，不以本状态文字预签。R06 实现已分组提交并完成工程验证，原三场实模失败/缺证按 §17.4–17.5 保留，当前 R06 blocked/NOT PASS；R07 已按 §18 完成五组实施及同批证据消费者补充收束，代码已分阶段推送至 daf22012，工程结果与保留失败见 §18.5–18.8；真实页面与原 scope completion 尚缺，当前 R07 blocked/NOT PASS，恢复条件保留在 §18.7；作者明确先进入 R08，当前工程GREEN09、九批有限实模及最终机制/扫描收口见 §19.45–19.50，R08 仍 doing/NOT PASS，范围复核与有限剩余项见 §19.51；作者 2026-11-24 决定 B87 保留 R00–R08、R17–R19，原 R09–R16 转入独立 B89（§20）；转出不代表完成，B89 保持 deferred；本任务 R06–R08、R17–R19 尚未完整验收；历史 FAIL、模型质量与缺证保持，system 共同规则与角色生命周期归 R17，B87/Issue #4 未完成）**。
+**状态**：**doing / NOT PASS（2026-11-24 重核）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 已有各自边界内的签收；R06–R08 的实现、真实失败与缺证分列如下；R17–R19 未满足开工前置。当前核定与有限接续见 §21，B87 / Issue #4 尚未完成。
+
+| 批次 | 当前核定 | 已成立的交付 / 尚缺内容 | 依据 |
+|---|---|---|---|
+| R00 事实与契约审计 | **PASS** | 审计与归属完成；不外推为生产实现或全仓 CI 通过 | §9.6 |
+| R01 可靠测量基线 | **PASS** | 测量基线与本批工程完成；旧模型失败、未采集项保留 | §11.21 |
+| R02 事实与原话投影 | **应用范围 PASS** | 来源事实到请求与页面的链路成立；不代表原三轮目标全成功 | §13.10 |
+| R03 Checkpoint 与恢复 | **应用范围 PASS** | 当前覆盖、来源与恢复消费者完成；旧实模 partial / 未执行轮次保留 | §14.48–§14.52 |
+| R04 唯一 Scope 与三 wire | **应用范围 PASS** | 应用契约签收；旧原生 FAIL 与未观测项仍在原件 | §15.6 |
+| R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
+| R06 作者可见表达 | **实现完成；blocked / NOT PASS** | C9、WR02 普通作者说明仍有内部操作名泄漏；WR01 live 终局 / 恢复缺证 | §17.4–§17.5 |
+| R07 真实工具与接收闭环 | **实现完成；blocked / NOT PASS** | 专属原生矩阵、采纳后动作 Replay / Why、原 scope completion 待补；旧 SecurityAgent 阻塞仅为当次事实 | §18.5–§18.8、§21.1 |
+| R08 目标、范围与来源语义 | **doing / NOT PASS** | GREEN09 与九批有限实模已交付；事实夸大、T1 歧义选错、P2 未交付保留；P1 采集缺证已补齐，机械核账缺口另列 | §19.45–§19.51、§21.2–§21.3 |
+| R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
+| R18 长篇创作全链回归 | **未开始；前置未满足** | 等 R02–R08 与 R17 完成；负责专业创作质量回归 | §20.2 |
+| R19 最终 A/B 与关闭 | **未开始；前置未满足** | 等 R00–R08、R17 / R18 PASS；保留原三轮及最终实模 / Tauri 验收 | §20.2 |
+
+以上是 **6 / 12 批已有各自范围签收**的盘点，不是工作量等权的“完成度 50%”。本次核定没有重跑前六批，也没有用后继工程结果覆盖原始失败。
 
 - **当前范围与排期（2026-11-24）**：B87 仅保留 **R00–R08、R17–R19**；原 R09–R16 的任务卡与后续验收转入 [B89](B89-author-controlled-execution.md)，继续遵守作者暂停指令。执行边界以 §20 为准；下述旧排期、§1 重排背景及各历史批次记录按当时事实保留。
 
@@ -2788,7 +2805,7 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 
 ### 18.7 原生现场、未闭环范围与恢复入口
 
-**当前为 blocked / NOT PASS。** R07 尚未启动 native 验收批次或真实模型调用，没有本批真实页面 summary/binding；原 scope completion 未执行。全树工程扫描、R06 页面证据和已构建 release 均不能填补这些缺口。
+**本节为 2026-11-22 当次现场记录。** R07 当时为 blocked / NOT PASS，未启动专属 native 验收批次或真实模型调用，缺少本批真实页面 summary / binding，原 scope completion 未执行。全树工程扫描、R06 页面证据和已构建 release 均不能填补这些缺口。2026-11-24 重核后的状态与恢复调度见 §21；下述 SecurityAgent 现场不能直接代表当前环境。
 
 作者指出“此前可以 UI 验收”后，于 2026-11-22 00:40:37 +08:00 执行 `native-desktop-diagnostic-01` 只读现场核验：AX、输入、截屏权限都为 true，前台确为 SecurityAgent PID 13294；真实桌面截图显示 Docker 本地网络授权提示，后方是钥匙串访问提示。AX 可见文本进一步确认 `git-credential-osxkeychain` 请求使用 `github.com` 凭据，并要求输入“登录”钥匙串密码。现场截图 SHA `f6ad83bf8e7dc365cfce588a064be170956408c2a615adb4f5f23d935ba53da8`，可见文本另存 `security-dialog-readable.json`；未读取密码字段内容。上游请求由哪个任务触发仍未确认。
 
@@ -2796,12 +2813,12 @@ C9 的完整失败链为第 4 条实际响应 `pcall_mwqhwm7t_8h/prun_mwqhwm7t_8
 
 恢复沿本批原目标与既有入口：
 
-1. 本机操作者处理当前系统权限/钥匙串提示后，重新观测桌面；由现 NativeScenarioHarness 绑定独立目录、app_path、run_ref 与 PID，确认真实目标前台和输入权限。
+1. 重新观测当前桌面；仅在仍实际存在系统权限 / 钥匙串提示时请本机操作者处理。由现 NativeScenarioHarness 绑定独立目录、app_path、run_ref 与 PID，确认真实目标前台和输入权限，不能凭旧截图持续判阻塞。
 2. 冻结 R07 专用源身份、输入/seed、精确目标、预算与目录后执行既有 WR02 机制入口，覆盖候选未采纳、Why/工具状态和重开恢复；按同批已审的真实作者采纳路径补 receipt，按真实入口刺激补零派发及纠错终局。已有 WR02 driver 本身没有作者采纳动作，不能把候选恢复算作采纳证据。
 3. 每一场保留真实输入、wire、原始响应、Trace/Replay、持久事实和页面截图。只签实际覆盖的断言，未覆盖项继续属于 R07；不借 R06 的预算或把 R08/R09/R17 任务带入本批。
 4. 所有本批文档/代码稳定后，沿原 scope 执行带真实 `--slice` 和本次执行时形成的 `--ui-binding` 的完整 `task_done.sh --scope`；没有真实 binding 时不手造 manifest，不以无 scope 扫描代签。
 
-NEXT 继续 R07 的恢复与本批收束，不滚入 R08。R06 原始失败保持，B84 借用父 scope 自检仍回原任务，system 重复的生成源/共同规则生命周期仍由 R17 处理。
+当时 NEXT 调度为继续 R07 的恢复与本批收束、不滚入 R08；后续作者先进入 R08 及拆分决定分别见 §19–§21。R06 原始失败保持，B84 借用父 scope 自检仍回原任务，system 重复的生成源 / 共同规则生命周期仍由 R17 处理。
 
 本批场景覆盖按实际入口拆分核对：WR02 负责使命纠错、候选/Why 与重开；`b71-authoring-revision` 负责候选原参数拒收和原 call 有界纠错（当前消费者漏迁已由 §18.8 收束）；既有 confirmation reject 负责作者拒绝后的业务零执行，Provider 窗口为 0 的内部边界不额外扩成 UI 场景。明确采纳可复用现 `b71-authoring-pending` 完整场景的真实保存、ACCEPTED receipt、投影与重开，不要求与 WR02 是同一个候选。现 pending 场景只在采纳前打开 Why，采纳后的 Replay/Why 事实仍须同批补采；补采须由现 measured.turn_results.accept、真实动作 TurnResult 与 receipt 绑定 turn_adopt 的 action_turn_ref/source_turn_ref/artifact_id/adopted_state_ref，不能由原生成 turn 的 Replay 或单独 ACCEPTED 文本替签；WR02 的运行进度字段、拒绝后的真实 execution_counts/Why 及连续拒收终局也只按实际捕获范围签收。这些是 R07 的剩余页面证明，不是后继批次任务，也不增加实模语义评分。
 
@@ -3751,3 +3768,47 @@ R06 blocked/NOT PASS、R07 blocked/NOT PASS、R08 doing/NOT PASS 及各自原始
 原 R08 任务卡、实施 scope、最终工程交付索引与历史实模原件保留；离线候选包的固定源正文/哈希不重写。项目画像的身份、生命周期和保护约束不改，历史范围摘要不作为新任务前置；当前范围以本节为准，NEXT 仅提供当前调度导航。
 
 本次只调整任务/共享设计责任与当前导航。文档差异、NEXT、迁移完整性、依赖/链接与归档身份检查记录在 `artifacts/slice-verify/b87-b89-scope-split-20261124/`；这些检查只证明规划拆分一致，不代签功能、模型或真实页面验收。
+
+## 21. 拆分后的批次状态重核与有限接续（2026-11-24）
+
+### 21.1 核定依据与状态纠偏
+
+本次从干净基线 `7af913d060f19a7ee44395e5d2a4683117689960` 核对任务卡、原 scope、交付索引与独立原件；该基线已与远端一致。顶部逐批表是当前状态，§9–§20 的历史过程与原始 FAIL / UNKNOWN 不删除。
+
+- **R00–R05**：各批按原定义签收，后续文学质量、语义或终验任务不倒挂为已签批次的新前置。R01 明确为可靠测量基线 PASS；R05 F1 已不再是“等待核账”：`b87-r05-20261118/native-runs/f1-final-01-result.json` 的 exit / binding exit 均为 0、source_unchanged=true，`native-bindings/f1-final-01-binding.json` 为 passed；`b87-r05-reception-20261120/segment-r05-f1-task-done-01/result.json` exit 0、source_unchanged=true，最终 `task-completion-20261121T090608Z-52090/manifest.json` 为 completed、完整静态扫描 passed。以上路径均位于 `artifacts/slice-verify/`。F1 是 slice_verify 工程收尾，不是新增实模；应用签收仍依据 §16.39 / style05。
+- **R06**：`ChapterMissionService.narrative/3` 的校验、真实来源绑定及原字节返回已经实现；卡片中的旧缺陷描述改为开工背景。当前未闭环是 §17.5 的实际作者语言失败与 WR01 live 缺证。模型已收到受众契约，不能把现有泄漏归咎于 UI 改写，也不能靠词面黑名单解决。
+- **R07**：2026-11-22 的 SecurityAgent 现场记录只证明当次阻塞；2026-11-23 R08 已运行多批原生，不能继续把旧弹窗当作今天的持续现况。恢复时先观测当前目标窗口 / PID / 权限。R08 `final-pending-mech-03` 的 82 / 82 证明部分采纳、回执、恢复机制，但 Why 在 accept 前；且 binding / completion 属 R08 scope，不能代签 R07 的采纳后动作 Replay / Why 或原 scope completion。
+- **R08**：九份独审原件 SHA 与最终交付索引一致。A1 / A2 精确抄录和 assistant 来源身份、Q1→Q2→Q4 精确改名与 lineage 已有实证；内部错误尝试、HO5 / effect oracle UNKNOWN 原样保留，不再累加成新的已发生禁止写入。A2 的过度推断、原三轮 / B33 / N3 / N4 的事实或覆盖夸大、T1 和 P2 的最终未交付仍属本批。T1 已供应同名两章及歧义规则；P2 已供应完整正文和合法 Base refs，当前没有证据支持另造语义 Gate、放宽引用或增加重试数。
+- **R17–R19**：按 §20.2 的真实前置等待；B89 不再构成阻塞。R07 缺证可独立恢复，不必等待全部 R06 实模语言问题；这不等于越过 R07 自身验收。
+
+### 21.2 本次继续推进：P1 采纳后维护的采集结算
+
+**独立目标**：原 P1 已真实完成整章候选与采纳，但采集器把 action_result 当成后台维护结束，随即采样、关闭应用；第 5 个摘要 POST 被清理截断。先修现 B28 采集 owner 的观察顺序，完整记录维护成功、失败或超时。该工作属于 §19.51 已登记的缺证，不扩大 R08 或实现 B89。
+
+| 开工七问 | 本次边界 |
+|---|---|
+| Contract | 采纳回执只证明保存；后台摘要维护需观察真实终态后才采最终快照和重开。终态采全不等于摘要内容合格。 |
+| Invariant | 冻结原 P1 输入、一次发送与一次真实采纳、零 harness 重试；正确作品 / 目标 / 版本，保留原章与对照章证据，历史 UNKNOWN 不回填。 |
+| Boundary | 仅现外部原生 driver、共同采纳证据 / 等待消费者及必要测试、索引、任务文档；不改产品路由、Provider / schema、模型提示、预算、作者正文或 B89。 |
+| Consumer | B28 现 `runScopeScenario` / `adoptPending`；复用 B33 已有维护结算判断，并在共同采纳 owner 内维护，保留 B33 的专属选稿规则。 |
+| Proof | 原始 action / receipt、维护日志、真实 Provider 请求 / 完整响应、最终只读快照相互核对；工作 / 章 / 时间窗的等待信号本身不能代替 source_revision 与正文的后验绑定。 |
+| Acceptance Driver | 现 B28 外部 Tauri 驱动，只预注册 P1 一场、同一固定输入和既有有限预算。对晚完成、失败、无终态、错对象 / 旧事件做机制负例；不运行全九批来冲淡旧失败。 |
+| Exploration | 不改变模型求证路径；仅采集器结算已发生的采纳后维护，不新增或补造作品事实。 |
+
+**存在性审计**：现 `NativeScenarioHarness` 已有有界 poll / lifecycle，B33 已有 `waitAdoptionMaintenance` / `adoptionMaintenanceOutcome`，现共同 `authoring_pending_driver/evidence` 已负责真实采纳链。决策为 **reuse / refactor-and-retire**：将必要共同观察放回现 owner，两个真实消费者复用，迁移原入口；新模块、表、字段、Schema、Tool、产品 API / 事件 / 配置均为 **none**。不能以固定 sleep、暂时空库或安静流量推断成功。
+
+实施前范围记录为 `artifacts/slice-verify/b87-r08-20261122/status-p1-20261124-01/scope.json`，关联原 R08 卡；它是本次有限接续的新开始记录，不替换或追造原 R08 scope。原失败依据为 §19.45 / P1-03 独审；本次运行事实、完整命令 / 退出码、源指纹与最终交付索引在该接续目录保存。预注册后才运行，一次结果无论成功、失败或超时均保留，**不凭 P1 一场将 R08 签 PASS**。
+
+后续按实际缺口继续：R07 专属机制矩阵与原 scope 闭环；R06 / R08 仅针对可证根因处理原范围失败；满足前置后再进入 R17→R18→R19。若本次只采到维护真实失败，将其交给既有 B67 维护 owner 并保留 R08 未验收状态，不把失败改成等待完成。
+
+### 21.3 P1 本次实测结果与核账缺口分离
+
+本次有限接续已实际实施并验证：共同采纳 owner 复用摘要 / ledger 结算，B28 在原回合期限内等待；B33 保留专属选稿。P2 实际产品路径也触发同一维护，按真实 `prose_formatting_plan` 类型覆盖。定向五文件 **430 / 430**；完整 `task_done --scope` 与 full 静态扫描成功，工程 manifest 为 `artifacts/slice-verify/task-completion-20261124T050508Z-42894/manifest.json`。工程身份不代签任务。
+
+唯一实机补证为 `artifacts/slice-verify/b28-scope-authorization-tauri-native-r08-p1-settle-20261124-01/`；预注册、源快照、命令、日志、失败 binding 与调用观察在本节接续目录的 `p1-native-01/`。输入仍是“把第03章整章重写一遍，情节不变。”；一次发送、一次采纳，零手工 / harness 重试。实际 **11 HTTP = 5 POST + 6 GET /models**，准入拒绝 0，未触及预算上限。
+
+- **原采集缺证在本次补齐**：真实采纳后摘要于 2026-11-24 13:08:48.037 +08:00 完成，ledger 于 13:08:48.063 完成，最终场景快照在 13:08:48.496，随后才重开。第 5 个 POST 原始流具有唯一 stop / DONE，received 与 delivered 均为 1,138,679 字节且 SHA 相同；378 字四栏响应与 ACCEPTED 摘要逐字一致。请求材料是本次 95 字新正文，DB source_ref / revision_base 与真实采纳源回合 / 新 draft:…:4 相符，ledger 来源同该摘要版本。独审原件在该 native 目录的 `independent-semantic-review.json`；旧 P1-03 UNKNOWN 不回填。
+- **原机械报告仍为 72 / 77、exit 1、binding failed**，driver exit 0。除 `full_matrix=false` 外，四项旧消费者断言失败保留：`canon_only_bound_draft_and_receipt` 未计维护 ledger；`auxiliary_rows_unchanged` 要求摘要行不变；`provider_calls_complete` / `provider_request_settings_match` 要求独立摘要调用也具有作者 ProviderRun。本次完整观察到合法维护后，暴露这些核账假设，不等同于非法创作写入或供应参数错误，也不能直接改记检查通过。
+- **有限后续归属**：上述四项登记为现 B28 证据消费者 `native_b28_scope_evidence.mjs` 的辅助维护核账缺口，复用现 B33 对真实摘要材料 / 源版本 / 原始流 / DB / ledger 的判据处理；既有原报告与严格创作边界保留。不新造产品功能、不扩大 R08 语义分母、不追加本次模型批次。它不阻断 R07 独立机制补证；B87 主线继续恢复 R07，R06 / R08 真实语义失败仍待原范围处理。
+
+原生与首轮工程源指纹均为 `d99a1eba3a07dd2d61352e1acba3b24ba975d542f548f013a262725927063e18`；定向测试到该源只差本总文档末尾空行修正。此处是实测后的状态回填；后续交付索引须单列文档变化与源码身份，不能把原生原件重签成另一源码或 B28 全矩阵 / R08 PASS。
