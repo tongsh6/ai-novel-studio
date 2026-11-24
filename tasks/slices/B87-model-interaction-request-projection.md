@@ -12,7 +12,7 @@
 | R03 Checkpoint 与恢复 | **应用范围 PASS** | 当前覆盖、来源与恢复消费者完成；旧实模 partial / 未执行轮次保留 | §14.48–§14.52 |
 | R04 唯一 Scope 与三 wire | **应用范围 PASS** | 应用契约签收；旧原生 FAIL 与未观测项仍在原件 | §15.6 |
 | R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
-| R06 作者可见表达 | **实现完成；blocked / NOT PASS** | C9、WR02 普通作者说明仍有内部操作名泄漏；WR01 live 终局 / 恢复缺证 | §17.4–§17.5 |
+| R06 作者可见表达 | **既有机制实现；blocked / NOT PASS** | C9、WR02 作者说明与 WR01 live 缺证保留；现有能力称谓供给按 §24 有限接续，先 WR02 并设失败止损 | §17.4–§17.5、§24 |
 | R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
 | R08 目标、范围与来源语义 | **doing / NOT PASS** | GREEN09 与九批有限实模已交付；事实夸大、T1 歧义选错及 P2 原失败保留；P2 复合错误反馈按 §23 有限接续，P1 采集终态已补、机械核账另列 | §19.45–§19.51、§21.2–§21.3、§23 |
 | R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
@@ -4109,3 +4109,37 @@ cancel_waiting 窄修已真实通过：`why-cancel-label-green-01` **28 / 28**�
 本节及当前导航稳定后停止写源，按同一 scope 运行完整 `mix check`、I1/I2/I3/N-NARR、NEXT 与文档差异检查；以既有 b71-authoring-pending 外部原生场景验证真实候选、修订、采纳/放弃和恢复的共享 Writer 消费链，使用 slice_verify、3 个既有作者输入、0 外部模型。另单独前向冻结真实 P2：固定原输入“只调整第03章分段和排版，不要改字句。”及原 seed，沿原 Splash runtime、330 秒回合 / 32 HTTP 准入 / 900 秒根截止，1 次发送、0 人工或 harness 重试，合法候选时一次采纳。不保证必然触发复合纠错，实际是否直接合法、是否拒收和作者目标结果分别审读。
 
 两场保持各自实际源码与原件；P2 的 `full_matrix=false` 与已知辅助维护核账不被改签，工程原生绑定只使用实际通过且同源的对应消费者。使用同一 scope 执行完整 `task_done --scope` 和扫描，查看 Top10/处置视图；必要修复后才重冻当前源，失败目录不覆盖。完成事实、源码身份、场景结论、完整门禁、分组 commit 与远端核账统一记录在本接续目录 `delivery-final-01.json`，这里不预填未执行结果。最终阶段交付仍保持 R06 / R08 未验范围及 R17–R19 的原前置，不为了补记日志在冻结后反复改变受验文档。
+
+## 24. R06 能力称谓供给的有限验证（2026-11-24）
+
+### 24.1 授权、现状与可证假设
+
+作者在核对 R06 问题与方案后明确“同意”。本次从已交付且本地 / 上游 / 远端一致的 `16de3475250756a1cda3a50b185809fae327cd44` 开始，实施前沿原 R06 卡建立接续 scope：`artifacts/slice-verify/b87-r06-20261121/names-20261124-01/scope.json`，scope_id=`94c7180d-da70-473e-a7b7-9a114bf87664`，SHA=`ffff2c61b7ad4ad9f9cf57ed4829a6e80a8a9dfec2acb8445da913083687f1bf`。基线 `mix compile --warnings-as-errors` 已 exit 0，源码前后相同；该接续不替换原 scope 或历史失败。
+
+**R06 父任务继续 blocked / NOT PASS；本有限检查点 doing。** 当前已实现的使命校验、原字节与来源机制不重开。C9 的内部能力 / 参数名、WR02 首次合法响应中的 `plot_outline` 及 WR01 live 终局 / Why / 恢复缺证仍按 §17.4–§17.5 保留。已核现能力投影供应机器 name 和自然语言 effect_summary，却没有供应现有显示名；`plot_outline → 大纲规划` 已在唯一 Display 源登记。本次只验证补齐这一现有材料是否改善 WR02，不能预断它是充分根因，也不能用第二正文纠错解释首次合法响应。
+
+### 24.2 七问与存在性审计
+
+| 七问 | 本次边界 |
+|---|---|
+| Contract | VS-00M §6 本次能力称谓供给裁决；机器身份、当前 Scope 权限和作者原文仍按原合同。 |
+| Invariant | name、原 refs、作者输入、author_reasoning 唯一正文、来源绑定、当前执行资格及最多两次纠错保持；不新增词黑名单、别名自动转换或 UI 改写。 |
+| Boundary | 现 AuthoringTaskPolicy.operation_data、现同责策略 / 判断接收测试、当前契约和任务导航；不改 Display 源数据、工具 schema、规则文案、产品配置、RequestIR 或 R17 生命周期。 |
+| Consumer | judgment_definitions 经 JudgmentProtocol 进入新 transcript application_base；模型作创作说明时可看到同一能力的显示称谓。当前 Scope.operation.available_operations 与执行接收仍独立使用机器名。 |
+| Proof | 明确已登记称谓、合法但缺登记能力及 work_archive_read 既有 profile 分支；真实 request_judgment 入口核目录不授当前权限、显示名不成为合法 capability、原参数拒收与原预算纠正。现三 wire / snapshot / 来源回归复用原 owner。 |
+| Acceptance Driver | 先现 WR02 确定性原生机制，再前向冻结一次新 WR02 Splash 原生会话；沿原输入、seed、runtime、六项预算及零人工 / harness 重试，采真实请求 / 响应、canonical、页面、Why 与恢复。 |
+| Exploration | 不增加材料来源、观察、读取额度或额外模型调用；缺显示登记只表示缺称谓，不表示该能力不可执行。 |
+
+**审计裁决为 reuse。** AuthoringTaskPolicy 已有能力投影，Common.AuthorVisible.Display 已消费 display_names.json 生成物；只在 Display.known?(:capability, name) 成立时旁列 display_name。Display.label 对未知代码返回“创作能力”，不能把该泛称当精确名称。work_archive_read 的 registry 缺席分支属于既有合法 profile，不得据此剔除。当前其他合法能力有缺登记项；C9 的 chapter_read、revise_adopted_content、target_segments 也不全属于已登记 capability 称谓，本步不虚构覆盖、不新建显示表。
+
+此次不提高 b27-task-v6：显示名是 application_base 的定义材料，现 content_hash 不覆盖 operation_data，不能拿该 hash 证明完整输入身份。实际 wire、canonical 和冻结源码作为证据；新会话的请求前缀随新材料变化，旧会话继续保留旧 base，不补写历史。既有 Planner.narrate_tool_result 的原始工具 / 状态、trim 与来源返回不满足直接复用条件，不在本步引入独立叙述调用；简单把 author_reasoning 移到 content 仍受同一接收门且会改变 R07 合同，故不纳入。
+
+### 24.3 单次实模窗口、止损与交付出口
+
+先补能证明供给缺口及权限反例的现 owner 用例，再实现并做针对回归。停止写源后运行完整 mix check、I1 / I2 / I3 / N-NARR、NEXT 和 diff 检查；沿同一 scope 取得当前源码 WR02 确定性 Tauri 的真实 start / finish / binding，使用该通过的消费者运行完整 task_done 与 full 静态扫描，核 Top10 及处置。工程成功只证明机制，不代签模型语言。
+
+真实 WR02 固定作者原话“请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。”、现 seed_wr01_chapter_mission 与 b87-r03-splash-product-maintenance-budget runtime；一批一次发送，零人工或 harness 重试，模型纠错仍用原产品预算。首次请求须实际包含 plot_outline 的“大纲规划”显示名，否则记录输入供给未成立，不宣称假设已验证。Provider HTTP 只复用现外部 observe proxy 采原始流，不改响应或开启另一 B71 auto-maintenance journey。完整预注册、命令、source、预算与证据在本接续目录执行前冻结。
+
+**止损条件**：WR02 在供给成立后仍出现不适合普通作者的内部操作 / 参数说明，或未完成足以评价本假设的真实路径，则本次停止该假设，不追加重跑，不推进 C9 / WR01，不继续堆提示词或名称映射。若 WR02 实际通过，再核 C9 已有称谓 / 参数说明的真实 owner，前向冻结其有限后续；C9 通过后独立补 WR01 的终局 / Why / 恢复。WR02 历史 mission_design_only 对后台派生维护的失败按原判据保留，作者语言、待采纳边界、派生维护、工程与模型路径逐项核定，不以自动分数或缺证互相代替。
+
+最终完成事实、原始失败 / 缺证、源码身份、同 scope 完整门禁、静态处置及正常分组 commit / 远端核账统一封存本目录 `delivery-final-01.json`；本节不预填未执行结果，不在冻结后为了补日志反复改变受验文档。未满足原范围全部条件时 R06 / B87 仍 NOT PASS，R08 剩余项与 R17→R18→R19 前置不变，B89 继续 deferred。
