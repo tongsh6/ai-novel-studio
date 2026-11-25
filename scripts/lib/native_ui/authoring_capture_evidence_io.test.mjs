@@ -688,35 +688,36 @@ for (const scenario of R06_CASES) {
   });
 }
 
-test("R06 WR02 provider stream 在 validate、prepare、readConfig 中保留同一登记身份", () => {
-  const dir = tempDir("r06-provider-stream-");
-  try {
-    const scenario = R06_CASES.find(item => item.id === "wr02-planning-mission-before-outline");
-    splashReady(dir);
-    writeJson(dir, "native-driver-ready.json", { slice_id: scenario.slice_id, provider: "splash" });
-    const manifest = r06Preregistration(dir, scenario);
-    const stream = { dir: path.join(dir, "proxy-01"), mode: "observe",
-      upstream_endpoint: "http://127.0.0.1:8000/v1", max_upstream_requests: null };
-    manifest.scenarios[0].evidence.provider_stream = stream;
-    writeJson(dir, "preregistration.json", manifest);
-    const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
-      dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true,
-    });
-    assert.deepEqual(record.provider_stream, stream);
-    prepare(dir);
-    const config = readConfig(dir);
-    assert.deepEqual(config.preregistration.provider_stream, stream);
-    assert.equal(config.preregistration.sha256, shaFile(path.join(dir, "preregistration.json")));
-    assert.deepEqual(config.budget, R06_BUDGET);
-    assert.deepEqual(config.seed, manifest.scenarios[0].seed);
-    assert.equal(config.message, scenario.message);
-    assert.equal(config.target, undefined);
-    assert.equal(config.provider_stream, undefined);
-    assert.equal(fs.existsSync(stream.dir), false, "登记证据位置不创建或伪造代理原件");
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-});
+for (const scenario of R06_CASES) {
+  test(`R06 ${scenario.id} provider stream 在 validate、prepare、readConfig 中保留同一登记身份`, () => {
+    const dir = tempDir("r06-provider-stream-");
+    try {
+      splashReady(dir);
+      writeJson(dir, "native-driver-ready.json", { slice_id: scenario.slice_id, provider: "splash" });
+      const manifest = r06Preregistration(dir, scenario);
+      const stream = { dir: path.join(dir, "proxy-01"), mode: "observe",
+        upstream_endpoint: "http://127.0.0.1:8000/v1", max_upstream_requests: null };
+      manifest.scenarios[0].evidence.provider_stream = stream;
+      writeJson(dir, "preregistration.json", manifest);
+      const record = validatePreregistrationFile(path.join(dir, "preregistration.json"), {
+        dir, provider: "splash", b71Live: true, requireAuthorVisibleTarget: true,
+      });
+      assert.deepEqual(record.provider_stream, stream);
+      prepare(dir);
+      const config = readConfig(dir);
+      assert.deepEqual(config.preregistration.provider_stream, stream);
+      assert.equal(config.preregistration.sha256, shaFile(path.join(dir, "preregistration.json")));
+      assert.deepEqual(config.budget, R06_BUDGET);
+      assert.deepEqual(config.seed, manifest.scenarios[0].seed);
+      assert.equal(config.message, scenario.message);
+      assert.equal(config.target, undefined);
+      assert.equal(config.provider_stream, undefined);
+      assert.equal(fs.existsSync(stream.dir), false, "登记证据位置不创建或伪造代理原件");
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
 
-test("R06 WR02 provider stream 不接受路径猜测、注入模式、新HTTP预算或借用其它场景", () => {
+test("R06 provider stream 不接受路径猜测、注入模式、新HTTP预算或借用其它场景", () => {
   const dir = tempDir("r06-provider-stream-invalid-");
   try {
     const scenario = R06_CASES.find(item => item.id === "wr02-planning-mission-before-outline");
@@ -738,12 +739,12 @@ test("R06 WR02 provider stream 不接受路径猜测、注入模式、新HTTP预
         undefined, label);
       assert.equal(fs.existsSync(path.join(dir, "native-b71-config.json")), false);
     }
-    for (const other of R06_CASES.filter(item => item.id !== scenario.id)) {
-      const manifest = r06Preregistration(dir, other);
+    for (const other of R05_CASES.filter(item => !R06_CASES.some(registered => registered.id === item.id))) {
+      const manifest = r05Preregistration(dir, other);
       manifest.scenarios[0].evidence.provider_stream = stream;
       writeJson(dir, "preregistration.json", manifest);
       assert.throws(() => validatePreregistrationFile(path.join(dir, "preregistration.json"), options),
-        /only belongs to the registered WR02/u);
+        /only belongs to registered R06/u);
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

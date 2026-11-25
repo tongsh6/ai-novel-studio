@@ -1512,20 +1512,31 @@ test("v2 evidence 明确种类，不从旧字段形状猜测或补默认设计�
 
 // WR02 repair 的许可来自独立核账结果；本层只消费绑定本次快照的证据值。
 // 正文/结构/receipt 仍由原 Canon 门保护，不复制摘要或 ledger 业务规则。
-function repairCanonFixture() {
+function repairCanonFixture({ chapterMission = false } = {}) {
   const old = { id: "ledger-old-other", work_id: OTHER_WORK, ledger: "arc",
     subject_ref: "character:other", subject_kind: "character", subject_label: "他作角色",
     status: "ACTIVE", payload: {}, source_refs: ["chapter_summary:other-chapter"],
     last_event_chapter: "other-chapter", adoption_status: "ACCEPTED", revision: 4,
     inserted_at: "2026-10-31T08:00:00.000Z", updated_at: "2026-10-31T08:00:00.000Z" };
   const added = { id: "ledger-repair-emotion", work_id: WORK, ledger: "emotion_curve",
-    subject_ref: "chapter-row", subject_kind: "chapter", subject_label: "第一章",
+    subject_ref: chapterMission ? "prior-chapter" : "chapter-row", subject_kind: "chapter", subject_label: "第一章",
     status: "UNPLANNED", payload: { realized: "平静。" },
-    source_refs: ["chapter_summary:chapter-row"], last_event_chapter: "chapter-row",
+    source_refs: ["chapter_summary:" + (chapterMission ? "prior-chapter" : "chapter-row")],
+    last_event_chapter: chapterMission ? "prior-chapter" : "chapter-row",
     adoption_status: "ACCEPTED", revision: 1,
     inserted_at: "2026-11-01T08:00:06.000Z", updated_at: "2026-11-01T08:00:06.000Z" };
-  const start = planningSnapshot({ tableChanges: { ledger_entries: [old] } });
-  const final = planningSnapshot({
+  const chapterTables = baseTables();
+  chapterTables.ledger_entries = [old];
+  chapterTables.chapters[0].seq = 3;
+  chapterTables.chapters.push(chapterRow({ id: "prior-chapter", title: "前章", seq: 1 }));
+  const chapterFinal = structuredClone(chapterTables);
+  chapterFinal.ledger_entries.push(added);
+  chapterFinal.chapters[0].plan_direction = JSON.stringify({ chapter_role: "开篇",
+    chapter_mission: mission({ derived_at: "2026-11-01T08:00:05.000Z" }) });
+  chapterFinal.chapters[0].updated_at = FINAL;
+  const start = chapterMission ? snapshot({ tables: chapterTables }) :
+    planningSnapshot({ tableChanges: { ledger_entries: [old] } });
+  const final = chapterMission ? snapshot({ tables: chapterFinal, at: FINAL }) : planningSnapshot({
     planningMission: mission({ derived_at: "2026-11-01T08:00:05.000Z" }),
     revision: 2, at: FINAL, tableChanges: { ledger_entries: [old, added] },
   });
@@ -1552,6 +1563,52 @@ test("WR02 Canon 仅接受绑定本场前后快照的真实维护核账，默认
   assert.equal(compareAuthoringCanonSnapshots(start, final).checks.no_canon_write, false);
 });
 
+
+test("WR01 Canon 将旧章维护与目标暂定使命分别核账，默认仍拒绝 ledger 变化", () => {
+  const { start, final, maintenanceEvidence } = repairCanonFixture({ chapterMission: true });
+  assert.equal(Object.values(compareSourceDesignSnapshots(start, final,
+    { targetChapterId: "chapter-row" }).checks).every(Boolean), false);
+  const result = compareSourceDesignSnapshots(start, final,
+    { targetChapterId: "chapter-row", maintenanceEvidence });
+  assert.equal(Object.values(result.checks).every(Boolean), true, JSON.stringify(result));
+  assert.equal(result.measured.target_chapter_id, "chapter-row");
+  assert.equal(result.measured.target_work_id, undefined);
+  assert.equal(compareAuthoringCanonSnapshots(start, final).checks.no_canon_write, false);
+});
+
+for (const [name, change] of [
+  ["目标章转到另一作品", (p) => { p.final.chapters["chapter-row"].work_id = OTHER_WORK; }],
+  ["目标章前后同属另一作品仍不属本场维护", (p) => {
+    p.start.chapters["chapter-row"].work_id = OTHER_WORK;
+    p.final.chapters["chapter-row"].work_id = OTHER_WORK;
+  }],
+  ["缺少目标章", (p) => { p.target = "missing"; }],
+]) {
+  test("WR01 Canon 维护归属拒绝：" + name, () => {
+    const p = repairCanonFixture({ chapterMission: true });
+    p.target = "chapter-row";
+    change(p);
+    const result = compareSourceDesignSnapshots(p.start, p.final,
+      { targetChapterId: p.target, maintenanceEvidence: p.maintenanceEvidence });
+    assert.equal(result.checks.maintenance_changes_accounted, false);
+    assert.equal(Object.values(result.checks).every(Boolean), false);
+  });
+}
+
+test("WR01 已核维护不能放宽作品内容和章节 protected 字段", () => {
+  for (const field of ["works", "chapter_protected"]) {
+    const { start, final, maintenanceEvidence } = repairCanonFixture({ chapterMission: true });
+    if (field === "works") {
+      final.tables.works.rows_sha256 = final.tables.works.canon_sha256 = "9".repeat(64);
+    } else {
+      final.chapters["chapter-row"].protected_sha256 = "9".repeat(64);
+    }
+    const result = compareSourceDesignSnapshots(start, final,
+      { targetChapterId: "chapter-row", maintenanceEvidence });
+    assert.equal(Object.values(result.checks).every(Boolean), false, field);
+  }
+});
+
 test("WR02 零维护保持原严格 Canon 比较，不要求或制造辅助调用证明", () => {
   const start = planningSnapshot();
   const final = planningSnapshot({ planningMission: mission(), revision: 2, at: FINAL });
@@ -1573,12 +1630,15 @@ for (const [name, change] of [
   ["不同的前态", (e) => { e.ledger_entries.before.canon_sha256 = "0".repeat(64); }],
   ["不同的后态", (e) => { e.ledger_entries.after.rows_sha256 = "0".repeat(64); }],
 ]) {
-  test("WR02 Canon 拒绝不能绑定当前维护的证据：" + name, () => {
-    const { start, final, maintenanceEvidence } = repairCanonFixture();
-    change(maintenanceEvidence);
-    const result = compareSourceDesignSnapshots(start, final, { targetWorkId: WORK, maintenanceEvidence });
-    assert.equal(Object.values(result.checks).every(Boolean), false);
-  });
+  for (const chapterMission of [false, true]) {
+    test((chapterMission ? "WR01" : "WR02") + " Canon 拒绝不能绑定当前维护的证据：" + name, () => {
+      const { start, final, maintenanceEvidence } = repairCanonFixture({ chapterMission });
+      change(maintenanceEvidence);
+      const target = chapterMission ? { targetChapterId: "chapter-row" } : { targetWorkId: WORK };
+      const result = compareSourceDesignSnapshots(start, final, { ...target, maintenanceEvidence });
+      assert.equal(Object.values(result.checks).every(Boolean), false);
+    });
+  }
 }
 
 for (const table of ["drafts", "chapters", "volumes", "scenes", "characters", "author_action_receipts"]) {

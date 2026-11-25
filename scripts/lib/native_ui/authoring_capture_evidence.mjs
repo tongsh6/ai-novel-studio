@@ -270,8 +270,8 @@ function validatedProviderStream(value) {
     ["dir", "max_upstream_requests", "mode", "upstream_endpoint"], "unknown provider_stream metadata");
   assert(typeof value.dir === "string" && path.isAbsolute(value.dir) &&
     path.resolve(value.dir) === value.dir, "provider_stream.dir must be an explicit absolute path");
-  assert.equal(value.mode, "observe", "WR02 provider stream must only observe");
-  assert.equal(value.max_upstream_requests, null, "WR02 retains its original null HTTP cap");
+  assert.equal(value.mode, "observe", "R06 provider stream must only observe");
+  assert.equal(value.max_upstream_requests, null, "R06 retains its original null HTTP cap");
   assert(typeof value.upstream_endpoint === "string" && value.upstream_endpoint !== "",
     "provider_stream upstream missing");
   const upstream = new URL(value.upstream_endpoint);
@@ -351,8 +351,9 @@ export function validatePreregistrationFile(
   if (scenarioId !== null) assert.equal(actualScenarioId, scenarioId, `冻结场景必须是 ${scenarioId}`);
   const spec = authorVisibleScenarioSpec(actualScenarioId);
   const providerStream = validatedProviderStream(scenario.evidence.provider_stream);
-  if (providerStream) assert(provider === "splash" && spec?.mission_kind === "planning",
-    "provider_stream metadata only belongs to the registered WR02 live scenario");
+  if (providerStream) assert(provider === "splash" &&
+    (actualScenarioId === "b82-g2" || spec?.mode === "mission"),
+    "provider_stream metadata only belongs to registered R06 live scenarios");
   const behavior = spec?.mode === "behavior";
   let runtimeProfile = null;
   if (provider === "splash") {

@@ -989,7 +989,10 @@ export function compareSourceDesignSnapshots(startValue, beforeValue,
   if (planning && targetChapterId !== undefined) invalid("target", "one mission target");
   const table = planning ? "works" : "chapters";
   const targetId = planning ? targetWorkId : targetChapterId;
-  const maintenance = planning && maintenanceEvidenceMatches(maintenanceEvidence, start, final, targetWorkId);
+  const workId = planning ? targetWorkId : start.chapters[targetId]?.work_id;
+  const sameWork = planning || (typeof workId === "string" && workId !== "" &&
+    final.chapters[targetId]?.work_id === workId);
+  const maintenance = sameWork && maintenanceEvidenceMatches(maintenanceEvidence, start, final, workId);
   const otherTablesSame = sameTablesExcept(start, final, [table, ...(maintenance ? ["ledger_entries"] : [])]);
   const rowCountSame = start.tables[table].row_count === final.tables[table].row_count;
   const receiptsSame = tablesWithSameRows(start, final, "author_action_receipts");

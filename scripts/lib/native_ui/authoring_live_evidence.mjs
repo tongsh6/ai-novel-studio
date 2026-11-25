@@ -933,7 +933,7 @@ export function missionWriterMaterial(history, calls, mission, kind, writer, tar
     material_field: kind === "planning" ? "planning_mission" : "execution_brief" };
 }
 // WR01/WR02 的实际消费者共用原 native/live owner；无需再造 runner 或让空调用集合代签。
-// WR02 的纯核账入口；作者记录仍交原 canonical/ProviderRun join，不在这里替代它。
+// WR01/WR02 的纯维护核账；作者记录仍交原 canonical/ProviderRun join，不在这里替代它。
 export function missionRepairEvidence({
   config, llmRecords = [], providerRuns = [], scenarioScopes = [], snapshots = {},
   appRecords = [], providerStream = null,
@@ -1009,7 +1009,19 @@ export function missionRepairEvidence({
   check("protected_rows_unchanged", () => {
     assert(before?.at === before?.authoring_canon?.at && after?.at === after?.authoring_canon?.at,
       "maintenance rows and Canon are not the same checkpoint");
-    for (const table of ["drafts", "chapters", "volumes", "scenes", "characters",
+    const chapterMission = Object.hasOwn(config?.target ?? {}, "chapter_id");
+    if (chapterMission) {
+      const chapterId = config.target.chapter_id;
+      assert(typeof chapterId === "string" && chapterId !== "" &&
+        before.authoring_canon.chapters?.[chapterId]?.work_id === workId &&
+        after.authoring_canon.chapters?.[chapterId]?.work_id === workId,
+      "chapter mission target does not belong to the same work");
+      // 只取原章设计态谓词；ledger 差异另行核账，不以最终 Canon PASS 循环授信。
+      const design = compareSourceDesignSnapshots(before.authoring_canon, after.authoring_canon,
+        { targetChapterId: chapterId });
+      assert(design.checks.chapter_mission_change_is_legal, "maintenance changed protected chapter design");
+    }
+    for (const table of ["drafts", chapterMission ? "works" : "chapters", "volumes", "scenes", "characters",
       "memory_items", "author_action_receipts"]) {
       const signature = canonTableSignature(before.authoring_canon, table);
       assert(signature !== null && signature === canonTableSignature(after.authoring_canon, table),
@@ -1032,10 +1044,10 @@ export function missionRepairEvidence({
       { bound: false, reason: reasons.provider_observation_bound }, maintenanceEvidence };
 }
 
-function missionRepairForBatch(dir, config, history, evidence, snapshots, workId) {
-  if (config.provider !== "splash" || config.mission_kind !== "planning") return null;
+function missionRepairForBatch(dir, config, history, evidence, snapshots, workId, targetChapterId) {
+  if (config.provider !== "splash") return null;
   const stream = config.preregistration?.provider_stream;
-  assert(stream, "WR02 lacks its preregistered provider observation");
+  assert(stream, "live mission lacks its preregistered provider observation");
   const observed = config.runtime.observed.provider, run = history.record;
   const providerStream = readProviderObservation(stream.dir);
   assert.equal(providerStream.ready.mode, stream.mode);
@@ -1044,7 +1056,8 @@ function missionRepairForBatch(dir, config, history, evidence, snapshots, workId
   // 仅为纯消费者组装实际身份事实，不写入或补造产品/native config 顶层字段。
   return missionRepairEvidence({
     config: { provider: config.provider, model: observed.model, endpoint: observed.endpoint,
-      runtime: config.runtime, target: { work_id: workId, session_id: run.session_id },
+      runtime: config.runtime, target: { work_id: workId, session_id: run.session_id,
+        ...(config.mission_kind === "chapter" ? { chapter_id: targetChapterId } : {}) },
       preregistration: { proxy_dir: stream.dir, max_upstream_requests: stream.max_upstream_requests,
         upstream_endpoint: stream.upstream_endpoint } },
     providerRuns: readProviderRuns(dir, history.transcript.run),
@@ -1067,7 +1080,14 @@ export function verifyMissionBatch(dir) {
   const workId = frozenWorkId(dir, config.author_visible_target.work_title);
   const history = readBatchAuthoringHistory(dir, { wire: evidence.wire, messageText: config.message, workId });
   const snapshots = { start: read(dir, "b71-start.json"), final: read(dir, "b71-final.json") };
-  const maintenance = missionRepairForBatch(dir, config, history, evidence, snapshots, workId);
+  const start = canonSnapshotOf(snapshots.start), final = canonSnapshotOf(snapshots.final);
+  const planning = config.mission_kind === "planning";
+  const targets = planning ? [workId] : Object.keys(start.chapters).filter(id =>
+    start.chapters[id].work_id === workId && start.chapters[id].title === config.author_visible_target.chapter_title);
+  assert.equal(targets.length, 1, "使命目标必须唯一命中冻结作品/章节");
+  const target = targets[0];
+  const maintenance = missionRepairForBatch(dir, config, history, evidence, snapshots, workId,
+    planning ? undefined : target);
   const authorRecords = maintenance ? maintenance.authorRecords : evidence.llmRecords;
   const calls = config.provider === "splash" ? reconcileNativeCalls(dir, config, history, authorRecords) :
     bindNativeCalls(dir, history.transcript.run, history, authorRecords);
@@ -1076,12 +1096,6 @@ export function verifyMissionBatch(dir) {
     sessionId: history.record.session_id, topic: frameOf(sent)[2], since: sent.at };
   const body = lastCompletedTurn(evidence.wire, identity, "使命消费者缺少同 run 完成结果");
   const events = sourceMissionEvents(evidence.wire, identity).map(frameBody);
-  const start = canonSnapshotOf(snapshots.start), final = canonSnapshotOf(snapshots.final);
-  const planning = config.mission_kind === "planning";
-  const targets = planning ? [workId] : Object.keys(start.chapters).filter(id =>
-    start.chapters[id].work_id === workId && start.chapters[id].title === config.author_visible_target.chapter_title);
-  assert.equal(targets.length, 1, "使命目标必须唯一命中冻结作品/章节");
-  const target = targets[0];
   const beforeEntity = planning ? start.works?.[target] : start.chapters[target];
   const afterEntity = planning ? final.works?.[target] : final.chapters[target];
   const mission = afterEntity?.mission;
@@ -1095,9 +1109,10 @@ export function verifyMissionBatch(dir) {
     transcript: history.transcript, sessionMessages: history.sessionMessages, records: calls.records,
     joinedRefs: calls.refs, missionEvents: events, window: { startAt: start.at, beforeAt: final.at },
   });
-  const canon = compareSourceDesignSnapshots(start, final,
-    planning ? { targetWorkId: workId, maintenanceEvidence: maintenance?.maintenanceEvidence ?? null } :
-      { targetChapterId: target });
+  const canon = compareSourceDesignSnapshots(start, final, {
+    ...(planning ? { targetWorkId: workId } : { targetChapterId: target }),
+    maintenanceEvidence: maintenance?.maintenanceEvidence ?? null,
+  });
   const persisted = withDb(dir, db => all(db,
     "SELECT payload FROM agent_events WHERE run_id = ? AND event_type = 'mission_derived'", [history.record.id]))
     .map(row => JSON.parse(row.payload));

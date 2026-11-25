@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import * as liveEvidence from "./authoring_live_evidence.mjs";
 import * as summaryEvidence from "./chapter_summary_maintenance_evidence.mjs";
 import { providerFreeInterval } from "./authoring_planning_evidence.mjs";
-import { CANON_TABLES, buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { CANON_TABLES, buildAuthoringCanonSnapshot, compareSourceDesignSnapshots } from "./authoring_canon_evidence.mjs";
 import { b71LiveModelBehavior } from "./authoring_live_evidence.mjs";
 import { scopeWireMessage, toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 
@@ -652,13 +652,17 @@ function refreshRepairCanon(proof) {
   for (const snapshot of Object.values(proof.snapshots)) {
     const tables = Object.fromEntries(CANON_TABLES.map(name => [name, []]));
     tables.works = structuredClone(snapshot.works);
-    tables.chapters = snapshot.chapters.map(({ chapter_id, ...row }) => ({ id: chapter_id, ...row }));
+    tables.chapters = snapshot.chapters.map(({ chapter_id, ...row }) => ({ id: chapter_id, ...row,
+      ...(row.plan_direction && typeof row.plan_direction === "object"
+        ? { plan_direction: JSON.stringify(row.plan_direction) } : {}),
+    }));
     for (const name of ["drafts", "scenes", "ledger_entries"]) {
       tables[name] = structuredClone(snapshot.scope_rows[name]);
     }
     tables.author_action_receipts = structuredClone(snapshot.action_receipts);
     snapshot.authoring_canon = buildAuthoringCanonSnapshot({
-      tables, referenceLogs: [], at: snapshot.at, includeChapterFacts: false, includeWorkFacts: true,
+      tables, referenceLogs: [], at: snapshot.at,
+      includeChapterFacts: Object.hasOwn(proof.config.target, "chapter_id"), includeWorkFacts: true,
     });
   }
 }
@@ -710,7 +714,7 @@ function rebuildRepairTransport(proof) {
     Buffer.from('{"data":[]}'), repairTime("08.000"), repairTime("08.010"));
 }
 
-function missionRepairFixture({ maintenance = true } = {}) {
+function missionRepairFixture({ maintenance = true, chapterMission = false } = {}) {
   const work = "11111111-1111-4111-8111-111111111111";
   const other = "22222222-2222-4222-8222-222222222222";
   const a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -834,6 +838,28 @@ function missionRepairFixture({ maintenance = true } = {}) {
       "pcall-summary-a": [repairTime("02.000"), repairTime("02.800")],
       "pcall-summary-b": [repairTime("06.000"), repairTime("06.800")] },
   };
+  if (chapterMission) {
+    const chapterId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    proof.config.target.chapter_id = chapterId;
+    proof.config.preregistration.path = "/frozen/wr01/preregistration.json";
+    proof.config.preregistration.proxy_dir = "/frozen/wr01/proxy-01";
+    proof.llmRecords[0].request.body.messages[1].content = "请接着前两章写第03章，正文保持为待采纳草稿。";
+    proof.rawResponses["pcall-author"] = repairSse("第03章已保留为待采纳草稿。");
+    for (const snapshot of [start, final]) {
+      snapshot.chapters.forEach(row => { row.plan_direction = { chapter_role: "前情" }; });
+      snapshot.chapters.push({ chapter_id: chapterId, work_id: work, seq: 3, title: "第03章：桥后",
+        status: "PLANNED", plan_direction: { chapter_role: "追踪" }, updated_at: repairTime("00.000") });
+    }
+    // 独立给定的合法设计态；本 fixture 不代签使命内容与真实 Provider 的绑定。
+    final.chapters[2].plan_direction = { ...final.chapters[2].plan_direction, chapter_mission: {
+      mission_id: "cm-chapter-repair", statement: "让陆青追上送信人。",
+      confidence: 0.9, must_advance: [{ text: "陆青离开桥下。",
+        basis_ref: "chapter:" + a, basis_label: "第01章：桥下" }], must_avoid: [],
+      source: "model", status: "TENTATIVE", provider_call_ref: "pcall-author",
+      derived_at: repairTime("01.500"),
+    } };
+    final.chapters[2].updated_at = repairTime("01.500");
+  }
   refreshRepairCanon(proof);
   rebuildRepairTransport(proof);
   return proof;
@@ -1132,6 +1158,67 @@ test("WR02 零维护保留真实作者调用和 HTTP 分母，并保持原严格
   assert.equal(repairPassed(liveEvidence.missionRepairEvidence(proof)), false);
 });
 
+
+for (const maintenance of [true, false]) {
+  test("WR01 合法暂定使命与" + (maintenance ? "两章真实 repair" : "零维护") + "分别核账", () => {
+    const proof = missionRepairFixture({ chapterMission: true, maintenance });
+    const result = liveEvidence.missionRepairEvidence(proof);
+    assert.equal(repairPassed(result), true, JSON.stringify(result));
+    assert.equal(result.auxiliary.length, maintenance ? 2 : 0);
+    assert.equal(result.transport.model_POST, maintenance ? 3 : 1);
+    assert.equal(result.transport.GET, 1);
+    assert.equal(result.transport.admitted, maintenance ? 4 : 2);
+    assert.deepEqual(result.authorRecords, [proof.llmRecords[0]]);
+    const canon = compareSourceDesignSnapshots(proof.snapshots.start.authoring_canon,
+      proof.snapshots.final.authoring_canon, { targetChapterId: proof.config.target.chapter_id,
+        maintenanceEvidence: result.maintenanceEvidence });
+    assert.equal(Object.values(canon.checks).every(Boolean), true, JSON.stringify(canon));
+    assert.equal(Boolean(result.maintenanceEvidence), maintenance);
+    assert.deepEqual(proof.snapshots.final.action_receipts, []);
+    assert.deepEqual(proof.snapshots.final.scope_rows.drafts, proof.snapshots.start.scope_rows.drafts);
+  });
+}
+
+for (const [name, change] of [
+  ["不存在的使命目标", p => { p.config.target.chapter_id = "missing"; }],
+  ["目标章前后作品不同", p => { p.snapshots.final.chapters[2].work_id = p.snapshots.start.works[1].id; }],
+  ["目标章前后同属他作但不是本场作品", p => {
+    for (const snapshot of Object.values(p.snapshots)) snapshot.chapters[2].work_id = snapshot.works[1].id;
+  }],
+  ["目标章受保护内容改变", p => { p.snapshots.final.chapters[2].title = "被越权改名"; }],
+  ["非目标章使命改变", p => {
+    p.snapshots.final.chapters[0].plan_direction.chapter_mission =
+      structuredClone(p.snapshots.final.chapters[2].plan_direction.chapter_mission);
+    p.snapshots.final.chapters[0].updated_at = repairTime("01.500");
+  }],
+  ["非目标章仅更新时间改变", p => { p.snapshots.final.chapters[0].updated_at = repairTime("01.500"); }],
+  ["目标作者版被覆盖", p => {
+    const mission = structuredClone(p.snapshots.final.chapters[2].plan_direction.chapter_mission);
+    p.snapshots.start.chapters[2].plan_direction = { ...p.snapshots.start.chapters[2].plan_direction, chapter_mission: {
+      ...mission, source: "author", status: "CONFIRMED", must_advance: [{ text: "作者已定。" }],
+      derived_at: repairTime("00.000"), decided_at: repairTime("00.000"),
+    } };
+  }],
+  ["目标使命派生时间越过本场", p => {
+    p.snapshots.final.chapters[2].plan_direction.chapter_mission.derived_at = repairTime("11.000");
+  }],
+  ["章数量增加", p => {
+    p.snapshots.final.chapters.push({ ...p.snapshots.start.chapters[2],
+      chapter_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", seq: 4 });
+  }],
+  ["章节使命不得改写作品内容", p => { p.snapshots.final.works[0].title = "被越权改名"; }],
+]) {
+  test("WR01 完整维护证明仍拒绝：" + name, () => {
+    const proof = missionRepairFixture({ chapterMission: true });
+    change(proof);
+    refreshRepairCanon(proof);
+    const result = liveEvidence.missionRepairEvidence(proof);
+    assert.equal(result.checks.protected_rows_unchanged, false, JSON.stringify(result));
+    assert.equal(repairPassed(result), false);
+    assert.equal(result.maintenanceEvidence, null);
+  });
+}
+
 for (const [name, change] of [
   ["原始请求与 seal 一起改写，但已采纳正文没有该句", p => {
     p.llmRecords[1].request.body.messages[1].content += "\n这是未采纳的新句。";
@@ -1223,11 +1310,13 @@ for (const [name, change] of [
     p.providerStream.ready.max_upstream_requests = 32;
   }],
 ]) {
-  test("WR02 repair 拒绝：" + name, () => {
-    const proof = missionRepairFixture();
-    change(proof);
-    assert.equal(repairPassed(liveEvidence.missionRepairEvidence(proof)), false);
-  });
+  for (const chapterMission of [false, true]) {
+    test((chapterMission ? "WR01" : "WR02") + " repair 拒绝：" + name, () => {
+      const proof = missionRepairFixture({ chapterMission });
+      change(proof);
+      assert.equal(repairPassed(liveEvidence.missionRepairEvidence(proof)), false);
+    });
+  }
 }
 
 test("WR02 真实日志形态允许辅助缺owner字段、作者unknown step及原样保留旧information账", () => {
