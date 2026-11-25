@@ -63,6 +63,7 @@ defmodule NovelApplication.DialogueRunSpecTest do
       })
 
     assert Map.get(attrs.goal, :source_ref) == "goal-confirm-child-turn"
+    assert attrs.budget.max_provider_calls == 14
   end
 
   test "legacy 最多一步 text no longer caps budget without structured author_limits" do

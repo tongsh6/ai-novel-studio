@@ -10,18 +10,12 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmationRun do
   通用规划编排模块（避免 application 层 compile 循环依赖）。
   """
 
+  alias NovelApplication.AgentRunBudget
   alias NovelDomain.AgentNextStepDecision
 
   @profile_ref "tool_confirmation_v1"
   @step_target "author_action_confirmation"
   @allowed_tools ~w(prose_writing plot_outline character_design character_evolution world_building text_analysis)
-  @run_budget %{
-    max_steps: 4,
-    max_tool_calls: 1,
-    max_provider_calls: 14,
-    max_replans: 0,
-    max_pending_artifacts: 3
-  }
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -29,10 +23,6 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmationRun do
   @doc "非采纳确认子 run 的允许工具（本 profile 的唯一来源）。"
   @spec allowed_tools() :: [String.t()]
   def allowed_tools, do: @allowed_tools
-
-  @doc "非采纳确认子 run 的真实预算（受理与 flow 消费同一份常量）。"
-  @spec run_budget() :: map()
-  def run_budget, do: @run_budget
 
   @doc "非采纳确认子 run 的初始计划：步骤留空，路由由 next_step_planner 决定。"
   @spec pending_plan(String.t()) :: map()
@@ -75,7 +65,7 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmationRun do
           matched_terms: []
         }
       },
-      budget: @run_budget
+      budget: AgentRunBudget.entry(:tool_confirmation_action)
     }
   end
 

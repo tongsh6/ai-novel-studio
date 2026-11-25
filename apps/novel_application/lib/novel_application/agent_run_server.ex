@@ -1709,14 +1709,7 @@ defmodule NovelApplication.AgentRunServer do
       run
       | plan: plan,
         plan_ref: plan_ref_from_patch(patch) || run.plan_ref,
-        plan_version: plan_version_from_patch(patch) || run.plan_version,
-        budget:
-          AgentRunBudget.expand(run.budget, plan_steps_from_plan(plan),
-            author_limits: author_limits_for_run(run),
-            # 计划执行完还需要一次收束/完成判断，它不计 execution_steps，
-            # 但 runtime 在调用 planner 前会看 max_steps，因此预留 1 个收束 token。
-            execution_overhead: %{steps: 1, tool_calls: 1, provider_calls: 1}
-          )
+        plan_version: plan_version_from_patch(patch) || run.plan_version
     }
   end
 
@@ -1735,9 +1728,9 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp patch_budget(%AgentRun{} = run, patch) do
-    case Map.get(patch, :budget) || Map.get(patch, "budget") do
-      budget when is_map(budget) -> %{run | budget: budget}
-      _ -> run
+    case Map.get(patch, :budget_profile) do
+      nil -> run
+      profile -> %{run | budget: AgentRunBudget.restrict_for_profile(run.budget, profile)}
     end
   end
 
@@ -2879,26 +2872,6 @@ defmodule NovelApplication.AgentRunServer do
 
   defp budget_expanded_summary({:single_step, count}),
     do: "已按你的授权只执行第 #{count} 步。"
-
-  defp author_limits_for_run(%AgentRun{} = run) do
-    cond do
-      budget_author_override?(run.budget) ->
-        %{}
-
-      steps = budget_value(run.budget, :author_max_steps, nil) ->
-        if is_integer(steps) and steps > 0, do: %{max_steps: steps}, else: %{}
-
-      true ->
-        %{}
-    end
-  end
-
-  defp budget_author_override?(budget) when is_map(budget) do
-    Map.get(budget, :author_budget_override) == true or
-      Map.get(budget, "author_budget_override") == true
-  end
-
-  defp budget_author_override?(_budget), do: false
 
   defp scope_checkpoint?(state), do: Map.get(state.stage_state, :scope_checkpoint) == true
 

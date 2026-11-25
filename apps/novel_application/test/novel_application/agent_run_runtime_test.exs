@@ -1368,6 +1368,73 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.completed_step_refs == ["step_1"]
   end
 
+  test "B91 a drafted plan cannot grant additional execution resources" do
+    parent = self()
+    run_id = unique_run_id()
+
+    grant = %{
+      max_steps: 1,
+      max_tool_calls: 4,
+      max_provider_calls: 3,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    }
+
+    plan = %{
+      plan_id: "ap_#{run_id}",
+      run_ref: run_id,
+      version: 2,
+      goal_version: 1,
+      steps:
+        for(
+          n <- 1..7,
+          do: %{
+            step_id: "planned_#{n}",
+            kind: :act,
+            status: :pending,
+            description: "计划步骤 #{n}",
+            target_tool_ref: "character_design"
+          }
+        )
+    }
+
+    first = fn _run, sequence ->
+      send(parent, {:b91_plan_step, sequence})
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [],
+         run_patch: %{plan: plan, plan_ref: plan.plan_id, plan_version: 2}
+       }}
+    end
+
+    second = fn _run, sequence ->
+      send(parent, {:b91_plan_step, sequence})
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    attrs = Map.put(base_run(run_id), :budget, grant)
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(
+               NovelApplication.TestAgentEventRelay.observe(attrs, event_forward_full(parent)),
+               next_step_planner: sequential_steps([first, second])
+             )
+
+    _run_pid = NovelApplication.TestAgentRunCleanup.register_run(run_id)
+
+    assert_receive {:b91_plan_step, 1}, 500
+    assert_receive {:agent_event_full, :awaiting_author, event}, 1000
+    assert "budget_exhausted" in event.reason_codes
+    refute_receive {:b91_plan_step, 2}, 80
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.budget == grant
+    assert run.plan_version == 2
+    assert length(run.plan.steps) == 7
+    assert run.status == :awaiting_author
+  end
+
   test "pending artifact budget completes run before executing an extra candidate step" do
     parent = self()
     run_id = unique_run_id()

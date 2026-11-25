@@ -1,11 +1,9 @@
 defmodule NovelApplication.AgentRunBudget do
   @moduledoc """
-  Pure execution-budget policy for a drafted AgentPlan.
+  唯一 run 入场资源政策与显式作者扩额。
 
-  Budget is derived from the plan's step/tool/provider cost, then capped by
-  author limits and absolute hard safety caps. Planning-phase cost is not part
-  of this execution budget; callers should account for judgment/plan drafting
-  separately.
+  入场 grant 不由模型计划、局部交换次数或路由切换重新授予。
+  既有实际入口数值见 UA-01 §6.1 / B91 §10.3。
   """
 
   @default_hard_caps %{
@@ -15,94 +13,57 @@ defmodule NovelApplication.AgentRunBudget do
     max_replans: 1
   }
 
-  @type cost :: %{
-          steps: non_neg_integer(),
-          tool_calls: non_neg_integer(),
-          provider_calls: non_neg_integer()
-        }
-  @type hard_caps :: %{
-          max_steps: pos_integer(),
-          max_tool_calls: pos_integer(),
-          max_provider_calls: pos_integer(),
-          max_replans: non_neg_integer()
-        }
-  @type author_limits :: %{optional(:max_steps) => pos_integer() | nil}
-  @type result :: %{
-          budget: map(),
-          required: cost(),
-          shortfall: cost(),
-          over_budget?: boolean()
-        }
+  # CP0 已核定的实际入场额度；不是任务必须消费的调用次数。
+  # tuple: {execution units, tools, providers, replans, pending artifacts}
+  @entry_grants %{
+    profile_routing: {28, 6, 33, 1, 3},
+    character_design_with_context: {5, 5, 8, 1, 1},
+    prose_drafting_with_quality: {6, 3, 11, 1, 1},
+    judgment_plan: {7, 6, 17, 1, 3},
+    plot_outline_with_context: {5, 3, 10, 1, 1},
+    character_evolution_with_context: {5, 3, 10, 1, 1},
+    world_building_with_context: {5, 3, 10, 1, 1},
+    prose_revision_from_findings: {6, 3, 8, 1, 3},
+    tool_confirmation: {4, 1, 15, 0, 3},
+    tool_confirmation_action: {4, 1, 14, 0, 3},
+    readonly_batch_context: {4, 6, 7, 1, 3},
+    ledger_reconciliation: {4, 4, 6, 1, 1},
+    fact_inventory: {4, 2, 7, 1, 60}
+  }
 
-  @spec for_plan([map()], keyword()) :: result()
-  def for_plan(plan_steps, opts \\ []) when is_list(plan_steps) do
-    hard_caps = Map.merge(@default_hard_caps, Map.new(Keyword.get(opts, :hard_caps, %{})))
-    author_limits = Keyword.get(opts, :author_limits, %{})
+  @doc "根任务已准入额度；作者显式执行单位限制可以收紧，不由自然语言猜测。"
+  @spec entry(atom(), map() | nil) :: map()
+  def entry(profile, author_limits \\ nil) do
+    {steps, tools, providers, replans, pending} = Map.fetch!(@entry_grants, profile)
 
-    overhead =
-      Map.new(
-        Keyword.get(opts, :execution_overhead, %{steps: 0, tool_calls: 0, provider_calls: 0})
-      )
-
-    required =
-      plan_steps
-      |> Enum.reduce(%{steps: 0, tool_calls: 0, provider_calls: 0}, fn step, acc ->
-        cost = step_cost(step)
-
-        %{
-          steps: acc.steps + cost.steps,
-          tool_calls: acc.tool_calls + cost.tool_calls,
-          provider_calls: acc.provider_calls + cost.provider_calls
-        }
-      end)
-      |> add_cost(overhead)
-
-    budget =
-      %{
-        max_steps: min(required.steps, hard_caps.max_steps),
-        max_tool_calls: min(required.tool_calls, hard_caps.max_tool_calls),
-        max_provider_calls: min(required.provider_calls, hard_caps.max_provider_calls),
-        max_replans: hard_caps.max_replans
-      }
-      |> apply_author_limits(author_limits)
-
-    shortfall = %{
-      steps: max(required.steps - budget.max_steps, 0),
-      tool_calls: max(required.tool_calls - budget.max_tool_calls, 0),
-      provider_calls: max(required.provider_calls - budget.max_provider_calls, 0)
+    grant = %{
+      max_steps: steps,
+      max_tool_calls: tools,
+      max_provider_calls: providers,
+      max_replans: replans,
+      max_pending_artifacts: pending
     }
 
-    %{
-      budget: budget,
-      required: required,
-      shortfall: shortfall,
-      over_budget?:
-        shortfall.steps > 0 or shortfall.tool_calls > 0 or shortfall.provider_calls > 0
-    }
+    case map_get(author_limits, :max_steps) do
+      value when is_integer(value) and value > 0 ->
+        grant
+        |> Map.put(:author_max_steps, value)
+        |> Map.put(:max_steps, min(steps, value))
+
+      _ ->
+        grant
+    end
   end
 
-  @doc """
-  Expand an existing run budget to fit the drafted plan.
+  @doc "角色选择只收紧当前业务限制，不覆盖根资源或已生效的作者扩额。"
+  @spec restrict_for_profile(map(), atom()) :: map()
+  def restrict_for_profile(grant, profile) when is_map(grant) do
+    limits = entry(profile)
 
-  Author max_steps is a hard cap and may shrink the effective step budget; the
-  runtime must surface the resulting shortfall instead of silently expanding.
-  """
-  @spec expand(map(), [map()], keyword()) :: map()
-  def expand(existing, plan_steps, opts \\ []) when is_map(existing) and is_list(plan_steps) do
-    result = for_plan(plan_steps, opts)
-    author_limits = Keyword.get(opts, :author_limits, %{})
-
-    existing
-    |> Map.put(:max_steps, max(Map.get(existing, :max_steps, 0), result.budget.max_steps))
-    |> Map.put(
-      :max_tool_calls,
-      max(Map.get(existing, :max_tool_calls, 0), result.budget.max_tool_calls)
-    )
-    |> Map.put(
-      :max_provider_calls,
-      max(Map.get(existing, :max_provider_calls, 0), result.budget.max_provider_calls)
-    )
-    |> apply_author_step_cap(author_limits)
+    Enum.reduce([:max_pending_artifacts, :max_replans], grant, fn key, current ->
+      limit = Map.fetch!(limits, key)
+      Map.update(current, key, limit, &min(&1, limit))
+    end)
   end
 
   @doc """
@@ -192,59 +153,6 @@ defmodule NovelApplication.AgentRunBudget do
     budget.max_steps <= @default_hard_caps.max_steps and
       budget.max_tool_calls <= @default_hard_caps.max_tool_calls and
       budget.max_provider_calls <= @default_hard_caps.max_provider_calls
-  end
-
-  defp apply_author_step_cap(budget, author_limits) do
-    case map_get(author_limits, :max_steps) do
-      value when is_integer(value) and value > 0 ->
-        %{budget | max_steps: min(budget.max_steps, value)}
-
-      _ ->
-        budget
-    end
-  end
-
-  defp apply_author_limits(budget, author_limits) do
-    case map_get(author_limits, :max_steps) do
-      value when is_integer(value) and value > 0 ->
-        %{budget | max_steps: min(budget.max_steps, value)}
-
-      _ ->
-        budget
-    end
-  end
-
-  defp step_cost(step) do
-    target = map_get(step, :target_tool_ref)
-    kind = map_get(step, :kind)
-
-    cond do
-      target == "prose_writing" ->
-        %{steps: 1, tool_calls: 1, provider_calls: 2}
-
-      target == "chapter_mission" ->
-        %{steps: 1, tool_calls: 0, provider_calls: 1}
-
-      target == "context_assemble" ->
-        %{steps: 1, tool_calls: 1, provider_calls: 0}
-
-      kind in [:explore, "explore"] ->
-        %{steps: 1, tool_calls: 0, provider_calls: 0}
-
-      kind in [:act, "act"] ->
-        %{steps: 1, tool_calls: 1, provider_calls: 1}
-
-      true ->
-        %{steps: 1, tool_calls: 0, provider_calls: 0}
-    end
-  end
-
-  defp add_cost(left, right) do
-    %{
-      steps: left.steps + Map.get(right, :steps, 0),
-      tool_calls: left.tool_calls + Map.get(right, :tool_calls, 0),
-      provider_calls: left.provider_calls + Map.get(right, :provider_calls, 0)
-    }
   end
 
   defp map_get(map, key) when is_map(map),

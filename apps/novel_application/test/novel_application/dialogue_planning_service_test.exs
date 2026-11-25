@@ -471,10 +471,79 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         "prose_drafting_with_quality_v1"
       )
 
-    # WR01：正文 run 多一步写前推理（chapter_mission，1 调用）。
-    assert routed_run.budget.max_steps == 8
-    assert routed_run.budget.max_provider_calls == 13
+    # B91：入场 grant 保持；选定专业角色不重新授予或缩减根任务资源。
+    assert routed_run.budget.max_steps == 28
+    assert routed_run.budget.max_tool_calls == 6
+    assert routed_run.budget.max_provider_calls == 33
+    assert routed_run.budget.max_pending_artifacts == 1
     assert routed_run.plan.steps == []
+  end
+
+  test "B91 路由保留作者明确限制和已准入 Provider 额度" do
+    {spec, routed, _} =
+      assert_user_message_routes_to(
+        %{
+          text: "写下一章",
+          workspace_id: "ws-b91-author-cap",
+          work_id: "work-b91-author-cap",
+          session_id: "session-b91-author-cap",
+          turn_id: "turn-b91-author-cap",
+          author_limits: %{max_steps: 1}
+        },
+        "prose_drafting_with_quality_v1"
+      )
+
+    assert spec.run_attrs.budget.max_provider_calls == 33
+    assert routed.budget.max_provider_calls == 33
+    assert routed.budget.max_steps == 1
+    assert routed.budget.author_max_steps == 1
+    assert routed.budget.max_pending_artifacts == 1
+    assert routed.authority_scope.allowed_tools == ["prose_writing"]
+  end
+
+  test "B91 十二种真实入场规格保留核定的既有 grant 和结构化作者限额" do
+    # CP0 已封存的实际入场数值；独立期望不由 AgentRunBudget 反推。
+    grants = [
+      {:profile_routing, {28, 6, 33, 1, 3}},
+      {:character_design_with_context, {5, 5, 8, 1, 1}},
+      {:prose_drafting_with_quality, {6, 3, 11, 1, 1}},
+      {:judgment_plan, {7, 6, 17, 1, 3}},
+      {:plot_outline_with_context, {5, 3, 10, 1, 1}},
+      {:character_evolution_with_context, {5, 3, 10, 1, 1}},
+      {:world_building_with_context, {5, 3, 10, 1, 1}},
+      {:prose_revision_from_findings, {6, 3, 8, 1, 3}},
+      {:tool_confirmation, {4, 1, 15, 0, 3}},
+      {:readonly_batch_context, {4, 6, 7, 1, 3}},
+      {:ledger_reconciliation, {4, 4, 6, 1, 1}},
+      {:fact_inventory, {4, 2, 7, 1, 60}}
+    ]
+
+    input = %{
+      text: "实际规格检查",
+      workspace_id: "ws-b91",
+      work_id: "work-b91",
+      session_id: "session-b91",
+      turn_id: "turn-b91"
+    }
+
+    execution = %Execution{result_fn: fn _ -> flunk("入场规格不应调用模型") end}
+
+    for {profile, {steps, tools, providers, replans, pending}} <- grants,
+        limit <- [nil, 1, 3] do
+      attrs = if limit, do: Map.put(input, :author_limits, %{max_steps: limit}), else: input
+      spec = DialoguePlanningService.run_spec_for_profile(profile, attrs, nil, execution)
+
+      expected = %{
+        max_steps: if(limit, do: min(limit, steps), else: steps),
+        max_tool_calls: tools,
+        max_provider_calls: providers,
+        max_replans: replans,
+        max_pending_artifacts: pending
+      }
+
+      expected = if limit, do: Map.put(expected, :author_max_steps, limit), else: expected
+      assert spec.run_attrs.budget == expected
+    end
   end
 
   test "正文草稿意图优先于章节计划上下文词" do
@@ -507,9 +576,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["plot_outline"]
-    assert routed_run.budget.max_steps == 7
-    assert routed_run.budget.max_tool_calls == 3
-    assert routed_run.budget.max_provider_calls == 12
+    assert routed_run.budget.max_steps == 28
+    assert routed_run.budget.max_tool_calls == 6
+    assert routed_run.budget.max_provider_calls == 33
+    assert routed_run.budget.max_pending_artifacts == 1
 
     assert [
              %{step_id: "assemble_outline_context", kind: :explore},
@@ -532,9 +602,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["character_evolution"]
-    assert routed_run.budget.max_steps == 7
-    assert routed_run.budget.max_tool_calls == 3
-    assert routed_run.budget.max_provider_calls == 12
+    assert routed_run.budget.max_steps == 28
+    assert routed_run.budget.max_tool_calls == 6
+    assert routed_run.budget.max_provider_calls == 33
+    assert routed_run.budget.max_pending_artifacts == 1
 
     assert [
              %{step_id: "assemble_character_evolution_context", kind: :explore},
@@ -557,9 +628,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["world_building"]
-    assert routed_run.budget.max_steps == 7
-    assert routed_run.budget.max_tool_calls == 3
-    assert routed_run.budget.max_provider_calls == 12
+    assert routed_run.budget.max_steps == 28
+    assert routed_run.budget.max_tool_calls == 6
+    assert routed_run.budget.max_provider_calls == 33
+    assert routed_run.budget.max_pending_artifacts == 1
 
     assert [
              %{step_id: "assemble_world_building_context", kind: :explore},
@@ -732,7 +804,15 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         plan: Map.get(patch, :plan) || run.plan,
         plan_ref: Map.get(patch, :plan_ref) || run.plan_ref,
         plan_version: Map.get(patch, :plan_version) || run.plan_version,
-        budget: Map.get(patch, :budget) || run.budget
+        budget:
+          if(patch[:budget_profile],
+            do:
+              NovelApplication.AgentRunBudget.restrict_for_profile(
+                run.budget,
+                patch.budget_profile
+              ),
+            else: run.budget
+          )
     }
   end
 end

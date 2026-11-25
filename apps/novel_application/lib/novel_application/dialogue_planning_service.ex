@@ -13,6 +13,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgentNarrativeSource
+  alias NovelApplication.AgentRunBudget
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
@@ -355,7 +356,7 @@ defmodule NovelApplication.DialoguePlanningService do
       plan_version: plan_version(agent_plan),
       goal: %{text: text, version: 1, source_ref: turn_id},
       authority_scope: authority_scope(profile, input),
-      budget: run_budget(text, profile, input)
+      budget: AgentRunBudget.entry(profile, map_get(input, :author_limits))
     }
   end
 
@@ -1547,7 +1548,7 @@ defmodule NovelApplication.DialoguePlanningService do
          plan: target_plan,
          plan_ref: plan_id(target_plan),
          plan_version: plan_version(target_plan),
-         budget: routed_profile_budget(run.goal.text, profile, input)
+         budget_profile: profile
        },
        provider_call_count: judgment.provider_call_count,
        progress_signature: "#{run.run_id}:judgment_switch:#{selection.profile_ref}"
@@ -1999,24 +2000,6 @@ defmodule NovelApplication.DialoguePlanningService do
     ]
   end
 
-  defp routed_profile_budget(text, profile, input) do
-    base = run_budget(text, profile, input)
-
-    # +2 = 判断循环入场开销上界：机械准备 1 step（0 调用）+ 判断①单调用 1 次 + 一次有界纠错余量；
-    # 计划/续行额外调用由 plan_overhead_budget/1 统一补足（上界 backstop 不是配额）。
-    %{
-      base
-      | max_steps: base.max_steps + 2,
-        max_provider_calls: base.max_provider_calls + 2
-    }
-  end
-
-  defp max_budget(budgets, key) do
-    budgets
-    |> Enum.map(&Map.fetch!(&1, key))
-    |> Enum.max()
-  end
-
   defp prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input) do
     ProseDraftingWithQuality.next_step_planner(%{
       author_input: Map.take(input, [:text, :interaction_store]),
@@ -2319,245 +2302,6 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp run_budget(text, profile, input) do
-    text
-    |> run_budget(profile)
-    |> plan_overhead_budget()
-    |> apply_author_limit(input)
-  end
-
-  defp apply_author_limit(budget, input) do
-    case map_get(input, :author_limits) do
-      %{max_steps: steps} when is_integer(steps) and steps > 0 ->
-        budget
-        |> Map.put(:author_max_steps, steps)
-        |> Map.put(:max_steps, min(budget.max_steps, steps))
-
-      %{"max_steps" => steps} when is_integer(steps) and steps > 0 ->
-        budget
-        |> Map.put(:author_max_steps, steps)
-        |> Map.put(:max_steps, min(budget.max_steps, steps))
-
-      _ ->
-        budget
-    end
-  end
-
-  # 判断②续行余量（ADR-0025 CP3）：续行判断为单调用；模型计划修订已被判断②取代——
-  # 每次续行 = 判断②单调用 1 + 续行重产出步（占 1 步 1 工具、prose 双调用上界 2），
-  # 三维各按 max_replans 补足 backstop 余量（上限是兜底不是配额，不按最小调用裁剪）。
-  # 旧的 max_steps: 1 指纹分支保留为防御性代码，但不再由文本触发；
-  # 结构化作者预算在 run_budget/3 之后通过 author_max_steps 进入。
-  defp plan_overhead_budget(%{max_steps: 1} = base) do
-    %{base | max_provider_calls: base.max_provider_calls + 1}
-  end
-
-  defp plan_overhead_budget(base) do
-    %{
-      base
-      | max_provider_calls: base.max_provider_calls + 1 + base.max_replans * 4,
-        max_steps: base.max_steps + base.max_replans,
-        max_tool_calls: base.max_tool_calls + base.max_replans
-    }
-  end
-
-  defp run_budget(text, :profile_routing) do
-    routed =
-      [
-        run_budget(text, :character_design_with_context),
-        run_budget(text, :prose_drafting_with_quality),
-        run_budget(text, :plot_outline_with_context),
-        run_budget(text, :character_evolution_with_context),
-        run_budget(text, :world_building_with_context),
-        run_budget(text, :readonly_batch_context)
-      ]
-
-    # +2 = 判断循环入场开销上界：机械准备 1 step（0 调用）+ 判断①单调用 1 次 + 一次有界纠错余量；
-    # 计划/续行额外调用由 run_budget/3 的 plan_overhead_budget/1 统一补足。
-    # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
-    # 再判断 1 step（单调用，含纠错余量）；B27 CP4 M03 起含长章续读额度
-    # （普通探索 2 轮 + 同章续读最多 8 轮，续读在读完末页即关闭）。
-    explore_allowance = ExplorationPolicy.max_steps() * 2
-
-    %{
-      max_steps: max_budget(routed, :max_steps) + 2 + explore_allowance,
-      max_tool_calls: max_budget(routed, :max_tool_calls),
-      max_provider_calls: max_budget(routed, :max_provider_calls) + 2 + explore_allowance,
-      max_replans: max_budget(routed, :max_replans),
-      max_pending_artifacts: max_budget(routed, :max_pending_artifacts)
-    }
-  end
-
-  defp run_budget(text, :character_design_with_context) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 1,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    else
-      %{
-        max_steps: 4,
-        max_tool_calls: 4,
-        max_provider_calls: 3,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    end
-  end
-
-  # WR01：正文 run 多一步写前推理（chapter_mission，1 调用）——max_steps 4→5、
-  # max_provider_calls 5→6；作者显式一步预算不变（一步预算是硬约束，不排推理步）。
-  defp run_budget(text, :prose_drafting_with_quality) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 2,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    else
-      %{
-        max_steps: 5,
-        max_tool_calls: 2,
-        max_provider_calls: 6,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    end
-  end
-
-  defp run_budget(_text, :judgment_plan) do
-    # CP4 跨能力真计划：起草 2 + 至多 5 能力步（每步至多 2 调用）；多产物上限 3。
-    %{
-      max_steps: 6,
-      max_tool_calls: 5,
-      max_provider_calls: 12,
-      max_replans: 1,
-      max_pending_artifacts: 3
-    }
-  end
-
-  defp run_budget(text, :plot_outline_with_context) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 1,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    else
-      %{
-        max_steps: 4,
-        max_tool_calls: 2,
-        max_provider_calls: 5,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    end
-  end
-
-  defp run_budget(text, :character_evolution_with_context) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 1,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    else
-      %{
-        max_steps: 4,
-        max_tool_calls: 2,
-        max_provider_calls: 5,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    end
-  end
-
-  defp run_budget(text, :world_building_with_context) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 1,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    else
-      %{
-        max_steps: 4,
-        max_tool_calls: 2,
-        max_provider_calls: 5,
-        max_replans: 1,
-        max_pending_artifacts: 1
-      }
-    end
-  end
-
-  defp run_budget(text, :prose_revision_from_findings) do
-    if one_step_budget?(text) do
-      %{
-        max_steps: 1,
-        max_tool_calls: 1,
-        max_provider_calls: 1,
-        max_replans: 1,
-        max_pending_artifacts: 3
-      }
-    else
-      %{
-        max_steps: 5,
-        max_tool_calls: 2,
-        max_provider_calls: 3,
-        max_replans: 1,
-        max_pending_artifacts: 3
-      }
-    end
-  end
-
-  defp run_budget(_text, :tool_confirmation), do: ToolConfirmation.run_budget()
-
-  defp run_budget(_text, :readonly_batch_context) do
-    %{
-      max_steps: 3,
-      max_tool_calls: 5,
-      max_provider_calls: 2,
-      max_replans: 1,
-      max_pending_artifacts: 3
-    }
-  end
-
-  # 全书审读（CP4c-2）：机械审读 1 步 + 收尾 1 步；模型只起草计划（provider 1 调用
-  # 由 plan_overhead_budget 补足）。恰一 tentative 报告走 repo 物化不占 artifact 位。
-  defp run_budget(_text, :ledger_reconciliation) do
-    %{
-      max_steps: 3,
-      max_tool_calls: 3,
-      max_provider_calls: 1,
-      max_replans: 1,
-      max_pending_artifacts: 1
-    }
-  end
-
-  # 设定盘点（VS-00G CP4b-2）：本 profile 的业务调用上界为提炼 2 次（坏 JSON 修正）；
-  # 模型计划起草/续行余量统一由 plan_overhead_budget/1 补足。盘点可同批产多条
-  # character/rule/foreshadowing seed，因此 pending backstop 高于单候选创作 profile。
-  defp run_budget(_text, :fact_inventory) do
-    %{
-      max_steps: 3,
-      max_tool_calls: 1,
-      max_provider_calls: 2,
-      max_replans: 1,
-      max_pending_artifacts: 60
-    }
-  end
-
   defp profile_ref(:profile_routing), do: @profile_routing_profile_ref
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
@@ -2587,10 +2331,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:tool_confirmation), do: ToolConfirmation.allowed_tools()
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
   defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools
-
-  # 旧的字面预算短语兼容已移除。作者步数约束必须通过结构化
-  # UserMessageSubmission.author_limits 进入，不再解析自然语言。
-  defp one_step_budget?(_text), do: false
 
   defp durable_request?(text) do
     text

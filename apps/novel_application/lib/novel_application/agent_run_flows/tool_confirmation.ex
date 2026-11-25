@@ -34,10 +34,6 @@ defmodule NovelApplication.AgentRunFlows.ToolConfirmation do
   @spec allowed_tools() :: [String.t()]
   def allowed_tools, do: ToolConfirmationRun.allowed_tools()
 
-  @doc "非采纳确认子 run 的真实预算；唯一来源在 `ToolConfirmationRun`。"
-  @spec run_budget() :: map()
-  def run_budget, do: ToolConfirmationRun.run_budget()
-
   @doc "非采纳确认子 run 的初始计划；唯一来源在 `ToolConfirmationRun`。"
   @spec pending_plan(String.t()) :: map()
   def pending_plan(run_id), do: ToolConfirmationRun.pending_plan(run_id)
