@@ -104,7 +104,7 @@ const CHARACTER_SPEC = Object.freeze({
   missingInput: "缺少角色设计作者输入",
   missingAck: "真实输入 ack 缺 run_id",
   missingCompleted: "缺少角色设计同一 run 的完成结果",
-  completedTurn: "first",
+  completedTurn: "last",
   requireRunMode: "durable",
 });
 
@@ -186,6 +186,10 @@ export function verifyContinuation(dir) {
 
 export function verifyCharacterDesign(dir) {
   const run = collectAuthoringRun(dir, CHARACTER_SPEC);
+  const driver = JSON.parse(readTextFile(dir, "native-b71-driver-log.json"));
+  assert.equal(driver.run_id, run.runId);
+  assert.equal(driver.parent_turn_id, run.facts.turnId);
+  assert.equal(driver.turn_id, run.completed.turn_id, "候选结果须与实际驱动所见末次结果一致");
   const request = characterRequestChecks(run.calls.records, run.history.transcript);
   const gap = nativeCallFailureSummary(run.calls);
   const checks = {
