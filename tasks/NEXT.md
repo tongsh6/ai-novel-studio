@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B91 | **下一执行点 CP1b**：B91 §11 CP1a 入场 grant 与计划/路由分权限定机制验收通过；接现 Execution.with_admission、ProviderRunLog、AgentRunServer 收敛真实派发准入、占用及结算，随后 CP1c 迁多步反馈，CP2 处理必要生命周期机制。具体阻塞解除后优先返回 R17 补证，再回 R08。B91 完整 DoD 保持，不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
+| B91 | **下一执行点 CP1b.2**：B91 §11 CP1a 及 §12.1 CP1b.1 真实派发前原子准入、持久占用/派发事实限定机制已验；迁累计消费与停等判据及其余 run-owned 辅助入口，退役旧结果/事件补账，再进入 CP1c 多步反馈、CP2 必要生命周期机制。具体阻塞解除后优先返回 R17 补证，再回 R08。B91 完整 DoD 保持，不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
 
 ## 后续候选
 
