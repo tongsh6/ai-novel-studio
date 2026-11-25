@@ -5,6 +5,7 @@
 - 来源：作者提出 Router + Worker、事件驱动、Inline & Spill / Chain of Recall、异步持久在线与 Watchdog，要求不做补丁式缝合，先整体走通设计重构。
 - 设计真源：[00e-goal-centric-runtime-architecture-review](../../docs/design/00e-goal-centric-runtime-architecture-review.md)
 - 关联：[B50](B50-multi-agent-current-boundary.md)、[B52](B52-longrun-batch-draft.md)、[B71](B71-provider-message-fidelity.md)、ADR-0021 / 0027 / 0033、UA-01、04a、06、07。
+- 2026-11-25 职责查重：[B91](B91-agent-turn-step-execution.md) 在现有 Session/AgentRun/判断与工具链内处理多轮多步、反馈纠错和局部次数政策；不引入本稿的 Goal/EventEnvelope/WorkItem、Router–Worker、外部事件、Watchdog 或跨设备控制面。本稿 R1–R7 与 deferred 决定保持，既有运行链的限定重构不以本稿整体接受为前置。
 
 ## 1. 范围与目标
 

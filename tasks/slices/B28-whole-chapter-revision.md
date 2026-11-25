@@ -5,6 +5,7 @@
 - 登记日期：2026-10-23；来源：stage“整理第1章正文”只处理初稿、采纳后新增第17章。
 - 上游：[Q1c](Q1C-adopted-content-revision.md)、[B24](B24-exploration-chapter-full-read.md)、[B25](B25-chapter-identity-unification.md)、[Q1Cb](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)。提示词统一归 [B27](B27-systematic-prompt-and-intent-integration.md)，不在此追加局部提示词补丁。
 - 初始登记阶段只授权文档；后续实施依各节作者裁决推进。stage历史数据未修改。
+- 2026-11-25 后续职责：排版能力易调用与稳定交付由 [B90](B90-application-formatting-capability.md) 独立承接，复用本任务和 ADR-0029；通用多轮多步与纠错预算由 [B91](B91-agent-turn-step-execution.md) 承接。本任务历史完成及旧失败均保留。B87 §21.3 来自 P1 的共享摘要/ledger 核账问题继续归原 `native_b28_scope_evidence.mjs`，不能整体转成排版债务。
 
 ## 1. 问题与证据
 

@@ -16,6 +16,8 @@
 5. 记录可触及文件/禁止触及文件、原始失败基线、成功与否判据和恢复点；跨 Frozen 契约冲突时**先修订/裁决设计，不能先写代码再补批准**。
 6. 实施前通过 `bash scripts/task_done.sh --begin artifacts/slice-verify/<本批唯一目录>/scope.json --task tasks/slices/B87-model-interaction-request-projection/Rxx.md` 机器封存开始范围；实际替换本批目录与任务卡。该记录不授权、不验收，只固定任务增量与既有 WIP。历史任务缺记录不得事后追造，按 quality-gates §2.3.1 保留缺证与版本核账。
 
+2026-11-25 作者进一步按 [B87 §28](../B87-model-interaction-request-projection.md#28-排版与多轮多步的独立承接2026-11-25) 将排版产品闭环交 [B90](../B90-application-formatting-capability.md)、多轮多步及纠错预算交 [B91](../B91-agent-turn-step-execution.md)。两任务独立实施/验收，不成为本协议各批的整项前置；B87 的意图、真实来源、作者可见内容、对象/版本/采纳等保留判据继续适用。遇具体共享缺陷按真实依赖归属，禁止移交后改签旧失败或复制执行状态。
+
 ## 2. 实施原则
 
 **彻底重构，但不做无谓重造**：允许重写错误责任位置、替换旧字段、删除不再消费的代码与测试、直接更新当前数据库 Schema/迁移（项目未发布，**无需兼容旧产品 API/数据协议**）；**必须同批迁所有现役消费者并删旧入口**，绝不双写、dual parse、legacy fallback 或“以后移除”。不可因此默认销毁用户已创作作品和历史可审计证据。

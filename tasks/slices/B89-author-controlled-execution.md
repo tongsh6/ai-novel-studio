@@ -16,6 +16,8 @@
 
 本任务不承接 B87 的请求/上下文基础重构、R08 原三轮判界缺口或 B87 保留范围的总验；但本任务后续改变现存接口时，必须承担自身引入的回归和消费者迁移。B85 模型上下文窗口设置、B38 世界规则保存意图等仍按原任务边界推进。
 
+2026-11-25 登记的 [B91](B91-agent-turn-step-execution.md) 负责在既有有效授权内的多轮多步执行、反馈纠错、预算和停止/恢复；本任务继续负责新增授权模式、长期委托与自动采纳。B91 不等待本任务全部完成，也不据持续执行扩张权限；本任务后续按真实接口消费其运行事实，不互设整项循环前置。该职责澄清不解除本任务 deferred 状态。
+
 ## 2. 查重、共享契约与待裁决边界
 
 2026-11-24 检索 tasks/docs，B89 编号未使用；未发现完整覆盖本任务八项能力的同义总任务。B43 的 GateOrder/missing_policy、B46 的人工 Adoption Inbox、B73 的验收资产，以及既有 CapabilityRegistry、AgentRunPolicy、AuthorAction/Confirmation、ApprovalAudit、AdoptionWorkflow/Receipt 等只承担各自实际职责。开工仍须逐字段、逐消费者核 HEAD；本次登记不是新模块、表、服务或配置的存在性审计结论。

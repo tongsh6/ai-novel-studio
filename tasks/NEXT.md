@@ -6,12 +6,14 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。R06 已按 §27.8 核定原范围 PASS，最终文档身份与交付按 §27.9 收口；旧实模失败原件保留。当前继续 R08 §23 的有限剩余项；R08 通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；R06/R07 已按原范围核定，状态与证据只见总任务。当前按 §28 继续 R08 的目标消歧、讨论/执行/授权和材料范围语义，再进入 R17→R18→R19。排版产品闭环转 B90，多轮多步与纠错预算转 B91 独立承接，不作为 B87 整项前置；原 R09–R16 的 B89 继续 deferred。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B91 | **优先于 B90**：先完成 CP0，核作者轮/运行轮/模型交互步/计划执行步/网络尝试的映射，修订既有循环与预算契约；复用现运行实体，核固定两次及判断/探索上限。CP0 可独立推进，不等待 B89；登记不自动切换当前 B87 队首。 | [B91](slices/B91-agent-turn-step-execution.md) |
+| B90 | 应用侧排版能力的后续完善：CP0 复用 ADR-0029/B28 核工具易用性和交付链，完整排版产品验收独立承接；优先级低于 B91，不反向阻塞 B87。 | [B90](slices/B90-application-formatting-capability.md) |
 | B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），现设置 UI、局部验证与待验收范围见原任务；暂停其后续原生验收，优先 B87 主线，不由本排期代签完成。 | [B85](slices/B85-model-context-window-settings.md) |
 | B88 | sidecar 端口可配置（产品功能）：默认 4658，支持冲突回退/显式配置；前端 API/WS/CSP 与 OriginPolicy 跟随；受益 B65 release Origin 采集与多实例调试，不是验收钩子。 | [B88](slices/B88-configurable-sidecar-port.md) |
