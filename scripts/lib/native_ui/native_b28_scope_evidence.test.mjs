@@ -47,7 +47,7 @@ const rejectsProof = (reader, value) => {
 };
 
 function preparedFixture(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b28-scope-prepare-"));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "b28-scope-prepare-")));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const write = (name, value) => fs.writeFileSync(path.join(dir, name), JSON.stringify(value));
   fs.mkdirSync(path.join(dir, "database"));
@@ -55,29 +55,44 @@ function preparedFixture(t) {
   db.exec("CREATE TABLE works (id TEXT, title TEXT); INSERT INTO works VALUES ('work-scope', '独立章范围作品')");
   db.close();
   fs.writeFileSync(path.join(dir, "seed.log"),
-    "work_id=work-scope session_id=session-scope control_chapter_id=chapter-control target_chapter_id=chapter-target target_title=第03章");
+    "work_id=work-scope control_chapter_id=chapter-control target_chapter_id=chapter-target target_title=第03章");
   write("native-driver-ready.json", {
     slice_id: "b28-scope-authorization", driver: "external-system-ui", browser_driver_started: false,
     provider: "splash", run_ref: "native-scope-run", ready_at: "2026-11-23T01:00:00.000Z",
   });
   const runtime = runtimeFacts();
   write("runtime-facts.json", runtime);
-  return { dir, runtime, write, config: () =>
+  const proxyDir = path.join(dir, "proxy");
+  fs.mkdirSync(proxyDir);
+  const preregistration = { provider: "splash", runtime: { provider: "splash", model: MODEL },
+    artifact_dir: dir, proxy_dir: proxyDir, upstream_endpoint: "http://127.0.0.1:8001/v1",
+    scenarios: evidence.SCENARIOS.map(scenario => ({ ...structuredClone(scenario), input_sha256: sha(scenario.input) })),
+    budget: { ...budget(), max_manual_retries: 0, max_upstream_requests: 32 } };
+  const proxyReady = { mode: "observe", max_upstream_requests: 32,
+    upstream_endpoint: preregistration.upstream_endpoint, endpoint: ENDPOINT, pid: 1234 };
+  write("preregistration.json", preregistration);
+  write("proxy/provider-stream-ready.json", proxyReady);
+  const env = { B28S_SCOPE_PREREGISTRATION: path.join(dir, "preregistration.json") };
+  return { dir, runtime, write, preregistration, proxyReady, env, config: () =>
     JSON.parse(fs.readFileSync(path.join(dir, "native-b28-scope-config.json"), "utf8")) };
 }
 
 test("B28 freezes the seven original inputs, observed Splash runtime and zero unregistered author sends", async (t) => {
   const f = preparedFixture(t);
   t.mock.method(globalThis, "fetch", async () => { throw new Error("prepare must not operate an external model service"); });
-  await evidence.prepare(f.dir, { env: {} });
+  await evidence.prepare(f.dir, { env: f.env });
   const config = f.config();
   assert.equal(config.provider, "splash");
   assert.equal(config.model, MODEL);
   assert.equal(config.endpoint, ENDPOINT);
   assert.equal(config.runtime.profile, PROFILE);
   assert.deepEqual(config.runtime.observed, f.runtime);
+  assert.equal(config.target.session_id, null, "the real B28 seed does not create a session");
   assert.deepEqual(config.scenarios.map(({ id, input }) => [id, input]), ORIGINAL_INPUTS);
   assert.deepEqual(config.budget, budget());
+  assert.equal(config.preregistration.path, f.env.B28S_SCOPE_PREREGISTRATION);
+  assert.equal(config.preregistration.sha256, sha(fs.readFileSync(config.preregistration.path)));
+  assert.equal(config.preregistration.ready_sha256, sha(fs.readFileSync(path.join(f.dir, "proxy/provider-stream-ready.json"))));
   assert.equal(globalThis.fetch.mock.callCount(), 0);
 });
 
@@ -86,14 +101,39 @@ for (const [name, mutate] of [
   ["other selected provider", (f) => { f.runtime.provider.selected = "strata"; f.write("runtime-facts.json", f.runtime); }],
   ["other observed model", (f) => { f.runtime.provider.model = "unfrozen-model"; f.write("runtime-facts.json", f.runtime); }],
   ["changed maintenance window", (f) => { f.runtime.context_pressure.window = 4096; f.write("runtime-facts.json", f.runtime); }],
+  ["missing preregistration", f => { delete f.env.B28S_SCOPE_PREREGISTRATION; }],
+  ["changed original input", f => { f.preregistration.scenarios[0].input += "追加提示"; f.write("preregistration.json", f.preregistration); }],
+  ["changed input hash", f => { f.preregistration.scenarios[0].input_sha256 = "0".repeat(64); f.write("preregistration.json", f.preregistration); }],
+  ["changed scenario meaning", f => { f.preregistration.scenarios[0].expect.adopt = false; f.write("preregistration.json", f.preregistration); }],
+  ["different artifact directory", f => { f.preregistration.artifact_dir += "-other"; f.write("preregistration.json", f.preregistration); }],
+  ["manual retry budget", f => { f.preregistration.budget.max_manual_retries = 1; f.write("preregistration.json", f.preregistration); }],
+  ["missing HTTP cap", f => { delete f.preregistration.budget.max_upstream_requests; f.write("preregistration.json", f.preregistration); }],
+  ["different proxy cap", f => { f.proxyReady.max_upstream_requests = 64; f.write("proxy/provider-stream-ready.json", f.proxyReady); }],
+  ["different proxy upstream", f => { f.proxyReady.upstream_endpoint += "/other"; f.write("proxy/provider-stream-ready.json", f.proxyReady); }],
+  ["different proxy endpoint", f => { f.proxyReady.endpoint += "/other"; f.write("proxy/provider-stream-ready.json", f.proxyReady); }],
+  ["mutating proxy mode", f => { f.proxyReady.mode = "inject"; f.write("proxy/provider-stream-ready.json", f.proxyReady); }],
 ]) {
   test(`B28 prepare rejects ${name} before a usable configuration is written`, async (t) => {
     const f = preparedFixture(t);
     mutate(f);
-    await assert.rejects(evidence.prepare(f.dir, { env: {} }));
+    await assert.rejects(evidence.prepare(f.dir, { env: f.env }));
     assert.equal(fs.existsSync(path.join(f.dir, "native-b28-scope-config.json")), false);
   });
 }
+
+test("B28 one frozen P1 records partial coverage without upgrading the full matrix gate", async (t) => {
+  const f = preparedFixture(t);
+  f.env.B28S_SCOPE_SCENARIOS = "P1";
+  f.preregistration.scenarios = f.preregistration.scenarios.filter(scenario => scenario.id === "P1");
+  f.preregistration.budget.max_author_inputs = 1;
+  f.write("preregistration.json", f.preregistration);
+  await evidence.prepare(f.dir, { env: f.env });
+  const config = f.config();
+  assert.deepEqual(config.scenarios.map(scenario => scenario.id), ["P1"]);
+  assert.deepEqual(config.checkpoints, ["start", "P1-before-adoption", "P1", "final"]);
+  assert.deepEqual(config.budget, budget(1));
+  assert.equal(config.full_matrix, false);
+});
 
 test("B28 preserves the conditional N4 utterance without declaring its premise false", () => {
   const n4 = evidence.SCENARIOS.find(({ id }) => id === "N4");
@@ -595,6 +635,7 @@ function rebuildAdoptionCanon(p, snapshot, tableOverrides = {}) {
   ].map((row) => ({ ...row, work_id: p.identity.workId, inserted_at: AT, updated_at: AT }));
   tables.drafts = snapshot.scope_rows.drafts;
   tables.memory_items = snapshot.scope_rows.memory_items;
+  tables.ledger_entries = snapshot.scope_rows.ledger_entries ?? [];
   tables.author_action_receipts = snapshot.action_receipts;
   Object.assign(tables, tableOverrides);
   snapshot.db_production_counts.memory_items = snapshot.scope_rows.memory_items.length;
@@ -606,12 +647,12 @@ function rebuildAdoptionCanon(p, snapshot, tableOverrides = {}) {
 
 // P3 的持久化合同：两旧稿 revision 1 -> SUPERSEDED/2，新稿 4；记忆只存候选片段。
 // P2 走同一采纳事实入口，但 formatting_plan 不创建 memory。
-function adoptionProof({ formatOnly = false, existingMemory = false, recall = false } = {}) {
-  const p = formatOnly ? formattingCandidateProof() : localCandidateProof();
+function adoptionProof({ formatOnly = false, whole = false, existingMemory = false, recall = false } = {}) {
+  const p = formatOnly ? formattingCandidateProof() : whole ? wholeCandidateProof() : localCandidateProof();
   p.identity.workId = p.target.work_id = ADOPTION_WORK;
   p.history.transcript.run.work_id = p.records[0].work_id = ADOPTION_WORK;
   for (const entry of p.wire) if (Object.hasOwn(entry.frame[4], "work_id")) entry.frame[4].work_id = ADOPTION_WORK;
-  if (!formatOnly) {
+  if (!formatOnly && !whole) {
     p.scenario = { id: "P3", input: ORIGINAL_INPUTS[0][1], db: "literal_replace",
       expect: { action: "execute", capability: "revise_adopted_content", scope: "target_segments",
         effect: "replace_segments", adopt: true } };
@@ -626,8 +667,8 @@ function adoptionProof({ formatOnly = false, existingMemory = false, recall = fa
   payload.title = "第03章：局部修订";
   Object.assign(payload.scope, { covered, covered_refs: covered });
   payload.adoption_effect.covered = covered;
-  if (formatOnly) payload.adoption_effect.expected_base_versions = versions;
-  else for (const value of [payload.scope, payload.adoption_effect]) {
+  if (formatOnly || whole) payload.adoption_effect.expected_base_versions = versions;
+  if (!formatOnly) for (const value of [payload.scope, payload.adoption_effect]) {
     Object.assign(value, { base_draft_ref: "draft:draft-target", base_version: 1, base_versions: versions });
   }
   const observation = p.history.transcript.messages[2].blocks[0];
@@ -637,7 +678,8 @@ function adoptionProof({ formatOnly = false, existingMemory = false, recall = fa
   delete writerItem.provider_call_ref;
   p.history.transcript.messages[3].blocks[0].arguments = { items: [writerItem] };
   p.records[0].response.body.tool_calls[0].arguments = { items: [structuredClone(writerItem)] };
-  p.expectedText = formatOnly ? "他二十五岁。雨没有停。" : "他三十岁。\n\n雨没有停。";
+  p.expectedText = formatOnly ? "他二十五岁。雨没有停。" : whole
+    ? "他在夜雨里停下。\n\n旧窗后有灯。" : "他三十岁。\n\n雨没有停。";
   const result = p.wire[2].frame[4];
   result.assistant_message.text = "修订候选已生成，等待作者确认。";
   const action = { action_id: "accept:local-artifact", action_type: "accept", idempotency_key: "accept-local-once",
@@ -682,7 +724,7 @@ function adoptionProof({ formatOnly = false, existingMemory = false, recall = fa
   p.before.at = AT;
   p.before.checkpoint = "start";
   p.before.action_receipts = [];
-  p.before.scope_rows = { drafts: oldDrafts, mutations: [], versions: [], chapter_summaries: [],
+  p.before.scope_rows = { drafts: oldDrafts, mutations: [], versions: [], chapter_summaries: [], ledger_entries: [],
     memory_items: existingMemory || recall ? [priorMemory] : [] };
   p.before.accepted_drafts = {
     "chapter-target": oldDrafts.slice(0, 2).map((row, index) => ({ draft_id: row.id, scene_id: row.scene_id,
@@ -737,11 +779,234 @@ function adoptionProof({ formatOnly = false, existingMemory = false, recall = fa
 const adoptionChecks = (p) => evidence.adoptionEvidenceChecks(
   p.wire, p.identity, p.wire[2].frame[4], p.artifact, p.before, p.after, p.driverEntry, p.beforeAdoption);
 
+const MAINTENANCE_TEXT = "【情节推进】夜雨中停步。\n【人物状态与弧光】保持警觉。\n【伏笔动作】（无）\n【情绪基调】安静。";
+
+// 真实采纳后的独立摘要：作者调用、原始流、回执、新正文与维护结果分别给定。
+function maintainedAdoptionProof(options = { whole: true }) {
+  const p = adoptionProof(options);
+  const base = providerProof();
+  const scope = { run_id: p.identity.runId, workspace_id: "workspace-scope", work_id: p.identity.workId,
+    session_id: p.identity.sessionId, parent_turn_ref: p.identity.turnId };
+  base.input.scope = base.input.transcript.run = scope;
+  Object.assign(base.input.providerRuns[0], { agent_run_id: scope.run_id, workspace_id: scope.workspace_id,
+    work_id: scope.work_id, session_id: scope.session_id, parent_turn_ref: scope.parent_turn_ref });
+  const author = base.input.records[0];
+  Object.assign(author, { work_id: scope.work_id, session_id: scope.session_id, turn_id: scope.parent_turn_ref + ":agent:1" });
+  author.request.method = "POST";
+  base.input.transcript.messages[0].blocks[0].text = author.request.body.messages[1].content = p.scenario.input;
+  p.wire[2].frame[4].workspace_id = scope.workspace_id;
+  p.wire.push(
+    { at: "2026-11-23T00:59:59.800Z", direction: "sent", frame: ["join-1", "join-1", TOPIC, "phx_join",
+      { work_id: scope.work_id, session_id: scope.session_id }] },
+    { at: "2026-11-23T00:59:59.900Z", direction: "received", frame: ["join-1", "join-1", TOPIC, "phx_reply",
+      { status: "ok", response: { joined: true, work_id: scope.work_id, session_id: scope.session_id } }] },
+  );
+  p.after.at = "2026-11-23T01:00:02.500Z";
+  const source = p.wire[2].frame[4].turn_id, chapterId = "chapter-target";
+  const summaryMaterial = options.formatOnly ? p.expectedText : p.artifact.payload.items.map(item => item.body).join("\n\n");
+  p.after.scope_rows.chapter_summaries.push({ id: "summary-adopted", work_id: scope.work_id, chapter_id: chapterId,
+    source_ref: source, revision_base: "draft:draft-new:4", status: "ACCEPTED", summary_text: MAINTENANCE_TEXT,
+    inserted_at: "2026-11-23T01:00:02.100Z", updated_at: "2026-11-23T01:00:02.100Z" });
+  p.after.scope_rows.ledger_entries.push({ id: "ledger-emotion", work_id: scope.work_id, ledger: "emotion_curve",
+    subject_ref: chapterId, subject_kind: "chapter", subject_label: "第03章", design_ref: null, status: "active",
+    payload: { mood: "安静。" }, source_refs: ["chapter_summary:chapter-target@draft:draft-new:4"],
+    last_event_chapter: chapterId, adoption_status: "ACCEPTED", revision: 1,
+    inserted_at: "2026-11-23T01:00:02.150Z", updated_at: "2026-11-23T01:00:02.150Z" });
+  rebuildAdoptionCanon(p, p.after);
+  const summary = {
+    provider: "splash", provider_call_ref: "pcall-summary", provider_run_ref: "prun-summary",
+    step: "chapter_summary", turn_id: "unknown", ts: "2026-11-23T01:00:01.250Z",
+    request: { method: "POST", url: ENDPOINT + "/chat/completions",
+      refs: { base_refs: [source, "chapter:" + chapterId], observation_refs: [], used_refs: [] },
+      body: { model: MODEL, reasoning_effort: "high", max_tokens: 32000, stream: true,
+        messages: [{ role: "system", content: "章节摘要使用四栏纯文本。" },
+          { role: "user", content: "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + summaryMaterial }] } },
+    response: { status: 200, body: { source: "sse_decoder", tool_calls: [] } },
+  };
+  const provider = bindProviderProof(base);
+  provider.llmRecords = [...provider.llmRecords, summary];
+  provider.config.scenarios = [p.scenario];
+  provider.config.target = { work_id: scope.work_id, session_id: scope.session_id };
+  provider.config.preregistration = { proxy_dir: "/frozen/b28/proxy", max_upstream_requests: 32 };
+  provider.driverLog.scenarios = [p.driverEntry];
+  provider.snapshots = { start: p.before, [p.scenario.id + "-before-adoption"]: p.beforeAdoption,
+    [p.scenario.id]: p.after, final: p.after };
+  provider.wire = p.wire;
+  provider.appRecords = [
+    { event: "chapter_summary_maintenance.run.done", outcome: "ok", status: "ACCEPTED", four_column: true,
+      timestamp: "2026-11-23T01:00:02.100Z", work_id: scope.work_id, chapter_id: chapterId },
+    { event: "ledger.update.done", outcome: "ok", timestamp: "2026-11-23T01:00:02.200Z",
+      work_id: scope.work_id, chapter_id: chapterId },
+  ];
+  p.provider = provider;
+  maintainedTransport(p);
+  return p;
+}
+
+function maintainedTransport(p, { summaryText = MAINTENANCE_TEXT, incomplete = false } = {}) {
+  const bytes = new Map(), events = [];
+  for (const [index, record] of p.provider.llmRecords.entries()) {
+    const id = "request-" + (index + 1), start = index ? "2026-11-23T01:00:01.250Z" : AT;
+    const end = index ? "2026-11-23T01:00:02.000Z" : "2026-11-23T01:00:00.100Z";
+    const request = Buffer.from(JSON.stringify(record.request.body));
+    const response = Buffer.from("data: " + JSON.stringify({ choices: [{ index: 0,
+      delta: { content: index ? summaryText : "已核对全章。" }, finish_reason: null }] }) + "\n\n" +
+      (index && incomplete ? "" : 'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));
+    bytes.set(id + ".bin", request);
+    bytes.set(id + ".received.bin", response);
+    bytes.set(id + ".delivered.bin", Buffer.from(response));
+    const emit = (event, extra = {}) => events.push({ sequence: events.length + 1, request_id: id, event,
+      at: ["upstream_end", "transparent_complete"].includes(event) ? end : start,
+      max_upstream_requests: 32, upstream_requests_admitted: index + 1, budget_requests_rejected: 0, ...extra });
+    emit("request_registered", { method: "POST", path: "/v1/chat/completions",
+      request_sha256: sha(request), upstream_requests_admitted: index });
+    emit("upstream_request_forwarded", { upstream_admitted: true, forwarded: true });
+    emit("response_headers", { response_status: 200, content_type: "text/event-stream", response_encoding: "identity" });
+    emit("upstream_end");
+    emit("transparent_complete", { response_complete: true, received_bytes: response.length, delivered_bytes: response.length,
+      received_sha256: sha(response), delivered_sha256: sha(response) });
+  }
+  p.provider.providerStream = { directory: "/frozen/b28/proxy",
+    ready: { mode: "observe", endpoint: ENDPOINT, max_upstream_requests: 32 }, events,
+    readBytes: (name) => bytes.get(name) };
+}
+
+test("B28 P1 includes a source-bound independent summary in complete calls and actual settings", () => {
+  const p = maintainedAdoptionProof();
+  const checks = evidence.providerEvidenceChecks(p.provider);
+  assert.equal(checks.provider_calls_complete, true);
+  assert.equal(checks.provider_request_settings_match, true);
+  allPass(checks);
+});
+
+test("B28 summary binds the real WS and persisted run session when the seed has no session", async (t) => {
+  const prepared = preparedFixture(t);
+  await evidence.prepare(prepared.dir, { env: prepared.env });
+  const p = maintainedAdoptionProof();
+  p.provider.config.target.session_id = prepared.config().target.session_id;
+  assert.equal(p.provider.config.target.session_id, null);
+  assert.equal(p.wire[0].frame[4].session_id, p.after.action_receipts[0].session_id);
+  const maintenance = evidence.providerEvidence(p.provider);
+  allPass(maintenance.checks);
+  allPass(evidence.scopeEvidenceChecks({ ...p, maintenance }));
+});
+
+for (const [name, mutate] of [
+  ["missing actual join", p => { p.provider.wire = p.wire.filter(row => row.frame[3] !== "phx_join"); }],
+  ["different join session", p => { p.wire.find(row => row.frame[3] === "phx_join").frame[4].session_id = "foreign-session"; }],
+  ["different join acknowledgement session", p => { p.wire.find(row => row.frame[4].response?.joined).frame[4].response.session_id = "foreign-session"; }],
+  ["different author message session", p => { p.wire[0].frame[4].session_id = "foreign-session"; }],
+  ["different persisted run session", p => { p.provider.runs[0].history.transcript.run.session_id = "foreign-session"; }],
+  ["different source result session", p => { p.wire[2].frame[4].session_id = "foreign-session"; }],
+  ["different persisted receipt session", p => { p.after.action_receipts[0].session_id = "foreign-session"; }],
+  ["source result from another run", p => { p.wire[2].frame[4].agent_run.run_id = "foreign-run"; }],
+  ["conflicting explicitly registered session", p => { p.provider.config.target.session_id = "foreign-session"; }],
+]) {
+  test("B28 summary session binding rejects " + name, () => {
+    const p = maintainedAdoptionProof();
+    mutate(p);
+    assert.equal(evidence.providerEvidenceChecks(p.provider).provider_auxiliary_bound, false);
+  });
+}
+
+test("B28 P1 accounts the accepted summary and its ledger without relaxing other canon", () => {
+  const p = maintainedAdoptionProof();
+  const checks = evidence.adoptionEvidenceChecks(p.wire, p.identity, p.wire[2].frame[4], p.artifact,
+    p.before, p.after, p.driverEntry, p.beforeAdoption, evidence.providerEvidence(p.provider));
+  assert.equal(checks.adoption_canon_changes_accounted, true);
+  assert.equal(checks.auxiliary_rows_accounted, true);
+  allPass(checks);
+});
+
+test("B28 P1 passes source-bound maintenance through the full scope consumer", () => {
+  const p = maintainedAdoptionProof();
+  allPass(evidence.scopeEvidenceChecks({ ...p, maintenance: evidence.providerEvidence(p.provider) }));
+});
+
+for (const [name, options, material] of [
+  ["local revision uses the actual accepted fragment", {}, "他三十岁。"],
+  ["formatting uses the actual accepted full chapter", { formatOnly: true }, "他二十五岁。雨没有停。"],
+]) {
+  test("B28 summary " + name, () => {
+    const p = maintainedAdoptionProof(options);
+    assert(p.provider.llmRecords[1].request.body.messages[1].content.endsWith("\n" + material));
+    const maintenance = evidence.providerEvidence(p.provider);
+    allPass(maintenance.checks);
+    allPass(evidence.scopeEvidenceChecks({ ...p, maintenance }));
+  });
+}
+
+test("B28 local summary rejects substituting the full chapter for the actual accepted fragment", () => {
+  const p = maintainedAdoptionProof({});
+  p.provider.llmRecords[1].request.body.messages[1].content =
+    "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + p.expectedText;
+  maintainedTransport(p);
+  assert.equal(evidence.providerEvidenceChecks(p.provider).provider_auxiliary_bound, false);
+});
+
+for (const [name, mutate] of [
+  ["only call ref matches the author", p => { p.provider.llmRecords[1].provider_call_ref = p.provider.llmRecords[0].provider_call_ref; }],
+  ["only run ref matches the author", p => { p.provider.llmRecords[1].provider_run_ref = p.provider.llmRecords[0].provider_run_ref; }],
+  ["unknown independent operation", p => { p.provider.llmRecords[1].step = "unregistered"; }],
+  ["unregistered repair operation", p => { p.provider.llmRecords[1].request.refs.base_refs[0] = "summary_repair:chapter-target"; }],
+  ["unknown summary source", p => { p.provider.llmRecords[1].request.refs.base_refs[0] = "another-source"; }],
+  ["other summary chapter", p => { p.provider.llmRecords[1].request.refs.base_refs[1] = "chapter:chapter-control"; }],
+  ["foreign summary session", p => { p.provider.llmRecords[1].session_id = "foreign-session"; }],
+  ["missing persisted adoption", p => { p.after.action_receipts = []; }],
+  ["wrong persisted source revision", p => { p.after.action_receipts[0].result.persistence.reading_projection.source_revision_ref = "draft:other:4"; }],
+  ["missing new accepted draft", p => { p.after.scope_rows.drafts = p.after.scope_rows.drafts.filter(row => row.id !== "draft-new"); }],
+  ["missing summary terminal", p => { p.provider.appRecords.shift(); }],
+  ["ambiguous summary terminal", p => { p.provider.appRecords.push(structuredClone(p.provider.appRecords[0])); }],
+  ["missing observation", p => { delete p.provider.providerStream; }],
+  ["unsealed summary stream", p => { maintainedTransport(p, { incomplete: true }); }],
+  ["raw response differs from persisted summary", p => { maintainedTransport(p, { summaryText: MAINTENANCE_TEXT + "额外字节" }); }],
+  ["changed original request bytes", p => { const read = p.provider.providerStream.readBytes;
+    p.provider.providerStream.readBytes = name => name === "request-2.bin" ? Buffer.from("{}") : read(name); }],
+  ["extra provider row", p => { p.provider.runs[0].providerRuns.push({ ...p.provider.runs[0].providerRuns[0],
+    id: "unaccounted-row", call_ref: "unaccounted-call" }); }],
+  ["unknown extra call", p => { p.provider.llmRecords.push({ ...structuredClone(p.provider.llmRecords[1]),
+    provider_call_ref: "pcall-extra", provider_run_ref: "prun-extra" }); maintainedTransport(p); }],
+  ["wrong auxiliary effort", p => { p.provider.llmRecords[1].request.body.reasoning_effort = "low"; maintainedTransport(p); }],
+  ["wrong auxiliary max tokens", p => { p.provider.llmRecords[1].request.body.max_tokens = 8192; maintainedTransport(p); }],
+]) {
+  test("B28 complete provider accounting rejects " + name, () => {
+    const p = maintainedAdoptionProof();
+    mutate(p);
+    const result = evidence.providerEvidence(p.provider);
+    assert(Object.values(result.checks).some(value => value === false));
+    if (name.startsWith("only ")) {
+      assert.equal(result.auxiliary.length, 0, "partial author identity must not become an independent call");
+      assert.equal(result.checks.provider_calls_complete, false);
+      assert.equal(result.checks.provider_request_settings_match, false);
+    }
+  });
+}
+
+for (const [name, mutate] of [
+  ["unrelated ledger source", p => { p.after.scope_rows.ledger_entries[0].source_refs = ["chapter_summary:unrelated"]; rebuildAdoptionCanon(p, p.after); }],
+  ["foreign summary work", p => { p.after.scope_rows.chapter_summaries[0].work_id = "foreign-work"; }],
+  ["wrong summary draft version", p => { p.after.scope_rows.chapter_summaries[0].revision_base = "draft:draft-new:3"; }],
+  ["missing ledger rows", p => { delete p.beforeAdoption.scope_rows.ledger_entries; }],
+  ["ledger raw/canonical disagreement", p => { p.after.scope_rows.ledger_entries = []; }],
+  ["foreign ledger work", p => { p.after.scope_rows.ledger_entries[0].work_id = "foreign-work"; rebuildAdoptionCanon(p, p.after); }],
+  ["ledger outside maintenance", p => { p.after.scope_rows.ledger_entries[0].updated_at = "2026-11-23T01:00:02.300Z"; rebuildAdoptionCanon(p, p.after); }],
+  ["new unbound summary row", p => { p.after.scope_rows.chapter_summaries.push({ ...p.after.scope_rows.chapter_summaries[0], id: "summary-foreign", chapter_id: "chapter-control" }); }],
+  ["changed version history", p => { p.after.scope_rows.versions.push({ id: "foreign-version", content: "unexpected" }); }],
+]) {
+  test("B28 P1 rejects " + name, () => {
+    const p = maintainedAdoptionProof();
+    mutate(p);
+    const checks = evidence.adoptionEvidenceChecks(p.wire, p.identity, p.wire[2].frame[4], p.artifact,
+      p.before, p.after, p.driverEntry, p.beforeAdoption, evidence.providerEvidence(p.provider));
+    assert(Object.values(checks).some(value => value === false));
+  });
+}
+
 test("B28 adoption binds the original action result to one stored receipt, one mutation and one new draft", () => {
   allPass(adoptionChecks(adoptionProof()));
 });
 for (const [check, purpose] of [
-  ["canon_only_bound_draft_and_receipt", "only the receipt-bound memory joins the permitted canon delta"],
+  ["adoption_canon_changes_accounted", "only the receipt-bound memory joins the permitted canon delta"],
   ["memory_reference_updates_accounted", "new memory starts at zero without an invented reference log"],
   ["superseded_drafts_exact", "old accepted revisions advance from 1 to 2 with original bytes preserved"],
   ["projection_bound_to_new_draft", "new draft revision 4 matches both persisted receipt and projection"],

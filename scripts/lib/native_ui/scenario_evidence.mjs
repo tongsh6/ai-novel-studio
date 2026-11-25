@@ -47,6 +47,39 @@ export function readProviderObservation(directory) {
   };
 }
 
+// B28/B33 的同一观察预注册入口；场景和回合预算由各消费者显式传入。
+export function checkedScenarioPreregistration(file, dir, { provider, model, endpoint, scenarios, budget }) {
+  regularEvidencePath(file, "file");
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(record.provider, provider, "preregistration provider mismatch");
+  assert.equal(record.runtime?.provider, provider, "preregistration runtime provider mismatch");
+  assert.equal(record.runtime?.model, model, "preregistration model mismatch");
+  assert.equal(path.resolve(ROOT, record.artifact_dir ?? ""), path.resolve(dir), "preregistration output mismatch");
+  assert(Array.isArray(scenarios) && scenarios.length > 0 &&
+    Array.isArray(record.scenarios) && record.scenarios.length === scenarios.length, "preregistration scenarios missing");
+  for (const [index, scenario] of scenarios.entries()) {
+    const frozen = record.scenarios[index];
+    for (const [key, value] of Object.entries(scenario)) assert.deepEqual(frozen[key], value, "frozen scenario mismatch");
+    assert.equal(frozen.input_sha256, createHash("sha256").update(scenario.input).digest("hex"), "frozen input hash mismatch");
+  }
+  assert(budget && Object.keys(budget).length > 0, "consumer budget missing");
+  for (const [key, value] of Object.entries(budget)) assert.equal(record.budget?.[key], value, "frozen budget mismatch");
+  assert.equal(record.budget?.max_manual_retries, 0, "manual retries are not authorized");
+  const limit = record.budget?.max_upstream_requests;
+  assert(Number.isSafeInteger(limit) && limit > 0, "frozen positive HTTP budget missing");
+  assert(typeof record.proxy_dir === "string" && record.proxy_dir.trim() !== "", "preregistration proxy_dir missing");
+  const proxyDir = regularEvidencePath(path.resolve(ROOT, record.proxy_dir), "directory");
+  const readyFile = regularEvidencePath(path.join(proxyDir, "provider-stream-ready.json"), "file");
+  const observed = JSON.parse(fs.readFileSync(readyFile, "utf8"));
+  assert.equal(observed.mode, "observe", "registered observation proxy missing");
+  assert.equal(observed.max_upstream_requests, limit, "proxy HTTP budget mismatch");
+  assert.equal(observed.upstream_endpoint, record.upstream_endpoint, "proxy upstream mismatch");
+  assert.equal(observed.endpoint, endpoint, "runtime endpoint differs from frozen observation");
+  assert(Number.isSafeInteger(observed.pid) && observed.pid > 0, "proxy PID missing");
+  return { path: file, sha256: shaFile(file), proxy_dir: proxyDir, max_upstream_requests: limit,
+    ready_sha256: shaFile(readyFile) };
+}
+
 export const write = (dir, file, value) => {
   assert(!fs.existsSync(path.join(dir, file)), `证据不得覆盖: ${file}`);
   fs.writeFileSync(path.join(dir, file), JSON.stringify(value, null, 2));

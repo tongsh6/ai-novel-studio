@@ -8,12 +8,12 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual as same } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
-  all, assertAllChecks, assertCommonEvidence, assertProviderAndWire, broadcastFrames,
+  all, assertAllChecks, assertCommonEvidence, assertProviderAndWire, broadcastFrames, checkedScenarioPreregistration,
   checkProductionFingerprint, frameBody, frameOf, productionFingerprint, productionTableCounts,
-  read, requestIdentity, requestReplies, rewrite, sentUserMessages, shaFile, withDb, write, writeNativeSummary,
+  read, readProviderObservation, requestIdentity, requestReplies, rewrite, sentUserMessages, shaFile, withDb, write, writeNativeSummary,
 } from "./lib/native_ui/scenario_evidence.mjs";
 import { RUNTIME_PROFILE_ID, assertRuntimeFacts, getRuntimeProfile } from "./lib/native_ui/request_cost_runtime_recipe.mjs";
-import { readBatchAuthoringHistory } from "./lib/native_ui/authoring_history_evidence.mjs";
+import { authoringScope, readBatchAuthoringHistory } from "./lib/native_ui/authoring_history_evidence.mjs";
 import { bindNativeCalls } from "./lib/native_ui/authoring_run_evidence.mjs";
 import {
   canonicalRequestBindingsForProviderCall, providerOperation, readProviderRuns,
@@ -25,8 +25,12 @@ import { planningCanonSnapshot } from "./lib/native_ui/authoring_capture_evidenc
 import { CANON_TABLES, compareAuthoringCanonSnapshots } from "./lib/native_ui/authoring_canon_evidence.mjs";
 import { recordResponseToolCalls, wireTerminal } from "./lib/native_ui/live_run_wait.mjs";
 import {
-  actionAck, actionFrame, actionLabelsFor, actionResult, canonTableSignature, selectPendingAction, writerArtifactMatch,
+  actionAck, actionFrame, actionLabelsFor, actionResult, adoptionMaintenanceOutcome, canonTableSignature, selectPendingAction, writerArtifactMatch,
 } from "./lib/native_ui/authoring_pending_evidence.mjs";
+
+import {
+  ledgerChangesBound, observedProviderResponses, providerCallPairs, scopeRowValues, summaryAuxiliaryFact, summaryRowsAccounted,
+} from "./lib/native_ui/chapter_summary_maintenance_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const SLICE_ID = "b28-scope-authorization";
@@ -91,11 +95,14 @@ export async function prepare(dir, { env = process.env } = {}) {
     target_chapter_title: seedField(dir, "target_title"),
   };
   assert(nonBlank(target.control_chapter_id) && nonBlank(target.target_chapter_id), "seed 缺目标/对照章");
+  const preregistration = checkedScenarioPreregistration(env.B28S_SCOPE_PREREGISTRATION, dir, {
+    provider: observed.provider.selected, model: observed.provider.model, endpoint, scenarios, budget: budgetFor(scenarios.length),
+  });
   write(dir, "production-sources-before.json", productionFingerprint());
   write(dir, CONFIG_FILE, {
     slice_id: SLICE_ID, provider: observed.provider.selected, model: observed.provider.model, endpoint,
     runtime: { profile: profileId, observed, facts_sha256: shaFile(path.join(dir, "runtime-facts.json")) },
-    run_ref: ready.run_ref, ready_at: ready.ready_at, target, budget: budgetFor(scenarios.length),
+    run_ref: ready.run_ref, ready_at: ready.ready_at, target, budget: budgetFor(scenarios.length), preregistration,
     requested_by_env: ids, scenarios, full_matrix: scenarios.length === SCENARIOS.length,
     seed_sha256: shaFile(path.join(ROOT, "scripts/seed_b28_scope_authorization.exs")),
     checkpoints: ["start", ...scenarios.flatMap(({ id, expect }) =>
@@ -125,8 +132,10 @@ function dbSnapshot(dir) {
       db_production_counts: productionTableCounts(dir),
       extra_counts: Object.fromEntries(["drafts", "versions", "author_action_receipts", "chapter_summaries"].map((table) =>
         [table, Number(all(db, "SELECT COUNT(*) AS n FROM " + table)[0].n)])),
-      scope_rows: Object.fromEntries(["drafts", "mutations", "memory_items", "versions", "chapter_summaries"].map((table) =>
-        [table, all(db, "SELECT * FROM " + table + " ORDER BY id")])),
+      scope_rows: Object.fromEntries(["drafts", "mutations", "memory_items", "versions", "chapter_summaries", "ledger_entries"].map((table) => {
+        const rows = all(db, "SELECT * FROM " + table + " ORDER BY id");
+        return [table, table === "ledger_entries" ? scopeRowValues(table, rows) : rows];
+      })),
       action_receipts: all(db, "SELECT * FROM author_action_receipts ORDER BY id").map((row) => ({
         ...row, result: typeof row.result === "string" ? JSON.parse(row.result) : row.result,
       })),
@@ -144,13 +153,102 @@ export function capture(dir, checkpoint) {
   });
 }
 
+// 只证明这次摘要的采纳来源，不调用含维护结果的完整采纳判据，避免循环授信。
+function adoptedSummarySource(context, sourceRef, chapterId) {
+  const { config, wire, snapshots, driverLog, scenarioScopes, appRecords } = context;
+  const results = wire.filter(record => record.direction === "received" && frameOf(record)?.[3] === "turn_result" &&
+    frameBody(record)?.turn_id === sourceRef);
+  assert.equal(results.length, 1, "B28 summary source TurnResult is not unique");
+  const result = frameBody(results[0]);
+  const scopes = scenarioScopes.filter(scope => result.workspace_id === scope.workspaceId &&
+    result.work_id === scope.workId && result.session_id === scope.sessionId &&
+    result.agent_run?.run_id === scope.runId && result.agent_run?.parent_turn_ref === scope.turnId);
+  assert.equal(scopes.length, 1, "B28 summary source run is not owned");
+  const scope = scopes[0];
+  assert(scope.workId === config.target?.work_id, "B28 summary differs from the frozen work");
+  const entries = list(driverLog.scenarios).filter(entry => entry.run_id === scope.runId && entry.turn_id === scope.turnId);
+  assert.equal(entries.length, 1, "B28 summary scenario is not unique");
+  const scenarios = config.scenarios.filter(scenario => scenario.id === entries[0].id && scenario.expect.adopt === true);
+  assert.equal(scenarios.length, 1, "B28 summary has no registered adoption");
+  const scenario = scenarios[0];
+  const sent = sentUserMessages(wire, scenario.input).filter(record => frameBody(record)?.turn_id === scope.turnId);
+  assert.equal(sent.length, 1, "B28 summary author input is not unique");
+  // B28 seed 只登记作品；会话取本次 join/作者原消息，再与持久 run 和后续回执逐字段核定。
+  const sourceScope = authoringScope(wire, sent[0], { workId: scope.workId, parentTurnId: scope.turnId });
+  assert.deepEqual(sourceScope, { workspace_id: scope.workspaceId, work_id: scope.workId,
+    session_id: scope.sessionId, parent_turn_ref: scope.turnId }, "B28 summary author session differs from its persisted run");
+  assert(config.target.session_id == null || config.target.session_id === sourceScope.session_id,
+    "B28 summary conflicts with an explicitly registered session");
+  const identity = { ...scope, topic: requestIdentity(sent[0]).topic, since: sent[0].at };
+  assert(identity.topic === frameOf(results[0])[2] && identity.topic === "workspace:" + scope.workspaceId,
+    "B28 summary source topic differs");
+  const pending = scopePendingArtifacts(wire, identity, result);
+  assert(pending?.length === 1 && pending[0].target_chapter_ref === "chapter:" + chapterId,
+    "B28 summary candidate target is ambiguous");
+  const action = selectPendingAction(result, { artifactId: pending[0].artifact_id, actionType: "accept" });
+  const click = actionFrame(wire, { topic: identity.topic, since: identity.since, action });
+  actionAck(wire, click, { actionStatus: "accepted" });
+  const receipt = frameBody(actionResult(wire, {
+    topic: identity.topic, since: click.at, action, actionStatus: "accepted",
+  }));
+  const projection = receipt.persistence?.reading_projection;
+  assert(action.source_turn_ref === sourceRef && receipt.persistence?.persisted === true &&
+    projection?.chapter_id === chapterId && nonBlank(projection.source_revision_ref), "B28 summary adoption source mismatch");
+  const before = snapshots[scenario.id + "-before-adoption"], after = snapshots[scenario.id];
+  assert(before && after, "B28 summary lacks adjacent adoption snapshots");
+  const stored = list(after.action_receipts).filter(row => row.work_id === scope.workId &&
+    row.session_id === scope.sessionId && row.source_turn_ref === sourceRef && row.action_id === action.action_id &&
+    row.action_type === action.action_type && row.idempotency_key === action.idempotency_key && row.status === "accepted");
+  assert(stored.length === 1 && !list(before.action_receipts).some(row => row.id === stored[0].id) &&
+    same(stored[0].result?.persistence, receipt.persistence), "B28 summary receipt is not the new persisted adoption");
+  const drafts = list(after.scope_rows?.drafts).filter(row => row.id === projection.draft_id);
+  const draft = drafts.length === 1 ? drafts[0] : null;
+  assert(draft?.work_id === scope.workId && draft.status === "ACCEPTED" && draft.scene_id === projection.scene_id &&
+    Number.isSafeInteger(draft.revision) && draft.revision > 0 && typeof draft.content === "string" &&
+    projection.source_revision_ref === "draft:" + draft.id + ":" + draft.revision &&
+    !list(before.scope_rows?.drafts).some(row => row.id === draft.id) &&
+    after.chapter_text?.[chapterId] === draft.content, "B28 summary source is not the actual new draft");
+  const accepted = list(after.accepted_drafts?.[chapterId]);
+  assert(accepted.length === 1 && accepted[0].draft_id === draft.id && accepted[0].scene_id === draft.scene_id &&
+    accepted[0].revision === draft.revision && accepted[0].sha256 === sha(draft.content),
+    "B28 summary chapter projection differs from its draft");
+  const maintenance = adoptionMaintenanceOutcome(appRecords, {
+    workId: scope.workId, chapterId, since: click.at, until: after.at,
+  });
+  assert(maintenance, "B28 summary/ledger terminal pair missing");
+  const artifact = pending[0], items = list(artifact.payload?.items);
+  const formatOnly = artifact.artifact_type === "prose_formatting_plan";
+  assert(formatOnly || (["prose_fragment", "scene_draft"].includes(artifact.artifact_type) &&
+    items.length > 0 && items.every(item => nonBlank(item.body))), "B28 summary candidate body is incomplete");
+  // 普通修订的维护材料是本次候选片段；排版计划才读取已采纳新整章。
+  const text = formatOnly ? draft.content : items.map(item => item.body).join("\n\n");
+  return { before, after, since: click.at, revisionBase: projection.source_revision_ref,
+    text: text.trim(), maintenance };
+}
+
 // 身份关联归现 bindNativeCalls；这里只核本批 runtime、原生请求、完整 canonical 请求和覆盖分母。
-export function providerEvidenceChecks({
+export function providerEvidence({
   config, ready, driverLog, providerStarts = [], llmRecords = [], runs = [], runtimeFacts,
+  appRecords = [], snapshots = {}, wire = [], providerStream = null,
 }) {
   const joined = runs.map((run) => run.calls);
   const rows = runs.flatMap((run) => list(run.providerRuns));
   const records = runs.flatMap((run) => list(run.calls?.records));
+  const scenarioScopes = runs.map(({ history }) => {
+    const scope = history?.transcript?.run;
+    return { runId: scope?.run_id, workspaceId: scope?.workspace_id, workId: scope?.work_id,
+      sessionId: scope?.session_id, turnId: scope?.parent_turn_ref };
+  });
+  const pairs = providerCallPairs(llmRecords, rows, scenarioScopes);
+  const authors = pairs.filter(pair => pair.matched), independent = pairs.filter(pair => !pair.matched);
+  const observationRequired = providerStream !== null || Boolean(config.preregistration) || independent.length > 0;
+  const observation = observationRequired ? tryValue(() => observedProviderResponses(config, providerStream, llmRecords)) : null;
+  const auxiliary = independent.map(({ record }) => summaryAuxiliaryFact(record, {
+    config, appRecords, snapshots, observation, wire, scenarioScopes, driverLog, adoptedSummarySource,
+  }));
+  // 本消费者只接同次采纳后的摘要；未知辅助操作/repair 不借共享读取分支获得资格。
+  const auxiliaryBound = auxiliary.every(fact => fact.bound && nonBlank(fact.revision_base) && fact.maintenance) &&
+    new Set(auxiliary.map(fact => JSON.stringify([fact.work_id, fact.chapter_id, fact.source_ref]))).size === auxiliary.length;
   const profile = tryValue(() => getRuntimeProfile(config.runtime?.profile));
   const checks = {
     provider_identity_matches: Boolean(profile && config.provider === profile.provider && ready.provider === config.provider &&
@@ -162,8 +260,11 @@ export function providerEvidenceChecks({
     native_calls_real_sse: joined.length > 0 && joined.every((calls) =>
       calls?.measured?.bound_request_count > 0 &&
       calls.measured.sse_decoder_tool_only_count === calls.measured.bound_request_count),
-    provider_calls_complete: llmRecords.length > 0 && records.length === llmRecords.length && rows.length === records.length &&
-      llmRecords.every((record) => records.filter((bound) => bound === record).length === 1),
+    provider_observation_bound: !observationRequired || Boolean(observation),
+    provider_auxiliary_bound: auxiliaryBound,
+    provider_calls_complete: authors.length > 0 && authors.length + auxiliary.length === llmRecords.length &&
+      rows.length === authors.length && records.length === authors.length && auxiliaryBound &&
+      authors.every(({ record, row, owned }) => row && owned && records.filter(bound => bound === record).length === 1),
     provider_call_identities_unique: llmRecords.length > 0 && ["provider_call_ref", "provider_run_ref"].every((field) =>
       llmRecords.every((record) => nonBlank(record[field])) && new Set(llmRecords.map((record) => record[field])).size === llmRecords.length),
     provider_rows_match: rows.length > 0 && rows.every((row) =>
@@ -174,12 +275,12 @@ export function providerEvidenceChecks({
         record.request?.url === config.endpoint.replace(/\/+$/u, "") + "/chat/completions" &&
         record.request.body?.model === config.model;
     }),
-    provider_request_settings_match: Boolean(profile && llmRecords.length > 0 && llmRecords.every((record) => {
-      const owned = rows.filter((row) => row.id === record.provider_run_ref && row.provider_call_ref === record.provider_call_ref);
-      const compaction = owned.length === 1 && owned[0].purpose === "other" && providerOperation(owned[0]) === "transcript_compaction";
-      return owned.length === 1 && record.request?.body?.reasoning_effort === profile.reasoning_effort &&
-        record.request.body.max_tokens === (compaction ? 8192 : profile.max_tokens);
-    })),
+    provider_request_settings_match: Boolean(profile && llmRecords.length > 0 && auxiliaryBound &&
+      pairs.every(({ record, row, owned, matched }) => {
+        const compaction = row?.purpose === "other" && providerOperation(row) === "transcript_compaction";
+        return (!matched || owned) && record.request?.body?.reasoning_effort === profile.reasoning_effort &&
+          record.request.body.max_tokens === (compaction ? 8192 : profile.max_tokens);
+      })),
     canonical_requests_bound: runs.length > 0 && runs.every(({ history, calls }) =>
       list(calls?.records).length > 0 && calls.records.every((record) => {
         const bindings = canonicalRequestBindingsForProviderCall(record, { messages: history?.sessionMessages });
@@ -191,7 +292,11 @@ export function providerEvidenceChecks({
         runtimeFacts.provider.model === config.model && runtimeFacts.provider.endpoint === config.endpoint;
     }) === true,
   };
-  return checks;
+  return { checks, auxiliary, transport: observation?.measured ?? null };
+}
+
+export function providerEvidenceChecks(input) {
+  return providerEvidence(input).checks;
 }
 
 function scopeTurn(wire, identity, scenario) {
@@ -432,12 +537,12 @@ export function candidateScopeChecks({ artifact, scenario, target, before, histo
   return { checks, expectedText };
 }
 
-export function adoptionEvidenceChecks(wire, identity, result, artifact, before, after, driverEntry, beforeAdoption) {
+export function adoptionEvidenceChecks(wire, identity, result, artifact, before, after, driverEntry, beforeAdoption, maintenance = {}) {
   return tryValue(() => {
     assert(beforeAdoption, "采纳缺真实点击前快照，旧批次不得回填");
     for (const snapshot of [before, beforeAdoption, after]) {
       assert(snapshot?.scope_rows && Array.isArray(snapshot.action_receipts), "采纳缺原始行快照");
-      for (const table of ["drafts", "mutations", "memory_items", "versions", "chapter_summaries"]) {
+      for (const table of ["drafts", "mutations", "memory_items", "versions", "chapter_summaries", "ledger_entries"]) {
         const rows = snapshot.scope_rows[table];
         assert(Array.isArray(rows) && rows.every((row) => nonBlank(row?.id)) &&
           new Set(rows.map((row) => row.id)).size === rows.length, "采纳缺唯一原始行: " + table);
@@ -510,7 +615,18 @@ export function adoptionEvidenceChecks(wire, identity, result, artifact, before,
             stat.last_referenced_at === item.last_referenced_at;
         });
     });
-    const signaturesMatch = CANON_TABLES.filter((table) => !["drafts", "memory_items", "author_action_receipts"].includes(table))
+    const facts = list(maintenance.auxiliary).filter(fact => fact.work_id === identity.workId &&
+      fact.chapter_id === chapterId && fact.source_ref === action.source_turn_ref &&
+      fact.revision_base === projection?.source_revision_ref);
+    const summariesBound = tryValue(() => summaryRowsAccounted(beforeAdoption, after, facts)) === true;
+    const sources = facts.filter(fact => fact.bound && fact.result === "accepted" &&
+      fact.maintenance?.summary.event.endsWith(".done") && fact.maintenance?.ledger.event.endsWith(".done"))
+      .map(fact => ({ chapterId, summaryRef: "chapter_summary:" + chapterId + "@" + fact.revision_base,
+        from: fact.maintenance.summary.timestamp, to: fact.maintenance.ledger.timestamp }));
+    const ledgerBound = tryValue(() => ledgerChangesBound({
+      before: beforeAdoption, after, workId: identity.workId, sources,
+    })) === true;
+    const signaturesMatch = CANON_TABLES.filter((table) => !["drafts", "memory_items", "author_action_receipts", "ledger_entries"].includes(table))
       .every((table) => canonTableSignature(beforeAdoption.authoring_canon, table) !== null &&
         canonTableSignature(beforeAdoption.authoring_canon, table) === canonTableSignature(after.authoring_canon, table));
     const resultRecords = wire.filter((record) => record.direction === "received" &&
@@ -563,12 +679,11 @@ export function adoptionEvidenceChecks(wire, identity, result, artifact, before,
       receipt_effect_matches: receipt.adoption_effect?.mode === artifact.payload?.adoption_effect?.mode &&
         projection?.adoption_effect === artifact.payload?.adoption_effect?.mode,
       memory_bound_to_action: memoryBound && previousMemoriesKept,
-      canon_only_bound_draft_and_receipt: signaturesMatch && memoryBound && previousMemoriesKept && memoryStatsMatch &&
+      adoption_canon_changes_accounted: signaturesMatch && ledgerBound && memoryBound && previousMemoriesKept && memoryStatsMatch &&
         after.authoring_canon.tables.drafts.row_count === beforeAdoption.authoring_canon.tables.drafts.row_count + 1 &&
         afterRows.drafts.length === beforeRows.drafts.length + 1 &&
         after.authoring_canon.tables.author_action_receipts.row_count === beforeAdoption.authoring_canon.tables.author_action_receipts.row_count + 1,
-      auxiliary_rows_unchanged: same(beforeRows.versions, afterRows.versions) &&
-        same(beforeRows.chapter_summaries, afterRows.chapter_summaries),
+      auxiliary_rows_accounted: same(beforeRows.versions, afterRows.versions) && summariesBound,
       // 点击采纳不调用模型；新增正文记忆不借用要求前后同 ID 集的 no-write 判据。
       memory_reference_updates_accounted: memoryStatsMatch && previousMemoriesKept &&
         memories.every((item) => item.reference_count === 0 && item.last_referenced_at === null) &&
@@ -579,7 +694,7 @@ export function adoptionEvidenceChecks(wire, identity, result, artifact, before,
 
 // verify 与内存反例共用；结果/采纳只从真实 wire 取，不信 driver 的成功/失败标记兜底。
 export function scopeEvidenceChecks({
-  scenario, target, before, after, beforeAdoption = null, wire, identity, judgment, driverEntry, history = null, records = [],
+  scenario, target, before, after, beforeAdoption = null, wire, identity, judgment, driverEntry, history = null, records = [], maintenance = {},
 }) {
   const actual = scopeTurn(wire, identity, scenario);
   const result = actual.result;
@@ -625,7 +740,7 @@ export function scopeEvidenceChecks({
         frameBody(record)?.action?.target_ref === artifact.artifact_id),
     });
   } else {
-    Object.assign(checks, adoptionEvidenceChecks(wire, identity, result, artifact, before, after, driverEntry, beforeAdoption), {
+    Object.assign(checks, adoptionEvidenceChecks(wire, identity, result, artifact, before, after, driverEntry, beforeAdoption, maintenance), {
       exact_candidate_effect_persisted: typeof candidate.expectedText === "string" &&
         after?.chapter_text?.[target.target_chapter_id] === candidate.expectedText,
       target_bytes_changed: before?.chapter_text?.[target.target_chapter_id] !== after?.chapter_text?.[target.target_chapter_id],
@@ -671,13 +786,27 @@ export function verify(dir, sliceIdArg) {
       same(driverLog.scenario_order, config.scenarios.map(({ id }) => id)) && driverLog.incomplete === false,
   };
   const measured = { provider: config.provider, model: config.model, endpoint: config.endpoint, scenarios: {} };
-  const runs = [];
-  for (const [index, scenario] of config.scenarios.entries()) {
+  const runs = config.scenarios.map(scenario => {
     const history = readBatchAuthoringHistory(dir, { wire: evidence.wire, messageText: scenario.input, workId: config.target.work_id });
     const scope = history.transcript.run;
-    const calls = bindNativeCalls(dir, scope, history, evidence.llmRecords);
-    const providerRuns = readProviderRuns(dir, scope);
-    runs.push({ history, calls, providerRuns });
+    return { history, calls: bindNativeCalls(dir, scope, history, evidence.llmRecords),
+      providerRuns: readProviderRuns(dir, scope) };
+  });
+  const marker = config.preregistration;
+  assert(marker, "B28 preregistration marker missing");
+  assert.deepEqual(checkedScenarioPreregistration(marker.path, dir, {
+    ...config, budget: budgetFor(config.scenarios.length),
+  }), marker, "B28 preregistration or observation changed");
+  const maintenance = providerEvidence({
+    config, ready, driverLog, providerStarts: evidence.providerStarts, llmRecords: evidence.llmRecords, runs,
+    runtimeFacts: read(dir, "runtime-facts.json"), appRecords: evidence.appRecords, snapshots, wire: evidence.wire,
+    providerStream: readProviderObservation(marker.proxy_dir),
+  });
+  Object.assign(checks, maintenance.checks);
+  measured.maintenance = { auxiliary: maintenance.auxiliary, transport: maintenance.transport };
+  for (const [index, scenario] of config.scenarios.entries()) {
+    const { history, calls } = runs[index];
+    const scope = history.transcript.run;
     const sent = sentUserMessages(evidence.wire, scenario.input)[0];
     const next = config.scenarios[index + 1];
     const nextSent = next ? sentUserMessages(evidence.wire, next.input)[0] : null;
@@ -695,7 +824,7 @@ export function verify(dir, sliceIdArg) {
     const scenarioChecks = scopeEvidenceChecks({
       scenario, target: config.target, before, after: snapshots[scenario.id],
       beforeAdoption: snapshots[scenario.id + "-before-adoption"] ?? null, wire, identity,
-      judgment: decisions.at(-1), driverEntry: matches[0], history, records: calls.records,
+      judgment: decisions.at(-1), driverEntry: matches[0], history, records: calls.records, maintenance,
     });
     Object.assign(checks, Object.fromEntries(Object.entries(scenarioChecks).map(([key, value]) => [scenario.id + "." + key, value])));
     const result = scopeTurn(wire, identity, scenario).result;
@@ -707,10 +836,6 @@ export function verify(dir, sliceIdArg) {
         conditional_branch: scenario.expect.conditional ? list(scopePendingArtifacts(wire, identity, result)).length ? "candidate" : "reply" : null },
     };
   }
-  Object.assign(checks, providerEvidenceChecks({
-    config, ready, driverLog, providerStarts: evidence.providerStarts, llmRecords: evidence.llmRecords, runs,
-    runtimeFacts: read(dir, "runtime-facts.json"),
-  }));
   const last = snapshots[config.scenarios.at(-1).id];
   Object.assign(checks, Object.fromEntries(Object.entries(unchangedCanon(last, snapshots.final)).map(([key, value]) =>
     ["restore." + key, value])));

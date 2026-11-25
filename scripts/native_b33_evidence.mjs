@@ -47,7 +47,7 @@ import {
   writeNativeSummary,
   shaFile,
   readProviderObservation,
-  regularEvidencePath,
+  checkedScenarioPreregistration,
 } from "./lib/native_ui/scenario_evidence.mjs";
 import { RUNTIME_PROFILE_ID, assertRuntimeFacts, getRuntimeProfile } from "./lib/native_ui/request_cost_runtime_recipe.mjs";
 import { providerOperation, providerTurnMatchesParent, readProviderRuns } from "./lib/native_ui/authoring_call_evidence.mjs";
@@ -224,33 +224,8 @@ function sha256Hex(text) {
 }
 
 
-function checkedPreregistration(file, dir, { provider, model, scenarios }) {
-  regularEvidencePath(file, "file");
-  const record = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.equal(record.provider, provider, "B33 preregistration provider mismatch");
-  assert.equal(record.runtime?.provider, provider, "B33 preregistration runtime provider mismatch");
-  assert.equal(record.runtime?.model, model, "B33 preregistration model mismatch");
-  assert.equal(path.resolve(ROOT, record.artifact_dir ?? ""), path.resolve(dir), "B33 preregistration output mismatch");
-  assert(Array.isArray(record.scenarios) && record.scenarios.length === scenarios.length, "B33 preregistration scenarios missing");
-  for (const [index, scenario] of scenarios.entries()) {
-    const frozen = record.scenarios[index];
-    for (const [key, value] of Object.entries(scenario)) assert.deepEqual(frozen[key], value, "B33 frozen scenario mismatch");
-    assert.equal(frozen.input_sha256, sha256Hex(scenario.input), "B33 frozen input hash mismatch");
-  }
-  for (const [key, value] of Object.entries(B33_BUDGET)) assert.equal(record.budget?.[key], value, "B33 frozen budget mismatch");
-  assert.equal(record.budget?.max_manual_retries, 0, "B33 manual retries are not authorized");
-  const limit = record.budget?.max_upstream_requests;
-  assert(Number.isSafeInteger(limit) && limit > 0, "B33 requires a frozen positive HTTP budget");
-  assert(nonEmpty(record.proxy_dir), "B33 preregistration proxy_dir missing");
-  const proxyDir = regularEvidencePath(path.resolve(ROOT, record.proxy_dir), "directory");
-  const readyFile = regularEvidencePath(path.join(proxyDir, "provider-stream-ready.json"), "file");
-  const observed = JSON.parse(fs.readFileSync(readyFile, "utf8"));
-  assert.equal(observed.mode, "observe", "B33 requires the registered observation proxy");
-  assert.equal(observed.max_upstream_requests, limit, "B33 proxy HTTP budget mismatch");
-  assert.equal(observed.upstream_endpoint, record.upstream_endpoint, "B33 proxy upstream mismatch");
-  assert(Number.isSafeInteger(observed.pid) && observed.pid > 0, "B33 proxy PID missing");
-  return { path: file, sha256: shaFile(file), proxy_dir: proxyDir, max_upstream_requests: limit,
-    ready_sha256: shaFile(readyFile) };
+function checkedPreregistration(file, dir, config) {
+  return checkedScenarioPreregistration(file, dir, { ...config, budget: B33_BUDGET });
 }
 
 export function readB33ProviderObservation(dir, config) {
@@ -284,10 +259,8 @@ export async function prepare(dir, { env = process.env } = {}) {
   assert(scenarios.length > 0, `B33_SCENARIOS 过滤后没有场景: ${process.env.B33_SCENARIOS}`);
 
   const preregistration = checkedPreregistration(env.B33_NATIVE_PREREGISTRATION, dir, {
-    provider: ready.provider, model, scenarios,
+    provider: ready.provider, model, endpoint, scenarios,
   });
-  const proxyReady = read(preregistration.proxy_dir, "provider-stream-ready.json");
-  assert.equal(proxyReady.endpoint, endpoint, "B33 runtime endpoint differs from frozen observation");
 
   const seedWorkId = seedField(dir, "work_id");
   const target = seedWorkId
