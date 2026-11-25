@@ -6,13 +6,13 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **下一执行点 R17**：按总计划 §34 先完成旧协议、重复规则与角色职责清理；R08 未通过语义验收暂挂，不代签。R17 后核 B91 CP0 具体运行依赖，必要时独立实施其运行改造，再恢复 R08 受影响语义验收；R18→R19 保持原前置。B89 继续 deferred，B90 独立后续。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B91 | **下一执行点 CP1**：按 B87 §36、B91 §10 已核定的运行契约及实际入场预算基线，先冻结独立反例，收敛真实派发准入、反馈循环与累计资源；随后按原 checkpoint 验证必要生命周期机制，具体阻塞解除后优先返回 R17 补证，再回 R08。B91 自身完整 DoD 保持，不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B91 | **R17 后、R08 回验前优先 CP0**：按 B87 §34 核轮/步/尝试/计划/执行映射及 §33 失败的实际运行依赖；确证阻塞才按本任务原 checkpoint 实施并验证必要改造，否则返回 B87，不等 B91 整项。优先于 B90、不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
+| B87 | **R17 已验证成果冻结，WR01 终局待补证；R08 暂挂**。按 §36 等 B91 CP0 核定并闭合确证依赖后恢复 R17 缺项、独立签收；再恢复 R08 受影响语义回验，随后 R18→R19 原前置不变。B89 继续 deferred。 | [B87](slices/B87-model-interaction-request-projection.md) |
 | B90 | 应用侧排版能力的后续完善：CP0 复用 ADR-0029/B28 核工具易用性和交付链，完整排版产品验收独立承接；优先级低于 B91，不反向阻塞 B87。 | [B90](slices/B90-application-formatting-capability.md) |
 | B71-CP4b | 承接 B82 的 G3/G5 补证与 Responses/Anthropic 实模证据（[B82](slices/B82-b71-golden-slice-evidence.md)）；B81 CP5 的 G6 证据已于 2026-11-11 复核（[B81 §12](slices/B81-session-canonical-authoring-history.md#12-2026-11-11-完成度复核)）；**实模窗口已由 Splash 解除（2026-11-13 全局授权，预注册 `scenario-preregistration-splash-20261113.json` 已冻结）**；B71 的 CP5 最终收口含契约/索引/台账回写。 | [B71](slices/B71-provider-message-fidelity.md) |
 | B85 | 模型上下文窗口用户设置（UI 入口）：作者反馈「窗口不应写死、要开放给用户配置」；初始能力已落（`preferences.json` 的 `context_windows` + Tauri 启动注入 sidecar env，`044092df`），现设置 UI、局部验证与待验收范围见原任务；暂停其后续原生验收，优先 B87 主线，不由本排期代签完成。 | [B85](slices/B85-model-context-window-settings.md) |
@@ -21,7 +21,7 @@
 | B78 | 存量大模块拆分（P1：WorkspaceChat / dialogue_planning_service / agent_run_server / turn_execution_service / adoption_repository）；治理机制与 ratchet 门禁已落地，本任务只做结构化拆分，**B87 R17 后**按「一次一个文件、独立 refactor commit」排期 | [B78](slices/B78-module-size-debt.md) |
 | B79 | 存量书稿导入 + 导入后分析建档；**待作者确认启动**，且 **B87 R02/R05 后**（材料/来源结构化稳定）按 [B79](slices/B79-work-import-and-analysis.md) CP0 契约冻结 → CP1 确定性导入链推进；B80 前置梳理已完成（2026-11-08）。 | [B79](slices/B79-work-import-and-analysis.md) |
 
-依赖排序：B87 按原任务 §4、§20.2、§34 最新裁决及共享 README 推进；R17 不等待 R08 完整语义 PASS，R18/R19 原前置不变。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
+依赖排序：B87 按原任务 §4、§20.2、§34 与 §36 最新裁决及共享 README 推进；B91 不等待 R17 整体签收才开工，R17/R08 的实质缺证须闭合，不因重排自动 PASS；R18/R19 原前置不变。其余层次保持：B81、B71 机制、VS-00L/ADR-0035为基础；B42/B64在R05/R06后；B28根因在R06后；Q1C/B48/B27/B57/B38在R07/R08后；B82/B71实模在R04/R17后；I10在R18/R19后。B85/B88/B72/AU08可按原条件并行，B78/B79在B87后；B83凭证阻塞，B50/B68不重开。
 
 ## 阻塞
 

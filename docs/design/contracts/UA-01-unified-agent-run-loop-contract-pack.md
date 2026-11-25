@@ -600,6 +600,23 @@ step planning
 final synthesizer
 ```
 
+### 6.1 B91 多轮多步与唯一资源账（2026-11-26 作者确认方向，CP0 实施契约）
+
+本节为 B91 的增量目标，细化 §1、§3、§5、§6、§8–§10；旧 profile 数字与历史验收只说明当时实现。与 VS-00L §16.7 联动。B91 CP1–CP3 尚待实现/验证，不能据本节声称当前运行时已具备目标能力。既有作者授权、版本、采纳、bounded/durable、真实来源及单动作 re-gate 不降级。
+
+**身份与顺序（不新增 Round/TurnRun/Step 表）。** 一次作者输入或绑定作者动作有真实 source ref；AgentRun 绑定 workspace/work/session/parent_turn_ref 与当前 goal.version，内部继续不是新作者 turn。运行轮是同一 run 中一次明确开始、持续执行、到有证据停止的段，第一轮由 run_started，后续轮由已停止后合法继续/续轮的持久化 AgentEvent 开始事实锚定；用既有 run_id + event sequence 标识（原 event payload 承载必要的原因、goal.version 和轮归属）。UI 订阅、断线重连、同轮 checkpoint 恢复、角色切换、普通纠错、重规划均不自动起新轮；只有真实边界结束后合法启动新段才产生新轮。无须作者新输入也不得捏造它。steer 仍由 TurnInteractionService 原始记录，更新 goal.version；同轮安全点切换或确需下一轮由真实运行状态决定。轮终态与 run 终态分开；初始零步停止也有轮事实。实际 ProviderRun 沿现 owner_refs 关联轮起始事件及 AgentStep（没有 AgentStep 的维护不伪造），必要的最小身份字段仅在现记录/事件中补齐并同批迁移真实消费者。
+
+- 模型交互步 = 一次新逻辑请求及该响应的实际工具调用/观察/校验结果，纯回答也是一步；角色与 PlanStep 不是模型步。新语义请求或收到拒收后重新推理均是新步。以本步首次 provider_call_ref 为逻辑锚点，step 序由该轮串行准入顺序派生；真实传输重发使用新的实际 provider_call_ref/provider_run_id，owner_refs 关联相同逻辑锚点和实际 attempt 序号，不能复用唯一物理 ref 覆盖原结果。没有派发的拒绝不算实际模型调用，保留准入失败事实；无法确认派发则标记未知，核实前不能释放其占用或假称成功。当前 Gateway/Execution 统一调用 identity、ProviderRunLog 唯一持久化事实边界仍有效；不创建新的消息/运行记录真源。
+- AgentPlan.PlanStep/plan_version/cursor 是计划导航，AgentStep 是实际执行/编排单位，ToolCall/ToolRequest/ToolResult/Observation 是独立的真实工具因果。每次具副作用派发仍逐调用重新过门，已完成效果依据真实回执及幂等键判定，不因 transport retry、plan patch、轮切换、steer 或 restore 重做。每个逻辑模型步可有契约允许的零或多个工具调用；不更改现专业单工具 Schema。预算中计划游标不等于累计消耗：现 consumed_budget.steps 为实际 runtime 步计数，execution_steps 目标改为累计已准入的计划执行单位（同一单位内模型纠错不增执行单位）；计划导航保持 stage_state 原 owner；author_max_steps/已选 scope 仍是明确作者额度，不能因重规划或重置游标扩大。计数含失败的真实执行，前置拒收不计作成功。兼顾 UI/Why/Replay 的命名、数据投影与作者已授权选择回执，不能把新累计字段装回旧 cursor 语义。
+
+**资源政策（唯一准入、分账不分裂）。** AgentRunBudget 统一派生 run 入场 grant、硬上限、计划成本估算及已有作者扩额动作；AgentRun.budget 为当前有效 grant，consumed_budget 为同一 run 的累计投影。AgentRunServer 串行裁决准入与状态，ExecutionOrchestrator 继续持有执行授权 gate；ProviderRunLog 复用现唯一持久事实与 initialized 准入/派发/终局事务，推广至实际需核账的业务调用（不可把现仅维护来源的特殊 admit_operation 原样冒充通用准入）。优先复用当前执行依赖与回执边界，不把函数/预算回调塞进模型请求，不建第二套费用表。每次实际派发前对同一 run/goal/version/授权/剩余额度和未结算 reservations 原子核准，避免同一步 Writer/Reviewer/纠错/维护分别用同一旧快照余额。占用额度与实际消费区分，终局后核同一 ref 幂等结算，不能执行后用 max(事件计数, 结果计数)掩盖漏记或双算；旧报告 execution_counts 迁为同一实际 ref 的核账/投影，不保留平行真源。ProviderRun.started、实际 request_dispatched、最终输出、失败/cancel/未知结果语义分开。GET /models 等传输探测单独记录，不是模型步。独立辅助文本调用的 canonical IR 仍无伪 run/author；真正从 run 触发的摘要、盘点、压缩/补偿、质量与规划调用在 Execution owner 绑定真实 run/轮并计同一资源账；独立后台维护有自身合法 owner 和有限政策，不能既不归属又漏记或双算。缺身份/来源不能派发新的受控调用。
+
+默认数值策略：不以 WR01 14 POST 推定所有任务需要14次，不换一个任意局部常量。CP0 已用实际 run_spec_for_profile 冻结12种入场 profile、默认/作者步数1/3 共36个 spec（B91 §10.3）；将这组已有 grant 迁为 AgentRunBudget 的唯一入场政策，不运行两套旧新公式。普通判断入口原 grant=28步/6工具/33 Provider；直入正文 profile 原为6/3/11，旧路由切换后会覆盖成8/3/13。目标普通入口保留其已准入的累计资源 envelope，不因选定正文 profile 或计划变短缩为13，也不自动提高到100；这是有意取消中途缩减同一 run 资源的政策变化，而非额外授权。角色范围、候选限制、显式作者 scope 仍按当前实际授权收紧。AgentRunBudget 现绝对硬帽50执行单位/50工具/100 Provider 调用仅作既有安全天花板而不是每次默认 grant，不自动提高；max_replans 依实际有效 profile 和显式 author grant 核定，不把旧估算 +2 或 +4 当授予次数。CP1 迁移冻结的数值并核所有实际入口及明确作者选择，不能依附于删除的探索/纠错次数公式动态改变默认 grant；没有 AgentRun 的独立操作保留其实际有限操作政策，不能假借普通 run 的33额度。grant 真正不足且未达硬帽时使用现作者 budget action 明确增量且不越硬帽；硬帽耗尽则据实停止。无需因内部交换两次就额外打扰作者。计划可用成本估算解释预计不足、建议选择范围，不等同实际资源耗尽；每项准入按本动作需要的维度检查（零工具操作不因工具额度为0而拒绝）。禁止把 pending_artifact 数量、计划耗尽、模型回复、外部测试等待耗尽直接改写成 goal_satisfied。候选上限仅禁止追加超额候选；目标未达、需评审或需作者判断时保留真实状态。
+
+**继续/停止与时间。** 有可修正错误且剩余授权与资源允许时继续当前逻辑链；复用现 progress_signatures/观察/回执，用已证目标/范围/错误细节/实际请求与结果判断新增进展，不以相同 error_code 或任意两次为停止条件，不添加收费模型/关键词路由。重复相同有效输入、同样失败、没有新信息/效果时停止或等待并说明；不同参数/新观察仍可前进。遇需作者、新授权或资源真耗尽，按原状态/动作协议停等；目标证据满足才完成，取消触达实际 Provider，迟到响应可审计而不再派发旧目标动作。单次 Provider deadline/token 上限、run 累计资源、客户端等待/测试观察期限三者独立；本次不凭 WR01 360s 为产品新设 wall-clock 上限，不把未见有效消费者的 AgentRunPolicy.max_elapsed_ms/max_retries_per_step/no_progress_threshold 静默激活成新硬顶，CP1/CP2 核 schema/调用/既有实际策略后删除无效字段或归唯一政策。客户端断开不等同取消；bounded 实际 runtime 丢失继续走 AgentRunService.close_lost_bounded 的条件终态，保留已完成副作用，不承诺跨进程自动恢复；durable 核 checkpoint、版本、资源及真实执行事实后安全续行。同轮恢复不重置预算，不以新的 process/attempt 号伪造新轮。当前协议演进不新增 B77 外部事件/Goal 总线、B89 自动采纳或 B50 多 Agent。
+
+实施与验收按 B91 原 CP1–CP3：先固化可独立推翻的准入/计数/纠错/预算反例并迁移真实消费者，再迁移既有打断/恢复与可见状态，最后实际原生/实模验证。原 §6 的历史 profile 数值与 CP 证据保留；本节不代签原场景或 R17/R08。
+
 ## 7. agent_run_start
 
 Planner 可建议一个 primary action：

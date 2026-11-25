@@ -483,7 +483,7 @@ checkpoint 的 `discussion` 只存 `response_text/response_sha256/provider_call_
 
 ### 16.7 修订结果校验、同一交换预算与作者动作边界
 
-- 原生协议解析与应用修订范围校验属于同一次工具交换。`NativeToolExchange` 是唯一重试循环；先保存 assistant 原始响应，再校验原生调用集合和输出结构，最后执行应用提供的纯结果校验。任一校验失败都以原 call_id 追加 failed validation 和具体纠正依据，仍失败的末次响应也闭合。总共最多两次实际 Provider 调用，不能在 application 外层再次调用工具形成嵌套重试；调用预算不足时应提前停止，不能执行后再把计数压低。
+- 原生协议解析与应用修订范围校验属于同一次工具交换。`NativeToolExchange` 是该交换唯一反馈循环；先保存 assistant 原始响应，再校验原生调用集合和输出结构，最后执行应用提供的纯结果校验。任一校验失败都以原 call_id 追加 failed validation 和具体纠正依据，仍失败的末次响应也闭合。**2026-11-26 B91 CP0 目标修订**：旧「最多两次实际 Provider 调用」作为历史实现/验收策略保留，不再是目标契约。现 NativeToolExchange、AuthoringOperation 与 JudgmentProtocol 的硬截断须在 B91 CP1 同源迁移，依据 [UA-01 §6.1](UA-01-unified-agent-run-loop-contract-pack.md#61-b91-多轮多步与唯一资源账2026-11-26-作者确认方向cp0-实施契约) 的同一 run 授权、资源准入和真实进展继续；不新增外层嵌套重试，不因切换角色或续轮重置额度，不放宽原协议/范围校验。传输尝试与收到反馈后的新逻辑步分开，实际派发前入账，错误原件不改写，未知结果不补造工具回执。B91 CP1–CP3 尚未实现/验收，当前两次实现仍是事实，不以设计替代验证。
 - 应用校验以内部调用选项传递：`AuthorizedToolExecutor → Toolbox → creative adapter → Real → NativeToolExchange`。应用只接收已归一的 ToolResult，返回 `:ok` 或包含 `reason_code/detail/message` 的失败事实；不得修改创作字节、执行 I/O 或授予采纳权限。回调、进程、函数不进入 ToolRequest.input、Request IR、RunEnvelope 或 checkpoint。agent 仅消费回调契约，不引用 application/domain 模块。
 - 阶段输出契约与 companion 范围校验在交换内拒绝；只有所有校验通过的响应才返回应用组装 tentative artifact。ArtifactAssembler 成功/失败由 application 通过统一 AuthoringSession 结果边界闭合仍 pending 的当前调用；协议已经拒绝的调用不得重复闭合。成功、失败、前置拒绝返回同一会话形状与实际调用数，已有历史优先保留，零调用不能伪造模型响应。
 - 对话修订继承当前作者输入所创建 run 的判断/观察与权限快照；同一修订中的纠错只追加原生结果，不重复作者 user 消息、不改写旧材料。质量发现卡片修订使用 Channel 已创建的新修订 run，保留源候选、finding refs、目标版本与新作者动作的 provenance，不创建嵌套 run，不继承源 run 权限。
