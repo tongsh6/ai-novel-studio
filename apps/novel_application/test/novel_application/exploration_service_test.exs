@@ -3,16 +3,9 @@ defmodule NovelApplication.ExplorationServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
 
-  alias NovelApplication.{
-    AdoptionWorkflow,
-    AuthoringTranscript,
-    ExplorationService,
-    JudgmentProtocol,
-    WorkService
-  }
+  import NovelApplication.TestChapterReadFixtures
 
-  alias NovelCommon.RequestIR
-  alias NovelCommon.RequestIR.Projection
+  alias NovelApplication.{AdoptionWorkflow, ExplorationService, WorkService}
   alias NovelDomain.ProseFormatting
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
@@ -227,6 +220,8 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert page1.prose_range == %{start: 1, end: 6000}
     assert page1.next_offset == 6000
     assert page1.versions == %{"draft:#{first_draft.id}" => first_draft.revision}
+    assert page1.facts.prose_chars == 6010
+    assert page1.facts.effective_word_count == 6008
 
     # 首场末尾 CR 与分隔符首个 LF 合成一个 "\r\n" grapheme，留在首页末；另一个 LF 进续读页。
     assert page_body(page1) == first_draft.content <> "\n"
@@ -237,6 +232,7 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert page2.prose_range == %{start: 6001, end: 6010}
     assert page2.next_offset == nil
     assert page2.versions == %{"draft:#{second_draft.id}" => second_draft.revision}
+    assert page2.facts == page1.facts
     assert page_body(page2) |> String.graphemes() |> hd() == "\n"
     assert page_body(page2) == "\n" <> second_draft.content
 
@@ -721,7 +717,14 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:ok, empty} = ExplorationService.run(work.id, "chapter_read", "空章")
     assert empty.outcome == :empty_content
-    assert empty.facts == %{prose_chars: 0}
+
+    assert empty.facts == %{
+             prose_chars: 0,
+             effective_word_count: 0,
+             word_count_basis:
+               "sum of per-segment grapheme counts after retaining only Unicode Letter (L) and Number (N) characters"
+           }
+
     assert empty.activity_summary == "已核查章节「空章」（第 1 章）：本章尚无已采纳正文。"
     refute empty.activity_summary =~ "检索未完成"
   end
@@ -779,124 +782,11 @@ defmodule NovelApplication.ExplorationServiceTest do
              %{tool: "prose_search", query: "x", outcome: "observed", facts: %{}, source_refs: []}
   end
 
-  defp projected_observation(work_id, observation) do
-    author_text = "核对当前作品材料，再决定下一步。"
-    call_id = "r06-observation"
-
-    transcript =
-      AuthoringTranscript.new(
-        %{
-          run_id: "r06-projection",
-          work_id: work_id,
-          workspace_id: "r06-workspace",
-          goal: %{text: author_text}
-        },
-        base_text: "按实际供应的作品材料判断。",
-        author_text: author_text,
-        author_turn_ref: "author_turn:r06-projection",
-        tools: [%{name: observation.tool, description: "读取作品材料", input_schema: %{type: "object"}}]
-      )
-      |> AuthoringTranscript.append_assistant("", [
-        RequestIR.tool_call_block(observation.tool, %{"query" => observation.query}, call_id)
-      ])
-      |> JudgmentProtocol.observation_transcript(%{tool_call_id: call_id}, observation)
-
-    assert {:ok, ir} = AuthoringTranscript.to_request_ir(transcript)
-    assert :ok = RequestIR.validate(ir)
-    assert {:ok, body} = Projection.project(ir, "chat_completions")
-    [tool] = Enum.filter(body.messages, &(&1.role == "tool"))
-    assert tool.tool_call_id == call_id
-    assert Enum.any?(body.messages, &(&1 == %{role: "user", content: author_text}))
-    Jason.decode!(tool.content) |> Map.fetch!("data")
-  end
-
-  defp page_body(observation) do
-    [_, rest] = String.split(observation.summary, "\n【正文】", parts: 2)
-    [_, body] = String.split(rest, "\n", parts: 2)
-    body |> String.split("\n【续读】", parts: 2) |> hd()
-  end
-
   defp long_prose(total) do
     base = "灰烬从指缝里漏下去，井底的风把纸灰卷成一条细线，他数着自己的呼吸等回声。"
 
     String.duplicate(base, div(total, String.length(base)) + 1)
     |> String.slice(0, total)
-  end
-
-  defp insert_chapter(work_id, volume_id, title, seq, plan_direction \\ nil) do
-    %Chapter{}
-    |> Chapter.changeset(%{
-      work_id: work_id,
-      volume_id: volume_id,
-      title: title,
-      seq: seq,
-      plan_direction: plan_direction
-    })
-    |> Repo.insert!()
-  end
-
-  defp seed_work_with_chapter(title, prose, opts \\ []) do
-    work_id =
-      case opts[:work_id] do
-        nil ->
-          {:ok, work} = WorkService.create(%{"title" => opts[:work_title] || "探索读取验证作品"})
-          work.id
-
-        work_id ->
-          work_id
-      end
-
-    volume =
-      if opts[:new_volume] do
-        %Volume{}
-        |> Volume.changeset(%{
-          work_id: work_id,
-          title: "卷#{System.unique_integer([:positive])}",
-          seq: System.unique_integer([:positive])
-        })
-        |> Repo.insert!()
-      else
-        case Volume |> Repo.all() |> Enum.find(&(&1.work_id == work_id)) do
-          nil ->
-            %Volume{}
-            |> Volume.changeset(%{work_id: work_id, title: "卷一", seq: 1})
-            |> Repo.insert!()
-
-          volume ->
-            volume
-        end
-      end
-
-    chapter =
-      insert_chapter(work_id, volume.id, title, opts[:seq] || 1, opts[:plan_direction])
-
-    scene =
-      %Scene{}
-      |> Scene.changeset(%{work_id: work_id, chapter_id: chapter.id, title: "场1", seq: 1})
-      |> Repo.insert!()
-
-    %Draft{}
-    |> Draft.changeset(%{
-      work_id: work_id,
-      scene_id: scene.id,
-      content: prose,
-      status: AdoptionStatus.accepted(),
-      revision: 1
-    })
-    |> Repo.insert!()
-
-    if summary = opts[:summary] do
-      %ChapterSummary{}
-      |> ChapterSummary.changeset(%{
-        work_id: work_id,
-        chapter_id: chapter.id,
-        status: AdoptionStatus.accepted(),
-        summary_text: summary
-      })
-      |> Repo.insert!()
-    end
-
-    {work_id, chapter.id}
   end
 
   defp seed_work_with_prose do

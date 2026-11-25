@@ -4,6 +4,7 @@ Ecto.Adapters.SQL.Sandbox.mode(NovelPersistence.Repo, :manual)
 
 Code.require_file(Path.expand("support/agent_run_cleanup_helper.exs", __DIR__))
 Code.require_file(Path.expand("support/agent_event_relay_helper.exs", __DIR__))
+Code.require_file(Path.expand("support/chapter_read_fixtures.exs", __DIR__))
 
 defmodule NovelApplication.TestAssertions do
   @moduledoc false

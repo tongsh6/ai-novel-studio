@@ -25,7 +25,7 @@ defmodule NovelApplication.ExplorationService do
     WorkArchiveService
   }
 
-  alias NovelDomain.ProseFormatting
+  alias NovelDomain.{ProseFormatting, ProseWordCount}
 
   alias NovelPersistence.{
     ChapterSummaryRepo,
@@ -717,15 +717,21 @@ defmodule NovelApplication.ExplorationService do
         {prose, spans} = ReadingProjectionRepo.assemble_chapter_prose(content.scenes)
         total = String.length(prose)
 
+        facts = %{
+          prose_chars: total,
+          effective_word_count: content.word_count,
+          word_count_basis: ProseWordCount.counting_basis()
+        }
+
         cond do
           total == 0 and offset == 0 ->
-            empty_chapter_observation(work_id, chapter, volume, query)
+            empty_chapter_observation(work_id, chapter, volume, query, facts)
 
           offset > total ->
-            out_of_range_observation(chapter, query, total)
+            out_of_range_observation(chapter, query, facts)
 
           offset == total ->
-            end_of_chapter_observation(chapter, query, offset, total)
+            end_of_chapter_observation(chapter, query, offset, facts)
 
           true ->
             paged_chapter_observation(
@@ -735,20 +741,16 @@ defmodule NovelApplication.ExplorationService do
               query,
               offset,
               {prose, spans},
-              total,
-              content.word_count
+              facts
             )
         end
 
-      {:error, :not_found} when offset > 0 ->
-        out_of_range_observation(chapter, query, 0)
-
-      {:error, :not_found} ->
-        empty_chapter_observation(work_id, chapter, volume, query)
+      {:error, :not_found} = error ->
+        error
     end
   end
 
-  defp empty_chapter_observation(work_id, chapter, volume, query) do
+  defp empty_chapter_observation(work_id, chapter, volume, query, facts) do
     header = header_sections(work_id, chapter, volume, 0)
     sections = header.sections ++ ["【正文】还没有已采纳正文。"]
 
@@ -760,13 +762,13 @@ defmodule NovelApplication.ExplorationService do
        [chapter_ref(chapter) | header.refs],
        clip: false,
        outcome: :empty_content,
-       facts: %{prose_chars: 0},
+       facts: facts,
        activity_summary: "已核查章节#{chapter_title_line(chapter)}：本章尚无已采纳正文。",
        extra: Map.merge(chapter_identity_keys(chapter), Map.take(header, [:coverage, :omissions]))
      )}
   end
 
-  defp out_of_range_observation(chapter, query, total) do
+  defp out_of_range_observation(chapter, query, %{prose_chars: total} = facts) do
     {:ok,
      observation(
        "chapter_read",
@@ -776,13 +778,13 @@ defmodule NovelApplication.ExplorationService do
          ~s(从头读用 offset=0，或使用上一页给出的 next_offset。),
        [chapter_ref(chapter)],
        outcome: :out_of_range,
-       facts: %{prose_chars: total},
+       facts: facts,
        activity_summary: "已核查章节#{chapter_title_line(chapter)}：读取位置超出正文范围（共 #{total} 字符）。",
        extra: chapter_identity_keys(chapter)
      )}
   end
 
-  defp end_of_chapter_observation(chapter, query, offset, total) do
+  defp end_of_chapter_observation(chapter, query, offset, %{prose_chars: total} = facts) do
     range = if offset > 0, do: "（第 #{offset} 字符之后）", else: ""
 
     {:ok,
@@ -793,7 +795,7 @@ defmodule NovelApplication.ExplorationService do
          "\noffset 到达正文末尾（共 #{total} 字符）#{range}，已无更多内容。",
        [chapter_ref(chapter)],
        outcome: :end_of_content,
-       facts: %{prose_chars: total},
+       facts: facts,
        activity_summary:
          "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（已到正文末尾，共 #{total} 字符）。",
        extra: chapter_identity_keys(chapter)
@@ -807,8 +809,7 @@ defmodule NovelApplication.ExplorationService do
          query,
          offset,
          {prose, spans},
-         total,
-         word_count
+         %{prose_chars: total, effective_word_count: word_count} = facts
        ) do
     {page_text, page_end, next_offset} = chapter_page(prose, offset, total)
     start_byte = byte_size(String.slice(prose, 0, offset))
@@ -830,7 +831,7 @@ defmodule NovelApplication.ExplorationService do
        chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
        [chapter_ref(chapter) | header.refs],
        clip: false,
-       facts: %{prose_chars: total},
+       facts: facts,
        activity_summary: chapter_activity_summary(chapter, offset, page_end, total, word_count),
        extra:
          Map.merge(chapter_identity_keys(chapter), %{

@@ -136,7 +136,9 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
              "structure_chapter_count" => 3,
              "written_chapter_count" => 1,
              "empty_chapter_count" => 2,
-             "total_word_count" => 13
+             "total_effective_word_count" => 13,
+             "word_count_basis" =>
+               "sum of per-segment grapheme counts after retaining only Unicode Letter (L) and Number (N) characters"
            }
 
     assert content["coverage"]["chapters"] == %{"status" => "not_read"}

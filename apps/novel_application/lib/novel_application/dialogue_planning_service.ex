@@ -42,6 +42,7 @@ defmodule NovelApplication.DialoguePlanningService do
     DialogueContext,
     DialogueFrame,
     OrchestratorDecision,
+    ProseWordCount,
     TentativeArtifactSet
   }
 
@@ -1737,7 +1738,8 @@ defmodule NovelApplication.DialoguePlanningService do
         structure_chapter_count: audit.chapter_count,
         written_chapter_count: audit.chapter_count - audit.empty_chapter_count,
         empty_chapter_count: audit.empty_chapter_count,
-        total_word_count: audit.total_word_count
+        total_effective_word_count: audit.total_word_count,
+        word_count_basis: ProseWordCount.counting_basis()
       }
     end
   end

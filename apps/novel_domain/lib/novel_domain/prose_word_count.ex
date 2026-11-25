@@ -17,6 +17,12 @@ defmodule NovelDomain.ProseWordCount do
 
   @effective_char ~r/[^\p{L}\p{N}]/u
 
+  @doc "有效字数的计量定义；不负责选择正文来源。"
+  @spec counting_basis() :: String.t()
+  def counting_basis,
+    do:
+      "sum of per-segment grapheme counts after retaining only Unicode Letter (L) and Number (N) characters"
+
   @doc """
   统计单段文本的正文有效字数。`nil` 记为 0。
   """
