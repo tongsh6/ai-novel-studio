@@ -64,7 +64,7 @@ project:
       scope: project_wide
 
   currentFocus:
-    summary: B87 model interaction system refactoring, R00-R19 execution plan.
+    summary: B87 model interaction system refactoring, R00-R08 and R17-R19; scheduling follows tasks/NEXT.md.
     source: tasks/NEXT.md
 
 governance:
@@ -227,5 +227,5 @@ governance:
       source:
         type: current_work_plan
         reference: tasks/NEXT.md
-      updatedAt: "2026-11-13T15:00:00+08:00"
+      updatedAt: "2026-11-25T15:32:18+08:00"
   pendingChanges: []

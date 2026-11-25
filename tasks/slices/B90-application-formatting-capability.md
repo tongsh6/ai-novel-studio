@@ -23,7 +23,7 @@
 | 真实章节材料、独立预览、对话调整 | `PendingArtifactWorkflow` | 复用现入口与 `formatting_preview`，不把应用预览冒充模型原文 |
 | 版本、覆盖、事务重算、同章替代 | `AdoptionRepository`、`AdoptionWorkflow` | 保持原子性、幂等、历史及人工采纳 |
 | 候选、预览与操作 | 现 `candidate_set`、`UICards`、`available_actions` | 复用真实产品入口；不新增验收钩子或旁路页面 |
-| 共享维护证据 | `scripts/lib/native_ui/native_b28_scope_evidence.mjs` 与 B33 已有判据 | 单一维护 owner；按实际消费者复用，不放宽正文/事实保护 |
+| 共享维护证据 | `scripts/native_b28_scope_evidence.mjs` 与 B33 已有判据 | 单一维护 owner；按实际消费者复用，不放宽正文/事实保护 |
 
 开工仍须按最新 HEAD 逐项审计 `reuse / refactor-and-retire / truly-new / reject`，证明目标一致、职责合理且有真实消费者；查到已有实现不等于它已经满足当前目标。任何契约调整先回原设计文档，同批迁移现役消费者，不保留无消费者的兼容分支。
 

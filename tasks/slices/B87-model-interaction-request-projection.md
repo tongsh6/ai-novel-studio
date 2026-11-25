@@ -14,7 +14,7 @@
 | R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
 | R06 作者可见表达 | **原范围 PASS** | C9 实模原 DoD 通过；WR01 真实语义/来源与当前未知类别整卡显示、恢复共同闭合；最终测试源 det06 14/14、同源完整 F0-04 通过。旧实模失败不回签，最终文档身份与交付按 §27.9 收口 | §27.8–§27.9；原失败与裁决见 §17、§24–§27.7 |
 | R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
-| R08 目标、范围与来源语义 | **doing / NOT PASS** | 事实夸大、T1 歧义及讨论/执行/授权语义继续核定；P2 排版闭环转 B90，通用纠错与轮步预算转 B91；旧失败保留，P1 共享维护核账继续按原 owner 处理 | §19.45–§19.51、§21.2–§21.3、§23、§28 |
+| R08 目标、范围与来源语义 | **doing / NOT PASS** | 事实夸大、T1 歧义及讨论/执行/授权语义继续核定；P2 排版闭环转 B90，通用纠错与轮步预算转 B91；P1 维护核账消费者已修正并独立重核，原生失败与维护文学语义边界保留 | §19.45–§19.51、§21.2–§21.3、§23、§28–§29 |
 | R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
 | R18 长篇创作全链回归 | **未开始；前置未满足** | 等 R02–R08 与 R17 完成；负责专业创作质量回归 | §20.2 |
 | R19 最终 A/B 与关闭 | **未开始；前置未满足** | 等 R00–R08、R17 / R18 PASS；保留原三轮及最终实模 / Tauri 验收 | §20.2 |
@@ -4410,3 +4410,56 @@ R18 的纯排版场景改为已有保护机制的受影响回归，新的排版�
 原 P2 交付原件 `artifacts/slice-verify/b87-r08-20261122/feedback-20261124-01/delivery-final-01.json`、§23 记录与全部旧失败/预算/hash 保持原样。其排版专项后续状态仅由 B90 持有，通用反馈与运行政策后续状态由 B91 持有；本总文档只保留移交依据，不复制两任务进度。B28 既有历史完成与 scoped 成功证据不重写。
 
 本次只创建任务并同步 B87/R08/R18/R19、B89/B28/B77 回链、共享协议、索引和 NEXT。基线在 `artifacts/slice-verify/b90-b91-scope-registration-20261125/scope.json`；检查按 tasks/README 和 quality-gates §2.4 的文档变更要求进行，不能据此宣称运行时、模型或原生产品验收通过。
+
+## 29. 最新批次核定与 P1 共享维护核账接续（2026-11-25）
+
+### 29.1 状态与真实剩余范围
+
+从干净且与上游一致的 `d8aca05fcf5f28dbfda09365bb94413a65652c5b` 重新核定，维持顶部 **8/12 批按各自范围签收**：R00–R07 各自原范围结论成立，R08 doing / NOT PASS，R17–R19 尚未满足原前置。R06/R07 最终交付索引中 39/85 份带 path＋sha256 的原件均存在且哈希一致；这支持证据完整性，不替代语义判断。R07 旧交付索引中的 R06 blocked 是封存历史，不修改原件。
+
+R08 的 discussion_only?、过去指代/句长来源判断与普通候选 guard_scope_text/layout_only/paragraph_index/numeric_change/revision_target_hint，已分别在 `4fa6e5e7`、`6b74643b` 退役，当前源码检索无上述现役符号。任务卡只纠正这项状态漂移；其替代链的真实意图、来源、对象和授权语义仍须验收，不因删除词表签 PASS。画像 currentFocus 仅同步已生效范围，不改人工确认的研发阶段或责任。
+
+T1 原件仍证明：两章同名、初始无唯一当前章，两目标及消歧规则已供应；模型在预算耗尽前自行选章并进入 mission。当前未发现 APP 丢失目标或强制选最新章的新证据，因此本次不加关键词、单样例提示、第二语义 Gate 或无依据重跑。事实/coverage 夸大、讨论/条件/授权等原失败继续保留。B89 deferred；B90/B91 独立承接按 §28，不重新加成 B87 整项前置。
+
+### 29.2 本次明确目标、七问与存在性裁决
+
+本次继续闭合 §21.3 已登记的 P1 **证据消费者缺口**。实际 owner 为 `scripts/native_b28_scope_evidence.mjs`；R06 已抽出 `scripts/lib/native_ui/chapter_summary_maintenance_evidence.mjs`，B28 尚未消费。旧 P1 快照没有 ledger 原始行、配置没有原始流预注册标记，不能事后补造这些事实把旧 72/77 或失败 binding 改绿。
+
+| 七问 | 本次范围 |
+|---|---|
+| Contract | 现 B28 整章修订/作者采纳和共享 ChapterSummary 维护证据合同；原始作者调用与独立摘要调用分别绑定来源，再完整核账。无产品/Frozen 契约变化。 |
+| Invariant | 正确作品/章节、作者采纳回执、新正文和 draft 版本、摘要请求/响应/持久结果及 ledger 来源一致；未知调用、额外写入、缺流/缺行仍失败。 |
+| Boundary | 现 B28 capture/prepare/provider/adoption verifier、同责测试和必要共享纯证据 owner/索引；产品 apps/frontend、模型规则/参数/预算和 B89/B90/B91 实现均不变。 |
+| Consumer | B28 现外部原生 driver → 同次只读快照/原始流 → 现证据 verifier；B33 与 R06 共享消费者同步回归。 |
+| Proof | 先用独立正反例打红旧四项假设，再核合法摘要/ledger及错作品、错源版本、缺行、重复/未知调用、坏流与参数变化；不把“多了行”或 step 名称当归属依据。 |
+| Acceptance Driver | 沿现 B28 真实 Tauri 外部驱动，仅原 P1 一场：原句、一次发送、一次采纳、零补话/人工或 harness 重试，维护真实终态后采样再重开。具体预注册和源码冻结先于执行。 |
+| Exploration | 产品求证/材料/引用资格不变；只核已发生维护的真实来源，不新造材料或从最终结果反推请求。 |
+
+**存在性裁决：reuse / refactor-and-retire。** 复用现 `providerCallPairs / observedProviderResponses / summaryAuxiliaryFact / summaryRowsAccounted / ledgerChangesBound / scopeRowValues`、通用 `readProviderObservation` 和现采纳回执/等待 owner。退役“所有调用都有作者 ProviderRun”与“摘要/ledger 必须不变”的错误假设；保留其它 canon、versions、对照章、原内容及授权约束。不新增产品模块、实体、表、字段、工具、API、配置、平行证据体系或模型循环；必要本地函数只服务同一 verifier 的真实调用者。
+
+本次开始范围已由 `task_done --begin` 封存至 `artifacts/slice-verify/b87-r08-status-20261125/scope.json`；初次因 Runner PATH 缺 node 未建立范围，补齐已安装 Node 路径后成功，未安装/升级依赖。基线 compile --warnings-as-errors 成功。单场仍保留 `full_matrix=false`；即使 P1 全部适用判据成立，也不签 B28 全矩阵、R08 完整语义或 B87 完成。
+
+### 29.3 实施、实际原生结果与独立重核
+
+B28 已接入共享维护 owner，capture 保留原始 ledger 行，prepare/verify 复核冻结预注册与原始 HTTP/SSE；作者调用和独立摘要分别核身份、来源与全量分母。采纳核账只接受真实 action/receipt/new draft 证明后的摘要和 ledger 差异；其它 canon、版本、对照章及恢复保护保持。普通局部修订维护材料是本次候选正文片段，排版维护才使用采纳后全章，不能为核账方便混为一份。
+
+| 实际执行 | 结果与界限 |
+|---|---|
+| `p1-evidence-red-01/` → 初次实现 | 旧“全部调用都有作者 ProviderRun、摘要/ledger 必须不变”假设的独立正例 2 项 RED；随后受影响共享回归 605/605。 |
+| `p1-native-01/`，原生目录 `b28-scope-authorization-tauri-native-r08-p1-account-20261125-01/` | 一次原输入、一次真实采纳；12 HTTP＝7 POST＋5 GET，其中6次作者调用、1次独立摘要，未超32上限。作者/harness重试为0，应用内部有2次协议纠正，全部计入实际调用。driver退出0、runner退出1，原summary为 **73/79 FAIL**，真实execution binding保持failed。 |
+| `p1-evidence-red-02/` → `p1-evidence-green-03/` | 原生暴露新增消费者错误：seed没有session，却被强制当作真实session比较。第二轮195项中5项RED；改为复用现authoringScope核WS join/ACK/作者消息，再逐字段对持久run、采纳回执和来源后，同7文件共享回归 **615/615、0 skip**。 |
+| `p1-reanalysis-02/reanalysis.json` | 新消费者对同一原件实际重算 Provider 14/14＋P1 scope 49/49，共 **63/63**。原5项失败均闭合；7项批次门、8项恢复门及full_matrix保留原值，不冒称重跑。合并机械视图78/79，仅full_matrix=false，**不是新的原生PASS**。 |
+
+原生执行的全源码指纹为 `0437ffcb05cd7ae07d93b7e4785664bf43c4dcb950ecfa4ef6b4a5bf47e48ebe`；最终消费者SHA为 `093e0597e12763e7e9cda3a121d07a4556015c4abcee620f1658613cc106d295`。二者属于不同阶段，旧summary、失败binding和模型结果不回签为修改后源码的新执行。重核报告SHA为 `f3c2a030e26e6c669c8cf29b5c1b99934d44c667632f3a923e47eb2aeb45157a`。
+
+`p1-reanalysis-01/` 因SQLite只读打开在原目录产生临时sidecar而被严格文件集合守卫拒绝，失败保留；已核主DB及独审封存的96份原始文件内容哈希均未变。02使用逐字节一致的隔离DB副本，59个实际输入的前后内容/集合严格一致，没有放宽守卫或新增模型调用。
+
+独立审读见 `p1-native-01/independent-review-01/independent-semantic-review.json`（SHA `87d70df3fc514367a16c3f63b42af0cee3311f590feb6cb582d2863dad1980a5`）：本条P1的六个情节节点、顺序、人物年龄及一次采纳有原件支持，候选与新正文、摘要与原始SSE逐字一致，对照章不变。**维护文学语义仍为UNRESOLVED**：“职业惯性”等解读不能由来源一致升级为作者已确立的人物事实；本场未证明后续消费者不会把解释当事实，不借机械核账签摘要文学语义或R08整体。
+
+### 29.4 当前结论、工程出口与接续入口
+
+本次P1证据消费者缺口已修正，完整R08仍 **doing / NOT PASS**；R17–R19前置不变。T1同名消歧、讨论/条件/授权、未读或局部材料夸大及统计口径混用等原失败继续保留。无需用重复实模样本证明脚本修正，也不因维护来源核账通过收缩原语义目标。
+
+后继设计先处理已查实的统计供给口径：N3原始末次请求 `artifacts/slice-verify/b87-r08-20261122/completion-20261123-01/b28-n3-native-03/proxy-01/provider-stream-requests/request-5.bin`（SHA `6cf18e480c61960a669d1cbbc945d7321463da44c8079d7ee2aa385c6f10df37`）中，作品total_word_count=88没有显式口径，章节facts只有prose_chars=70，有效字数61仅在正文页文字中。模型已读到61仍用88−70，故供给定义缺口成立，但它不是已证明的充分失败原因。复用ProseWordCount、ProseAudit、ReadingProjection、DialoguePlanningService与ExplorationService原owner，先回VS-00M裁定模型投影；不预冻新增字段方案、不另造计数算法。真实算法是逐段删除非Unicode L/N后String.length再求和；零有效字数不证明没有已采纳文本，读取not_found也不得新扩写成已确认零。UI/API审计字段及正文分页坐标不凭此次诊断改名。
+
+本次工程出口为同一scope的完整 `bash scripts/task_done.sh --scope artifacts/slice-verify/b87-r08-status-20261125/scope.json --top 10`、Top10处置复核、任务/画像/文档检查与实际diff审查。精确执行/退出码、源指纹、扫描及分组提交/远端核账封存在本接续目录 `delivery-final-01.json`；只有该文件内实际成功的检查可称通过。工程收口不代签R08 DoD，本次没有产品apps/frontend变化。
