@@ -199,6 +199,8 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 普通两轮及额外八轮分页上界保持；续页资格只来自真实上一页的同来源精确坐标。所有新增纯 DTO 字段和查询形状的存在性、首消费者、独立反例及退役对象见 B87 §16.2；本节不宣称实现或验收完成。
 
+**R08 统计事实口径（2026-11-25，实施前裁决）。** N3 真实请求存在作品总有效字数与章正文分页字符数混用的供给缺口。仅对当前模型投影作前向修订：`facts.work.chapter_statistics.total_effective_word_count` 替代该投影原 `total_word_count`，章 `chapter_read` 的 `facts.effective_word_count` 直接取同次真实 `chapter_content.word_count`，二者的 `word_count_basis` 由现 `ProseWordCount.counting_basis/0` 唯一描述计量算法（逐段移除非 Unicode L/N，再求各段 grapheme 数之和）。统计对象为当前已采纳正文，不含候选、历史稿、计划或摘要；`written_chapter_count` 与 `empty_chapter_count` 仍是同 audit 中有效字数正数/零的章数，不声称零有效字数的章没有文本。`prose_chars` 仍是 canonical 拼接正文的原始 grapheme 长度（含标点、空白与分隔符），仅用于正文长度/坐标，不得和有效字数相减。分页各页、成功空正文、已读到末尾和已确认越界均可返回同次读取已知的整章统计；没有读到正文的 ref、不存在对象或读取失败不得供应已确认零。统计完整不等于正文完整，原 source refs、正文页范围、版本/hash、next_offset 与 Base/Observation 信用不变。复用 ProseWordCount、ProseAudit、ReadingProjectionRepo/Service 与原 Scope/Observation 消费链；不新增计数算法、持久化、全章默认投喂、工具或第二套请求构造。UI/API 审计 `total_word_count/word_count` 与分页坐标不变，历史请求不回填。
+
 ### 5.3 事实/意图/观察分界
 
 | 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |
@@ -492,6 +494,8 @@ WR02 的现役采集由 scenario_evidence.readProviderReadOnlySnapshot 与 nativ
 B71 checkpoint 的全会话 pending 权威沿现只读 GET /api/works/:work_id/sessions/:session_id → WorkSessionService.show → WorkSessionRepo.adoption_state；该 owner 已按持久交互及真实 resolved 身份投影全会话待采纳集合。退役从全部 AgentRun.pending_artifact_refs 并集推导全会话 pending 的新错误接线。每个 checkpoint 保存当时真实同作品/会话 HTTP 响应及采集身份，以实际 pending artifact 身份集合和数量消费；不读取跨会话 inbox、不用会创建/激活会话的 resume，不从最终 DB 回填旧快照。缺证、截断、错作品/会话、空或重复身份关闭，不能补 0。新候选以 after IDs 减 before IDs 并与真实发布对象绑定，不能用净计数差掩盖旧 A 消失而新 B 产生；当前 TurnResult 的本轮 pending 数量仍保持其独立语义。HTTP 识别、capture、state/behavior 判据与现测试同批迁移，连续性只比较稳定状态事实，采集时间/原响应留在证据外壳，不建第二 pending registry。现 native_b71_evidence capture 入口沿 ready 已归属 transport 端口访问同回环主机代理；ready.api_url 仍表示后端直连，不改其旧语义。每次 GET 冻结请求起止窗口，以 fetch 收到的解压后原字节 SHA 对账现 proxy body_state.sha256，并核解码 JSON 全对象等于记录 body，再与该窗口新增的唯一完整 HTTP 记录绑定；proxy 的 at 是请求开始时间，较早在途响应不能借日志新尾段混入。现 proxy.responseScope 同步识别 session show 的 work.id/session.id；读侧要求原记录真实存在、每 checkpoint request_id 唯一，before 采集完成早于实际作者发送、after 开始晚于同 run 实际业务结果和运行终态且在下一发送前；最终 DB 状态不能倒推检查点当时已经完成，继续复用现 wireTerminal 的真实运行帧并与 DB 归属/状态对账。只认 ACTIVE 且 read_only=false 的同会话集合；pending_adoption_turn_results 是源 TurnResult 原件，不要求其历史候选并集等于当前 pending_adoptions。
 
 为补齐旧Q3合法停等后未发送的条件成立用例，允许在现corpus/registry另登记Q1→Q2→Q4三步数据分支：保留原三条字节、预期与S2，新的case/journey身份按连续序号冻结；原四步分支、Q3与旧证据保持。不得复用停等旧会话、代答或虚构pending，原稿与修订稿须由新批真实前两轮产生。B28缺场沿现子集选择各自从原seed单独执行；新批预算由B87 §19.44预先限定，执行后不得为取得通过扩充。
+
+**R08 作者确认的收敛裁决（2026-11-25）。** 模型负责理解意图、决定需取证/澄清/讨论或建议执行；APP 负责可信事实、已有工具和确定性对象/版本/来源/权限/采纳边界。优先补真实供给/能力缺口，不增关键词路由、第二语义判官、特例 prompt 或为通过样例而后处理模型内容。现有目标歧义与授权机制先核独立正反例；同名但充分上下文已消歧不强制询问，无充足证据不能把模型猜测当作者授权。采纳状态不等于信息事实性质；来源绑定与正文/摘要推断的语义信用应分别核定，只有查实责任缺口才修改现 owner。保留原三轮、完整语义矩阵、原生 Tauri、A/B 和真实调用证据；预注册有限批次，不反复重跑刷成功。应用、验收消费者缺陷须修复；正确充分材料和可行能力/边界下的模型语义失败保留 FAIL 原件、独立归因与影响，逐项明确残余风险裁决，不能改签失败或自动豁免原三轮/作者主权/系统不变量。批次签收评价应用机制达成与实际作者效果，不要求证明模型永远不出错。B89、B90、B91 独立承接，不作为整项前置，实际共享缺陷仍据证定责。
 
 ## 7. 授权、风险与采纳：完整安全模型（替代旧 R10 巨型任务）
 

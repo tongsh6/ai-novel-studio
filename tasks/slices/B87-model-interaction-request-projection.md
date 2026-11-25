@@ -4463,3 +4463,17 @@ B28 已接入共享维护 owner，capture 保留原始 ledger 行，prepare/veri
 后继设计先处理已查实的统计供给口径：N3原始末次请求 `artifacts/slice-verify/b87-r08-20261122/completion-20261123-01/b28-n3-native-03/proxy-01/provider-stream-requests/request-5.bin`（SHA `6cf18e480c61960a669d1cbbc945d7321463da44c8079d7ee2aa385c6f10df37`）中，作品total_word_count=88没有显式口径，章节facts只有prose_chars=70，有效字数61仅在正文页文字中。模型已读到61仍用88−70，故供给定义缺口成立，但它不是已证明的充分失败原因。复用ProseWordCount、ProseAudit、ReadingProjection、DialoguePlanningService与ExplorationService原owner，先回VS-00M裁定模型投影；不预冻新增字段方案、不另造计数算法。真实算法是逐段删除非Unicode L/N后String.length再求和；零有效字数不证明没有已采纳文本，读取not_found也不得新扩写成已确认零。UI/API审计字段及正文分页坐标不凭此次诊断改名。
 
 本次工程出口为同一scope的完整 `bash scripts/task_done.sh --scope artifacts/slice-verify/b87-r08-status-20261125/scope.json --top 10`、Top10处置复核、任务/画像/文档检查与实际diff审查。精确执行/退出码、源指纹、扫描及分组提交/远端核账封存在本接续目录 `delivery-final-01.json`；只有该文件内实际成功的检查可称通过。工程收口不代签R08 DoD，本次没有产品apps/frontend变化。
+
+## 30. 作者确认 R08 机制收敛及统计供给实施（2026-11-25）
+
+作者在“解决 R08 的方案是什么”讨论中明确“同意建议推荐”，随后“开工”。生效设计见 VS-00M §5.2.3 后续统计裁决与 §6.4，任务卡 DoD 同步：机制缺陷关闭、模型失败独立证据和残余风险裁决，保留原三轮与其他原定语义边界、有限预注册实模、不反复刷样本。B89/B90/B91 独立；原 R08 未通过记录、R17→R19 前置保持。
+
+**本 checkpoint 七问与存在性核对（实施前）。** Contract：现 Scope facts.work.chapter_statistics 与 chapter_read Observation；Invariant：作品/章同源有效字数、正文坐标与有效统计分离，未知不作零、覆盖不升格、授权与采纳不变；Boundary：domain 计量定义→application 现 Scope/Exploration→common RequestIR/三 wire（只消费、不改），不改 persistence、agent、web、frontend、UI/API 审计或 DB；Consumer：真实 Judgment 请求及后续真实工具结果。Proof：独立含标点/空白/分隔符/零有效非空文本/未找到、缺页与三 wire 恢复测试；以既有 B28 N3/T1 和 B33/原三轮外部 Tauri 驱动补真实作者效果，既有旧失败仍保留；Acceptance Driver：复用已有 native_b28_scope、native_b33 与原三轮入口，无产品验收开关；Exploration：chapter_read 同次正文读取事实经现 request_observation/visible observations 回流，原 Base/Observation 授信与覆盖不变。查重：ProseWordCount/ProseAudit/ReadingProjectionRepo/Service、DialoguePlanningService、ExplorationService 均 reuse；模型投影字段 `total_effective_word_count` 替换旧同义字段，`effective_word_count` 复用现 chapter_content.word_count，`word_count_basis` 由唯一现计量 owner 新增纯元数据函数提供（查无同义定义），raw `prose_chars` 保留当前长度职责；不新增模块/实体/持久化/工具/配置/规则判官，其他未证实缺口暂不改。开始基线 f4e3237b，scope `artifacts/slice-verify/b87-r08-statistics-20261125/scope.json`，原 N3 失败见 §29.4。确定性测试预期来自独立人工计数，不用现算法计算期望。
+
+### 30.1 实施与工程核定
+
+已在现 `DialoguePlanningService`、`ExplorationService`、`ProseWordCount` 落实上述模型投影。作品总量与章有效字数同源，旧 `total_word_count` 只在模型投影替换；正文分页仍使用 `prose_chars`，读取期间对象消失的 `:not_found` 原样传播。未新增生产模块、数据库、工具或兼容字段。真实 DB 与三 wire 正反例覆盖 3+2+0 有效字、纯标点非空正文、未找到、整章/分页/末尾/越界、CRLF 拼接及恢复；首次新增测试未接生产 context fetcher 导致缺失审计，改为既有 `WorkspaceContext.context_fetcher_with_query()` 后重验，未改变产品行为迁就测试。针对性 62/62。使用隔离测试数据库，`mix compile --warnings-as-errors`、`mix test`（3864/3864）、`mix check`（强制编译、第二轮3864/3864、架构、ADR 33/33、I-CACHE）、xref、arch、I1 4/4、I2 3组无违反、I3 Layer-B 3/3、N-NARR、I-CACHE 三 wire 与 NEXT 检查全部实际执行退出0；I3 Layer-A 参考3项失败不作为确定性门禁，不能表述为通过。全量 scope 静态扫描按 AGENTS.md 独立核定，产物保存在 task-completion 目录；此处不预签结果。
+
+初次全量扫描的模块规模门禁暴露原探索测试文件增长超过 ratchet、初始快照测试超过观察门槛。测试层按职责拆出 `ChapterStatisticsContractTest`，抽取已有章读取种子/观察投影 helper 为两处共同消费的 `TestChapterReadFixtures`，保持旧断言并将新增三 wire 字段断言落在真实 DB 统计契约用例；无生产新增模块、无提高 baseline/豁免/机械压缩。
+
+**语义状态仍为 doing / NOT PASS。** 本 checkpoint 尚无修改后原生 N3 成果，不把旧 N3 失败归因为单一充分原因，也不重签 R08。接续：沿原 `b28-n3-native-03` 冻结输入/判据、有限预算、真实 Tauri 驱动执行一次前向复验；同名目标、讨论/条件/授权、材料覆盖/解释事实信用继续以原件独立归因，保持 B89/B90/B91 的既定边界与 R17–19 前置。
