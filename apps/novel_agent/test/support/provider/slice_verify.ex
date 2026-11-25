@@ -36,8 +36,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @tool_failure_marker "AU04FAILTOOL"
   @provider_failure_marker "UA01PROVIDERFAIL"
   @awaiting_author_steer_marker "UA01AWAITSTEER"
-  # B17 真实页面短验收：仅测试替身读取 harness env，令正文 writer 连续超时；
-  # 作者点「先写第一场（500 字）」后 steer prompt 含缩小范围措辞，替身恢复成功。
+  # B17 真实页面短验收：仅测试替身按 harness env 注入正文超时；作者缩小范围后，
+  # 以当前任务显式绑定的作者原话判定恢复，不依赖派生简报或历史字面命中。
   @writer_timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
   # B71 质量卡修订真实页面：仅测试替身读取 harness env，令当前 quality_finding 局部修订的
   # 首轮原生响应故意缺少 items；后续请求只有在同一 operation 历史里看到该调用已 failed
@@ -106,7 +106,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     with :ok <- maybe_fail_provider_execution_prompt(prompt_text),
          :ok <- maybe_fail_tool_failure_prompt(prompt),
          :ok <- maybe_fail_summary_prompt(prompt_text),
-         :ok <- maybe_fail_writer_timeout_prompt(prompt, prompt_text) do
+         :ok <- maybe_fail_writer_timeout_prompt(prompt) do
       maybe_fail_plan_draft_prompt(prompt_text)
     end
     |> case do
@@ -1324,28 +1324,23 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 判断②（ADR-0025 CP3a）：单调用续行——计划耗尽（D6 语义）判 continue
   # 补产出步；其余偏离（质量/门禁/缺章/工具故障）裁决权在作者，判 await_author。
-  defp maybe_fail_writer_timeout_prompt(prompt, prompt_text) do
-    scope = writer_timeout_scope(prompt, prompt_text)
-
-    if System.get_env(@writer_timeout_env) == "1" and is_binary(scope) and
-         not writer_timeout_retry_prompt?(scope) do
+  defp maybe_fail_writer_timeout_prompt(prompt) do
+    if writer_timeout_fixture?() and
+         WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact" and
+         prose_fragment_prompt?(prompt) and not writer_timeout_retry_author?(prompt) do
       {:error, %{type: :timeout, message: "fixture writer timeout"}}
     else
       :ok
     end
   end
 
-  # 故障只绑定当前请求；canonical 历史原样用于日志和响应，不能作为当前 writer 的判据。
-  defp writer_timeout_scope(prompt, _prompt_text) do
-    if WireToolFacts.active_tool_name(prompt) == "submit_tentative_artifact" and
-         prose_fragment_prompt?(prompt) do
-      scope_operation(prompt) |> Jason.encode!()
-    end
-  end
-
-  defp writer_timeout_retry_prompt?(text) do
-    String.contains?(text, "先只写当前章的第一个场景") or
-      String.contains?(text, "500 字以内；写完就停")
+  # 只按本次任务绑定的真实作者原话模拟缩小范围后的恢复。
+  # 历史原话、派生 creative_brief、模型指导均不是本次作者授权的真源。
+  defp writer_timeout_retry_author?(prompt) do
+    scope = TestProviderPrompt.scope_content(prompt)
+    ref = get_in(scope, ["authoring_task", "author_goal", "source_input_ref"])
+    text = TestProviderPrompt.author_text(prompt, ref)
+    contains_any?(text, ["先只写当前章的第一个场景", "500 字以内；写完就停"])
   end
 
   defp continuation_prompt?(%NovelCommon.RequestIR{} = prompt, _text),
