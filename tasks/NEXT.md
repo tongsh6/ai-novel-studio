@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B91 | **下一执行点 CP1**：按 B87 §36、B91 §10 已核定的运行契约及实际入场预算基线，先冻结独立反例，收敛真实派发准入、反馈循环与累计资源；随后按原 checkpoint 验证必要生命周期机制，具体阻塞解除后优先返回 R17 补证，再回 R08。B91 自身完整 DoD 保持，不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
+| B91 | **下一执行点 CP1b**：B91 §11 CP1a 入场 grant 与计划/路由分权限定机制验收通过；接现 Execution.with_admission、ProviderRunLog、AgentRunServer 收敛真实派发准入、占用及结算，随后 CP1c 迁多步反馈，CP2 处理必要生命周期机制。具体阻塞解除后优先返回 R17 补证，再回 R08。B91 完整 DoD 保持，不等 B89。 | [B91](slices/B91-agent-turn-step-execution.md) |
 
 ## 后续候选
 
