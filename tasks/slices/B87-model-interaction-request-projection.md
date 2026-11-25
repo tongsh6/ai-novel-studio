@@ -2,7 +2,7 @@
 
 > **补充评审输入（不改变任务状态）**：[完整 JSON 协议候选包](../../docs/design/contracts/model-interaction/README.md) 已按现有 SSOT 目录归档；Schema、合成正反例、字段/状态说明和离线验证互相可达。它保持源基线 `f13ff640`，与 `04492ea3` 的增量差异见 [归档说明](../../docs/design/contracts/model-interaction/integration-notes.md)。R00/R07/R08 先对账，不将离线 PASS 当作本任务任何批次完成。
 
-**状态**：**doing / NOT PASS（2026-11-25 重核并推进）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R05 与 R07 已有各自边界内的签收；R07 已补齐真实执行 / 采纳 / 回放及取消标题缺口，同源五场与原 scope 完整工程门禁通过，核定与最终交付出口见 §22.11；R06 / R08 的真实失败与有限剩余项继续保留；R17–R19 未满足开工前置。开工盘点见 §21，原失败与签收撤回历史见 §22.1–§22.10；B87 / Issue #4 尚未完成。
+**状态**：**doing / NOT PASS（2026-11-25 重核并推进）**。B87 保留 **R00–R08、R17–R19**，原 R09–R16 已转入 B89 并继续 deferred。R00–R07 已有各自原范围签收；R06 已按 §27.8 完成原 DoD 核定，最终文档身份与交付出口见 §27.9；R07 的签收与最终出口见 §22.11。R08 的有限剩余项继续推进，R17–R19 仍待原前置。开工盘点见 §21，原失败、缺证和签收撤回历史全部保留；B87 / Issue #4 尚未完成。
 
 | 批次 | 当前核定 | 已成立的交付 / 尚缺内容 | 依据 |
 |---|---|---|---|
@@ -12,14 +12,14 @@
 | R03 Checkpoint 与恢复 | **应用范围 PASS** | 当前覆盖、来源与恢复消费者完成；旧实模 partial / 未执行轮次保留 | §14.48–§14.52 |
 | R04 唯一 Scope 与三 wire | **应用范围 PASS** | 应用契约签收；旧原生 FAIL 与未观测项仍在原件 | §15.6 |
 | R05 最小可信 Base 与探索 | **应用范围 PASS** | 应用目标已签收；F1 原生 binding 和工程收尾原件已核终态成功，不增加实模样本 | §16.39、§21.1 |
-| R06 作者可见表达 | **既有机制实现；blocked / NOT PASS** | C9、WR02 作者说明与 WR01 live 缺证保留；§25 真实 WR02 保留 FAIL；§26 已实现只读归因/计数修正，独审未发现可证产品修复，完整交付见该节出口 | §17.4–§17.5、§24–§26 |
+| R06 作者可见表达 | **原范围 PASS** | C9 实模原 DoD 通过；WR01 真实语义/来源与当前未知类别整卡显示、恢复共同闭合；最终测试源 det06 14/14、同源完整 F0-04 通过。旧实模失败不回签，最终文档身份与交付按 §27.9 收口 | §27.8–§27.9；原失败与裁决见 §17、§24–§27.7 |
 | R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
 | R08 目标、范围与来源语义 | **doing / NOT PASS** | GREEN09 与九批有限实模已交付；事实夸大、T1 歧义选错及 P2 原失败保留；P2 复合错误反馈按 §23 有限接续，P1 采集终态已补、机械核账另列 | §19.45–§19.51、§21.2–§21.3、§23 |
 | R17 旧协议与重复真源清理 | **未开始；前置未满足** | 等 R02–R08 各自验收通过；不等待 B89 | §20.2 |
 | R18 长篇创作全链回归 | **未开始；前置未满足** | 等 R02–R08 与 R17 完成；负责专业创作质量回归 | §20.2 |
 | R19 最终 A/B 与关闭 | **未开始；前置未满足** | 等 R00–R08、R17 / R18 PASS；保留原三轮及最终实模 / Tauri 验收 | §20.2 |
 
-以上是 **7 / 12 批已有各自范围签收**的盘点，仅表示批次数量，不换算成工作量完成百分比。本次没有重跑已签的前六批，也没有用后继工程结果覆盖原始失败。
+以上是 **8 / 12 批已有各自范围签收**的盘点，仅表示批次数量，不换算成工作量完成百分比。旧失败与缺证沿各自原件保留，不以当前签收重写历史。
 
 - **当前范围与排期（2026-11-24）**：B87 仅保留 **R00–R08、R17–R19**；原 R09–R16 的任务卡与后续验收转入 [B89](B89-author-controlled-execution.md)，继续遵守作者暂停指令。执行边界以 §20 为准；下述旧排期、§1 重排背景及各历史批次记录按当时事实保留。
 
@@ -4255,3 +4255,124 @@ Writer 只按本次 actual prepared request 的 source_ref/version/representatio
 旧真实场景已仅用现 readConfig/readBatchAuthoringHistory/missionSourceChecks 在隔离 DB 副本重算：input_ref_count=4、supplied_ref_count=7、实际新读叶选用=0，原源检查全部成立；原 DB、配置、快照、原始调用及正式 summary/failure 前后哈希不变。记录在 mission-actual-diagnostic-02/result.json（SHA-256：84dae05dbf3b68cf04595bf0a38cf672f9c1ece26019599d4a71fbd30c05f47b）；01 的诊断入口错误保持，不冒充产品失败。旧正式 13/14 FAIL 与作者语义结论均保留。
 
 本接续机器证据在 artifacts/slice-verify/b87-r06-20261121/causality-20261125-01/。最终实现/审查结论、原件哈希、验证/失败、源码身份、提交/远端核账统一在该目录 delivery-final-01.json；文档先登记出口，冻结后不为追写日志反复改变受验源码。当前父任务与B87状态保持，下一独立范围以原任务实际前置核准。
+
+## 27. R06 原范围收口与独立前向验收（2026-11-25）
+
+### 27.1 当前裁决与执行范围
+
+**本节开工时状态：doing / NOT PASS；当前核定见 §27.8。** 作者在核对“为什么 R06 还没有结束”后明确“开工”。本次接续从 clean 的 `9adf1dfeac59b6fd56db1b826ee7a56c356b636f` 开始，原分支与远端一致；实施前 scope 已由现 `task_done.sh --begin` 封存于 `artifacts/slice-verify/b87-r06-20261121/closure-20261125-01/scope.json`。本节是原 R06 的收口检查点，不新建任务，也不预填 PASS。
+
+R06 原卡要求 C9、日常作者说明、两条使命消费者、合法 ref 及跨作品情形的原权限/目标/版本边界、原字节来源，以及“当前基线”的同作品/有效版本依据；合法引用继续有效，越权或错作品目标拒绝，不将跨作品情形一律拒绝；没有“WR02 本阶段先 PASS，才能验 C9/WR01”的固有依赖。§26.4 的串行次序是当时有限假设的止损安排，本次按作者继续推进授权及实际依赖前向改序：C9 与 WR01 分别核验，不等待 WR02 再取得一份全绿 summary。§17–§26 的旧执行、失败与停止事实保持，不删除或回签。
+
+对验收理由作明确校正：最新 WR02 request-5 的“大纲规划能力，因此直接执行而不追问”只是内部路由语气的负面观察，单凭该句不足以认定原 DoD 失败；“本轮探索预算”是真实限制，不作词面封禁。原任务的内部标识、技术占位和无依据基线声明仍须逐项查原文与事实，不能以来源合法代替语义核验，也不能要求一切自然语言达到未定义的审美标准。R08 的来源覆盖/意图语义与 R18 的专业剧情质量保持原归属。
+
+### 27.2 七问与存在性审查
+
+| 项目 | 本次裁决 |
+|---|---|
+| Contract | 消费原 R06、VS-00M §6 的唯一正文/原字节/双面身份与可证明范围、既有使命和当前材料合同；不改变工具 schema、正文通道或产品预算。 |
+| Invariant | 作者面不出现原范围的不当内部身份/占位；来源、版本、对象与真实请求一致；待采纳内容不越权落入 Canon；未接受响应不发布。 |
+| Boundary | 当前仅原任务/NEXT 调度及既有外部验收产物；若新场景出现可证产品缺陷，先回现 owner 定位，不用词表、展示改文或额外提示语代替根因。 |
+| Consumer | C9 的实际 Judgment→修订 Writer→候选页面；WR01 的 chapter_mission→正文 Writer→终局/Why/恢复；WR02 按既有真实原件与独立核验分别认定。 |
+| Proof | 逐条对应原 DoD 的正反例、当前生产文件身份、原生终态、Provider/canonical/事件/页面字节与对象核账；已有生产测试仅在对应源码相同的边界内复用。 |
+| Acceptance Driver | 复用 native_b71_batch、tauri_slice_verify、NativeScenarioHarness/InputBoundary 和原 evidence owner；产品验收感知新增为 no。WR01 先以零实模的当前章节分支证明终局/Why/恢复接线，再运行有限真实窗口。 |
+| Exploration | 保留原 full-read 与使命 seed，检查实际 Base/Observation 的同作品、版本、覆盖和所选依据；不为刷覆盖强迫模型选用新读叶，不增加固定材料包。 |
+
+**存在性裁决：reuse；新生产模块/字段/表/工具/API/事件/配置均为 none。** 运行包装只调用既有 scope/binding、owned process 与原生批次，不成为新的验收真源。C9 原响应的两份正文均在历史请求保留；没有字节丢失证据。仅增强双正文恢复提示不能称为已证结构修复，§17.2 候选本次不实施。后续已落地的判断合同、预算冲突退役和目标字段接收使当前请求链不同于原 C9；能力 display_name 的补齐不覆盖未登记的 revise_adopted_content，也不把 chapter_read/target_segments 说成已改名。当前版本是否达标由一次新原件裁决，不预断旧根因已消失。
+
+### 27.3 有限窗口与结束判据
+
+仅登记 C9 与 WR01 各一个新的真实 Splash 窗口：沿各自原作者全文、原 seed 字节、local/Q4-PLE4/high、原 maintenance runtime、单批一次发送、零人工/harness 重试，input 120 秒、turn 360 秒、root 900 秒；不调整质量循环。每场使用新目录并在运行前冻结源码/命令/输入/预算，真实退出、失败与清理均保存。WR01 原超时发生在第二轮质量评估在途时；质量流程本身没有已证性能修复，本次不保证耗时下降，也不借缺证扩大 R18。
+
+C9 必须证明原同名章节对象与全文读取、合法结构 ref、作者可见原文无违规内部标识/占位、候选原字节绑定、未采纳/原正文不变。WR01 必须证明真实使命触发、同次材料与原文绑定、实际 Writer 消费、候选待采纳、终局/Why/重开恢复；缺使命或缺任何必需证据均不签。两场分别独立审读，不把自动字符串检查当作全部语义验收。
+
+WR02 不为消除旧 13/14 FAIL 颜色新增第三个模型窗口。原 live-03 的真实工作台/Provider/使命/Writer/候选/Why/恢复原件，与 §26 已完成的因果核验和当前确定性 14/14、同责反例分别组成已覆盖产品事实的证据；旧 summary/failure 不改，不声称旧场采集了后来新增的身份快照，也不声称“在途维护完成增量”分支已新实测。实际所选 4 个初始依据若均真实有效，新增读叶选用 0 不独自构成原 DoD 失败；该 live 分支未覆盖继续明示。若原件发现原卡明确违规或必要产品事实缺证，再按对应原因登记，不用泛化的“作者语义”阻塞。
+
+**停止与核定：** 每个真实窗口只运行一次；失败时保留原件，按实际 owner/事实区分产品失败、外部采集失败与缺证，不自动重发。正式工程/自动场景通过不能代签人工语义审读。只有原 R06 完整要求逐项成立后才更新整体 PASS；不能用本检查点代替完整任务。运行证据和最终核定统一在 `artifacts/slice-verify/b87-r06-20261121/closure-20261125-01/`，最终结果由该目录 `delivery-final-01.json` 与本节后续实际结论相互引用。
+
+### 27.4 第一窗口实际核定：C9 与 WR01 均未通过
+
+冻结源码指纹为 `f21623267d1e6d1ef1939607d335b775200cba75aacbf09cdadd1c0b5f85c077`；三个窗口均有真实源绑定与原进程终局。WR01 确定性 14/14、exit 0，包含两次内使命纠错、原文接受、实际 Writer、Why/重开与无采纳。C9 live 自动 1/1、exit 0，但独审明确 **原 R06 FAIL**：第二次判断原文“本轮已用 chapter_read 分两页读完第02章正文……”被接受并显示。其 Provider 工具参数→canonical sequence 12→judgment_validated sequence 13→作者事件 sequence 393→页面均为同一 620 UTF-8 字节，SHA `0201d3a98b5065771919232ccbfa3075bf347be924b893723422d2eecdca4bc5`。正确第02章、两页完整正文、同一版本、待采纳候选及原正文未改均成立；不能把作者说明泄漏扩大成选错章或越权采纳。独审见 `c9-independent-read-01/review.json`（SHA `43f2d14548f52064468baeea007681bc7bb1350e3755d0575f11c3fb7cb302b8`）。
+
+WR01 live 正常结束，并实际完成质量复核、Why 与重开恢复；正式 **13/14 FAIL、exit 1**，唯一自动失败为 `mission_design_only`。当前核得前两章后台摘要修复新增 accepted 台账，不能把完整运行的前后差异直接归因使命本身；确切因果与合法性继续独立核账，原 summary/failure 不改。作者页面还显示 Writer 原 rationale“按 E18-E22 结构化方向的四件套落笔……”，为新增确证的工程编号泄漏；工程输入来源已定位到 TurnExecutionService 的目标章结构材料。计划“完整”声明还需逐字段与真实供给核对，既不能只据 partial 标签定缺失，也不能以 preview 187/187 升为完整设计。本窗口不得签整体通过。
+
+第一窗口三场原件与结束记录完整保留，不自动重发。§27.2/27.3 记录的是该窗口实施前范围；下节以本次失败事实另行裁决必要机制修复，不能把新源码测试绑定到前一冻结版本。
+
+### 27.5 失败后最小机制修复：实施前七问与存在性裁决
+
+本次明确否决两种捷径：把 chapter_read 加入静态或动态词表，会误伤作者指定的同名小说人物/程序及混合技术创作；只补双正文纠错提示或完整错误反馈，仍不能使现 Text 判据发现该裸工具名。两次实际 C9 均出现“自然会话 content + 夹带机器论证的 author_reasoning”，现合同拒绝前者后模型只清空 content，后者反而成为唯一作者出口。采用工具职责层面的单一正文合同，移除会话控制参数中的竞争作者字段；不挑选旧响应中较干净的一份交付。
+
+| 七问 | 本次具体裁决 |
+|---|---|
+| Contract | 先在 VS-00M §6 更新会话控制工具的正文职责：原生 content 唯一；ask_author/question、explore/无正文、计划与使命工件/author_reasoning 保持各自合同。判断内联与独立计划不得形成两套规则。 |
+| Invariant | 同一次 Provider、原 call_id、完整正文原字节；缺失/坏正文整体拒收，原响应不改；旧 author_reasoning 字段闭合拒收而非 fallback；最多两次；权限、对象、版本和采纳不变。 |
+| Boundary | 现 JudgmentToolContract/JudgmentDecisionToolContract/Protocol 及 normalized 消费者；现 TurnExecutionService 的章节设计材料只退役无职责的工程编号标签，全部作品设计内容与真实结构身份继续供应。 |
+| Consumer | execute→C9 真实修订候选、registration/directions/work_profile/gap/continuation 原消费者；DPS 候选 rationale 直接取已绑定 narrative；原 AgentNarrativeSource、TurnResult 与页面来源不建副本。 |
+| Proof | 固定通道正反例、旧字段拒收/无fallback、合法 ref 技术讨论、空白/Unicode/CRLF 原字节、同次工具与 content 身份、三 wire 与真实执行消费者；本轮工程全量结果须在修改后的源码重新形成。 |
+| Acceptance Driver | 复用原原生驱动与 raw Provider/IR/SSE 来源 owner；先完成必要确定性验证及独立审查，再为源码实际改变登记各一次前向 C9/WR01。没有重发第一窗口，也不增加预算/模型裁判或产品验收钩子。 |
+| Exploration | 同一原 seed、作者输入与取材自由；无固定读取顺序、强制新读叶或内容裁剪；完整性声明按当次实际字段覆盖核，不靠新的提示保证。 |
+
+**存在性裁决：refactor-and-retire。** 现 content 和 AgentNarrativeSource.from_provider_result 已承载普通作者回复；现 verify_tool_call 能核同次工具参数，不需要新正文实体、输出字段、数据库表、来源仓库或模型调用。会话控制旧 author_reasoning 的 schema、原始生成夹具及 normalized/profile_revision 重复消费同步退役。计划/使命仍是领域工件，不迁移其字段；使命强制 tool_choice 与 content 的 Provider 可用性没有实证，不能顺手扩面。新原生工具正文入口不能复用会删除占位行/trim 的普通 reply 清理逻辑，应保持完整原值。新合同只消除一个已实证的结构诱因，无法证明所有将来措辞；外部验收仍可按原 DoD 判失败。
+
+**原生正文证据的现 owner 复用。** 既有 SSE decoder 日志只记工具参数，不能证明新 content 原字节。将现 authoring_capture_evidence 的可选 provider_stream 登记从 WR02 前向扩至已登记 C9/WR01/WR02 三场，继续只准 Splash、observe、明确绝对目录与原 null HTTP 上限；其它场景、注入模式、额外预算及配置/原文不一致继续拒绝。不增加 Provider 适配器、生产日志正文或新采集服务；原 native_provider_stream_proxy 在现 test_env 生命周期中记录 received/delivered 原始字节，旧窗口没有此原件仍明确未捕获。判据/来源关联沿现 owner 与原 call，不将 canonical 自证当独立网络证据。
+
+固定正文位置沿现 JudgmentToolContract 的纯派生职责供 JudgmentProtocol 消费（narrative_location/2）；不是独立策略表或新的持久来源。原生 control 正文完整 byte range 必须从 0 到原全文字节数；登记说明继续与 source_ref 指定的真实作者原文分离，作品概况候选的 rationale 只取已绑定 narrative。
+
+### 27.6 WR01 维护归因的前向接线裁决
+
+新 WR01 已证全程到达终局，自动失败的直接差异是 ledger_entries；chapter_summaries 是其维护因果的原件，未包含在 CANON_TABLES 的这项 hash 比较中。现 missionRepairEvidence 和 Canon owner 已为 WR02 核完整原始 HTTP/SSE、实际旧采纳正文版本、摘要结果、维护终局、每项台账变化、同作品/同快照窗口及其余受保护表；WR01 capture 原本已采同一全量维护源行，但接收代码只为 planning 接线。把全轮发生的合法独立维护等同于使命的写入副作用并不准确；同样不能仅凭 step 名称或时间相近就豁免变化。
+
+裁决为 **reuse / refactor-and-retire**：仅在新 Splash mission 批具有已冻结 provider_stream 原件时，章节分支复用现 missionRepairEvidence。纯 Canon 比较从目标章前后相同的 work_id 核维护归属，仍以 targetChapterId 表示章使命，不能误传 targetWorkId 切到作品使命。维护 owner 对 chapters 的原整表相等检查，在章节分支改为消费现 compareSourceDesignSnapshots 已有 chapter_mission_change_is_legal 单项证明；该证明已严格覆盖章 ID 集合与数量、全部 protected 字段、其他章 mission/updated_at、目标作者版不可覆盖、合法 TENTATIVE 转换与时间窗。作品 canon 在章节分支继续完全相同，其余保护表、采纳回执及内存引用规则不变。最终完整 Canon 比较照常执行，维护证据只能解释其已逐项核账的 ledger 增量，不能循环拿最终 PASS 为自己授信。
+
+这不是产品写权限变更，也不改变 WR01 的严格 Why/重开无调用规则；旧 WR01 没有代理原始流，仍保留正式 13/14 FAIL，不补登记、不重算回签。当前窗口已明确的新来源职责、证据输入和首消费者均在现 owner 内，没有新表、工具、事件、parser、维护策略或模型调用。必要反例覆盖错作品/错窗口/错台账 hash、缺原始流或摘要原件、目标作者版/非目标章/正文/作品 canon 变化、未知维护增量；任何证明不足继续拒绝。之后只在已修改源码与同原预算的一次新 WR01 中形成前向验收。
+
+### 27.7 真实前向结果与未知质量类别：显示修复的实施前裁决
+
+同源 `freeze-03.json`（指纹 `57e7aa0803db4c5b61c0e087625f0951a9bb5828461e5258baeddded2535dcaf`）已形成 det03 14/14、F0-02 完整工程门禁及两场实模。C9 live03 自动 1/1，原 DoD 独审 PASS；原生 content 的 1534 字节、两页同版本正文、准确第02章、只读预览边界和未采纳事实均成立，独审原件 `native-c9-live-03/independent-c9-review.json`，SHA `74430c12d0c0678148a31ae29ea9cbbc65fd49b7f4e4c86607e42de04bf2a694`。WR01 live03 自动 14/14，但页面质量卡真实显示 **PROSE_SURFACE**，当前作者显示仍为原 R06 阻断，不能把自动分数签作整体 PASS。
+
+来源已精确定位：实际评审 `pcall_mwvll02h_nt` 的 `report_quality_findings.findings[1].quality_gate_ref` 为 `quality_gate.prose_surface`；原专业 schema/Domain 接收的是非空 string。UICards 对未登记值自行去前缀并转大写，形成可见机器标签；它不是 summary/reasoning 的模型原文。该缺陷属于原 R06 卡已经列明的必要 UI 映射，不增加文学质量或自然程度的结束条件。
+
+| 七问 | 本次有限裁决 |
+|---|---|
+| Contract | 结构类别只显示现 owner 的作者标签；未知非空值统一显示“质量问题”，缺失仍不显示徽标；模型作者原文及原始 ref 不变。 |
+| Invariant | 已知类别含义、finding ID、严重度、action、证据与选择关系不变；未知 block/confirm 不因通用标签获得放行；任意未知及原型属性都不能转成裸机器标签。 |
+| Boundary | 仅现 frontend/src/lib/copy.ts 的 CARD.qualityReview 与 frontend/src/components/UICards.tsx 的既有消费点；不改专业 gate 接收域、权限政策或模型正文。 |
+| Consumer | qualityReview 卡片徽标消费现 gateLabels；新增的同域文案键 unknownGateLabel 只提供系统显示文本，无新持久状态或分类表。 |
+| Proof | 现 UICards.qualityReview.test.tsx 验已知、任意未知、__proto__/constructor/toString、正文主动技术讨论及原 finding/action 不变；旧 uppercase 路径退役，不加单词黑名单。 |
+| Acceptance Driver | 复用现 SliceVerify quality_evaluator_response 与 native_b71_batch 的 WR01 确定性场景；实际命中本次已捕获的未知类别，真实页面显示通用标签，原请求/原 finding/原文及 Why/恢复链可核。 |
+| Exploration | 显示机制不改变真实取材和写作；已有 C9/WR01 实模的取材、语义、来源及维护事实沿原件独审，不为随机再次产生同一分类刷实模。 |
+
+**存在性裁决：reuse / refactor-and-retire。** gateLabels 已有唯一消费点，authorVisible.ts 已有自有属性命中、未知走作者兜底的同类边界；其 gate 域属于执行前置检查，不能借“前置检查”当质量类别。只在 CARD.qualityReview 增一项普通文案键，并在原消费点采用 own-property 检查；没有新生产模块、域、字典或 Provider 调用；下述测试夹具的私有构造函数只收敛现有同类 finding。ProseQualityPolicy 按 action 汇总策略，显示标签不参与授信；本次既不删 finding，也不把未知 ref 改成某个已知 ref。
+
+固定原生夹具仍归现 test/support 的 SliceVerify，中文问题说明与 evidence 必须对应其本场真实重复句及已有 form_candidate_id，不把实模的用字问题搬到不存在的替身正文，不增加环境开关/产品钩子/runner，不改变原 seed 或作者输入。源码和测试先通过必要门禁，再以新原生身份运行当前显示机制。旧 WR01 的正式 14/14 与实际显示失败都保留；修复后的核定由真实当前页面与原实模内容来源共同证明，不能修改旧截图、raw 或 summary 伪造无泄漏。
+
+**规模门禁补充裁决（实施前）：** 新夹具使 SliceVerify 达 7024 行，超过现 6999 行上限，不能抬 baseline、压行或删注释放行。已核现 test/support 与 Provider 测试：form_candidate_id 是已有候选身份 owner，native_tool_result 只负责 wire 包装，没有等价的公共形式 finding 构造器。采用 refactor-and-retire，在同模块增加一个私有 form_finding/6，由原 action-beat 与 WR01 两个现役分支共同调用，集中候选 ID、validator、warn 动作/严重度、local 范围、confidence 及证据/修订嵌套结构；各分支显式提供原 gate、说明、证据句/起止、brief refs 与修订指令。正常 findings envelope 统一序列化，故障原文、分支优先级和所有旧字段值保持。生命周期仅为一次测试 Provider 响应装配，无持久化、授权或生产消费者；两处重复构造同步退役，现两文件回归与规模/格式门禁验证后再冻结。
+
+**复杂度门禁补充裁决（实施前）：** freeze04 已获真实 det04 14/14；整卡显示、原证据和选择关系可见，但完整 F0-03 拒收：同一测试函数同时选择 finding、处理故障原文与包装 JSON，圈复杂度为 12（现上限 9）。原完整失败保留在 task-done-f0-03，不能用局部通过覆盖。继续 refactor-and-retire：现 quality_evaluator_response/1 只保留故障分流与唯一 JSON 外壳，将其中已有正常分支原样移至同模块私有 quality_evaluator_finding/1，复用 form_finding/6；不新增分类、默认动作、模块或其他消费者。候选事实选择与响应编码分责后，各分支原值和原优先级保持，以原两文件回归、定向 Credo、格式与规模门实测再冻结。当前产品源码与 det04 相同；测试夹具结构改变后，仍按新源码身份取得原生 binding 和完整工程终态，不重写 det04 或增加实模样本。
+
+### 27.8 原 DoD 核定：当前 R06 原范围 PASS
+
+**核定：PASS（2026-11-25）。** 本结论对照原 R06 卡逐项成立，不改变原卡、模型预算或专业创作质量的归属。当前实现已消除本次确认的作者正文双通道冲突、Writer 方向占位及未知质量类别机器徽标；旧章维护的真实因果证据也已补齐。旧失败仍按当时源码、原件和判据保留，不回签旧 summary。
+
+| 原要求 | 实际证据与核定边界 |
+|---|---|
+| 作者说明可读、真实工具仍选对对象 | C9 live03 原 DoD 独审 PASS：准确读取同名目录中的第02章；两页同一 revision 连续覆盖 7000 字符 / 20620 字节。作者说明的原生 content 共 1534 UTF-8 字节，Provider→canonical→作者事件→页面/持久恢复逐字绑定；合法 ref 继续用于结构化操作。 |
+| 事实不越过同作品、版本和已读范围 | C9 对计划 496/988、摘要 396/930 明确说明为预览；没有把未完整读取升级为已证实。WR01 的到期伏笔及章进度来自当次实际材料，首次说明没有假称已读前文。权限、错作品、坏 ref、同名同序及同版连续页由现役反例与完整后端检查覆盖。 |
+| 新正文使命、Writer、Why/恢复及未采纳 | WR01 live03 正式 14/14；原判断、计划、使命与 Writer 正文/理由均绑定真实响应。两次旧章摘要和四条派生账本有真实调用及因果核账，原信息账本条目保持。Why/恢复的 LLM 与 ProviderRun 数不增，候选保持 tentative，采纳收据为 0，已采纳正文不变。 |
+| 大纲规划使命消费者 | 原 WR02 工作台及真实使命/Writer 原件、§26 因果修正和现役使命正反例继续按已证明事实复用；三处使命生产 owner 与其受验源码相同。旧 13/14 Why 失败不改绿，不把旧执行说成跑过本次新判断正文通道，也不把新读依据选用 0 当作失败；其旧判断通道不用于证明当前通道。 |
+| 必要 UI 映射保持完整问题而无机器徽标 | det04 整卡独审通过：原 quality_gate.prose_surface、finding ID、warn 动作/严重度、88% 置信度、第6–16句全证据、理由、建议、选择及修订目标保留，实际页面显示“质量问题”，首次和恢复一致。det06 在最终测试源码上正式 14/14、同源 binding passed；与 det04 的生产/UI 字节完全相同。 |
+| 当前工程条件及历史证据 | freeze06 上完整 F0-04 为 completed/full，ui_required=true，确用 det06 的同源原生 summary/binding；原 DoD 独审无剩余阻断。38 份旧原件、C9 独审输入及 WR01 172 份原件均核哈希不变；原 B86/C9、WR01、WR02 失败不销账。 |
+
+上述组合明确分工：真实模型原件证明原文、取材和事实语义，当前真实 Tauri 证明修复后的系统显示及恢复，当前完整门证明工程与源码身份。WR01 live03 本身仍是因 PROSE_SURFACE 失败的旧场次；当前实现的 PASS 不要求随机再生成一次同类质量问题，不等于旧场被改签。逐项证据矩阵见 closure-20261125-01/original-dod-evidence-map-pre-det04.json，最终独审出口为同目录 original-dod-closure-review-01.json。
+
+本次可复核的验证为：完整后端 mix check **3860 项 / 0 失败**；其后只重构的两个应用测试已 **29/0**，测试 Provider 最终两文件回归 **97/0**，生产源码保持完整后端受验字节；原生证据 JS 的原14文件套件 **904/0** 且输入字节未变；质量卡组件 **14/14**，最终完整前端为 **58 文件 / 614 项通过**。原生 det06 与 F0-04 的受验源指纹为 `49e5a6a59feb9a87074698c102b212967597cbab642cfc32529cb389ad6704b5`；freeze06 文件 SHA 为 `ce30f6fc7dd967feb13a42b59d5b4085c522f942a18e879ea5cb64d4cbb9bb50`。
+
+F0-04 manifest 为 `artifacts/slice-verify/task-completion-20261125T050004Z-14317/manifest.json`。完整扫描21个命令：20个 exit 0，既有 gitleaks exit 1；7项既有发现仍为6项 false_positive、1项 accepted_risk，touched=0、blocking=0，new=null，未改扫描规则或处置。完整扫描通过不外推为所有历史 CLI/全仓 CI 全绿；原层级与解析覆盖的具体限制见同目录工程独审 engineering-independent-review-f0-04.json。原 F0 的测试规模/嵌套失败、F0-03 的测试复杂度失败及各 RED 全部保留。最终 SliceVerify 为6998行，故障分流/响应包装与正常 finding 选择分责，没有压行、改 baseline 或扩大产品功能。
+
+### 27.9 最终文档身份与正常交付出口
+
+本节、顶部和 NEXT 是已完成的原 DoD 核定及 F0-04 事实回填。停止受验源写入后，freeze07 逐项证明相对 freeze06 仅本总文档与 NEXT 两文件变化，其余生产、UI、测试、设计和模式均相同；按已预注册的 det07 运行一次相同确定性 WR01，取得当前文档身份的真实 start/finish/binding，再运行完整 task-done-f1-02。保持原 seed、作者输入、预算与现原生 owner，零外部模型调用。早期预备的 det05/F1-01 因中间测试结构修复而未执行，不与后续身份混用。
+
+本段不预填 F1、提交或推送成功。实际 F1 终态、最终两文档差异证明、原件哈希、源码字节/模式等价、分组提交及远端 HEAD 核账统一封存 `artifacts/slice-verify/b87-r06-20261121/closure-20261125-01/delivery-final-01.json`，不为追补终态再次修改受验文档。正常按后端合同与相关回归、质量卡 UI、原生证据消费者、任务状态文档分组提交；不提交 artifacts 或临时数据库，不跳过 hooks，不声称原检查在提交后的新 HEAD 上重新执行。
+
+**后续主线：** B87 现为 **8/12 批按各自原范围签收**，整体仍 doing / NOT PASS。R08 按既有有限剩余项继续，完成后进入 R17→R18→R19；R08 的意图/来源语义与 R18 的长篇质量不倒回本卡追加结束门槛。B89 继续 deferred，不构成 B87 前置。

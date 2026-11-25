@@ -6,7 +6,7 @@
 
 | 任务 | 说明 | 状态来源 |
 |---|---|---|
-| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。R06 §26 的证据修正已实现、首次说明独审完成；完整验证按该节交付出口核定，未找到可证产品修复，作者语义仍 blocked，原失败保留；R08 按 §23 保留有限剩余项。各自通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
+| B87 | **模型交互体系系统性重构**：保留 R00–R08、R17–R19；批次重核与 P1 有限补证见原任务 §21，R07 已按 §22.11 完成原范围签收与最终交付出口登记。R06 已按 §27.8 核定原范围 PASS，最终文档身份与交付按 §27.9 收口；旧实模失败原件保留。当前继续 R08 §23 的有限剩余项；R08 通过后再进入 R17→R18→R19，批次证据只在原任务维护。原 R09–R16 转入 [B89](slices/B89-author-controlled-execution.md) 并继续 deferred，不作为 B87 前置。双向沟通整改见[原优化计划](slices/bidirectional-gaps-optimization.md)。 | [B87](slices/B87-model-interaction-request-projection.md) |
 
 ## 后续候选
 
@@ -24,8 +24,6 @@
 ## 阻塞
 
 - **B89（deferred）**：原 R09–R16 独立承接，不阻塞 B87；作者重新排期后恢复，见 [B89](slices/B89-author-controlled-execution.md)。
-
-- **B87 R06**：恢复条件见 [原任务 §17.5](slices/B87-model-interaction-request-projection.md#175-原始范围复核因果边界与受阻后调度)。
 
 - **B84（deferred，2026-11-14 作者决定退出当前任务队列）**：scope 74/74；REV-01 待独立复核，REV-02 未闭环；A2/R01、b71-pending、driver/G2、dogfood、lefthook 等债务保留。恢复：作者重新排期或 B87 对应批次后；退出队列不等于销账。见 [B84](slices/B84-web-slow-tests-and-arch-debt.md)。
 
