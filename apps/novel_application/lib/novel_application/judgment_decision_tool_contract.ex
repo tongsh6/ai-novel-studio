@@ -28,7 +28,8 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
       name: "judgment_decision",
       description:
         "建议创作执行或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 的目标字段按 capability 归属提交，具体适用范围见各字段说明；不适用字段不提供，包括 null。章级 revise_adopted_content 必须给出 modification_scope；局部修订按本轮 chapter_read 观察填 target_segment_ids。" <>
-          "\n" <> decision_fields_guidance(),
+          "\nexecute 的唯一作者说明使用同次原生 content，围绕作品、创作目的与实际材料说明判断，不把尚未执行的动作说成已完成。\n" <>
+          decision_fields_guidance(),
       input_schema: object(properties, required)
     }
   end
@@ -114,13 +115,6 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
 
   # 完整分支同时拥有字段、必填项和示例；平面 wire 只供应并集，接收仍按原 action 校验。
   defp decision_contracts do
-    narrative =
-      Map.put(
-        @text,
-        :description,
-        "仅 execute 时必填的唯一作者说明原文，explore 不提供，包括 null；content 必须为空；围绕作品和创作目的，说明有用的判断、所需材料及其用途。只有真实歧义影响作者决定时才解释歧义；不把尚未执行的动作说成已完成。"
-      )
-
     [
       object(
         %{
@@ -131,7 +125,6 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
               :description,
               "仅 execute 时必填：依据作者原话与上下文确定本次创作目标和范围；explore 不提供。"
             ),
-          author_reasoning: narrative,
           capability: Map.put(@text, :description, "仅 execute 时必填；explore 不提供。"),
           pending_artifact_ref:
             Map.put(@text, :description, target_field_description(:pending_artifact_ref)),
@@ -159,14 +152,13 @@ defmodule NovelApplication.JudgmentDecisionToolContract do
                 "先用 archive_read 的 characters 目录发现对象，再读取该 ref 详情；从已取得必要完整字段及当前指纹的详情原样复制 character_ref。目录或猜中 ref 不算已读基线。"
             )
         },
-        ~w(action dialogue_goal author_reasoning capability)
+        ~w(action dialogue_goal capability)
       )
       |> Map.put(:examples, [
         %{
           action: "execute",
           capability: "<本轮可用能力>",
-          dialogue_goal: "...",
-          author_reasoning: "..."
+          dialogue_goal: "..."
         }
       ]),
       object(

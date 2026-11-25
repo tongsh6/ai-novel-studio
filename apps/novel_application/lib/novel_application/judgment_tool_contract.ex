@@ -6,12 +6,13 @@ defmodule NovelApplication.JudgmentToolContract do
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
 
-  @version "b26-tools-v8"
+  @version "b26-tools-v9"
   def version, do: @version
 
   # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
   # 纠错回执共用，避免两处各写一份而导致漂移（B27 CP4 task-16）。
-  @legal_combination_guidance "工具组合规则：一次只返回一个工具；需要完整计划时只调用 agent_plan_draft，判断操作只调用 judgment_decision。普通回复不调用工具。直接 explore 只提交读取请求，不提供作者正文。其余工具的作者正文只来自 question 或 author_reasoning；工具响应的 content 必须为 null 或空字符串。"
+  @narrative_guidance "普通回复不调用工具，作者正文使用原生 content；会话控制工具的作者正文也只使用同次原生 content，工具参数只承载操作。ask_author 只使用 question；agent_plan_draft 的领域计划说明只使用 author_reasoning；直接 explore 不提供作者正文。这三个例外的 content 必须为 null 或空字符串。"
+  @legal_combination_guidance "工具组合规则：一次只返回一个工具；需要完整计划时只调用 agent_plan_draft，判断操作只调用 judgment_decision。#{@narrative_guidance}"
 
   @question_response_guidance "ask_author 的 question 是唯一完整作者正文；说明和理由写入 question，content 必须为 null 或空字符串。不要再输出第二份正文，也不要把同一句话同时放入 content 和 question。选择按钮标签必须非空且可区分，不能只靠首尾或重复空白；仅用已知事实区分，材料仍不可辨认时提出开放问题并用空 options，不追加内部引用或序号制造区分。"
 
@@ -40,6 +41,26 @@ defmodule NovelApplication.JudgmentToolContract do
 
   @doc "判断调用合法工具组合的唯一文案真源（prompt 与纠错回执共用）。"
   def legal_combination_guidance, do: @legal_combination_guidance
+
+  @doc "按工具职责固定正文位置，不读取正文值来择优或回退。"
+  def narrative_location("judgment_decision", args) do
+    case field(args, :action) do
+      "execute" -> :content
+      "explore" -> :none
+      _ -> :invalid
+    end
+  end
+
+  def narrative_location("ask_author", _args), do: {:tool_field, :question}
+  def narrative_location("agent_plan_draft", _args), do: {:tool_field, :author_reasoning}
+
+  def narrative_location(name, _args)
+      when name in ~w(register_author_content propose_creative_directions propose_work_profile_revision report_capability_gap continuation_decision),
+      do: :content
+
+  def narrative_location(_name, _args), do: :invalid
+
+  def narrative_guidance, do: @narrative_guidance
 
   @doc "提问正文契约的唯一文案真源，供工具描述、prompt 和纠错回执共用。"
   def question_response_guidance, do: @question_response_guidance
@@ -86,18 +107,12 @@ defmodule NovelApplication.JudgmentToolContract do
   defp continuation do
     tool(
       "continuation_decision",
-      "基于实际偏离给出下一次执行的修正建议。",
+      "基于实际偏离给出下一次执行的修正建议；在原生 content 中向作者说明已观察到的偏离与调整依据。",
       %{
         action: %{type: "string", enum: ["continue"]},
-        guidance: @text,
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "后续调整的唯一作者说明原文，content 必须为空；依据已观察到的偏离说明为何这样调整。"
-          )
+        guidance: @text
       },
-      ~w(action guidance author_reasoning)
+      ~w(action guidance)
     )
   end
 
@@ -128,7 +143,7 @@ defmodule NovelApplication.JudgmentToolContract do
   defp registration do
     tool(
       "register_author_content",
-      "按明确来源逐字登记作者原文为待采纳候选，不重写。",
+      "按明确来源逐字登记作者原文为待采纳候选，不重写；在原生 content 中说明登记材料及其用途，不声称已被采纳。",
       %{
         author_content_source_ref:
           Map.put(
@@ -136,15 +151,9 @@ defmodule NovelApplication.JudgmentToolContract do
             :description,
             "原样使用 Scope.operation.author_content_sources 中作者消息的 ref；目录包含当前及已完整提供的历史原文，本轮消息由 Scope.goal.source_input_ref 标识。"
           ),
-        dialogue_goal: @text,
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "登记作者原文的作者说明，说明登记的材料及其用途，不改写原文或声称已被采纳。"
-          )
+        dialogue_goal: @text
       },
-      ~w(author_content_source_ref dialogue_goal author_reasoning)
+      ~w(author_content_source_ref dialogue_goal)
     )
   end
 
@@ -153,37 +162,23 @@ defmodule NovelApplication.JudgmentToolContract do
 
     tool(
       "propose_creative_directions",
-      "给出可选择的小说内容方向，不是保存/查看等流程菜单。",
-      %{
-        candidate_directions: %{type: "array", minItems: 1, items: item},
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "候选创作方向的作者说明，说明方向的依据与区别，保留作者选择。"
-          )
-      },
-      ~w(candidate_directions author_reasoning)
+      "给出可选择的小说内容方向，不是保存/查看等流程菜单；在原生 content 中说明方向的依据与区别，保留作者选择。",
+      %{candidate_directions: %{type: "array", minItems: 1, items: item}},
+      ~w(candidate_directions)
     )
   end
 
   defp work_profile_revision do
     tool(
       "propose_work_profile_revision",
-      "作者明确要求修订作品立项字段时，给出一个显式字段级修订提案（title/body/field/value），等待作者逐项采纳；不直接写 works，不用 world_setting 泛化覆盖。",
+      "作者明确要求修订作品立项字段时，给出一个显式字段级修订提案（title/body/field/value），等待作者逐项采纳；不直接写 works，不用 world_setting 泛化覆盖。原生 content 说明当前字段为何需要调整，不声称提案已生效。",
       %{
         title: @text,
         body: @text,
         field: %{type: "string", enum: @work_profile_revision_fields},
-        value: %{anyOf: [%{type: "string", minLength: 1}, %{type: "integer", minimum: 1}]},
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "立项字段修订的作者说明，说明当前字段为何需要所提调整；这是待采纳提案，不是已生效修改。"
-          )
+        value: %{anyOf: [%{type: "string", minLength: 1}, %{type: "integer", minimum: 1}]}
       },
-      ~w(title body field value author_reasoning)
+      ~w(title body field value)
     )
   end
 
@@ -225,20 +220,14 @@ defmodule NovelApplication.JudgmentToolContract do
 
     tool(
       "report_capability_gap",
-      "所需效果不在本轮可用操作目录时必须用它说明缺失效果；不派发近似工具，也不以 ask_author 代替。\n" <>
+      "所需效果不在本轮可用操作目录时必须用它说明缺失效果；不派发近似工具，也不以 ask_author 代替。原生 content 向作者说明目标缺少的效果，不把建议说成已执行。\n" <>
         guidance,
       %{
         dialogue_goal: @text,
         missing_effect: @text,
-        author_reasoning:
-          Map.put(
-            @text,
-            :description,
-            "能力缺口的作者说明，说明当前目标缺少的效果，不把建议说成已执行。\n" <> guidance
-          ),
         alternative_operation_refs: @strings
       },
-      ~w(dialogue_goal missing_effect author_reasoning)
+      ~w(dialogue_goal missing_effect)
     )
   end
 

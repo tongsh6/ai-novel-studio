@@ -41,20 +41,50 @@ defmodule NovelApplication.JudgmentToolContractTest do
     end
   end
 
-  test "执行保留非空目标、能力与作者说明，不能借探索契约省略" do
+  @tag :r06_content
+  test "会话控制工具参数仅表达操作，不要求也不接收第二作者正文" do
+    cases = [
+      {:judgment, "judgment_decision",
+       %{action: "execute", dialogue_goal: "按已读材料提出候选", capability: "character_design"}},
+      {:judgment, "register_author_content",
+       %{dialogue_goal: "登记作者原文", author_content_source_ref: "author-message"}},
+      {:judgment, "propose_creative_directions",
+       %{candidate_directions: [%{title: "夜雨", pitch: "让主角先付出代价"}]}},
+      {:judgment, "propose_work_profile_revision",
+       %{title: "主线", body: "主动追查", field: "main_goal", value: "查清旧账"}},
+      {:judgment, "report_capability_gap", %{dialogue_goal: "核对材料", missing_effect: "尚无可用操作"}},
+      {:continuation, "continuation_decision", %{action: "continue", guidance: "补足结尾"}},
+      {:continuation, "report_capability_gap", %{dialogue_goal: "核对材料", missing_effect: "尚无可用操作"}}
+    ]
+
+    for {profile, name, arguments} <- cases do
+      assert :ok =
+               JudgmentToolContract.validate([%{name: name, arguments: arguments}], profile)
+
+      for field <- [:author_reasoning, :author_narrative, :reason],
+          value <- ["另一份作者说明。", "", nil] do
+        assert {:error, :invalid_tool_arguments} =
+                 JudgmentToolContract.validate(
+                   [%{name: name, arguments: Map.put(arguments, field, value)}],
+                   profile
+                 )
+      end
+    end
+  end
+
+  test "执行参数保留非空目标与能力，不能借探索契约省略" do
     arguments = %{
       action: "execute",
       capability: "revise_adopted_content",
       adopted_content_ref: "chapter:actual",
       modification_scope: "target_segments",
       target_segment_ids: ["seg_observed"],
-      dialogue_goal: "只改第一段，其余正文逐字保留。",
-      author_reasoning: "按作者指定的范围提出修订候选。"
+      dialogue_goal: "只改第一段，其余正文逐字保留。"
     }
 
     assert :ok = validate(arguments)
 
-    for field <- [:dialogue_goal, :capability, :author_reasoning],
+    for field <- [:dialogue_goal, :capability],
         invalid <- [
           Map.delete(arguments, field),
           Map.put(arguments, field, nil),
@@ -69,8 +99,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
     arguments = %{
       action: "execute",
       capability: "prose_writing",
-      dialogue_goal: "写本章首稿。",
-      author_reasoning: "按已确认方向提出正文候选。"
+      dialogue_goal: "写本章首稿。"
     }
 
     for invalid <- [
@@ -104,8 +133,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
     execute = %{
       action: "execute",
       capability: "prose_writing",
-      dialogue_goal: "写本章首稿。",
-      author_reasoning: "按已确认方向提出正文候选。"
+      dialogue_goal: "写本章首稿。"
     }
 
     for request <- [nil, %{tool: "chapter_read", query: "第一章"}] do
@@ -136,7 +164,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
     assert tool.input_schema.type == "object"
     assert tool.input_schema.required == ["action"]
     assert tool.description =~ "judgment_decision 的 explore 只允许字段 action、explore_request"
-    assert tool.description =~ "必填字段为 action、dialogue_goal、author_reasoning、capability。"
+    assert tool.description =~ "必填字段为 action、dialogue_goal、capability。"
     binding = tool.input_schema.properties.target_segment_ids.description
     assert binding =~ "存储片段不等于自然段或首句"
     assert binding =~ "片段内需保留的锚句必须在替换正文中保留"
@@ -170,8 +198,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
       %{
         action: "execute",
         capability: "prose_writing",
-        dialogue_goal: "写本章首稿。",
-        author_reasoning: "按已确认方向提出正文候选。"
+        dialogue_goal: "写本章首稿。"
       }
     ]
 
@@ -202,28 +229,28 @@ defmodule NovelApplication.JudgmentToolContractTest do
       assert :ok = RequestIR.validate(ir)
       gap = Enum.find(RequestIR.Tools.tool_specs(ir), &(&1.name == "report_capability_gap"))
       schema = RequestIR.json_value(gap.input_schema)
-      reasoning = schema["properties"]["author_reasoning"]["description"]
+      refute Map.has_key?(schema["properties"], "author_reasoning")
 
-      for surface <- [Projection.system_text(ir.system), gap.description, reasoning],
+      for surface <- [Projection.system_text(ir.system), gap.description],
           clause <- clauses do
         assert surface =~ clause
         assert length(String.split(surface, clause)) == 2
       end
 
       refute gap.description =~ "说明缺失效果与最近可行路径"
-      refute reasoning =~ "缺少的效果及最近可行路径"
       assert gap.description =~ "不派发近似工具"
       assert gap.description =~ "不以 ask_author 代替"
-      assert reasoning =~ "不把建议说成已执行"
+      assert gap.description =~ "不把建议说成已执行"
     end
   end
 
   @tag :r08_gap_contract
   test "R08 未确认替代时省略或空列表仍经原 schema 与真实判断接收" do
+    narrative = "当前无法确认可行替代路径，也不能据此判定界面没有该能力。"
+
     base = %{
       dialogue_goal: "核对作者要求的实际效果",
-      missing_effect: "当前材料尚未证明有可用操作完成该效果",
-      author_reasoning: "当前无法确认可行替代路径，也不能据此判定界面没有该能力。"
+      missing_effect: "当前材料尚未证明有可用操作完成该效果"
     }
 
     for arguments <- [base, Map.put(base, :alternative_operation_refs, [])] do
@@ -243,14 +270,14 @@ defmodule NovelApplication.JudgmentToolContractTest do
 
       call = Fixtures.judgment_call("report_capability_gap", arguments)
       ref = "gap-empty-#{System.unique_integer([:positive])}"
-      response = Fixtures.judgment_response("", [call], ref)
+      response = Fixtures.judgment_response(narrative, [call], ref)
       execution = %Execution{result_fn: fn _request -> {:ok, response} end}
 
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(execution, %{}, Fixtures.judgment_input())
 
       assert judgment.action == "capability_gap"
-      assert judgment.narrative == base.author_reasoning
+      assert judgment.narrative == narrative
       assert judgment.provider_call_count == 1
     end
   end
@@ -262,7 +289,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
     arguments = %{
       dialogue_goal: "核对作者要求的实际效果",
       missing_effect: "缺少目标效果",
-      author_reasoning: "当前无法确认可行替代路径。",
       alternative_operation_refs: ["unlisted_operation"]
     }
 
@@ -277,7 +303,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
           Fixtures.judgment_call("report_capability_gap", arguments)
           |> Map.put(:id, "gap-invalid-#{ordinal}")
 
-        {:ok, Fixtures.judgment_response("", [call], "gap-provider-#{ordinal}")}
+        {:ok, Fixtures.judgment_response("当前无法确认可行替代路径。", [call], "gap-provider-#{ordinal}")}
       end
     }
 
@@ -309,7 +335,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
   end
 
   test "原文登记参数显式选择真实来源 ref，固定合同不嵌入动态来源枚举" do
-    assert JudgmentToolContract.version() == "b26-tools-v8"
+    assert JudgmentToolContract.version() == "b26-tools-v9"
 
     tool =
       Enum.find(JudgmentToolContract.tools(:judgment), &(&1.name == "register_author_content"))
@@ -339,8 +365,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
       base = %{
         action: "execute",
         capability: capability,
-        dialogue_goal: "按真实对象提出候选",
-        author_reasoning: "保留作者指定的对象和范围。"
+        dialogue_goal: "按真实对象提出候选"
       }
 
       valid = [base, Map.put(base, field, ref), Map.put(base, field, " " <> ref <> "\n")]
@@ -408,8 +433,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
       action: "execute",
       capability: "revise_adopted_content",
       adopted_content_ref: "chapter:current",
-      dialogue_goal: "修订作者指定范围",
-      author_reasoning: "依据正文提出修订候选。"
+      dialogue_goal: "修订作者指定范围"
     }
 
     for {fields, family} <- [
@@ -427,7 +451,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
       provider =
         NovelApplication.TestAgenticLoopFixtures.scripted_judgment_execution(fn request ->
           send(owner, {:scope_contract_request, request})
-          {:decision, Map.merge(base, fields)}
+          {:decision, "依据正文提出修订候选。", Map.merge(base, fields)}
         end)
 
       assert {:error, {:judgment_protocol_violation, {^family, _reason}}, state} =
@@ -491,7 +515,6 @@ defmodule NovelApplication.JudgmentToolContractTest do
       action: "execute",
       capability: "revise_adopted_content",
       dialogue_goal: "只修订已定位片段",
-      author_reasoning: "按作者指定范围提出候选。",
       adopted_content_ref: "chapter:observed",
       modification_scope: "target_segments",
       target_segment_ids: ["segment-observed", "segment-observed"]
@@ -507,8 +530,7 @@ defmodule NovelApplication.JudgmentToolContractTest do
       title: "目标篇幅",
       body: "依据当前计划修订篇幅。",
       field: "target_length",
-      value: 0,
-      author_reasoning: "提出目标篇幅供作者决定。"
+      value: 0
     }
 
     for value <- [0, -1] do

@@ -171,8 +171,9 @@ defmodule NovelAgent.Provider.SliceVerifyLogTest do
     assert logged_first["name"] == first["name"]
     assert logged_second["name"] == second["name"]
 
-    assert argument(logged_first["arguments"], "author_reasoning") ==
-             argument(first["arguments"], :author_reasoning)
+    assert record["response"]["body"]["content"] == result.content
+    assert is_binary(result.content) and result.content != ""
+    refute Map.has_key?(logged_first["arguments"], "author_reasoning")
 
     assert length(argument(logged_first["arguments"], "candidate_directions")) ==
              length(argument(first["arguments"], :candidate_directions))

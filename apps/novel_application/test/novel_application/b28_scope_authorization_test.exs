@@ -629,30 +629,29 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     do: {"", [explore_call(continuation_query(page1))]}
 
   defp g2_response(:happy, pages) do
-    {"", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages), "按刚读到的重复写法修订。")]}
+    {"按刚读到的重复写法修订。", [execute_call(page_chapter_ref(hd(pages)), cross_page_target(pages))]}
   end
 
   defp g2_response(:whole, pages) do
-    {"",
+    {"依据已读正文提出整章修订候选。",
      [
        call("judgment_decision", %{
          "action" => "execute",
          "capability" => "revise_adopted_content",
          "adopted_content_ref" => page_chapter_ref(hd(pages)),
          "modification_scope" => "whole_chapter",
-         "dialogue_goal" => "按作者要求修订整章正文",
-         "author_reasoning" => "依据已读正文提出整章修订候选。"
+         "dialogue_goal" => "按作者要求修订整章正文"
        })
      ]}
   end
 
   defp g2_response(:first, pages) do
     first = pages |> hd() |> page_segments() |> hd()
-    {"", [execute_call(page_chapter_ref(hd(pages)), first["segment_id"], "按已定位的首段修订。")]}
+    {"按已定位的首段修订。", [execute_call(page_chapter_ref(hd(pages)), first["segment_id"])]}
   end
 
   defp g2_response(:partial, [page1 | _]) do
-    {"", [execute_call(page_chapter_ref(page1), cross_page_target([page1]), "按已读内容修订。")]}
+    {"按已读内容修订。", [execute_call(page_chapter_ref(page1), cross_page_target([page1]))]}
   end
 
   # 续页只从实际观察叶取同章 ref 与 next_offset。
@@ -712,15 +711,14 @@ defmodule NovelApplication.B28ScopeAuthorizationTest do
     })
   end
 
-  defp execute_call(chapter_ref, target_id, narrative) do
+  defp execute_call(chapter_ref, target_id) do
     call("judgment_decision", %{
       "action" => "execute",
       "capability" => "revise_adopted_content",
       "adopted_content_ref" => chapter_ref,
       "modification_scope" => "target_segments",
       "target_segment_ids" => [target_id],
-      "dialogue_goal" => "把发现的重复写法改成一段候选",
-      "author_reasoning" => narrative
+      "dialogue_goal" => "把发现的重复写法改成一段候选"
     })
   end
 

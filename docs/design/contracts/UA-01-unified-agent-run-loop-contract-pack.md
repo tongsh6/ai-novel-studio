@@ -181,7 +181,7 @@ content，并继续受 N-NARR source binding；tool arguments 不进入作者主
 
 ### 2.2 单调用判断协议（B26 / B27，2026-10-24 联合修订已接受）
 
-本节为B26/B27共用模型调用协议真源；现役动作、单一正文与直接读取边界按B87 §16.23/16.27及VS-00M的增量裁决对齐。历史CP证据仍只证明其原源码与原协议，不因本次文档迁移重签。§2.1历史两段式/forced口径已被单调用auto替代，N-PLAN、执行门禁、采纳与来源保护保持。
+本节为B26/B27共用模型调用协议真源；现役动作、单一正文与直接读取边界按B87 §16.23/16.27及VS-00M的增量裁决对齐。2026-11-25 R06 前向修订按工具职责固定作者正文通道：下列会话控制工具迁到同响应原生 content，旧 author_reasoning 参数退役；ask_author、直接 explore、独立计划与使命保留各自通道，详见 §2.2.4。该合同修订不宣称实现或新实模已通过。历史CP证据仍只证明其原源码与原协议，不因本次文档迁移重签。§2.1历史两段式/forced口径已被单调用auto替代，N-PLAN、执行门禁、采纳与来源保护保持。
 
 “单调用”指每次判断/计划推理不再拆成叙事调用与结构调用。取证后再判断、补起草和纠错可有后续调用，必须按实际次数计预算；不把一次作者请求伪报为一次调用。同响应同源不自动证明语义一致，B27 仍校验目标、对象、效果与证据。
 
@@ -202,7 +202,7 @@ tool_choice: auto
 
 - judgment_decision.action 仅为 execute / explore。创作经 execute + capability 派发；直接读取唯一入口为 explore + explore_request{tool, query}，不同时注册 chapter_read / archive_read 等为第二套 native tools。explore不要求且不接受dialogue_goal或作者正文字段，完整计划由单一agent_plan_draft承担，不保留plan动作或配对工具兼容。
 - 探索目录仍来自 ExplorationService 实际支持项，参数说明与 B24/B25 读取契约一致、身份优先 chapter_ref；应用验证 scope/权限/预算。目录与操作效果由 B27 同源整合。
-- 续行 profile：tools=[continuation_decision, ask_author, report_capability_gap]；continuation_decision.action 仅为 continue，guidance 为可执行修正建议。模型停等一律 ask_author，不保留 continuation_decision.await_author。
+- 续行 profile：tools=[continuation_decision, ask_author, report_capability_gap]；continuation_decision.action 仅为 continue，guidance 为可执行修正建议，作者说明由同响应原生 content 唯一交付，不接受 author_reasoning 参数。模型停等一律 ask_author，不保留 continuation_decision.await_author。
 - 非判断入口的计划起草/修订：tools 分别仅为 [agent_plan_draft] / [agent_plan_revision]，仍 auto；缺结构输出不能把自然文本当作计划。
 - 每个 call_site/profile 的工具集合/schema 在同 run 内固定且有版本；不同职责 profile 可以不同。合法来源/对象 refs、当前版本、available_operations、权限撤回是动态状态，不每轮塞进工具 schema 枚举破坏前缀；执行前重新校验。
 - 普通回复无工具；需要原文物化、可操作方向或结构化缺口时，使用下节明确业务工具。这不是为每次回复再调用一次模型抽结构。
@@ -294,14 +294,13 @@ B26 独立负责上述明确问题的 wire、持久投影、自由文本/选项�
 
 ~~~yaml
 name: register_author_content
-required: [author_content_source_ref, dialogue_goal, author_reasoning]
+required: [author_content_source_ref, dialogue_goal]
 properties:
   author_content_source_ref: current 或本轮合法来源清单中的真实 turn_ref
   dialogue_goal: 作者要求登记什么及用途
-  author_reasoning: 对作者的简短说明原话
 ~~~
 
-- 不接受模型提供 body/content/source_text 冒充作者原文。应用按验证后的 source_ref 读取原消息字节，复用作者源候选物化/去重/采纳链，不调用 writer 重写，不自动入 canon。
+- 同响应原生 content 是唯一作者说明，不是待登记的作者原文；工具参数不接受 author_reasoning 或模型提供的 body/content/source_text。应用按验证后的 source_ref 读取原消息字节，复用作者源候选物化/去重/采纳链，不从说明中摘录，不调用 writer 重写，不自动入 canon。
 - 来源必须明确且在当前 work/session 可引用；current 要显式给出，缺失不默认当前输入。消息全文/指令前缀边界保留 ADR-0027 D4 口径，不由 app 自动摘录。
 - 同来源已有 pending/accepted 时返回真实对象与状态，不重复物化；全版本放弃后是否重登记沿现有规则。原文先提供、后轮再登记必须可用。
 - 模型侧撤销旧 author_content_registration=true 与 action=reply/frame_type=capability_gap 的组合要求。handler 归一为明确 author_content_registration 操作，复用来源/字节/去重校验，不再制造旧 reply 协议兼容分支。
@@ -310,7 +309,7 @@ properties:
 
 **C. propose_creative_directions：可操作方向明确来源（J1）**
 
-- 必填 candidate_directions（至少1项）与 author_reasoning；每项沿现有 title/pitch/tone_tags，title/pitch 非空。
+- 工具参数必填 candidate_directions（至少1项），不接受 author_reasoning；每项沿现有 title/pitch/tone_tags，title/pitch 非空。同响应原生 content 是唯一作者说明，方向结构仍只来自原工具参数。
 - 方向由模型同次工具响应产出；app 只校验、铸造 direction_id、绑定 provider/source refs，投影既有 creative_exploration 与 choose_candidate 等动作。
 - 采纳/删除/查看等操作菜单不是创作方向；不从普通文本列表机械提取、不给回复补默认候选。
 - 不调 writer、不生成正文或设定 canon；后续作者选择/采纳保持原边界。纯文字讨论仍可无工具。
@@ -319,22 +318,21 @@ properties:
 
 ~~~yaml
 name: propose_work_profile_revision
-required: [title, body, field, value, author_reasoning]
+required: [title, body, field, value]
 properties:
   title: 作者可见候选标题
   body: 作者可见修订说明（不写正文）
   field: premise | theme | main_goal | core_selling_point | target_reader | tone_preference | target_length | planned_volumes | serial_form
   value: 字符串（文本字段）或正整数（目标体量/卷数）
-  author_reasoning: 作者可见来源/理由原话
 ~~~
 
 - 只接受上述显式字段白名单；数值字段要求正整数，文本字段非空；未知字段/非法值在协议层拒绝，不把 `world_setting` 泛化覆盖 works。
-- 一次提案只含一个字段；应用铸造 pending `work_skeleton_suggestion` 候选（title/body/author_reasoning 逐字来自 provider），投影 accept/discard/edit 动作；作者采纳后才写 works（revision 乐观锁），未采纳零工作区写入。
+- 一次提案只含一个字段；工具参数不接受 author_reasoning。应用铸造 pending `work_skeleton_suggestion` 候选，title/body 逐字来自原工具参数，rationale 唯一消费已验证的 judgment.narrative（同响应原生 content 原字节），退役 revision.author_reasoning 副本及其优先回退。投影 accept/discard/edit 动作；作者采纳后才写 works（revision 乐观锁），未采纳零工作区写入。
 - 与 `work_skeleton_suggestion` 既有采纳链同源；不另建平行资料表、不改 `world_setting` 记忆语义；来源/候选/采纳/幂等沿用 AU-12 既有边界。
 
 **D. report_capability_gap：保留 Q3B 的结构化缺口**
 
-- 必填 dialogue_goal、missing_effect、author_reasoning；可选 alternative_operation_refs 只引用当前真实可用操作。
+- 工具参数必填 dialogue_goal、missing_effect，不接受 author_reasoning；可选 alternative_operation_refs 只引用当前真实可用操作。同响应原生 content 是唯一作者说明，缺失效果与有证据的可行替代仍遵守现 AuthoringTaskPolicy，不因通道迁移推定新能力。
 - 投影既有 capability_gap 事实/回复；不派发近似创作能力、不产候选、不写 canon，不伪造成功的业务 ToolResult。
 - 事实尚未读取应先 explore；不能用缺口报告代替取证。可机械核查的可用操作矛盾按统一有界纠错处理，不增加无限自评调用。
 - 普通文本不机械猜 capability_gap 标签；本工具承载已有 Q3B 状态，不恢复 reply 的第二次分类调用。
@@ -346,21 +344,21 @@ properties:
 | call_site / 同响应 tool_calls | 归一操作 | 处理 |
 |---|---|---|
 | 对话判断：[]，content 非空 | reply | 整段 content 即回复；reply_included 由非空内容判定；仍建立 primary DialogueFrame，按 VS-00D §11.4 标明 casual_reply 展示默认及未知模型判断；candidate_directions=[]，无默认业务动作 |
-| [propose_creative_directions] | creative_directions | 校验并投影真实方向卡，不猜自然文本 |
-| [propose_work_profile_revision] | work_profile_revision | 校验显式 field/value→pending work_skeleton_suggestion 候选，不直接写 works |
-| [register_author_content] | author_content_registration | 来源验证→保真候选或返回已有对象→completed/stopped；等采纳的是候选，不是 awaiting_author 的 run |
-| [report_capability_gap] | capability_gap | 初始/续行均 completed/stopped，明确 goal_unfulfilled，零新业务写；不自动续行或隐式等作者 |
+| [propose_creative_directions] + 非空白原生 content | creative_directions | 原工具参数投影真实方向卡，原生 content 仅作同源作者说明，不从自然文本猜方向 |
+| [propose_work_profile_revision] + 非空白原生 content | work_profile_revision | 校验显式 field/value→pending work_skeleton_suggestion 候选，rationale 取同源原生 content，不直接写 works |
+| [register_author_content] + 非空白原生 content | author_content_registration | 来源验证→保真候选或返回已有对象→completed/stopped；原生 content 仅作说明，不充当作者源原文；等采纳的是候选，不是 awaiting_author 的 run |
+| [report_capability_gap] + 非空白原生 content | capability_gap | 初始/续行均 completed/stopped，原生 content 说明缺口；明确 goal_unfulfilled，零新业务写，不自动续行或隐式等作者 |
 | [ask_author]（对话/续行） | await_author | 按 2.2.2 A 投影、绑定、回传 |
-| [judgment_decision{action: execute, capability}] | execute | 既有 dispatch，能力/对象/权限/预算重新校验 |
+| [judgment_decision{action: execute, capability}] + 非空白原生 content | execute | 原生 content 仅作判断说明；既有 dispatch 的能力/对象/权限/预算重新校验 |
 | [judgment_decision{action: explore, explore_request}] | explore | 验证原始唯一调用与完整参数；不创建作者正文/来源/reply_record，真实观察与系统阅读进度返回后再判断 |
 | [agent_plan_draft]（判断或相应计划调用点） | plan | 同一原生调用承载完整计划与整体作者说明；版本、已完成前缀及内联metadata保持，合法只读计划同样保留说明，不另发plan_requested |
 | [agent_plan_revision]（相应计划修订调用点） | plan_revision | 消费真实模型计划、修订说明及来源，缺结构不能用文本替代 |
-| [continuation_decision{action: continue}]（续行） | continue | 有依据的 guidance，沿原门禁/预算，不直接批准执行 |
-| 空 content 且无工具、错 profile 工具、重复工具、未定义组合、ask_author 与其他工具同返、旧判断 reply/await_author 枚举、native chapter_read 等第二入口、必填缺失 | protocol_violation | 同一任务/来源/权限下纠错一次；仍失败诚实失败，零业务派发/写入 |
+| [continuation_decision{action: continue}] + 非空白原生 content（续行） | continue | 原工具参数保留有依据的 guidance，原生 content 仅作说明；沿原门禁/预算，不直接批准执行 |
+| 空 content 且无工具、控制工具缺合法 content 或仍含 author_reasoning、错 profile 工具、重复工具、未定义组合、ask_author 与其他工具同返、旧判断 reply/await_author 枚举、native chapter_read 等第二入口、必填缺失 | protocol_violation | 同一任务/来源/权限下纠错一次；仍失败诚实失败，零业务派发/写入 |
 
 普通回复不规定“意图说明＋空行＋正文”，不解析空行/标题/列表/关键词来补业务结构。无工具仅在对话判断可结束普通回复；续行和非判断计划调用点须给各自结构。
 
-judgment_decision 的完整闭合分支由JudgmentDecisionToolContract持有：execute要求action、dialogue_goal、capability、author_reasoning，可选目标与段范围按实际目标契约校验；explore只接受action与explore_request。平面根object供应字段并集，公共required仅action，不能据此放宽实际分支。reply_included、author_narrative、reason、record_only及回复/登记专属字段不作为旧协议入口；未知、跨分支或互斥字段拒绝。作者正文唯一通道见§2.2.4。
+judgment_decision 的完整闭合分支由JudgmentDecisionToolContract持有：execute的工具参数要求action、dialogue_goal、capability，不接受author_reasoning，作者说明另由同响应原生content提供；可选目标与段范围按实际目标契约校验；explore只接受action与explore_request。平面根object供应字段并集，公共required仅action，不能据此放宽实际分支。reply_included、author_narrative、reason、record_only及回复/登记专属字段不作为旧协议入口；未知、跨分支或互斥字段拒绝。作者正文唯一通道见§2.2.4。
 
 整组响应先验证再派发，非法双工具不能部分登记/执行后再报错。重试保留作者输入、合法来源、目标版本、范围和权限；新provider_call_ref单独留痕，不与前次叙事混绑。失败Provider输出与原参数保留审计，未经接受的模型正文不提前发布；不把失败或结构状态改写成模型完成说明。来源与幂等校验不依赖prompt自觉。
 
@@ -400,7 +398,10 @@ judgment_decision 的完整闭合分支由JudgmentDecisionToolContract持有：e
 
 #### 2.2.4 叙事绑定与结果判断
 
-- 普通reply的唯一作者正文为原生content；ask_author为question；具有作者交付职责的判断工具、continuation及真实计划为author_reasoning，均逐字绑定同一有效响应和实际Provider来源。reason回退已退役；工具另带非空content须拒绝，不能择一、清洗或补写。
+- **2026-11-25 R06 前向通道裁决**：普通无工具reply仍消费原生content；judgment_decision.execute、register_author_content、propose_creative_directions、propose_work_profile_revision、report_capability_gap及continuation_decision的唯一作者正文固定为同响应原生content，工具schema移除并拒绝旧author_reasoning字段，包括null。通道由工具职责静态确定，不能按哪份更完整、自然或干净动态选择，也不提供旧字段回退。
+- ask_author仍仅以question交付完整问题；agent_plan_draft/agent_plan_revision（包括判断内的计划及独立计划）与chapter_mission/planning_mission仍仅以原工件author_reasoning交付说明。上述保留工具的content只能为nil/空串，非空含纯空白仍拒绝；不因控制工具迁移而改变强制使命工具或引入第二模型调用。直接explore的无正文边界见下一条。
+- 控制工具的原生content须为非空白字符串，完整原字节经现AgentNarrativeSource绑定同次真实ProviderOutput，并另核原工具名、真实call_id映射及完整arguments与该响应一致；不能借另一响应同文替代、裁剪前后空白、清理占位行、拼接或补写，也不能复用普通reply的占位清理路径。未知或不合格来源整体拒绝。判断事件、reply_record与候选rationale消费这份已验证narrative；有工具的响应仍是structured_tool，不因正文来源为content而冒充无工具plain_text。通过完整接收前不向作者发布。
+- 本修订沿原2次实际Provider上限、同call拒收回执及原作品/目标/来源/版本/范围/权限门；正文通道不授予业务效果或采纳权。旧ProviderOutput、canonical、失败回执与页面证据原样保留，按其实际source_type及字段如实验证/回查；历史工具字段来源可读不构成新控制工具的旧参数接收分支，不重写旧响应或重签旧验收。reason回退保持退役。
 - 直接explore是结构化读取请求，不创建narrative/narrative_source/reply_record；额外作者字段或非空content拒绝并保留原调用纠错。原始唯一call验证、provider_result、tool_call_id、transcript和计数保留，实际阅读状态由现exploration_observed系统事实表达。所有合法AgentPlan的整体说明照常发布，不因只读或内联隐藏。需要作者正文却没有合法原话时仍诚实失败，应用不能拼写模型说明。
 - 同源是必要条件，不替代 B27 的任务/对象/范围/效果一致性。无工具文本的认知记录按 VS-00D §11.4：保留原话与 supplied evidence，不从文本抽模型判断字段、不伪造 used_context_refs；必要结构化业务判断才使用对应工具。文学质量由模型据证据判断，不靠关键词/schema 合法判质量达标。
 - 不要求暴露私有 thinking；本节只处理作者可见文本和工具结构。

@@ -614,8 +614,11 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
           "judgment_decision" in names ->
             call_number = :atomics.add_get(calls, 1, 1)
             assert call_number <= page_count + 1
-            arguments = paged_judgment_arguments(source, request, call_number, page_count)
-            native_response("judgment_decision", arguments)
+
+            {content, arguments} =
+              paged_judgment_arguments(source, request, call_number, page_count)
+
+            native_response("judgment_decision", arguments, content)
 
           "submit_tentative_artifact" in names ->
             send(test_pid, {:paged_revision_writer, request})
@@ -661,27 +664,28 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
 
     assert is_integer(offset)
 
-    %{
-      action: "explore",
-      explore_request: %{
-        tool: "chapter_read",
-        query: Jason.encode!(%{chapter_ref: source.chapter_ref, offset: offset})
-      }
-    }
+    {"",
+     %{
+       action: "explore",
+       explore_request: %{
+         tool: "chapter_read",
+         query: Jason.encode!(%{chapter_ref: source.chapter_ref, offset: offset})
+       }
+     }}
   end
 
   defp paged_judgment_arguments(source, _request, _call_number, _page_count) do
-    %{
-      action: "execute",
-      capability: "revise_adopted_content",
-      adopted_content_ref: source.chapter_ref,
-      modification_scope: "whole_chapter",
-      dialogue_goal: "修订第二章整章正文，保留待采纳状态",
-      author_reasoning: "按作者要求生成整章修订候选"
-    }
+    {"按作者要求生成整章修订候选",
+     %{
+       action: "execute",
+       capability: "revise_adopted_content",
+       adopted_content_ref: source.chapter_ref,
+       modification_scope: "whole_chapter",
+       dialogue_goal: "修订第二章整章正文，保留待采纳状态"
+     }}
   end
 
-  defp native_response(name, arguments) do
+  defp native_response(name, arguments, content \\ "") do
     calls = TestAgenticLoopFixtures.native_tool_calls(name, arguments)
     ref = TestAgenticLoopFixtures.unique_provider_call_id("r05-paged-revision")
 
@@ -691,11 +695,11 @@ defmodule NovelApplication.ChapterRevisionRequestTest do
                provider_call_ref: ref,
                status: :ok,
                output_type: :text,
-               content: %{text: "", tool_calls: calls},
+               content: %{text: content, tool_calls: calls},
                refs: [ref]
              })
 
-    {:ok, %{content: "", tool_calls: calls, provider_output: output}}
+    {:ok, %{content: content, tool_calls: calls, provider_output: output}}
   end
 
   defp assert_fresh_baseline(request, source) do

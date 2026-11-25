@@ -541,6 +541,87 @@ defmodule NovelAgent.Provider.SliceVerifyOperationScopeTest do
              result.tool_calls
   end
 
+  # WR01 det03 的已捕获质量材料：同一形式候选覆盖第 6–16 句。
+  @wr01_repeated_sentences Enum.map(1..11, fn index ->
+                             "他在第#{index}道阵纹前停下脚步，指尖缓缓描过冷硬的刻痕，把这一处岔路的走向与气味默默记进心里。"
+                           end)
+  @wr01_quality_scope %{
+    operation: %{
+      role: "quality_evaluation",
+      prose_text:
+        "沈洛先一步候在巷口，压低声音与来人对了暗号。\n" <>
+          "夜色压在这座赛博修仙城市上，灵气账单从屋檐下垂落，像一串即将燃尽的符纸。\n" <>
+          "他停在巷口，听见远处公司巡检车的低鸣，也听见自己腕骨里那枚旧阵芯正在倒数。\n" <>
+          "档案暗码 93ff0f5a、2e881be831c0 像冷光一样贴在他的视野边缘，提醒这不是幻觉。\n" <>
+          "他没有立刻逃跑，而是把欠费记录折进袖中，反手扣住最后一张护身符，朝最黑的楼梯口走去。\n" <>
+          Enum.join(@wr01_repeated_sentences, "\n"),
+      scene_units: [
+        %{scene_title: "巷口封锁", unit_id: "scene_1"},
+        %{scene_title: "编号对上", unit_id: "scene_2"}
+      ],
+      form_candidates: [
+        %{
+          candidate_id: "fc_wr01_existing",
+          detector_ref: "detector.sentence_structure_uniformity",
+          sentence_start: 6,
+          sentence_end: 16,
+          evidence_spans: [
+            %{text: Enum.join(@wr01_repeated_sentences), sentence_start: 6, sentence_end: 16}
+          ]
+        }
+      ]
+    }
+  }
+
+  @tag :r06_quality_label
+  test "WR01 当前质量材料通过原生工具返回未知类别并保留真实形式候选身份" do
+    assert {:ok, result} =
+             complete(native_prompt("report_quality_findings", @wr01_quality_scope))
+
+    assert result.content == ""
+
+    assert [%{name: "report_quality_findings", arguments: %{"findings" => [finding]}}] =
+             result.tool_calls
+
+    assert %{
+             "quality_finding_id" => "qf_fc_wr01_existing",
+             "candidate_id" => "fc_wr01_existing",
+             "quality_gate_ref" => "quality_gate.prose_surface",
+             "validator_ref" => "validator.sentence_rhythm_uniformity",
+             "severity" => "warn",
+             "action" => "warn",
+             "impact_scope" => "local",
+             "revision_scope" => "local"
+           } = finding
+
+    assert [%{"text" => evidence, "sentence_start" => 6, "sentence_end" => 16}] =
+             finding["evidence_spans"]
+
+    assert evidence == Enum.join(@wr01_repeated_sentences)
+    assert finding["summary"] == "连续十一句只改变阵纹编号，动作和感受没有递进。"
+    assert finding["reasoning"] == "第 6–16 句反复停步、描摹刻痕、记住岔路，未增加新的阻力、发现或行动后果。"
+  end
+
+  @tag :r06_quality_label
+  test "WR01 历史材料或没有形式候选的当前正文不能制造质量问题" do
+    no_candidate = put_in(@wr01_quality_scope, [:operation, :form_candidates], [])
+    unrelated = %{operation: %{role: "quality_evaluation", prose_text: "林烬把账单放在桌上。"}}
+
+    for current <- [no_candidate, unrelated] do
+      prompt = native_prompt("report_quality_findings", current)
+
+      prompt = %{
+        prompt
+        | messages: [NovelTest.TestRequestIR.scope(@wr01_quality_scope) | prompt.messages]
+      }
+
+      assert {:ok, result} = complete(prompt)
+
+      assert [%{name: "report_quality_findings", arguments: %{"findings" => []}}] =
+               result.tool_calls
+    end
+  end
+
   defp native_prompt(tool, scope) do
     NovelTest.TestRequestIR.ir(
       [
@@ -994,14 +1075,15 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
 
   defp arguments_of(result) do
     assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
-    assert result.content == ""
 
     if args["action"] == "explore" do
+      assert result.content == ""
       assert Enum.sort(Map.keys(args)) == ~w(action explore_request)
     else
-      assert is_binary(args["author_reasoning"])
+      assert is_binary(result.content) and result.content != ""
     end
 
+    refute Map.has_key?(args, "author_reasoning")
     refute Map.has_key?(args, "reason")
     args
   end
@@ -1536,14 +1618,15 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
   defp args(prompt) do
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
     assert [%{"name" => "judgment_decision", "arguments" => arguments}] = result.tool_calls
-    assert result.content == ""
 
     if arguments["action"] == "explore" do
+      assert result.content == ""
       assert Enum.sort(Map.keys(arguments)) == ~w(action explore_request)
     else
-      assert is_binary(arguments["author_reasoning"])
+      assert is_binary(result.content) and result.content != ""
     end
 
+    refute Map.has_key?(arguments, "author_reasoning")
     refute Map.has_key?(arguments, "reason")
     arguments
   end
@@ -1841,8 +1924,8 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
              }
            ] = adopted.tool_calls
 
-    assert adopted.content == ""
-    assert hd(adopted.tool_calls).arguments["author_reasoning"] =~ "待采纳"
+    assert adopted.content =~ "待采纳"
+    refute Map.has_key?(hd(adopted.tool_calls).arguments, "author_reasoning")
   end
 
   test "B37 CP5：author_question options 回复“保留悬念”→ prose_writing 续写第01章" do
@@ -1852,8 +1935,8 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
     assert args["action"] == "execute"
     assert args["capability"] == "prose_writing"
     assert args["dialogue_goal"] =~ "第01章"
-    assert result.content == ""
-    assert args["author_reasoning"] =~ "保留悬念"
+    assert result.content =~ "保留悬念"
+    refute Map.has_key?(args, "author_reasoning")
   end
 
   test "真实语料 delegation/chitchat_noise：不自动执行/采纳，零写入" do

@@ -264,31 +264,25 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
   def scripted_judgment_execution(script) do
     %NovelAgent.Provider.Execution{
       result_fn: fn prompt ->
-        case script.(prompt) do
-          {:narrative, narrative} ->
-            {:ok,
-             %{
-               content: narrative,
-               tool_calls: [],
-               provider_output: provider_output(narrative)
-             }}
+        {text, calls} =
+          case script.(prompt) do
+            {:narrative, narrative} ->
+              {narrative, []}
 
-          {operation, arguments} when operation in [:decision, :plan] ->
-            name = if operation == :plan, do: "agent_plan_draft", else: "judgment_decision"
-            calls = [%{"name" => name, "arguments" => arguments}]
+            {:decision, narrative, arguments} ->
+              {narrative, [%{"name" => "judgment_decision", "arguments" => arguments}]}
 
-            {:ok,
-             %{
-               content: "",
-               tool_calls: calls,
-               provider_output: provider_output("", calls)
-             }}
-        end
+            {operation, arguments} when operation in [:decision, :plan] ->
+              name = if operation == :plan, do: "agent_plan_draft", else: "judgment_decision"
+              {"", [%{"name" => name, "arguments" => arguments}]}
+          end
+
+        {:ok, %{content: text, tool_calls: calls, provider_output: provider_output(text, calls)}}
       end
     }
   end
 
-  defp provider_output(text, calls \\ []) do
+  defp provider_output(text, calls) do
     %NovelCommon.Contracts.ProviderOutput{
       provider_run_ref: "prun-#{System.unique_integer([:positive])}",
       provider_call_ref: "pcall-#{System.unique_integer([:positive])}",

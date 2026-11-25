@@ -40,12 +40,13 @@ defmodule NovelApplication.AgentRunProseContinuationTest do
       {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
       assert [%{name: ^tool, arguments: arguments}] = result.tool_calls
 
-      assert result.content == ""
-
       if tool == "ask_author" do
+        assert result.content == ""
         assert arguments.question =~ phrase
       else
-        assert arguments.author_reasoning =~ phrase
+        assert result.content =~ phrase
+        refute Map.has_key?(arguments, :author_reasoning)
+        refute Map.has_key?(arguments, "author_reasoning")
       end
 
       assert :ok = JudgmentToolContract.validate(result.tool_calls, :continuation)

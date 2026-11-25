@@ -566,27 +566,22 @@ defmodule NovelApplication.SessionMessageReadTest do
       put_in(observed, [:facts, :provenance], "model")
     ]
 
-    for evidence <- invalid do
-      assert {:error, {:author_content_registration_invalid, :source_not_available}} =
-               AuthorContentRegistration.bind_judgment(
-                 registration(ref),
-                 observed_request(context, [evidence])
-               )
-    end
-
     wrong_hash = %{observed | source_hash: sha256("另一段内容")}
 
-    assert {:error, {:author_content_registration_invalid, :source_content_mismatch}} =
-             AuthorContentRegistration.bind_judgment(
-               registration(ref),
-               observed_request(context, [wrong_hash])
-             )
+    cases =
+      Enum.map(invalid, &{[&1], :source_not_available}) ++
+        [
+          {[wrong_hash], :source_content_mismatch},
+          {[observed, wrong_hash], :source_identity_conflict}
+        ]
 
-    assert {:error, {:author_content_registration_invalid, :source_identity_conflict}} =
-             AuthorContentRegistration.bind_judgment(
-               registration(ref),
-               observed_request(context, [observed, wrong_hash])
-             )
+    for {evidence, reason} <- cases do
+      assert {:error, {:author_content_registration_invalid, ^reason}} =
+               AuthorContentRegistration.bind_judgment(
+                 registration(ref),
+                 observed_request(context, evidence)
+               )
+    end
   end
 
   @tag :r08_source_parent
@@ -657,32 +652,33 @@ defmodule NovelApplication.SessionMessageReadTest do
       result_fn: fn request ->
         send(parent, {:r08_registration_request, request})
 
-        call =
+        {content, call} =
           case observation_blocks(request) do
             [] ->
-              TestAgenticLoopFixtures.judgment_call("judgment_decision", %{
-                action: "explore",
-                explore_request: %{
-                  tool: "session_message_read",
-                  query: query(source_run, 2, 0)
-                }
-              })
+              {"",
+               TestAgenticLoopFixtures.judgment_call("judgment_decision", %{
+                 action: "explore",
+                 explore_request: %{
+                   tool: "session_message_read",
+                   query: query(source_run, 2, 0)
+                 }
+               })}
 
             [observed] ->
               assert observed.content["summary"] == original
               assert observed.content["source_hash"] == sha256(original)
               assert observed.content["facts"]["source_refs"] == [%{"ref" => source_ref}]
 
-              TestAgenticLoopFixtures.judgment_call("register_author_content", %{
-                author_content_source_ref: source_ref,
-                dialogue_goal: "将指定的作者原文登记为候选",
-                author_reasoning: "已形成待采纳候选，采纳后才会入档。"
-              })
+              {"已形成待采纳候选，采纳后才会入档。",
+               TestAgenticLoopFixtures.judgment_call("register_author_content", %{
+                 author_content_source_ref: source_ref,
+                 dialogue_goal: "将指定的作者原文登记为候选"
+               })}
           end
 
         {:ok,
          TestAgenticLoopFixtures.judgment_response(
-           "",
+           content,
            [call],
            TestAgenticLoopFixtures.unique_provider_call_id("r08-read-registration")
          )}

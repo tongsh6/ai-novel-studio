@@ -55,8 +55,8 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
-    assert result.content == ""
-    assert is_binary(arguments["author_reasoning"])
+    assert result.content == "我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。"
+    refute Map.has_key?(arguments, "author_reasoning")
     refute Map.has_key?(arguments, "reason")
     assert (arguments[:action] || arguments["action"]) == "execute"
     assert (arguments[:capability] || arguments["capability"]) == "prose_writing"
@@ -126,8 +126,8 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
-    assert result.content == ""
-    assert is_binary(arguments["author_reasoning"])
+    assert result.content == "我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。"
+    refute Map.has_key?(arguments, "author_reasoning")
     refute Map.has_key?(arguments, "reason")
     assert (arguments[:capability] || arguments["capability"]) == "world_building"
   end
@@ -181,8 +181,8 @@ defmodule NovelAgent.Provider.SliceVerifyAuthorBehaviorTest do
     assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
     assert [%{name: "judgment_decision"} = call] = result.tool_calls
     arguments = call[:arguments] || call["arguments"]
-    assert result.content == ""
-    assert is_binary(arguments["author_reasoning"])
+    assert result.content == "我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。"
+    refute Map.has_key?(arguments, "author_reasoning")
     refute Map.has_key?(arguments, "reason")
     assert (arguments[:capability] || arguments["capability"]) == "revise_pending_artifact"
 

@@ -98,11 +98,13 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 
 本节记录联合修订接受的 D4.1 目标，不把 Accepted 的来源/字节/幂等边界取消。D4/D5 中旧 action=reply、frame_type=capability_gap、author_content_registration/author_narrative 的具体模型参数写法属于已删除的两段式实现；B26 迁移后以 [UA-01 §2.2](../contracts/UA-01-unified-agent-run-loop-contract-pack.md) 为唯一新模型协议，不再同时保留旧入口。实现与验收证据见 B26 §11–§14；文档记录不替代逐项验收。
 
-- 原文登记由 register_author_content 提交明确 author_content_source_ref 和作者可见说明；app 只从已允许的当前/历史消息读字节，保持源与动作 turn 分离、全文边界、缺来源拒绝、去重、采纳及编辑后状态语义。
+**2026-11-25 R06 前向修订**：按 UA-01 §2.2.4 固定会话控制工具的作者说明通道。execute、登记、方向、作品概况提案、能力缺口与continuation的作者说明仅取同响应原生content，工具不再接受author_reasoning；ask_author保留question，直接explore无正文，真实计划与使命保留工件author_reasoning。该裁决不扩大原来源、权限、对象、版本、范围或采纳边界，不增加模型回合；历史B26及失败原件仍按原协议记录，不据此宣称新实现或实模通过。
+
+- 原文登记由 register_author_content 的工具参数提交明确 author_content_source_ref；同响应原生content仅作作者可见说明，不是待登记原文。app只从已允许的当前/历史消息读字节，保持源与动作turn分离、全文边界、缺来源拒绝、去重、采纳及编辑后状态语义。
 - 移除旧 reply/capability_gap 参数联合条件，改校验明确登记操作及其 source/scope/state；不能为了沿用旧解析器把新工具再包成隐式旧 reply 协议。
-- 普通 content 回复没有副作用，不能从文本列表/空行/语气猜登记、方向选择或采纳。只收下不展开不调用登记/方向工具，原始输入仍可靠留存。
+- 无工具的普通content回复没有副作用，不能从文本列表/空行/语气猜登记、方向选择或采纳。带控制工具的content也只作同源说明，业务效果仍只由通过原门禁的结构参数决定。只收下不展开不调用登记/方向工具，原始输入仍可靠留存。
 - 可操作创作方向由 propose_creative_directions 明确结构；缺口由 report_capability_gap 明确结构。分别保留原有方向与 Q3B 业务结果，不将自然文字机械转成默认动作。
-- 纠正后的作者说明取当前有效响应的 content/author_reasoning，N-NARR/source refs 不与上次失败文字混绑。模型工具来源变化不改变候选字节或采纳授权。
+- 纠正后的作者说明按UA-01 §2.2.4静态通道取当前有效响应的完整原字节；控制工具仅取原生content，不择取旧author_reasoning或清理后的子串。N-NARR/source refs与同次原工具调用共同验证，不与上次失败文字混绑。作品概况候选rationale唯一消费已验证judgment.narrative，旧revision.author_reasoning副本退役；模型工具来源变化不改变候选字节或采纳授权。
 - ask_author 回答绑定实际问题/goal version/source_turn；选项值与原话均保留，稳定投递身份与 receipt 幂等沿 D1/D3，不因“同一 run”就接受过期问题。
 
 实施责任：B26 负责新 schema/handler/公共校验迁移与 Q3C/Q3D 回归；B27 负责源材料、任务含义、事实状态与规则唯一来源；B31 负责通用多任务归属。当前/历史原文→候选→刷新→采纳→追问完整链是必要验收，不把工具名存在当作闭环。不新增第六账或长期义务表。
@@ -134,7 +136,7 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - `interaction_state` 和 `session_adoptions` 同批提供版本关系、可执行操作、实际正文预览；
   作者消息附来源登记计数。作者“修改后保存”的全文优先于历史候选 items，不能据旧正文回答状态。
 - 解析纠正禁止重复登记时，必须由本次模型输出新的 `author_narrative`，不能沿用先前承诺。
-  原生工具叙事绑定具体字段和 Provider 字节，旧 author_reasoning 绑定继续兼容。
+  原生叙事按其实际source_type、字段和Provider原字节绑定。历史author_reasoning来源仍可如实验证与回放，真实计划/使命也继续使用其原工具字段；这不是新会话控制工具接受旧author_reasoning参数的runtime兼容入口。旧原件不迁字节、不补新来源，不以历史回查能力重签旧失败。
 - UI 的“修改后保存”只接受作者实际编辑的完整正文；instruction-only 请求不得被拼接后入档。
   保存/编辑/放弃前检查持久待办，防止旧页面复活已处置候选。保存失败保留弹窗及作者编辑，
   展示失败提示，不自动切换目标或清空内容。

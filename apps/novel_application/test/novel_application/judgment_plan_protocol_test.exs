@@ -419,12 +419,11 @@ defmodule NovelApplication.JudgmentPlanProtocolTest do
     assert {:ok, %{action: "execute"}} =
              JudgmentProtocol.request_judgment(
                execution([
-                 response("", [
+                 response("作者明确要求", [
                    call("judgment_decision", %{
                      "action" => "execute",
                      "capability" => "prose_writing",
-                     "dialogue_goal" => "写章",
-                     "author_reasoning" => "作者明确要求"
+                     "dialogue_goal" => "写章"
                    })
                  ])
                ]),

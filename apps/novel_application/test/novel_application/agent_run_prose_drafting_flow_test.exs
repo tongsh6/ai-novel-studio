@@ -1468,9 +1468,14 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert continued.visibility == :author
     assert continued.payload.author_narrative == "松灯408\n我会保留原有线索，再补足这次复活的代价。"
     source = continued.payload.author_narrative_source
-    assert source.source_type == "provider_output_tool_narrative"
-    assert source.tool_call_name == "continuation_decision"
-    assert source.tool_call_narrative_field == "author_reasoning"
+    assert source.source_type == "provider_output"
+    assert Map.get(source, :tool_call_name) == nil
+    assert Map.get(source, :tool_call_narrative_field) == nil
+
+    assert source.source_byte_range == %{
+             start: 0,
+             length: byte_size("松灯408\n我会保留原有线索，再补足这次复活的代价。")
+           }
 
     assert source.narrative_hash ==
              :crypto.hash(:sha256, "松灯408\n我会保留原有线索，再补足这次复活的代价。")
@@ -1698,24 +1703,22 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp continuation_decision(action, guidance, text \\ nil) do
     text = text || if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"
 
-    {name, args} =
+    {content, name, args} =
       if action == "continue",
-        do:
-          {"continuation_decision",
-           %{"action" => "continue", "guidance" => guidance, "author_reasoning" => text}},
-        else: {"ask_author", %{"question" => text, "options" => []}}
+        do: {text, "continuation_decision", %{"action" => "continue", "guidance" => guidance}},
+        else: {"", "ask_author", %{"question" => text, "options" => []}}
 
     calls = [%{"name" => name, "arguments" => args}]
 
     {:ok,
      %{
-       content: "",
+       content: content,
        tool_calls: calls,
        provider_output: %NovelCommon.Contracts.ProviderOutput{
          provider_run_ref: TestAgenticLoopFixtures.unique_provider_call_id("prun-continuation"),
          provider_call_ref: TestAgenticLoopFixtures.unique_provider_call_id("pcall-continuation"),
          status: :ok,
-         content: %{text: "", tool_calls: calls}
+         content: %{text: content, tool_calls: calls}
        }
      }}
   end

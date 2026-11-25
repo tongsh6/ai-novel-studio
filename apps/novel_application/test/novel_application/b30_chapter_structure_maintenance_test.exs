@@ -251,12 +251,10 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
       narrative = "我会生成第2卷章节重编号的可审阅变更计划。"
 
       source = %{
-        source_type: "provider_output_tool_narrative",
+        source_type: "provider_output",
         provider_call_ref: "pcall-structure-candidate",
         provider_run_ref: "prun-structure-candidate",
         provider_output_ref: "prun-structure-candidate",
-        tool_call_name: "judgment_decision",
-        tool_call_narrative_field: "author_reasoning",
         source_byte_range: %{start: 0, length: 61},
         source_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d",
         narrative_hash: "2257d639aa5569cb29a846045c136a86f3ccd0f17904d2fc02cbbc5a1606950d"
@@ -277,14 +275,11 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
 
       provider = %Execution{
         result_fn: fn _request ->
-          args =
-            judgment
-            |> Map.take([:action, :capability, :dialogue_goal])
-            |> Map.put(:author_reasoning, narrative)
+          args = Map.take(judgment, [:action, :capability, :dialogue_goal])
 
           {:ok,
            %NovelAgent.Provider.Result{
-             content: "",
+             content: narrative,
              tool_calls:
                NovelApplication.TestAgenticLoopFixtures.native_tool_calls(
                  "judgment_decision",
@@ -374,12 +369,10 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
       narrative = "作者点名了不存在的卷。"
 
       source = %{
-        source_type: "provider_output_tool_narrative",
+        source_type: "provider_output",
         provider_call_ref: "pcall-structure-refusal",
         provider_run_ref: "prun-structure-refusal",
         provider_output_ref: "prun-structure-refusal",
-        tool_call_name: "judgment_decision",
-        tool_call_narrative_field: "author_reasoning",
         source_byte_range: %{start: 0, length: 33},
         source_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605",
         narrative_hash: "0a96e43612ec123ff1414c414f7e72fd7cfc8f497fb44b14bfe857d4ccf18605"
@@ -400,14 +393,11 @@ defmodule NovelApplication.B30ChapterStructureMaintenanceTest do
 
       provider = %Execution{
         result_fn: fn _request ->
-          args =
-            judgment
-            |> Map.take([:action, :capability, :dialogue_goal])
-            |> Map.put(:author_reasoning, narrative)
+          args = Map.take(judgment, [:action, :capability, :dialogue_goal])
 
           {:ok,
            %NovelAgent.Provider.Result{
-             content: "",
+             content: narrative,
              tool_calls:
                NovelApplication.TestAgenticLoopFixtures.native_tool_calls(
                  "judgment_decision",

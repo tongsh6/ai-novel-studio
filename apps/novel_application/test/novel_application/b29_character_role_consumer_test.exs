@@ -292,26 +292,28 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
         :counters.add(calls, 1, 1)
         observations = NovelCommon.RequestIR.visible_observations(request)
 
-        args =
+        {content, args} =
           case :counters.get(calls, 1) do
             1 ->
               assert observations == []
 
-              %{
-                action: "explore",
-                explore_request: %{tool: "archive_read", query: "characters"}
-              }
+              {"",
+               %{
+                 action: "explore",
+                 explore_request: %{tool: "archive_read", query: "characters"}
+               }}
 
             2 ->
               assert [%{coverage: %{"kind" => "directory"}}] = observations
 
-              %{
-                action: "explore",
-                explore_request: %{
-                  tool: "archive_read",
-                  query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
-                }
-              }
+              {"",
+               %{
+                 action: "explore",
+                 explore_request: %{
+                   tool: "archive_read",
+                   query: Jason.encode!(%{facet: "characters", ref: ref, offset: 0})
+                 }
+               }}
 
             3 ->
               assert [_, detail] = observations
@@ -320,13 +322,13 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
               assert detail.content["facts"]["character"]["narrative_role"] == initial_role
               assert detail.content["summary"] == "熟悉灯楼旧账。"
 
-              %{
-                action: "execute",
-                capability: "revise_character_profile",
-                character_ref: ref,
-                dialogue_goal: "按作者要求处理老沈的叙事身份",
-                author_reasoning: @role_narrative
-              }
+              {@role_narrative,
+               %{
+                 action: "execute",
+                 capability: "revise_character_profile",
+                 character_ref: ref,
+                 dialogue_goal: "按作者要求处理老沈的叙事身份"
+               }}
 
             count ->
               flunk("确定性角色步骤不应追加 provider 调用：#{count}")
@@ -338,7 +340,7 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
         {:ok,
          %NovelAgent.Provider.Result{
-           content: "",
+           content: content,
            tool_calls: TestAgenticLoopFixtures.native_tool_calls("judgment_decision", args),
            provider_call_ref: call_ref,
            provider_run_ref: run_ref
@@ -394,12 +396,10 @@ defmodule NovelApplication.B29CharacterRoleConsumerRefreshTest do
 
     # 来源坐标来自 fixture 生产端；79 字节及 SHA 由上方固定含换行原文独立计算。
     expected_source = %{
-      source_type: "provider_output_tool_narrative",
+      source_type: "provider_output",
       provider_call_ref: call_ref,
       provider_run_ref: run_ref,
       provider_output_ref: run_ref,
-      tool_call_name: "judgment_decision",
-      tool_call_narrative_field: "author_reasoning",
       source_byte_range: %{start: 0, length: 79},
       source_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab",
       narrative_hash: "0b2fde1017c4511ef4ad89be64dde0f5ccdcf91d2d0d4f39b9a74f7b1eaa7eab"

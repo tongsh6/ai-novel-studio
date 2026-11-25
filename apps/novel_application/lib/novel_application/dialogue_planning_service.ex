@@ -1377,7 +1377,6 @@ defmodule NovelApplication.DialoguePlanningService do
     value = revision.value
     title = to_string(revision.title)
     body = to_string(revision.body)
-    rationale = to_string(revision.author_reasoning || judgment.narrative || "")
 
     if title == "" or body == "" do
       {:error, :invalid_work_profile_revision}
@@ -1403,7 +1402,7 @@ defmodule NovelApplication.DialoguePlanningService do
              item_id: item_id,
              title: title,
              body: body,
-             rationale: if(rationale == "", do: nil, else: rationale),
+             rationale: judgment.narrative,
              skeleton_field: field,
              skeleton_value: value,
              provider_call_ref: provider_call_ref

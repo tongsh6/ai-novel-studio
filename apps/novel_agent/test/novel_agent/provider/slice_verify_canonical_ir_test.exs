@@ -150,7 +150,7 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
   end
 
   @tag :r05_response_protocol
-  test "判断执行、登记与能力缺口的作者说明只在同一个原生参数中" do
+  test "判断执行、登记与能力缺口只在同响应 content 交付作者说明" do
     for {input, expected} <- [
           {"帮我设计一个新主角，名叫林渡。", "judgment_decision"},
           {"把已有角色的叙事身份从配角改为主角", "report_capability_gap"},
@@ -159,17 +159,16 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       assert {:ok, result} =
                SliceVerify.complete(nil, nil, judgment_request(input), %InferenceParams{})
 
-      assert result.content == ""
+      assert is_binary(result.content) and result.content != ""
       [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
       assert call["name"] == expected
-      assert is_binary(call["arguments"]["author_reasoning"])
-      assert call["arguments"]["author_reasoning"] != ""
+      refute Map.has_key?(call["arguments"], "author_reasoning")
       refute Map.has_key?(call["arguments"], "reason")
     end
   end
 
   @tag :r05_response_protocol
-  test "续行参数使用唯一作者说明且没有平行 content" do
+  test "续行直接用原生 content 交付作者说明" do
     prompt =
       NovelTest.TestRequestIR.ir(
         [
@@ -182,11 +181,11 @@ defmodule NovelAgent.Provider.SliceVerifyCanonicalFullReadTest do
       )
 
     assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
-    assert result.content == ""
+    assert result.content =~ "补上产出步"
     [call] = result.tool_calls |> Jason.encode!() |> Jason.decode!()
     assert call["name"] == "continuation_decision"
     assert call["arguments"]["action"] == "continue"
-    assert call["arguments"]["author_reasoning"] =~ "补上产出步"
+    refute Map.has_key?(call["arguments"], "author_reasoning")
     refute Map.has_key?(call["arguments"], "reason")
   end
 

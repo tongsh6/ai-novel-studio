@@ -55,7 +55,7 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
 
     assert prompt =~ "## 目标章结构（写前设计态）"
     assert prompt =~ "目标章：第02章：旧服务器里的残诀（seq=2）"
-    assert prompt =~ "章方向：E18-E22 结构化方向"
+    assert prompt =~ "- 章节设计方向"
     assert prompt =~ "章功能定位：转折章"
     assert prompt =~ "目标四件套：情节推进=主角进入旧服务器并发现残缺功法"
     assert prompt =~ "人物变化=主角第一次主动冒险"

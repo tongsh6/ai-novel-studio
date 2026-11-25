@@ -336,19 +336,18 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
       arguments: %{
         action: "execute",
         capability: "character_design",
-        dialogue_goal: "另建角色",
-        author_reasoning: "我会另建一个角色。"
+        dialogue_goal: "另建角色"
       }
     }
 
     for {text, calls} <- [
           {"已经处理好了。", []},
-          {"", [unrelated]},
-          {"", [role_decision(ctx.ref, "role-invalid-again")]}
+          {"我会另建一个角色。", [unrelated]},
+          {"根据已读档案提出角色修订。", [role_decision(ctx.ref, "role-invalid-again")]}
         ] do
       provider =
         role_execution([
-          role_response("", [initial], "first"),
+          role_response("根据已读档案提出角色修订。", [initial], "first"),
           role_response(text, calls, "second")
         ])
 
@@ -396,7 +395,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
 
       provider =
         role_execution([
-          role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
+          role_response("根据已读档案提出角色修订。", [role_decision(ctx.ref, "role-initial")], "first"),
           role_response("", [ask], "second")
         ])
 
@@ -469,7 +468,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
 
     provider =
       role_execution([
-        role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
+        role_response("根据已读档案提出角色修订。", [role_decision(ctx.ref, "role-initial")], "first"),
         role_response("", [ask], "second")
       ])
 
@@ -521,8 +520,8 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
 
     provider =
       role_execution([
-        role_response("", [role_decision(ctx.ref, "role-initial")], "first"),
-        role_response("", [role_decision(ref, "role-corrected")], "second")
+        role_response("根据已读档案提出角色修订。", [role_decision(ctx.ref, "role-initial")], "first"),
+        role_response("根据已读档案提出角色修订。", [role_decision(ref, "role-corrected")], "second")
       ])
 
     assert {:ok, judgment} =
@@ -610,8 +609,7 @@ defmodule NovelApplication.B29CharacterProfileObservedDispatchTest do
         action: "execute",
         capability: "revise_character_profile",
         character_ref: ref,
-        dialogue_goal: "指定老林为主角",
-        author_reasoning: "根据已读档案提出角色修订。"
+        dialogue_goal: "指定老林为主角"
       }
     }
   end

@@ -2691,7 +2691,7 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp direction_or_summary_lines(direction, summary) do
     [
-      "- 章方向：E18-E22 结构化方向",
+      "- 章节设计方向",
       ChapterPlanDirection.prompt_lines(direction),
       if(blank?(summary), do: [], else: ["- 计划摘要：#{summary}"])
     ]

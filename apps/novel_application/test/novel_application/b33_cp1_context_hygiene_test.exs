@@ -363,12 +363,11 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
 
     execution =
       TestAgenticLoopFixtures.scripted_judgment_execution(fn _request ->
-        {:decision,
+        {:decision, "请求写正文",
          %{
            "action" => "execute",
            "capability" => "prose_writing",
-           "dialogue_goal" => author_text,
-           "author_reasoning" => "请求写正文"
+           "dialogue_goal" => author_text
          }}
       end)
 
@@ -457,13 +456,12 @@ defmodule NovelApplication.B33CP1ContextHygieneTest do
 
   defp character_execution(ref) do
     TestAgenticLoopFixtures.scripted_judgment_execution(fn _request ->
-      {:decision,
+      {:decision, "修改作者指定角色的叙事身份",
        %{
          "action" => "execute",
          "capability" => "revise_character_profile",
          "character_ref" => ref,
-         "dialogue_goal" => "把历史观察人物设为主角",
-         "author_reasoning" => "修改作者指定角色的叙事身份"
+         "dialogue_goal" => "把历史观察人物设为主角"
        }}
     end)
   end

@@ -480,8 +480,7 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
     call =
       TestAgenticLoopFixtures.judgment_call("register_author_content", %{
         author_content_source_ref: source_ref,
-        dialogue_goal: goal,
-        author_reasoning: narrative
+        dialogue_goal: goal
       })
 
     calls =
@@ -493,7 +492,7 @@ defmodule NovelApplication.AuthorContentRegistrationTest do
       result_fn: fn request ->
         on_prompt.(request)
         ref = TestAgenticLoopFixtures.unique_provider_call_id("registration")
-        {:ok, TestAgenticLoopFixtures.judgment_response("", calls, ref)}
+        {:ok, TestAgenticLoopFixtures.judgment_response(narrative, calls, ref)}
       end
     }
   end

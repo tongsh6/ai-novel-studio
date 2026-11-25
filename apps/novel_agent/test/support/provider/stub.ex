@@ -305,14 +305,12 @@ defmodule NovelAgent.Provider.Stub do
     {action, guidance} = continuation_direction(text)
     narrative = continuation_narrative_content(text)
 
-    {name, args} =
+    {content, name, args} =
       if action == "continue",
-        do:
-          {"continuation_decision",
-           %{action: "continue", guidance: guidance, author_reasoning: narrative}},
-        else: {"ask_author", %{question: narrative, options: []}}
+        do: {narrative, "continuation_decision", %{action: "continue", guidance: guidance}},
+        else: {"", "ask_author", %{question: narrative, options: []}}
 
-    Result.new("", nil, tool_calls: [%{name: name, arguments: args}])
+    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp creative_output_prompt?(text) do
@@ -373,7 +371,7 @@ defmodule NovelAgent.Provider.Stub do
            ]}
 
         stub_archive_write?(text) ->
-          {"",
+          {judgment_narrative_content(action, text),
            [
              %{
                name: "register_author_content",
@@ -383,8 +381,7 @@ defmodule NovelAgent.Provider.Stub do
                      "goal",
                      "source_input_ref"
                    ]),
-                 dialogue_goal: stub_dialogue_goal(text),
-                 author_reasoning: judgment_narrative_content(action, text)
+                 dialogue_goal: stub_dialogue_goal(text)
                }
              }
            ]}
@@ -412,14 +409,14 @@ defmodule NovelAgent.Provider.Stub do
             if action == "execute" do
               Map.merge(args, %{
                 capability: capability,
-                dialogue_goal: stub_dialogue_goal(text),
-                author_reasoning: judgment_narrative_content(action, text)
+                dialogue_goal: stub_dialogue_goal(text)
               })
             else
               args
             end
 
-          {"", [%{name: "judgment_decision", arguments: args}]}
+          {judgment_narrative_content(action, text),
+           [%{name: "judgment_decision", arguments: args}]}
       end
 
     Result.new(content, nil, tool_calls: calls)

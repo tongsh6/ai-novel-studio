@@ -179,12 +179,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     arguments = %{
       "action" => "execute",
       "capability" => capability,
-      "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression),
-      "author_reasoning" => "我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。"
+      "dialogue_goal" => Map.get(fixture, "dialogue_goal", expression)
     }
 
     {:ok,
-     Result.new("", nil,
+     Result.new("我会按本轮要求生成待采纳候选，供你审阅后决定是否保存。", nil,
        tool_calls: [
          %{
            id: "tool-b73-execute",
@@ -452,116 +451,133 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # test-support evaluator 确认为机械重复；prompt 含 fail-marker 时返回非法 JSON →
   # evaluator 两次解析失败 → review_status unavailable（复现诚实降级）。
   defp quality_evaluator_response(prompt) do
-    cond do
-      String.contains?(prompt, @quality_eval_fail_marker) or
-          String.contains?(prompt, @quality_eval_fail_marker_cn) ->
-        "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
+    if String.contains?(prompt, @quality_eval_fail_marker) or
+         String.contains?(prompt, @quality_eval_fail_marker_cn) do
+      "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
+    else
+      Jason.encode!(%{"findings" => List.wrap(quality_evaluator_finding(prompt))})
+    end
+  end
 
+  defp quality_evaluator_finding(prompt) do
+    cond do
       # 判断②改进闭环（CP3b）：writer 修正稿带修正指纹——复评放行（确定性改进语义）。
       String.contains?(prompt, "已为规则变化补上对应代价") ->
-        Jason.encode!(%{"findings" => []})
+        nil
 
       quality_confirm_prompt?(prompt) ->
-        Jason.encode!(%{
-          "findings" => [
+        %{
+          "quality_finding_id" => "qf_slice_rule_conflict",
+          "quality_gate_ref" => "quality_gate.rule_consistency",
+          "validator_ref" => "slice_verify.rule_conflict_confirm",
+          "severity" => "high",
+          "action" => "confirm",
+          "summary" => "正文包含违反既有规则且需要作者确认的设定变化。",
+          "reasoning" => "正文明确取消了已确认规则要求的代价。",
+          "evidence_spans" => [
             %{
-              "quality_finding_id" => "qf_slice_rule_conflict",
-              "quality_gate_ref" => "quality_gate.rule_consistency",
-              "validator_ref" => "slice_verify.rule_conflict_confirm",
-              "severity" => "high",
-              "action" => "confirm",
-              "summary" => "正文包含违反既有规则且需要作者确认的设定变化。",
-              "reasoning" => "正文明确取消了已确认规则要求的代价。",
-              "evidence_spans" => [
-                %{
-                  "text" => "无需代价，违反既有规则",
-                  "location" => "规则变化所在句",
-                  "sentence_start" => 1,
-                  "sentence_end" => 1
-                }
-              ],
-              "impact_scope" => "paragraph",
-              "revision_scope" => "paragraph",
-              "brief_field_refs" => [],
-              "confidence" => 0.91,
-              "suggested_revision" => %{"instruction" => "补回规则代价或交由作者确认。"}
+              "text" => "无需代价，违反既有规则",
+              "location" => "规则变化所在句",
+              "sentence_start" => 1,
+              "sentence_end" => 1
             }
-          ]
-        })
+          ],
+          "impact_scope" => "paragraph",
+          "revision_scope" => "paragraph",
+          "brief_field_refs" => [],
+          "confidence" => 0.91,
+          "suggested_revision" => %{"instruction" => "补回规则代价或交由作者确认。"}
+        }
 
       intentional_rhetoric_candidate_prompt?(prompt) ->
-        Jason.encode!(%{"findings" => []})
+        nil
 
       narrative_pacing_mismatch_prompt?(prompt) ->
-        Jason.encode!(%{
-          "findings" => [
+        %{
+          "quality_finding_id" => "qf_slice_narrative_pacing",
+          "quality_gate_ref" => "quality_gate.pacing",
+          "validator_ref" => "validator.narrative_pacing_fit",
+          "severity" => "warn",
+          "action" => "adoption_review",
+          "summary" => "本章承担主线推进，但正文停留在静态环境与重复动作，缺少计划要求的证据争夺。",
+          "reasoning" => "章节方向要求夺回黑账证据并推动主线；正文四句都没有发生选择、阻力、信息释放或局面变化，实际叙事密度与章功能不匹配。",
+          "evidence_spans" => [
             %{
-              "quality_finding_id" => "qf_slice_narrative_pacing",
-              "quality_gate_ref" => "quality_gate.pacing",
-              "validator_ref" => "validator.narrative_pacing_fit",
-              "severity" => "warn",
-              "action" => "adoption_review",
-              "summary" => "本章承担主线推进，但正文停留在静态环境与重复动作，缺少计划要求的证据争夺。",
-              "reasoning" => "章节方向要求夺回黑账证据并推动主线；正文四句都没有发生选择、阻力、信息释放或局面变化，实际叙事密度与章功能不匹配。",
-              "evidence_spans" => [
-                %{
-                  "text" => "雨落在窗沿。灯影缓慢地移过旧墙。他反复擦拭那枚已经干净的杯子。钟声响过三次，房间里仍然没有新的决定。",
-                  "sentence_start" => 1,
-                  "sentence_end" => 4
-                }
-              ],
-              "impact_scope" => "chapter",
-              "revision_scope" => "chapter",
-              "brief_field_refs" => [
-                "chapter_direction.chapter_role",
-                "chapter_direction.plot_progress",
-                "reader_effect_brief"
-              ],
-              "confidence" => 0.9,
-              "suggested_revision" => %{
-                "instruction" => "重排整章，使证据争夺、人物选择和信息释放形成可见推进。"
-              }
+              "text" => "雨落在窗沿。灯影缓慢地移过旧墙。他反复擦拭那枚已经干净的杯子。钟声响过三次，房间里仍然没有新的决定。",
+              "sentence_start" => 1,
+              "sentence_end" => 4
             }
-          ]
-        })
+          ],
+          "impact_scope" => "chapter",
+          "revision_scope" => "chapter",
+          "brief_field_refs" => [
+            "chapter_direction.chapter_role",
+            "chapter_direction.plot_progress",
+            "reader_effect_brief"
+          ],
+          "confidence" => 0.9,
+          "suggested_revision" => %{
+            "instruction" => "重排整章，使证据争夺、人物选择和信息释放形成可见推进。"
+          }
+        }
 
       mechanical_form_candidate_prompt?(prompt) ->
-        candidate_id = form_candidate_id(prompt)
+        # B11D（质量场粒度）：指向本章计划第 2 场（矿区撤退）的情绪迁移；
+        # 服务端按 brief scene_N 白名单归因，不采信自造场 id。
+        form_finding(
+          prompt,
+          "quality_gate.style_fit",
+          {"连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。", "这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。"},
+          {"他猛地侧身。他一刀劈下。他反手格挡。", 1, 3},
+          ["scene_2.emotion_transition"],
+          "只改命中句段，让动作在风险、后果或视角上形成递进。"
+        )
 
-        Jason.encode!(%{
-          "findings" => [
-            %{
-              "quality_finding_id" => "qf_#{candidate_id}",
-              "candidate_id" => candidate_id,
-              "quality_gate_ref" => "quality_gate.style_fit",
-              "validator_ref" => "validator.sentence_rhythm_uniformity",
-              "severity" => "warn",
-              "action" => "warn",
-              "summary" => "连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。",
-              "reasoning" => "这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。",
-              "evidence_spans" => [
-                %{
-                  "text" => "他猛地侧身。他一刀劈下。他反手格挡。",
-                  "sentence_start" => 1,
-                  "sentence_end" => 3
-                }
-              ],
-              "impact_scope" => "local",
-              "revision_scope" => "local",
-              # B11D（质量场粒度）：指向本章计划第 2 场（矿区撤退）的情绪迁移；
-              # 服务端按 brief scene_N 白名单归因，不采信自造场 id。
-              "brief_field_refs" => ["scene_2.emotion_transition"],
-              "confidence" => 0.88,
-              "suggested_revision" => %{
-                "instruction" => "只改命中句段，让动作在风险、后果或视角上形成递进。"
-              }
-            }
-          ]
-        })
+      Enum.all?(
+        [
+          "detector.sentence_structure_uniformity",
+          "\"candidate_id\":",
+          "巷口封锁",
+          "编号对上",
+          filler_line(1),
+          filler_line(11)
+        ],
+        &String.contains?(prompt, &1)
+      ) ->
+        # WR01 的实际形式候选；未知类别保留为结构值，交由现质量卡投影作者标签。
+        form_finding(
+          prompt,
+          "quality_gate.prose_surface",
+          {"连续十一句只改变阵纹编号，动作和感受没有递进。", "第 6–16 句反复停步、描摹刻痕、记住岔路，未增加新的阻力、发现或行动后果。"},
+          {Enum.map_join(1..11, &filler_line/1), 6, 16},
+          [],
+          "压缩重复停步描摹的句子，让新的线索或阻力推动场景。"
+        )
 
       true ->
-        Jason.encode!(%{"findings" => []})
+        nil
     end
+  end
+
+  defp form_finding(prompt, gate, {summary, reasoning}, {text, first, last}, refs, instruction) do
+    candidate_id = form_candidate_id(prompt)
+
+    %{
+      "quality_finding_id" => "qf_#{candidate_id}",
+      "candidate_id" => candidate_id,
+      "quality_gate_ref" => gate,
+      "validator_ref" => "validator.sentence_rhythm_uniformity",
+      "severity" => "warn",
+      "action" => "warn",
+      "summary" => summary,
+      "reasoning" => reasoning,
+      "evidence_spans" => [%{"text" => text, "sentence_start" => first, "sentence_end" => last}],
+      "impact_scope" => "local",
+      "revision_scope" => "local",
+      "brief_field_refs" => refs,
+      "confidence" => 0.88,
+      "suggested_revision" => %{"instruction" => instruction}
+    }
   end
 
   defp mechanical_form_candidate_prompt?(prompt) do
@@ -833,14 +849,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(input, "把已有角色的叙事身份从配角改为主角") ->
         narrative = "当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改。可以先讨论调整方案，原档案保持不变。"
 
-        Result.new("", nil,
+        Result.new(narrative, nil,
           tool_calls: [
             %{
               name: "report_capability_gap",
               arguments: %{
                 dialogue_goal: input,
-                missing_effect: "修改已有角色主档案的叙事身份",
-                author_reasoning: narrative
+                missing_effect: "修改已有角色主档案的叙事身份"
               }
             }
           ]
@@ -989,7 +1004,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     chapter = "第01章：底层灵气账单"
 
     Result.new(
-      "",
+      "按你选择的“保留悬念”继续写#{chapter}正文。",
       nil,
       tool_calls: [
         %{
@@ -998,8 +1013,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "arguments" => %{
             "action" => "execute",
             "capability" => "prose_writing",
-            "dialogue_goal" => "按作者选择继续写#{chapter}正文，保持结尾保留悬念；细节由你定，不要问我。",
-            "author_reasoning" => "按你选择的“保留悬念”继续写#{chapter}正文。"
+            "dialogue_goal" => "按作者选择继续写#{chapter}正文，保持结尾保留悬念；细节由你定，不要问我。"
           }
         }
       ]
@@ -1129,7 +1143,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_world_foreshadow_adopt_result(input) do
     Result.new(
-      "",
+      "我会按你的要求生成一份待采纳的世界设定或伏笔候选，供你审阅。",
       nil,
       tool_calls: [
         %{
@@ -1137,8 +1151,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           arguments: %{
             "action" => "execute",
             "capability" => "world_building",
-            "dialogue_goal" => input,
-            "author_reasoning" => "我会按你的要求生成一份待采纳的世界设定或伏笔候选，供你审阅。"
+            "dialogue_goal" => input
           }
         }
       ]
@@ -1172,6 +1185,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       [%{"arguments" => %{"action" => "explore"}}] ->
         result
 
+      [%{"name" => "propose_work_profile_revision"}] ->
+        result
+
       [call] ->
         narrative = judgment_narrative_result(prompt_text, ir, observation).content
         single_judgment_output(call["arguments"], narrative, result, ir || prompt_text)
@@ -1183,7 +1199,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 验收替身按既有场景的语义裁决构造新协议，一次调用返回全部字节。
   defp single_judgment_output(args, text, result, source) do
-    args = Map.put_new(args, "author_reasoning", text)
     {name, payload} = single_fixture_operation(args, text, source)
 
     calls =
@@ -1191,7 +1206,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     calls = fixture_conflicting_calls(calls, args)
 
-    content = if calls == [], do: text, else: ""
+    content =
+      case {name, payload} do
+        {"ask_author", _} -> ""
+        {"agent_plan_draft", _} -> ""
+        {"judgment_decision", %{action: "explore"}} -> ""
+        {"judgment_decision", %{"action" => "explore"}} -> ""
+        _ -> text
+      end
 
     %{result | content: content, tool_calls: calls}
   end
@@ -1211,7 +1233,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp single_fixture_operation(args, text, source) do
     cond do
-      # AU12 A：显式立项修订工具参数原样透传（title/body/field/value/author_reasoning）。
+      # AU12 A：显式立项修订工具参数原样透传（title/body/field/value）。
       fixture_profile_revision?(args) ->
         {"propose_work_profile_revision", args}
 
@@ -1219,8 +1241,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         {"register_author_content",
          %{
            author_content_source_ref: args["author_content_source_ref"],
-           dialogue_goal: args["dialogue_goal"] || "登记原文",
-           author_reasoning: text
+           dialogue_goal: args["dialogue_goal"] || "登记原文"
          }}
 
       args["action"] == "await_author" ->
@@ -1265,16 +1286,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
              Enum.map(
                args["candidate_directions"],
                &fixture_direction/1
-             ),
-           author_reasoning: text
+             )
          }}
 
       args["frame_type"] == "capability_gap" ->
         {"report_capability_gap",
          %{
            dialogue_goal: args["dialogue_goal"] || "当前创作请求",
-           missing_effect: text,
-           author_reasoning: text
+           missing_effect: text
          }}
 
       true ->
@@ -1292,7 +1311,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     filtered =
       Map.take(
         args,
-        ~w(action author_reasoning dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref modification_scope target_segment_ids)
+        ~w(action dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref modification_scope target_segment_ids)
       )
 
     filtered =
@@ -1347,14 +1366,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
          String.contains?(text, "工具 prose_writing 执行失败") do
       narrative = "本次正文生成未完成，当前也没有同步到发布平台的能力。可以先保留现有作品，在支持的范围内重新调整目标。"
 
-      Result.new("", nil,
+      Result.new(narrative, nil,
         tool_calls: [
           %{
             name: "report_capability_gap",
             arguments: %{
               dialogue_goal: goal,
-              missing_effect: "同步到发布平台",
-              author_reasoning: narrative
+              missing_effect: "同步到发布平台"
             }
           }
         ]
@@ -1372,14 +1390,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     narrative = continuation_narrative(goal, text)
 
-    {name, args} =
+    {content, name, args} =
       if action == "continue",
-        do:
-          {"continuation_decision",
-           %{action: "continue", guidance: guidance, author_reasoning: narrative}},
-        else: {"ask_author", %{question: narrative, options: []}}
+        do: {narrative, "continuation_decision", %{action: "continue", guidance: guidance}},
+        else: {"", "ask_author", %{question: narrative, options: []}}
 
-    Result.new("", nil, tool_calls: [%{name: name, arguments: args}])
+    Result.new(content, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
@@ -4308,14 +4324,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_invalid_action_result(prompt) do
     reasoning = "当前响应选择了不受支持的判断动作。"
 
-    Result.new("", usage_for(prompt, reasoning),
+    Result.new(reasoning, usage_for(prompt, reasoning),
       tool_calls: [
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
           "arguments" => %{
             "action" => "creative_exploration_frame",
-            "author_reasoning" => reasoning,
             "reply_included" => false
           }
         }
@@ -4367,9 +4382,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_work_profile_revision_result(prompt) do
-    author_reasoning = "我会按你的要求提出作品立项修订，供你审阅后决定是否采纳。"
+    narrative = "我会按你的要求提出作品立项修订，供你审阅后决定是否采纳。"
 
-    Result.new("", usage_for(prompt, author_reasoning),
+    Result.new(narrative, usage_for(prompt, narrative),
       tool_calls: [
         %{
           "id" => "call_work_profile_revision",
@@ -4378,8 +4393,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             "title" => "主线目标",
             "body" => "让沈砚从被动卷入转向主动查账，在巡检收网前拿到暗抽主账。",
             "field" => "main_goal",
-            "value" => "在巡检收网前拿到暗抽主账",
-            "author_reasoning" => author_reasoning
+            "value" => "在巡检收网前拿到暗抽主账"
           }
         }
       ]
@@ -4527,7 +4541,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       :execute ->
         narrative = "按你的要求维护章节结构：只重编号，不改标题/正文/归卷/章数；我会先给出可审阅的旧→新编号变更计划。"
 
-        Result.new("", nil,
+        Result.new(narrative, nil,
           tool_calls: [
             %{
               "id" => "call_judgment_decision",
@@ -4535,8 +4549,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
               "arguments" => %{
                 "action" => "execute",
                 "capability" => "maintain_chapter_structure",
-                "dialogue_goal" => decision.dialogue_goal,
-                "author_reasoning" => narrative
+                "dialogue_goal" => decision.dialogue_goal
               }
             }
           ]
@@ -4728,7 +4741,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         narrative =
           "我会先给出角色叙事身份的修订候选，供你审阅后再更新主档案。"
 
-        Result.new("", nil,
+        Result.new(narrative, nil,
           tool_calls: [
             %{
               "id" => "call_judgment_decision",
@@ -4737,8 +4750,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
                 "action" => "execute",
                 "capability" => "revise_character_profile",
                 "character_ref" => decision.character_ref,
-                "dialogue_goal" => decision.dialogue_goal,
-                "author_reasoning" => narrative
+                "dialogue_goal" => decision.dialogue_goal
               }
             }
           ]
@@ -4818,7 +4830,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     narrative =
       "我会按你的要求设计一个待采纳的角色候选，并说明角色的叙事身份，确认前不会写入作品事实。"
 
-    Result.new("", nil,
+    Result.new(narrative, nil,
       tool_calls: [
         %{
           "id" => "call_judgment_decision",
@@ -4826,8 +4838,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "arguments" => %{
             "action" => "execute",
             "capability" => "character_design",
-            "dialogue_goal" => author_text,
-            "author_reasoning" => narrative
+            "dialogue_goal" => author_text
           }
         }
       ]

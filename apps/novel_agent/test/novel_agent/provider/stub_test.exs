@@ -77,9 +77,9 @@ defmodule NovelAgent.Provider.StubTest do
     assert [%{name: "judgment_decision", arguments: arguments}] = result.tool_calls
     assert arguments.action == "execute"
     assert arguments.capability == "character_design"
-    assert arguments.author_reasoning != ""
+    assert is_binary(result.content) and result.content != ""
+    refute Map.has_key?(arguments, :author_reasoning)
     refute Map.has_key?(arguments, :reason)
-    assert result.content == ""
   end
 
   test "复杂判断直接给一个完整计划，作者说明只有 author_reasoning", %{stub: stub} do
@@ -121,7 +121,7 @@ defmodule NovelAgent.Provider.StubTest do
     assert write["target_chapter"] == "第01章：开端"
   end
 
-  test "续行工具只有作者说明，普通判断回复只有 content", %{stub: stub} do
+  test "续行与普通回复使用原生 content，控制参数不携带作者说明", %{stub: stub} do
     continuation =
       TestRequestIR.ir(
         [TestRequestIR.base("旧创作判断器材料"), TestRequestIR.author("质量复核发现结尾缺失")],
@@ -131,9 +131,9 @@ defmodule NovelAgent.Provider.StubTest do
     assert {:ok, result} = Stub.complete(stub, nil, continuation, %InferenceParams{})
     assert [%{name: "continuation_decision", arguments: arguments}] = result.tool_calls
     assert arguments.action == "continue"
-    assert arguments.author_reasoning != ""
+    assert is_binary(result.content) and result.content != ""
+    refute Map.has_key?(arguments, :author_reasoning)
     refute Map.has_key?(arguments, :reason)
-    assert result.content == ""
 
     reply =
       TestRequestIR.ir(

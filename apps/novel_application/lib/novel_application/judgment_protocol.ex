@@ -786,7 +786,7 @@ defmodule NovelApplication.JudgmentProtocol do
     可以按已有事实修正时用 continuation_decision，action=continue 并给具体 guidance。
     只有需要作者决定时用 ask_author；真正缺少能力效果用 report_capability_gap。
     一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。
-    content 必须为 null 或空字符串；ask_author 的 question 是唯一问题正文，其他工具的 author_reasoning 是唯一作者说明。#{JudgmentToolContract.question_response_guidance()}
+    #{JudgmentToolContract.narrative_guidance()}#{JudgmentToolContract.question_response_guidance()}
     """
   end
 
@@ -955,23 +955,48 @@ defmodule NovelApplication.JudgmentProtocol do
   defp narrative(_operation, result, nil, _args),
     do: content_narrative(result, field(result, :content))
 
-  defp narrative(operation, result, call, args) do
-    with true <- field(result, :content) in [nil, ""],
+  defp narrative(_operation, result, call, args) do
+    location = JudgmentToolContract.narrative_location(field(call, :name), args)
+
+    with :ok <- validate_content_location(result, call, location),
          :ok <- AgentNarrativeSource.verify_tool_call(result, call) do
-      if operation == "explore",
-        do: {:ok, nil, nil},
-        else: tool_narrative(result, call, args)
+      case location do
+        :content -> control_content_narrative(result, field(result, :content))
+        :none -> {:ok, nil, nil}
+        {:tool_field, key} -> tool_narrative(result, call, args, key)
+      end
+    end
+  end
+
+  defp validate_content_location(_result, _call, :content), do: :ok
+
+  defp validate_content_location(_result, _call, :invalid),
+    do: {:error, :invalid_tool_combination}
+
+  defp validate_content_location(result, call, _location) do
+    if field(result, :content) in [nil, ""] do
+      :ok
     else
-      false ->
-        reason =
-          if field(call, :name) == "ask_author",
-            do: :author_question_content_conflict,
-            else: :author_narrative_content_conflict
+      reason =
+        if field(call, :name) == "ask_author",
+          do: :author_question_content_conflict,
+          else: :author_narrative_content_conflict
 
-        {:error, reason}
+      {:error, reason}
+    end
+  end
 
-      {:error, _} = error ->
-        error
+  defp control_content_narrative(result, text) do
+    valid? =
+      nonblank?(text) and not contentless?(text) and not raw_tool_markup?(text) and
+        not Enum.any?(String.split(text, "\n"), &provider_placeholder_line?/1)
+
+    if valid? do
+      with :ok <- Text.validate_narrative(text),
+           {:ok, source} <- AgentNarrativeSource.from_provider_result(result, text),
+           do: {:ok, text, source}
+    else
+      {:error, :judgment_narrative_required}
     end
   end
 
@@ -1044,10 +1069,7 @@ defmodule NovelApplication.JudgmentProtocol do
       Regex.match?(~r/^\[.*assistant reasoning.*\]$/iu, trimmed)
   end
 
-  defp tool_narrative(_result, nil, _args), do: {:error, :judgment_narrative_required}
-
-  defp tool_narrative(result, call, args) do
-    key = narrative_field(field(call, :name))
+  defp tool_narrative(result, call, args, key) do
     text = field(args, key)
 
     if nonblank?(text) do
@@ -1060,9 +1082,6 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp narrative_field("ask_author"), do: :question
-
-  defp narrative_field(_), do: :author_reasoning
   defp nonblank?(text), do: is_binary(text) and String.trim(text) != ""
 
   defp normalized(operation, args, call, result, text, source, input) do
@@ -1153,8 +1172,7 @@ defmodule NovelApplication.JudgmentProtocol do
       title: field(args, :title),
       body: field(args, :body),
       field: field(args, :field),
-      value: field(args, :value),
-      author_reasoning: field(args, :author_reasoning)
+      value: field(args, :value)
     }
   end
 

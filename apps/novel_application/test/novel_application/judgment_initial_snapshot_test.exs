@@ -163,7 +163,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       assert %{"type" => "object", "additionalProperties" => false} = schema
       assert schema["required"] == ["action"]
       assert schema["properties"]["dialogue_goal"]["type"] == "string"
-      assert schema["properties"]["author_reasoning"]["type"] == "string"
+      refute Map.has_key?(schema["properties"], "author_reasoning")
       assert schema["properties"]["capability"]["type"] == "string"
       refute Map.has_key?(schema, "anyOf")
 
@@ -268,11 +268,11 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert Enum.count(body.messages, &(&1.role == "user" and &1.content == @author_a)) == 1
 
     assert_narrative_contract(request, body, [
-      {"judgment_decision", "explore 不提供，包括 null；content 必须为空"},
+      {"judgment_decision", "execute 的唯一作者说明使用同次原生 content"},
       {"agent_plan_draft", "说明计划的目标、安排和依据，不把计划说成已执行"},
-      {"register_author_content", "不改写原文或声称已被采纳"},
+      {"register_author_content", "不声称已被采纳"},
       {"propose_creative_directions", "说明方向的依据与区别，保留作者选择"},
-      {"propose_work_profile_revision", "这是待采纳提案，不是已生效修改"},
+      {"propose_work_profile_revision", "不声称提案已生效"},
       {"report_capability_gap", "不把建议说成已执行"}
     ])
   end
@@ -301,7 +301,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       |> Enum.map(fn required -> marker_offset!(first, required) + byte_size(required) end)
       |> Enum.max()
 
-    shared = shared_prefix_bytes(first, second)
+    shared = :binary.longest_common_prefix([first, second])
 
     assert shared >= boundary,
            "shared=#{shared} boundary=#{boundary}"
@@ -489,8 +489,7 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
       assert ir.tools != []
 
       assert_narrative_contract(ir, capture(ir), [
-        {"continuation_decision", "唯一作者说明原文，content 必须为空"},
-        {"continuation_decision", "依据已观察到的偏离说明为何这样调整"}
+        {"continuation_decision", "在原生 content 中向作者说明已观察到的偏离与调整依据"}
       ])
     end
 
@@ -759,19 +758,24 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
     assert hd(body.messages).content =~ shared_rule
     assert occurrences(Jason.encode!(body), shared_rule) == 1
 
-    for target <- @projection_targets do
+    for target <- @projection_targets, {tool_name, obligation} <- obligations do
       assert {:ok, projected} = Projection.project(request, target)
       assert occurrences(Jason.encode!(projected), shared_rule) == 1
       tools = Enum.map(projected.tools, &(Map.get(&1, :function) || &1))
+      assert [tool] = Enum.filter(tools, &(&1.name == tool_name))
+      schema = tool[:parameters] || tool[:input_schema]
 
-      for {tool_name, obligation} <- obligations do
-        assert [tool] = Enum.filter(tools, &(&1.name == tool_name))
-        schema = tool[:parameters] || tool[:input_schema]
+      case tool_name do
+        "agent_plan_draft" ->
+          assert %{"type" => "string", "minLength" => 1, "description" => description} =
+                   schema["properties"]["author_reasoning"]
 
-        assert %{"type" => "string", "minLength" => 1, "description" => description} =
-                 schema["properties"]["author_reasoning"]
+          assert description =~ obligation
 
-        assert description =~ obligation
+        _control ->
+          refute Map.has_key?(schema["properties"], "author_reasoning")
+          refute "author_reasoning" in schema["required"]
+          assert tool.description =~ obligation
       end
     end
   end
@@ -788,12 +792,4 @@ defmodule NovelApplication.JudgmentInitialSnapshotTest do
   end
 
   defp occurrences(text, needle), do: length(String.split(text, needle)) - 1
-
-  defp shared_prefix_bytes(left, right) do
-    left
-    |> :binary.bin_to_list()
-    |> Enum.zip(:binary.bin_to_list(right))
-    |> Enum.take_while(fn {a, b} -> a == b end)
-    |> length()
-  end
 end

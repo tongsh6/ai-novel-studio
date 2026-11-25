@@ -9,6 +9,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.DialoguePlanningService
+  alias NovelApplication.TestAgenticLoopFixtures, as: Fixtures
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
@@ -19,6 +20,52 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   # 显式持有 Sandbox 连接，否则事实写入被 OwnershipError 拒绝后只剩日志噪音。
   setup do
     :ok = Sandbox.checkout(Repo)
+  end
+
+  test "立项候选 rationale 只消费同次完整 content，结构参数不再携带作者正文" do
+    narrative = "  主角需要主动追查旧账，我先提出这一调整供你决定。\r\n"
+
+    args = %{
+      title: "主线目标",
+      body: "在巡检收网前主动拿到暗抽主账。",
+      field: "main_goal",
+      value: "拿到暗抽主账"
+    }
+
+    response =
+      Fixtures.judgment_response(
+        narrative,
+        [Fixtures.judgment_call("propose_work_profile_revision", args)],
+        Fixtures.unique_provider_call_id("profile-rationale")
+      )
+
+    execution = %Execution{result_fn: fn _request -> {:ok, response} end}
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "把主线目标调整为主动拿到暗抽主账，先给我候选。",
+                 workspace_id: "ws-profile-rationale",
+                 work_id: "work-profile-rationale",
+                 session_id: "session-profile-rationale",
+                 turn_id: "turn-profile-rationale"
+               },
+               nil,
+               execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    {_context, result} = drive_judgment(spec, run, fn _event -> :ok end)
+    assert result.provider_call_count == 1
+    assert result.turn_result.assistant_message.text == narrative
+    assert [pending] = result.turn_result.adoption_state.pending
+    assert result.turn_result.adoption_state.resolved == []
+    assert [item] = pending.payload.items
+    assert item.title == args.title
+    assert item.body == args.body
+    assert item.rationale == narrative
+    assert item.skeleton_field == args.field
+    assert item.skeleton_value == args.value
   end
 
   test "普通用户输入先规划为 bounded profile routing AgentRun，不在 run 外调用 provider" do
@@ -616,26 +663,24 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     {content, calls} =
       cond do
         opts[:frame_type] == "capability_gap" ->
-          {"",
+          {narrative,
            [
              %{
                name: "report_capability_gap",
                arguments: %{
                  dialogue_goal: goal,
-                 missing_effect: narrative,
-                 author_reasoning: narrative
+                 missing_effect: narrative
                }
              }
            ]}
 
         action == "reply" and opts[:candidate_directions] not in [nil, []] ->
-          {"",
+          {narrative,
            [
              %{
                name: "propose_creative_directions",
                arguments: %{
-                 candidate_directions: opts[:candidate_directions],
-                 author_reasoning: narrative
+                 candidate_directions: opts[:candidate_directions]
                }
              }
            ]}
@@ -647,15 +692,14 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
           {"", [%{name: "ask_author", arguments: %{question: narrative, options: []}}]}
 
         true ->
-          {"",
+          {narrative,
            [
              %{
                name: "judgment_decision",
                arguments: %{
                  action: action,
                  capability: capability,
-                 dialogue_goal: goal,
-                 author_reasoning: narrative
+                 dialogue_goal: goal
                }
              }
            ]}
@@ -670,10 +714,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
            content: content,
            tool_calls: calls,
            provider_output: %ProviderOutput{
-             provider_run_ref:
-               NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("prun-judgment"),
-             provider_call_ref:
-               NovelApplication.TestAgenticLoopFixtures.unique_provider_call_id("pcall-judgment"),
+             provider_run_ref: Fixtures.unique_provider_call_id("prun-judgment"),
+             provider_call_ref: Fixtures.unique_provider_call_id("pcall-judgment"),
              status: :ok,
              content: %{text: content, tool_calls: calls}
            }

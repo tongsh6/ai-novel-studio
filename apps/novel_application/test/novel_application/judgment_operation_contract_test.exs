@@ -14,7 +14,7 @@ defmodule NovelApplication.JudgmentOperationContractTest do
 
   test "能力缺口原样接受当前 capability、当前 profile 工具与开放探索目录中的引用" do
     refs = ["character_design", "register_author_content", "chapter_read"]
-    result = judgment_response("", [gap_call(refs)], "gap-current")
+    result = judgment_response("请提供需要保留的原文，收到后再按原文登记。", [gap_call(refs)], "gap-current")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
@@ -46,8 +46,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     for bad_ref <- ["make_magic", "chapter_read(查正文)"] do
       invalid = gap_call([bad_ref, "chapter_read"])
       corrected = %{gap_call(["chapter_read"]) | id: "tool-gap-corrected"}
-      first = judgment_response("", [invalid], "gap-invalid")
-      second = judgment_response("", [corrected], "gap-corrected")
+      first = judgment_response("请提供需要保留的原文，收到后再按原文登记。", [invalid], "gap-invalid")
+      second = judgment_response("请提供需要保留的原文，收到后再按原文登记。", [corrected], "gap-corrected")
 
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
@@ -105,8 +105,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([
-                 judgment_response("", [invalid], "gap-closed"),
-                 judgment_response("", [corrected], "gap-open")
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [invalid], "gap-closed"),
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [corrected], "gap-open")
                ]),
                %{},
                judgment_input(explore: false, explore_tools: ["chapter_read"])
@@ -125,8 +125,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert {:ok, judgment} =
              JudgmentProtocol.request_continuation(
                execution([
-                 judgment_response("", [invalid], "continuation-invalid"),
-                 judgment_response("", [corrected], "continuation-corrected")
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [invalid], "continuation-invalid"),
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [corrected], "continuation-corrected")
                ]),
                %{},
                Map.merge(judgment_input(), %{
@@ -150,8 +150,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert {:error, _reason, state} =
              JudgmentProtocol.request_judgment(
                execution([
-                 judgment_response("", [first], "gap-bad-1"),
-                 judgment_response("", [second], "gap-bad-2")
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [first], "gap-bad-1"),
+                 judgment_response("请提供需要保留的原文，收到后再按原文登记。", [second], "gap-bad-2")
                ]),
                %{},
                judgment_input()
@@ -185,8 +185,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
                  execution([
-                   judgment_response("", [invalid], "target-invalid"),
-                   judgment_response("", [corrected], "target-clean")
+                   judgment_response("按作者要求提出候选。", [invalid], "target-invalid"),
+                   judgment_response("按作者要求提出候选。", [corrected], "target-clean")
                  ]),
                  %{},
                  judgment_input(capabilities: ["character_design"])
@@ -213,8 +213,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
                  execution([
-                   judgment_response("", [invalid], "pending-invalid"),
-                   judgment_response("", [corrected], "pending-corrected")
+                   judgment_response("按作者要求提出候选。", [invalid], "pending-invalid"),
+                   judgment_response("按作者要求提出候选。", [corrected], "pending-corrected")
                  ]),
                  %{},
                  judgment_input(
@@ -240,8 +240,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
       assert {:ok, judgment} =
                JudgmentProtocol.request_judgment(
                  execution([
-                   judgment_response("", [invalid], "legacy-target-invalid"),
-                   judgment_response("", [corrected], "legacy-target-removed")
+                   judgment_response("按作者要求提出候选。", [invalid], "legacy-target-invalid"),
+                   judgment_response("按作者要求提出候选。", [corrected], "legacy-target-removed")
                  ]),
                  %{},
                  judgment_input(
@@ -278,8 +278,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert {:error, {:judgment_protocol_violation, :invalid_tool_arguments}, state} =
              JudgmentProtocol.request_judgment(
                execution([
-                 judgment_response("", [first], "pending-wrong-field"),
-                 judgment_response("", [second], "pending-null"),
+                 judgment_response("按作者要求提出候选。", [first], "pending-wrong-field"),
+                 judgment_response("按作者要求提出候选。", [second], "pending-null"),
                  judgment_response("第三次调用不应发生。", [], "unexpected-third")
                ]),
                %{},
@@ -319,8 +319,8 @@ defmodule NovelApplication.JudgmentOperationContractTest do
       assert {:error, {:pending_artifact_invalid, :target_not_available}, state} =
                JudgmentProtocol.request_judgment(
                  execution([
-                   judgment_response("", [first], "unbound-first"),
-                   judgment_response("", [second], "unbound-second"),
+                   judgment_response("按作者要求提出候选。", [first], "unbound-first"),
+                   judgment_response("按作者要求提出候选。", [second], "unbound-second"),
                    judgment_response("第三次调用不应发生。", [], "unexpected-third")
                  ]),
                  %{},
@@ -414,18 +414,18 @@ defmodule NovelApplication.JudgmentOperationContractTest do
   defp assert_capability_correction(unavailable, allowed) do
     author = "  先给出候选。\n原文中的 plot_outline 保持原样。  "
     reasoning = "  我会按当前材料提出候选。\n由你决定是否采纳。  "
-    invalid = execute_call(%{"capability" => unavailable, "author_reasoning" => reasoning})
+    invalid = execute_call(%{"capability" => unavailable})
 
     corrected = %{
-      execute_call(%{"capability" => allowed, "author_reasoning" => reasoning})
+      execute_call(%{"capability" => allowed})
       | id: "tool-capability-corrected"
     }
 
-    second = judgment_response("", [corrected], "capability-corrected")
+    second = judgment_response(reasoning, [corrected], "capability-corrected")
 
     assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
-               execution([judgment_response("", [invalid], "capability-invalid"), second]),
+               execution([judgment_response(reasoning, [invalid], "capability-invalid"), second]),
                %{},
                judgment_input(capabilities: [allowed]) |> Map.put(:author_text, author)
              )
@@ -434,6 +434,13 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert judgment.capability == allowed
     assert judgment.provider_call_count == 2
     assert judgment.narrative == reasoning
+    assert judgment.narrative_source.source_type == "provider_output"
+
+    assert judgment.narrative_source.source_byte_range == %{
+             start: 0,
+             length: byte_size(reasoning)
+           }
+
     assert [original, accepted] = blocks(judgment.transcript, "tool_call")
     assert original.arguments == invalid.arguments
     assert accepted.arguments == corrected.arguments
@@ -532,7 +539,6 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     judgment_call("report_capability_gap", %{
       "dialogue_goal" => "按作者要求保留原文登记",
       "missing_effect" => "当前没有可逐字登记的原文",
-      "author_reasoning" => "请提供需要保留的原文，收到后再按原文登记。",
       "alternative_operation_refs" => refs
     })
   end
@@ -543,8 +549,7 @@ defmodule NovelApplication.JudgmentOperationContractTest do
       Map.merge(
         %{
           "action" => "execute",
-          "dialogue_goal" => "按已确认对象创作",
-          "author_reasoning" => "按作者要求提出候选。"
+          "dialogue_goal" => "按已确认对象创作"
         },
         overrides
       )
