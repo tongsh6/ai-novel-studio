@@ -80,10 +80,40 @@ defmodule NovelPersistence.ProviderFactMerge do
     end
   end
 
+  @doc "普通 run 的准入必须绑定已核定的实际作用域及目标版本。"
+  def runtime_admission_claim(attrs) do
+    refs = attrs.owner_refs
+    fields = [:agent_run_id, :workspace_id, :work_id, :session_id, :parent_turn_ref, :step_id]
+
+    scope_matches? =
+      Enum.all?(fields, fn key ->
+        value = Map.get(attrs, key)
+        present_ref?(value) and Map.get(refs, Atom.to_string(key)) == value
+      end)
+
+    if runtime_admission?(attrs) and scope_matches? and
+         is_integer(refs["goal_version"]) and refs["goal_version"] > 0 do
+      :ok
+    else
+      {:error, :provider_execution_scope_missing}
+    end
+  end
+
   @doc "操作阶段事实只能延续已经准入的完整执行归属，不能创建、删除或改绑该归属。"
   @spec operation_ownership(map() | nil, map()) :: :ok | {:error, atom()}
   def operation_ownership(existing, attrs) do
     cond do
+      runtime_admission?(existing) ->
+        immutable =
+          @run_identity_fields ++ @run_attribution_fields ++ [:provider_id, :model, :owner_refs]
+
+        if same_values?(existing, attrs, immutable),
+          do: :ok,
+          else: {:error, :provider_execution_identity_conflict}
+
+      runtime_admission?(attrs) ->
+        {:error, :provider_execution_not_admitted}
+
       operation_record?(existing) ->
         immutable =
           @run_identity_fields ++ @run_attribution_fields ++ [:provider_id, :model, :owner_refs]
@@ -306,6 +336,11 @@ defmodule NovelPersistence.ProviderFactMerge do
       if map_size(updates) == 0, do: :unchanged, else: {:update, updates}
     end
   end
+
+  defp runtime_admission?(%{owner_refs: refs}) when is_map(refs),
+    do: Map.get(refs, "runtime_admission") == "agent_run"
+
+  defp runtime_admission?(_), do: false
 
   defp operation_record?(%{owner_refs: refs}) when is_map(refs) do
     Enum.any?(

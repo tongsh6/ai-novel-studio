@@ -306,6 +306,22 @@ defmodule NovelApplication.AgentRunServer do
     {:reply, snapshot(state), state}
   end
 
+  def handle_call(
+        {:admit_provider, expected, initialized, context, source_check},
+        {caller, _},
+        state
+      ),
+      do:
+        {:reply,
+         AgentRunBudget.admit_provider(
+           state,
+           caller,
+           expected,
+           initialized,
+           context,
+           source_check
+         ), state}
+
   def handle_call(:author_action_receipt, _from, state) do
     {:reply, state.author_action_receipt, state}
   end
@@ -1817,28 +1833,13 @@ defmodule NovelApplication.AgentRunServer do
             provider_calls:
               max(
                 consumed.provider_calls + non_negative_count(result[:provider_call_count]),
-                observed_provider_calls(state)
+                AgentRunBudget.observed_provider_calls(state.events)
               ),
             replans: consumed.replans + non_negative_count(result[:replan_count])
         }
     }
 
     %{state | run: run}
-  end
-
-  # 失败/有界纠错也消耗调用；统一 provider 事件是实际调用的下界，不能只累计成功结果。
-  defp observed_provider_calls(state) do
-    state.events
-    |> Enum.filter(fn event ->
-      event.event_type == :provider_progress and
-        AgentRunMaintenance.counts_provider_call?(event.payload)
-    end)
-    |> Enum.map(
-      &(Map.get(&1.payload, :provider_call_ref) || Map.get(&1.payload, "provider_call_ref"))
-    )
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
-    |> MapSet.size()
   end
 
   defp non_negative_count(value) when is_integer(value) and value > 0, do: value
@@ -3388,6 +3389,7 @@ defmodule NovelApplication.AgentRunServer do
       events: state.events,
       stage_state: state.stage_state,
       provider_cancellation_token: state.provider_cancellation_token,
+      provider_admission: AgentRunBudget.admission_callback(server, run_for_step),
       stage_sink: fn attrs ->
         send(server, {:agent_stage_event, attrs})
         :ok

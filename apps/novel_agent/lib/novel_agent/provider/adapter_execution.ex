@@ -50,59 +50,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
   @type execution_result :: {:ok, execution_success()} | {:error, execution_error()}
 
-  @doc """
-  本次 provider 调用的存活时限策略（Gateway 唯一注入点）。
-
-  直接调用 adapter 的测试/旧路径可能没有 policy，此时各 helper 回退到 adapter
-  自己的 legacy `state.timeout`，行为与 B22 之前一致。
-  """
-  @spec timeout_policy(context() | map() | nil) :: TimeoutPolicy.t() | nil
-  def timeout_policy(ctx) when is_map(ctx) do
-    case Map.get(ctx, :timeout_policy) do
-      %TimeoutPolicy{} = policy -> policy
-      _ -> nil
-    end
-  end
-
-  def timeout_policy(_ctx), do: nil
-
-  @doc "流式请求的最长 wire 静默窗口（无数据才触发，不承担总时长）。"
-  @spec response_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
-  def response_timeout(ctx, fallback) do
-    case timeout_policy(ctx) do
-      %TimeoutPolicy{response_ms: ms} when is_integer(ms) and ms > 0 -> ms
-      _ -> effective_fallback(fallback, 300_000)
-    end
-  end
-
-  @doc "可选总时长兜底；nil = 不启用（默认）。"
-  @spec deadline_timeout(context() | map() | nil) :: pos_integer() | nil
-  def deadline_timeout(ctx) do
-    case timeout_policy(ctx) do
-      %TimeoutPolicy{deadline_ms: ms} when is_integer(ms) and ms > 0 -> ms
-      _ -> nil
-    end
-  end
-
-  @doc "连接超时（与模型速度无关的物理常量）。"
-  @spec connect_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
-  def connect_timeout(ctx, fallback) do
-    case timeout_policy(ctx) do
-      %TimeoutPolicy{connect_ms: ms} when is_integer(ms) and ms > 0 -> ms
-      _ -> effective_fallback(fallback, 15_000)
-    end
-  end
-
-  @doc "健康检查 / 模型列表探测的短超时。"
-  @spec probe_timeout(pos_integer() | nil) :: pos_integer()
-  def probe_timeout(fallback), do: TimeoutPolicy.probe_timeout(fallback)
-
-  defp effective_fallback(fallback, _default) when is_integer(fallback) and fallback > 0,
-    do: fallback
-
-  defp effective_fallback(_fallback, default), do: default
-
-  @doc "实际 Gateway 路由已准备但尚未 dispatch 的同一 ProviderRun 事实。"
   @spec initialized_run(context()) :: ProviderRun.t()
   def initialized_run(ctx), do: provider_run!(ctx, :initialized)
 
@@ -116,6 +63,21 @@ defmodule NovelAgent.Provider.AdapterExecution do
   def prepared_events(ctx) do
     [start_event!(ctx), progress_event!(ctx, 2, :request_prepared, "Provider request prepared.")]
   end
+
+  @doc "已知本地拒收，未向传输层派发；不能由事件缺席推断。"
+  def not_dispatched_events(ctx), do: [start_event!(ctx), request_not_dispatched_event(ctx, 2)]
+
+  def request_not_dispatched_event(ctx, sequence),
+    do:
+      progress_event!(
+        ctx,
+        sequence,
+        :request_not_dispatched,
+        "Provider transport attempt did not start."
+      )
+
+  def materialize_not_dispatched(result, ctx),
+    do: materialize_result(result, ctx, initial_events: not_dispatched_events(ctx))
 
   @doc "The transport has admitted this local request attempt, not proved vendor receipt."
   def request_dispatched_event(ctx, sequence),

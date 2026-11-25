@@ -238,6 +238,25 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert error.type == :provider_internal
   end
 
+  test "route rejection after admission records a known local non-dispatch on the same identity" do
+    parent = self()
+    dependency = Execution.dependency(provider: :missing_provider, purpose: :conversation)
+
+    assert {:ok, prepared} =
+             Execution.with_admission(dependency, fn initialized ->
+               send(parent, {:admitted, initialized})
+               :ok
+             end)
+
+    assert {:error, facts} = Execution.execute(prepared, ir("route rejection"))
+    assert_received {:admitted, initialized}
+    assert facts.provider_run.provider_run_id == initialized.provider_run_id
+    assert facts.provider_run.provider_call_ref == initialized.provider_call_ref
+    assert facts.provider_run.status == :failed
+    assert Enum.any?(facts.events, &(&1.payload[:phase] == :request_not_dispatched))
+    refute Enum.any?(facts.events, &(&1.payload[:phase] == :request_dispatched))
+  end
+
   test "execution admission sees the actual route and preserves the same refs after dispatch" do
     parent = self()
 

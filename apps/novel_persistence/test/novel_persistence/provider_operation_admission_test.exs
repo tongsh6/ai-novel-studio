@@ -348,7 +348,7 @@ defmodule NovelPersistence.ProviderOperationAdmissionTest do
       refute Repo.in_transaction?()
 
       assert {:error, :source_not_verified} =
-               ProviderRunLog.admit_operation(run, scope, fn ->
+               ProviderRunLog.admit_operation(run, scope, 5, fn ->
                  assert Repo.in_transaction?()
                  assert ProviderRunLog.get_run(run.provider_run_id) == nil
                  {:error, :source_not_verified}
@@ -357,7 +357,7 @@ defmodule NovelPersistence.ProviderOperationAdmissionTest do
       assert ProviderRunLog.get_run(run.provider_run_id) == nil
 
       assert {:error, :provider_operation_source_validation_invalid} =
-               ProviderRunLog.admit_operation(run, scope, fn -> :unknown end)
+               ProviderRunLog.admit_operation(run, scope, 5, fn -> :unknown end)
 
       assert ProviderRunLog.get_run(run.provider_run_id) == nil
     end)
@@ -504,6 +504,7 @@ defmodule NovelPersistence.ProviderOperationAdmissionTest do
     ProviderRunLog.admit_operation(
       run,
       Map.put_new(scope, :operation_checkpoint, checkpoint),
+      20,
       fn -> :ok end
     )
   end

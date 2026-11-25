@@ -93,7 +93,21 @@ defmodule NovelApplication.AuthoringSessionHistoryTest do
 
     {:ok, token} = Execution.start_cancellation_token(%{run_id: run.run_id})
     parent = self()
-    snapshot = %{run: run, provider_cancellation_token: token, stage_sink: fn _ -> :ok end}
+
+    snapshot = %{
+      run: run,
+      provider_cancellation_token: token,
+      stage_sink: fn _ -> :ok end,
+      # 来源验证单测显式消费真实原子准入事务，不构造 Server 运行态。
+      provider_admission: fn initialized, context, source_check ->
+        ProviderRunLog.admit_operation(
+          initialized,
+          context,
+          run.budget.max_provider_calls,
+          source_check
+        )
+      end
+    }
 
     dependency =
       Execution.dependency(

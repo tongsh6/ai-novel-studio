@@ -81,6 +81,15 @@ defmodule NovelApplication.TestTranscriptCompaction do
     snapshot = %{
       run: run,
       provider_cancellation_token: token,
+      # 此处只测 Summary 与持久事务边界；Server 命令序由 runtime 测试覆盖。
+      provider_admission: fn initialized, context, source_check ->
+        NovelPersistence.ProviderRunLog.admit_operation(
+          initialized,
+          context,
+          run.budget.max_provider_calls,
+          source_check
+        )
+      end,
       stage_sink: fn event -> send(parent, {:summary_stage, event}) end
     }
 

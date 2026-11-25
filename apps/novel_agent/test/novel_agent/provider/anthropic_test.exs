@@ -279,7 +279,8 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert {:error, %{error: %{type: :auth}, events: events}} =
                Anthropic.execute(state, nil, ir("prompt"), %InferenceParams{}, provider_ctx())
 
-      assert Enum.map(events, & &1.event_type) == [:started, :error]
+      assert Enum.map(events, & &1.event_type) == [:started, :progress, :error]
+      assert Enum.at(events, 1).payload.phase == :request_not_dispatched
       refute_received :unexpected_eventsource
     end
 

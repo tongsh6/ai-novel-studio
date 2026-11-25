@@ -547,6 +547,7 @@ defmodule NovelApplication.TranscriptCompactionRecoveryTest do
              ProviderRunLog.admit_operation(
                provider,
                Map.put(context, :operation_checkpoint, checkpoint),
+               run.budget.max_provider_calls,
                fn -> :ok end
              )
 

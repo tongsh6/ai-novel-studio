@@ -31,6 +31,9 @@ defmodule NovelAgent.Provider.SSEStream.Result do
     %{ctx: ctx, url: url, body: body, log_vendor: log_vendor} = opts
     state = opts.state
     all_events = initial_events ++ Enum.reverse(acc.events)
+
+    all_events = close_non_dispatch(all_events, ctx, state, acc, cancelled?)
+
     timeouts = %{response_ms: response_ms, deadline_ms: deadline_ms}
     usage = observed_usage(acc, decoder, duration)
 
@@ -94,6 +97,20 @@ defmodule NovelAgent.Provider.SSEStream.Result do
         )
     end
   end
+
+  # HTTP 的 owned worker 在退出前冲刷实际 attempt 通知；仅默认传输的明确取消
+  # 且尚未发出 attempt 才可证明本地未派发。其它错误或注入传输仍是未知。
+  defp close_non_dispatch(events, ctx, state, %{request_attempted?: false}, true) do
+    if is_nil(Map.get(state, :eventsource_fn)) do
+      event = AdapterExecution.request_not_dispatched_event(ctx, length(events) + 1)
+      AdapterExecution.emit_events(ctx, [event], :running)
+      events ++ [event]
+    else
+      events
+    end
+  end
+
+  defp close_non_dispatch(events, _ctx, _state, _acc, _cancelled?), do: events
 
   defp observed_usage(acc, decoder, duration) do
     finalized = decoder.finalize(acc.decoder_state)

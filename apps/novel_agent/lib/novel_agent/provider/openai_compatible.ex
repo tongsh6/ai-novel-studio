@@ -28,6 +28,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.OpenAICompatibleStream
   alias NovelAgent.Provider.ResponsesStream
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -224,13 +225,13 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
       {:error, :auth_required} ->
         missing_key_error(meta)
-        |> AdapterExecution.materialize_result(ctx)
+        |> AdapterExecution.materialize_not_dispatched(ctx)
     end
   end
 
   def execute(meta, _state, _model, _prompt, _params, ctx) do
     missing_key_error(meta)
-    |> AdapterExecution.materialize_result(ctx)
+    |> AdapterExecution.materialize_not_dispatched(ctx)
   end
 
   # B71 R2：工具调用不再隐式选择非流式——Chat Completions 的 tool_calls 同样走
@@ -247,8 +248,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     # B22：流式请求只设"最长静默窗口"（有数据就续命），总时长兜底默认关闭。
     request_opts = [
       headers: headers,
-      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+      receive_timeout: TimeoutPolicy.response_timeout(ctx, state.timeout),
+      connect_timeout: TimeoutPolicy.connect_timeout(ctx, 15_000)
     ]
 
     OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
@@ -275,8 +276,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
     request_opts = [
       headers: headers,
-      receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+      receive_timeout: TimeoutPolicy.response_timeout(ctx, state.timeout),
+      connect_timeout: TimeoutPolicy.connect_timeout(ctx, 15_000)
     ]
 
     ResponsesStream.execute(meta, state, url, body, request_opts, ctx)
@@ -318,7 +319,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     url = models_url(state.endpoint)
     get = state.get_fn || (&HTTP.get/2)
 
-    get.(url, headers: headers, receive_timeout: AdapterExecution.probe_timeout(state.timeout))
+    get.(url, headers: headers, receive_timeout: TimeoutPolicy.probe_timeout(state.timeout))
     |> models_result(meta)
   end
 

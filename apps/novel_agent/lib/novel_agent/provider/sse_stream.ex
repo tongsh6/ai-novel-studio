@@ -24,6 +24,7 @@ defmodule NovelAgent.Provider.SSEStream do
   alias NovelAgent.Provider.AuthorProseStream
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.SSEStream.Result
+  alias NovelAgent.Provider.TimeoutPolicy
 
   @type eventsource_fn ::
           (String.t(), map(), keyword(), (binary() -> term()) -> HTTP.event_stream_result())
@@ -70,7 +71,9 @@ defmodule NovelAgent.Provider.SSEStream do
     %{state: state, ctx: ctx} = opts
 
     if AdapterExecution.cancelled?(ctx) do
-      AdapterExecution.materialize_cancelled(ctx)
+      AdapterExecution.materialize_cancelled(ctx,
+        initial_events: AdapterExecution.not_dispatched_events(ctx)
+      )
     else
       execute_uncancelled(opts, decoder, state)
     end
@@ -86,8 +89,8 @@ defmodule NovelAgent.Provider.SSEStream do
     initial_events = AdapterExecution.prepared_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
-    deadline_ms = AdapterExecution.deadline_timeout(ctx)
-    response_ms = AdapterExecution.response_timeout(ctx, Map.get(state, :timeout) || 300_000)
+    deadline_ms = TimeoutPolicy.deadline_timeout(ctx)
+    response_ms = TimeoutPolicy.response_timeout(ctx, Map.get(state, :timeout) || 300_000)
 
     {:ok, acc} =
       Agent.start_link(fn ->

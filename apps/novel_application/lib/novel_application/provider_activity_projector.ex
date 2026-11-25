@@ -21,6 +21,7 @@ defmodule NovelApplication.ProviderActivityProjector do
     provider_execution =
       provider_execution
       |> Execution.with_cancellation_token(cancellation_token(snapshot))
+      |> bind_admission(snapshot, opts)
 
     case stage_sink(snapshot) do
       nil ->
@@ -32,6 +33,27 @@ defmodule NovelApplication.ProviderActivityProjector do
         end)
     end
   end
+
+  # 仅真实 Gateway dependency 有物理身份和 dispatch 边界。普通业务 step 由当前 Server
+  # 核 grant；维护的来源资格仍由其现有专用 admission 合并同一资源事务。
+  defp bind_admission(
+         %Execution{gateway_opts: gateway_opts} = dependency,
+         %{run: %AgentRun{current_step_ref: step} = run, provider_admission: admit} = snapshot,
+         opts
+       )
+       when is_list(gateway_opts) and is_binary(step) and is_function(admit, 3) do
+    context = provider_run_context(snapshot, opts)
+    owners = Map.merge(context, %{goal_version: run.goal.version, runtime_admission: "agent_run"})
+
+    {:ok, bound} =
+      dependency
+      |> Execution.with_owner_refs(owners)
+      |> Execution.with_admission(&admit.(&1, context, nil))
+
+    bound
+  end
+
+  defp bind_admission(dependency, _snapshot, _opts), do: dependency
 
   # VS-00L §16.12：同一批 run/event/output 先由唯一持久边界提交，成功后才发布
   # 对应 stage 进展。失败保留真实模型结果，只记录不含原文的安全诊断，不重发
@@ -54,7 +76,7 @@ defmodule NovelApplication.ProviderActivityProjector do
 
   defp record_provider_execution(snapshot, execution_result, opts) do
     cond do
-      not runtime_fact_persistence_enabled?() ->
+      not runtime_fact_persistence_enabled?() and not admitted_runtime?(execution_result) ->
         {:skip, :disabled}
 
       not recordable_provider_execution?(execution_result) ->
@@ -62,6 +84,16 @@ defmodule NovelApplication.ProviderActivityProjector do
 
       true ->
         ProviderRunLog.record_execution(execution_result, provider_run_context(snapshot, opts))
+    end
+  end
+
+  defp admitted_runtime?(execution_result) do
+    case execution_facts(execution_result) do
+      %{provider_run: %ProviderRun{owner_refs: refs}} ->
+        map_get(refs, :runtime_admission) == "agent_run"
+
+      _ ->
+        false
     end
   end
 

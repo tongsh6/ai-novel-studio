@@ -31,19 +31,26 @@ defmodule NovelPersistence.ProviderRunLog do
     end
   end
 
+  @doc "在同一写事务中核定剩余根额度并提交唯一 initialized 物理调用。"
+  @spec admit_execution(ProviderRun.t(), map(), non_neg_integer()) :: :ok | {:error, term()}
+  def admit_execution(%ProviderRun{status: :initialized} = run, context, limit)
+      when is_integer(limit) and limit >= 0 do
+    do_record_execution(run, %{provider_run: run, events: []}, context, {:admit_execution, limit})
+  end
+
   @doc """
   为已核实的同一作品/会话来源集原子授予一次 Provider 执行权。
   来源核验与 initialized 写入在同一个写事务内；提交前不得派发。
   """
-  @spec admit_operation(ProviderRun.t(), map(), (-> :ok | {:error, term()})) ::
+  @spec admit_operation(ProviderRun.t(), map(), non_neg_integer(), (-> :ok | {:error, term()})) ::
           :ok | {:error, term()}
-  def admit_operation(%ProviderRun{status: :initialized} = run, context, validate_sources)
-      when is_function(validate_sources, 0) do
+  def admit_operation(%ProviderRun{status: :initialized} = run, context, limit, validate_sources)
+      when is_integer(limit) and limit >= 0 and is_function(validate_sources, 0) do
     do_record_execution(
       run,
       %{provider_run: run, events: []},
       context,
-      {:admit_operation, validate_sources}
+      {:admit_operation, limit, validate_sources}
     )
   end
 
@@ -128,6 +135,41 @@ defmodule NovelPersistence.ProviderRunLog do
       order_by: [asc: r.inserted_at, asc: r.id]
     )
     |> Repo.all()
+  end
+
+  @doc "同一 run 的实际派发及尚不能释放的占用；按物理调用去重，不使用结果次数估算。"
+  @spec budget_usage(String.t()) :: %{consumed: non_neg_integer(), reserved: non_neg_integer()}
+  def budget_usage(agent_run_id) when is_binary(agent_run_id) do
+    from(r in ProviderRunRecord,
+      left_join: e in ProviderEventRecord,
+      on: e.provider_run_id == r.id,
+      where: r.agent_run_id == ^agent_run_id,
+      group_by: [r.id, r.status],
+      select: {
+        r.status,
+        fragment(
+          "MAX(CASE WHEN ? IN ('chunk','usage_recorded') OR json_extract(?, '$.phase') = 'request_dispatched' THEN 1 ELSE 0 END)",
+          e.event_type,
+          e.payload
+        ),
+        fragment(
+          "MAX(CASE WHEN ? = 'progress' AND json_extract(?, '$.phase') = 'request_not_dispatched' THEN 1 ELSE 0 END)",
+          e.event_type,
+          e.payload
+        )
+      }
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{consumed: 0, reserved: 0}, fn
+      {status, dispatched, _}, acc when status == "completed" or dispatched == 1 ->
+        %{acc | consumed: acc.consumed + 1}
+
+      {status, 0, 1}, acc when status in ["failed", "cancelled"] ->
+        acc
+
+      _, acc ->
+        %{acc | reserved: acc.reserved + 1}
+    end)
   end
 
   @spec list_events(String.t()) :: [ProviderEventRecord.t()]
@@ -216,7 +258,7 @@ defmodule NovelPersistence.ProviderRunLog do
     run_attrs = ProviderFactProjection.run_attrs(run, context)
 
     run_attrs =
-      if match?({:admit_operation, _}, mode),
+      if match?({:admit_operation, _, _}, mode),
         do:
           Map.put(
             run_attrs,
@@ -267,7 +309,13 @@ defmodule NovelPersistence.ProviderRunLog do
     ProviderFactMerge.operation_ownership(existing, attrs)
   end
 
-  defp ensure_operation_admission(attrs, {:admit_operation, validate_sources}) do
+  defp ensure_operation_admission(attrs, {:admit_execution, limit}) do
+    with :ok <- ProviderFactMerge.runtime_admission_claim(attrs) do
+      ensure_capacity(attrs, limit)
+    end
+  end
+
+  defp ensure_operation_admission(attrs, {:admit_operation, limit, validate_sources}) do
     existing = Repo.get(ProviderRunRecord, attrs.id)
 
     with {:ok, {operation, _coverage_key, source_keys}} <-
@@ -285,8 +333,23 @@ defmodule NovelPersistence.ProviderRunLog do
           {:error, :provider_operation_checkpoint_invalid}
 
         true ->
-          :ok
+          ensure_capacity(attrs, limit)
       end
+    end
+  end
+
+  # 已派发与未知占用都占同一个根 grant。事务内查重与提交，不能在查询之后再派发。
+  defp ensure_capacity(attrs, limit) do
+    cond do
+      not is_binary(attrs.agent_run_id) or attrs.agent_run_id == "" ->
+        {:error, :provider_execution_scope_missing}
+
+      Repo.get(ProviderRunRecord, attrs.id) || existing_run_call_owner(attrs.provider_call_ref) ->
+        {:error, :provider_execution_identity_conflict}
+
+      true ->
+        %{consumed: consumed, reserved: reserved} = budget_usage(attrs.agent_run_id)
+        if consumed + reserved < limit, do: :ok, else: {:error, :provider_budget_exhausted}
     end
   end
 

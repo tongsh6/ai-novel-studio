@@ -106,6 +106,48 @@ defmodule NovelAgent.Provider.TimeoutPolicy do
 
   def probe_timeout(_fallback), do: @probe_ms
 
+  # Gateway 注入的时限策略；直接 adapter 调用按原有 fallback 处理。
+  defp timeout_policy(ctx) when is_map(ctx) do
+    case Map.get(ctx, :timeout_policy) do
+      %__MODULE__{} = policy -> policy
+      _ -> nil
+    end
+  end
+
+  defp timeout_policy(_ctx), do: nil
+
+  @doc "流式请求的最长 wire 静默窗口（无数据才触发，不承担总时长）。"
+  @spec response_timeout(map() | nil, pos_integer() | nil) :: pos_integer()
+  def response_timeout(ctx, fallback) do
+    case timeout_policy(ctx) do
+      %__MODULE__{response_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> effective_fallback(fallback, 300_000)
+    end
+  end
+
+  @doc "可选总时长兜底；nil = 不启用（默认）。"
+  @spec deadline_timeout(map() | nil) :: pos_integer() | nil
+  def deadline_timeout(ctx) do
+    case timeout_policy(ctx) do
+      %__MODULE__{deadline_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> nil
+    end
+  end
+
+  @doc "连接超时（与模型速度无关的物理常量）。"
+  @spec connect_timeout(map() | nil, pos_integer() | nil) :: pos_integer()
+  def connect_timeout(ctx, fallback) do
+    case timeout_policy(ctx) do
+      %__MODULE__{connect_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> effective_fallback(fallback, 15_000)
+    end
+  end
+
+  defp effective_fallback(fallback, _default) when is_integer(fallback) and fallback > 0,
+    do: fallback
+
+  defp effective_fallback(_fallback, default), do: default
+
   # ── resolution ──────────────────────────────
 
   defp profile(provider) do

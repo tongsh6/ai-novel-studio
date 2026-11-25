@@ -6,6 +6,112 @@ defmodule NovelApplication.AgentRunBudget do
   既有实际入口数值见 UA-01 §6.1 / B91 §10.3。
   """
 
+  alias NovelCommon.Contracts.ProviderRun
+  alias NovelDomain.AgentRun
+  alias NovelPersistence.ProviderRunLog
+
+  @doc "当前 task 的真实 Provider 准入由所属 AgentRunServer 同步裁决。"
+  def admission_callback(server, %AgentRun{} = expected) do
+    fn initialized, context, source_check ->
+      GenServer.call(
+        server,
+        {:admit_provider, expected, initialized, context, source_check},
+        :infinity
+      )
+    end
+  end
+
+  @doc "只在 Server 的当前命令序中消费有效 grant；不能依赖调用方旧预算。"
+  def admit_provider(
+        state,
+        caller,
+        %AgentRun{} = expected,
+        %ProviderRun{} = initialized,
+        context,
+        source_check
+      ) do
+    run = state.run
+
+    cond do
+      caller != state.current_task_pid or is_nil(state.current_task_ref) ->
+        {:error, :provider_task_not_current}
+
+      not same_run_goal?(run, expected, context) ->
+        {:error, :provider_scope_stale}
+
+      run.interrupt_state.status in [:pause_requested, :cancel_requested] ->
+        {:error, :provider_run_interrupted}
+
+      true ->
+        admit_current_task(
+          state.current_task_kind,
+          run,
+          expected,
+          initialized,
+          context,
+          source_check
+        )
+    end
+  end
+
+  defp admit_current_task(:step, run, expected, initialized, context, nil) do
+    if run.status == :running and run.phase == :executing and
+         expected.current_step_ref == run.current_step_ref and
+         context[:step_id] == run.current_step_ref do
+      ProviderRunLog.admit_execution(initialized, context, run.budget.max_provider_calls)
+    else
+      {:error, :provider_task_not_current}
+    end
+  end
+
+  defp admit_current_task(
+         %{type: :transcript_maintenance} = task,
+         run,
+         _expected,
+         initialized,
+         context,
+         source_check
+       )
+       when is_function(source_check, 0) do
+    if is_nil(context[:step_id]) and task.goal_version == run.goal.version and
+         task.status == run.status do
+      ProviderRunLog.admit_operation(
+        initialized,
+        context,
+        run.budget.max_provider_calls,
+        source_check
+      )
+    else
+      {:error, :provider_task_not_current}
+    end
+  end
+
+  defp admit_current_task(_kind, _run, _expected, _initialized, _context, _source_check),
+    do: {:error, :provider_task_not_current}
+
+  defp same_run_goal?(run, expected, context) do
+    expected.goal.version == run.goal.version and
+      expected.run_id == run.run_id and context[:agent_run_id] == run.run_id and
+      Enum.all?([:workspace_id, :work_id, :session_id, :parent_turn_ref], fn key ->
+        Map.get(expected, key) == Map.get(run, key) and Map.get(context, key) == Map.get(run, key)
+      end)
+  end
+
+  # CP1b 迁移期旧结果投影只用于尚未收敛的结算消费者；不是派发授权。
+  def observed_provider_calls(events) do
+    events
+    |> Enum.filter(fn event ->
+      event.event_type == :provider_progress and
+        NovelApplication.AgentRunMaintenance.counts_provider_call?(event.payload)
+    end)
+    |> Enum.map(
+      &(Map.get(&1.payload, :provider_call_ref) || Map.get(&1.payload, "provider_call_ref"))
+    )
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+    |> MapSet.size()
+  end
+
   @default_hard_caps %{
     max_steps: 50,
     max_tool_calls: 50,

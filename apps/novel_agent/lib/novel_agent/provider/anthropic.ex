@@ -19,6 +19,7 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Projection
   alias NovelFoundation.UpstreamError
@@ -56,7 +57,7 @@ defmodule NovelAgent.Provider.Anthropic do
       |> UpstreamError.new("Anthropic API key 未配置", name())
       |> UpstreamError.to_error_tuple()
 
-    AdapterExecution.materialize_result({:error, error}, ctx)
+    AdapterExecution.materialize_not_dispatched({:error, error}, ctx)
   end
 
   # B71 R2：工具调用不再隐式选择非流式——tool_use 同样走 Messages SSE 流式传输，
@@ -68,14 +69,14 @@ defmodule NovelAgent.Provider.Anthropic do
 
         request_opts = [
           headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
-          receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
-          connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+          receive_timeout: TimeoutPolicy.response_timeout(ctx, state.timeout),
+          connect_timeout: TimeoutPolicy.connect_timeout(ctx, 15_000)
         ]
 
         AnthropicStream.execute(state, url, body, request_opts, ctx)
 
       {:error, _reason} ->
-        AdapterExecution.materialize_result(projection_error(), ctx)
+        AdapterExecution.materialize_not_dispatched(projection_error(), ctx)
     end
   end
 
@@ -158,7 +159,7 @@ defmodule NovelAgent.Provider.Anthropic do
 
     case get.(url,
            headers: headers,
-           receive_timeout: AdapterExecution.probe_timeout(state.timeout)
+           receive_timeout: TimeoutPolicy.probe_timeout(state.timeout)
          ) do
       {:ok, _status, body} ->
         {:ok, models_from_anthropic_list(body)}

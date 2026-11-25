@@ -95,6 +95,7 @@ defmodule NovelApplication.AgentRunMaintenance do
     snapshot = %{
       run: %{state.run | current_step_ref: nil},
       provider_cancellation_token: state.provider_cancellation_token,
+      provider_admission: NovelApplication.AgentRunBudget.admission_callback(server, state.run),
       stage_sink: fn attrs -> send(server, {:agent_stage_event, attrs}) end
     }
 

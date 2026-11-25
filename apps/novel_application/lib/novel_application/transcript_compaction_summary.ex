@@ -115,7 +115,7 @@ defmodule NovelApplication.TranscriptCompactionSummary do
           plan: Map.take(plan, @plan_keys)
         })
 
-      ProviderRunLog.admit_operation(initialized, context, fn ->
+      snapshot.provider_admission.(initialized, context, fn ->
         validate_sources(plan, snapshot.run)
       end)
     end

@@ -470,7 +470,7 @@ defmodule NovelAgent.Provider.Gateway do
 
   # 准入只使用本次实际 route/refs，不另做路由、不触发 adapter。拒绝时没有
   # dispatch、输出或 stream 事件；initialized 不能冒充一次已发生的模型调用。
-  defp execute_admitted({:ok, _route} = route, ir, params, ctx, opts) do
+  defp execute_admitted(route, ir, params, ctx, opts) do
     case Keyword.get(opts, :execution_admission) do
       admission when is_function(admission, 1) ->
         initialized = AdapterExecution.initialized_run(ctx)
@@ -494,9 +494,6 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  defp execute_admitted(route, ir, params, ctx, _opts),
-    do: execute_provider(route, ir, params, ctx)
-
   defp execute_provider({:ok, route}, %RequestIR{} = ir, params, ctx) do
     case ir_capability_gate(route, ir) do
       :ok ->
@@ -504,14 +501,14 @@ defmodule NovelAgent.Provider.Gateway do
         execute_adapter(route.module, route.state, route.model_name, ir, params, ctx)
 
       {:error, error} ->
-        AdapterExecution.materialize_result({:error, error}, ctx)
+        AdapterExecution.materialize_not_dispatched({:error, error}, ctx)
     end
   end
 
   defp execute_provider({:error, error}, _prompt, _params, ctx) do
     error
     |> UpstreamError.to_error_tuple()
-    |> AdapterExecution.materialize_result(ctx)
+    |> AdapterExecution.materialize_not_dispatched(ctx)
   end
 
   # 能力只按本次实际 route 的 module/state 派生一次；请求自带的 capability_profile
