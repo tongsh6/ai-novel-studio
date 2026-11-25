@@ -162,8 +162,9 @@ function findingSceneLabel(finding: QualityFindingView): string | null {
 
 function QualityFindingContent({ finding }: { finding: QualityFindingView }) {
   const gateLabel = finding.quality_gate
-    ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
-      finding.quality_gate.replace("quality_gate.", "").toUpperCase()
+    ? Object.prototype.hasOwnProperty.call(CARD.qualityReview.gateLabels, finding.quality_gate)
+      ? CARD.qualityReview.gateLabels[finding.quality_gate]
+      : CARD.qualityReview.unknownGateLabel
     : "";
   const impactLabel =
     CARD.qualityReview.impactScopeLabels[finding.impact_scope || "local"] ||

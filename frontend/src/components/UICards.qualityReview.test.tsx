@@ -72,11 +72,91 @@ describe("QualityReviewCard", () => {
     expect(text).toContain(CARD.qualityReview.title(2));
     expect(text).toContain("身体反应模板高频重复");
     expect(text).toContain("主角缺乏目标");
+    expect(text).toContain("风格与句式");
+    expect(text).toContain("人物逻辑");
     expect(text).toContain("心脏猛地一跳");
     expect(text).toContain("第 2 句");
     expect(text).toContain("判断理由");
     expect(text).toContain("影响范围");
     expect(text).toContain("置信度 92%");
+  });
+
+  it.each([
+    "quality_gate.prose_surface",
+    "quality_gate.future_unregistered",
+    "__proto__",
+    "constructor",
+    "toString",
+  ])("uses an author label for unknown structured category %s", (qualityGate) => {
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [finding({ quality_gate: qualityGate })],
+    };
+
+    const text = collectText(render(review));
+    expect(text).toContain("质量问题");
+    expect(text).not.toContain(qualityGate);
+    expect(text).not.toContain(qualityGate.replace("quality_gate.", "").toUpperCase());
+    expect(text).toContain("身体反应模板高频重复");
+    expect(text).toContain("同一身体反应在局部反复出现，没有承担新的叙事作用。");
+    expect(text).toContain("心脏猛地一跳");
+    expect(review.findings[0].quality_gate).toBe(qualityGate);
+  });
+
+  it.each([undefined, ""])("keeps the category badge absent for %s", (qualityGate) => {
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [finding({ quality_gate: qualityGate })],
+    };
+
+    const text = collectText(render(review));
+    expect(text).not.toContain("质量问题");
+    expect(text).not.toContain("风格与句式");
+    expect(text).toContain("身体反应模板高频重复");
+  });
+
+  it("preserves authored technical discussion and finding identity, action and selection", () => {
+    const summary = "请保留 quality_gate.prose_surface，这是作者要讨论的分类。";
+    const reasoning =
+      "这里讨论 PROSE_SURFACE、constructor 和 __proto__。\n这些词是作者原文，不是类别徽标。";
+    const evidence = "文中原句写着 quality_gate.prose_surface。";
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "block",
+      review_status: "completed",
+      findings: [
+        finding({
+          quality_finding_id: "qf_original",
+          quality_gate: "quality_gate.prose_surface",
+          action: "block",
+          summary,
+          reasoning,
+          evidence_spans: [{ text: evidence, sentence_start: 2, sentence_end: 2 }],
+          revision_scope: "paragraph",
+        }),
+        finding({ quality_finding_id: "qf_other", action: "confirm", revision_scope: "chapter" }),
+      ],
+    };
+    const original = JSON.stringify(review);
+    const text = collectText(
+      QualityReviewCard({
+        review,
+        selectedFindingIds: ["qf_original"],
+        onToggleFinding: () => {},
+        onRevise: () => {},
+      }),
+    );
+
+    expect(text).toContain("质量问题");
+    expect(text).toContain(summary);
+    expect(text).toContain(reasoning);
+    expect(text).toContain(evidence);
+    expect(text).toContain("修订相关段落");
+    expect(JSON.stringify(review)).toBe(original);
   });
 
   it("shows honest unavailable notice when review did not complete", () => {

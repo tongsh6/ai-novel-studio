@@ -143,6 +143,7 @@ export const CARD = {
     revisionSubmittedCollapse: "收起详情",
     revisingButton: "正在生成修订草稿...",
     revisingButtonPartial: (count: number) => `正在按所选 ${count} 项问题修订...`,
+    unknownGateLabel: "质量问题",
     gateLabels: {
       "quality_gate.worldrule_conflict": "设定冲突",
       "quality_gate.character_logic": "人物逻辑",
