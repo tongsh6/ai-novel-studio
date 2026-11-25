@@ -23,6 +23,7 @@ defmodule NovelPersistence.Schemas.ChapterSummary do
     field(:summary_text, :string)
     field(:source_ref, :string)
     field(:revision_base, :string)
+    field(:material_scope, :string)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -30,7 +31,7 @@ defmodule NovelPersistence.Schemas.ChapterSummary do
   @type t :: %__MODULE__{}
 
   @required_fields [:work_id, :chapter_id, :status, :summary_text]
-  @optional_fields [:source_ref, :revision_base]
+  @optional_fields [:source_ref, :revision_base, :material_scope]
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(summary, attrs) do
@@ -38,6 +39,7 @@ defmodule NovelPersistence.Schemas.ChapterSummary do
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:status, AdoptionStatus.values())
+    |> validate_inclusion(:material_scope, NovelDomain.ChapterSummary.material_scopes())
     |> StatusTransition.validate(:status, attrs,
       allowed?: &NovelDomain.AdoptionStatus.transition_allowed?/2,
       kind: "adoption"

@@ -202,27 +202,27 @@ defmodule NovelApplication.TurnExecutionService do
         input[:chapter_prose_reader]
       )
 
-    # CP1：前文 excerpt 预算由本上下文的组装策略给出（按 provider 档位），超预算尾部裁剪
-    # 并产生 OmissionNote + 发 context.downgrade.done 业务日志；裁剪不再用写死的常量。
-    # CP2.2（G3）：裁剪时以本章已采纳摘要兜底——replacement=chapter_summary:章 + excerpt
-    # 前置「更早正文摘要」，让被省略的更早正文以摘要替代而非凭空消失；无摘要才回落 nil。
+    # 正文裁剪仅声明实际省略范围；章摘要另作派生参考，不混入已采纳正文。
     {prior_prose, omission_notes} =
       budget_prior_prose(
         frame,
         resolved_chapter,
         prior_prose_full,
-        DialogueContext.policy(input[:context]),
-        read_chapter_summary(summary_reader, frame.workspace_id, resolved_chapter)
+        DialogueContext.policy(input[:context])
       )
 
-    # CP2.2（G5）：写作轮注入目标章之前的实现态摘要窗口，让模型知道前面已写了什么。
+    current_summary =
+      if omission_notes != [],
+        do: read_chapter_summary(summary_reader, frame.workspace_id, resolved_chapter_ref)
+
     prior_summaries =
       prior_chapter_summaries_section(
         frame,
         action,
-        resolved_chapter,
+        resolved_chapter_ref,
         input[:context],
-        summary_reader
+        summary_reader,
+        current_summary
       )
 
     # I-c（AU09 角色主档案）：从 Character 主档案注入"现有角色"，让 AI 写作保持一致、
@@ -1184,30 +1184,26 @@ defmodule NovelApplication.TurnExecutionService do
           DialogueFrame.t(),
           String.t(),
           String.t(),
-          NovelDomain.AssemblyPolicy.t(),
-          String.t() | nil
-        ) ::
-          {String.t(), [OmissionNote.t()]}
-  defp budget_prior_prose(_frame, _chapter, "", _policy, _summary), do: {"", []}
+          NovelDomain.AssemblyPolicy.t()
+        ) :: {String.t(), [OmissionNote.t()]}
+  defp budget_prior_prose(_frame, _chapter, "", _policy), do: {"", []}
 
-  defp budget_prior_prose(frame, chapter, prose, policy, summary) do
+  defp budget_prior_prose(frame, chapter, prose, policy) do
     max = policy.excerpt_budget_chars
 
     if String.length(prose) <= max do
       {prose, []}
     else
       tail = String.slice(prose, String.length(prose) - max, max)
-      {preamble, replacement} = omitted_prose_preamble(summary, chapter)
-      excerpt = preamble <> "\n…" <> tail
+      excerpt = "（本章更早的正文已省略，以下是最近的部分）\n…" <> tail
 
-      note =
-        OmissionNote.new("prior_prose:#{chapter_label(chapter)}", :budget_limited, replacement)
+      note = OmissionNote.new("prior_prose:#{chapter_label(chapter)}", :budget_limited)
 
       LogEmit.emit(:context, :downgrade, :done, %{
         turn_id: frame.turn_id,
         source: note.source,
         reason: to_string(note.reason),
-        replacement: replacement,
+        replacement: note.replacement,
         assembly_policy_id: policy.policy_id,
         excerpt_budget_chars: max,
         original_chars: String.length(prose)
@@ -1217,79 +1213,68 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  # CP2.2（G3）：有本章摘要则以摘要替代被省略的更早正文（replacement=chapter_summary:章）；
-  # 无摘要才回落 CP1 行为（replacement=nil，凭空消失仅有省略记录）。
-  defp omitted_prose_preamble(summary, chapter) when is_binary(summary) and summary != "" do
-    {"（本章更早的正文已省略，以下是其摘要与最近的部分）\n更早正文摘要：#{summary}", "chapter_summary:#{chapter_label(chapter)}"}
-  end
-
-  defp omitted_prose_preamble(_summary, _chapter) do
-    {"（本章更早的正文已省略，以下是最近的部分）", nil}
-  end
-
   defp chapter_label(chapter) when is_binary(chapter) and chapter != "", do: chapter
   defp chapter_label(_), do: "本章"
 
-  # CP2.2（G3）：读本章当前已采纳摘要，作为裁剪前文的替代物。
-  defp read_chapter_summary(%{by_title: by_title}, work_id, chapter)
-       when is_function(by_title, 2) and is_binary(work_id) and is_binary(chapter) and
-              chapter != "" do
-    case by_title.(work_id, chapter) do
-      text when is_binary(text) and text != "" -> text
-      _ -> nil
-    end
+  # 仅真实章 ref 定点读取；摘要类型/来源由共享材料投影提供。
+  defp read_chapter_summary(%{by_ref: by_ref}, work_id, "chapter:" <> _ = ref)
+       when is_function(by_ref, 2) and is_binary(work_id) do
+    by_ref.(work_id, ref)
   end
 
-  defp read_chapter_summary(_reader, _work_id, _chapter), do: nil
+  defp read_chapter_summary(_reader, _work_id, _ref), do: nil
 
-  # CP2.2（G5）：prose_writing 轮按 AssemblyPolicy.summary_window 注入目标章之前
-  # 最近 N 章摘要，让模型知道前面已写了什么；记 context.continuity.done（source_type=continuity）。
-  defp prior_chapter_summaries_section(
-         frame,
-         action,
-         resolved_chapter,
-         context,
-         %{previous: previous}
-       )
-       when is_function(previous, 3) do
+  # G3/G5：当前章派生摘要只在正文有省略时供应；前序窗口按真实身份定位。
+  defp prior_chapter_summaries_section(frame, action, resolved_ref, context, reader, current) do
     policy = DialogueContext.policy(context)
 
-    cond do
-      prose_writing_action?(action) ->
-        previous.(frame.workspace_id, resolved_chapter, policy.summary_window)
-        |> Enum.reject(&(&1.chapter_title == resolved_chapter))
-        |> build_summaries_section(frame, policy)
+    previous =
+      case reader do
+        %{previous: previous} when is_function(previous, 3) ->
+          cond do
+            prose_writing_action?(action) and is_binary(resolved_ref) ->
+              previous.(frame.workspace_id, resolved_ref, policy.summary_window)
+              |> Enum.reject(&(&1.chapter_ref == resolved_ref))
 
-      # CA01（Order 7 刀二·②）：规划带最近章摘要窗——扩章计划必须承接实际前情
-      # （M2 扩章批失忆的根）。target 传空串=取末 N 章（章表无空标题，take_while
-      # 不命中即全量再取尾窗，语义确定）。
-      plot_outline_action?(action) ->
-        previous.(frame.workspace_id, "", policy.summary_window)
-        |> build_summaries_section(frame, policy)
+            plot_outline_action?(action) ->
+              previous.(frame.workspace_id, :latest, policy.summary_window)
 
-      true ->
-        ""
-    end
+            true ->
+              []
+          end
+
+        _ ->
+          []
+      end
+
+    build_summaries_section(previous, current, frame, policy)
   end
 
-  defp prior_chapter_summaries_section(_frame, _action, _resolved_chapter, _context, _reader),
-    do: ""
+  defp build_summaries_section([], nil, _frame, _policy), do: ""
 
-  defp build_summaries_section([], _frame, _policy), do: ""
-
-  defp build_summaries_section(summaries, frame, policy) do
+  defp build_summaries_section(previous, current, frame, policy) do
     LogEmit.emit(:context, :continuity, :done, %{
       turn_id: frame.turn_id,
       source_type: "continuity",
-      chapter_count: length(summaries),
+      chapter_count: length(previous),
       summary_window: policy.summary_window,
       assembly_policy_id: policy.policy_id
     })
 
-    body =
-      Enum.map_join(summaries, "\n\n", fn s -> "### #{s.chapter_title}\n#{s.summary_text}" end)
-
-    "## 前文各章摘要（用于跨章连续性，不要照抄）\n" <> body
+    [
+      if(current,
+        do:
+          "## 本章摘要（派生参考；不能证明覆盖省略正文或当前完整版本）\n" <>
+            Jason.encode!(current)
+      ),
+      if(previous != [],
+        do:
+          "## 前文各章摘要（派生连续性参考，不是已读正文或作者既定事实）\n" <>
+            Jason.encode!(previous)
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
   end
 
   defp prose_writing_action?(action) do

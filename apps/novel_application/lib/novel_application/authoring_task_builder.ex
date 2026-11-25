@@ -621,7 +621,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       optional_material(:prior_summaries, text(sections[:prior_summaries]),
         ref: "prior_summaries:#{key}",
         complete?: false,
-        omission_note: "仅最近章节摘要窗口，较早章节未列出"
+        omission_note: "仅供给所列派生摘要，不证明未读正文或当前版本完整"
       ),
       optional_material(:character_roster, text(sections[:character_roster]),
         ref: "character_roster:#{key}"
@@ -747,7 +747,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       optional_material(:prior_summaries, text(sections[:prior_summaries]),
         ref: "prior_summaries:#{key}",
         complete?: false,
-        omission_note: "仅最近章节摘要窗口，较早章节未列出"
+        omission_note: "仅供给所列派生摘要，不证明未读正文或当前版本完整"
       ),
       optional_material(:character_roster, text(sections[:character_roster]),
         ref: "character_roster:#{key}"

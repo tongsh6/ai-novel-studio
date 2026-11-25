@@ -35,7 +35,8 @@ defmodule NovelDomain.ChapterSummary do
           status: String.t(),
           summary_text: String.t(),
           source_ref: String.t() | nil,
-          revision_base: String.t() | nil
+          revision_base: String.t() | nil,
+          material_scope: String.t() | nil
         }
 
   @enforce_keys [:work_id, :chapter_id, :summary_text]
@@ -45,7 +46,11 @@ defmodule NovelDomain.ChapterSummary do
             status: nil,
             summary_text: nil,
             source_ref: nil,
-            revision_base: nil
+            revision_base: nil,
+            material_scope: nil
+
+  @doc "生成时实际供应的正文材料范围；历史未记录范围为 nil。"
+  def material_scopes, do: ~w(chapter fragment)
 
   @doc "新建一条 tentative 章摘要（产出即 TENTATIVE）。"
   @spec new(map()) :: t()
@@ -57,7 +62,8 @@ defmodule NovelDomain.ChapterSummary do
       status: Status.tentative(),
       summary_text: fetch!(attrs, :summary_text),
       source_ref: get(attrs, :source_ref),
-      revision_base: get(attrs, :revision_base)
+      revision_base: get(attrs, :revision_base),
+      material_scope: get(attrs, :material_scope)
     }
   end
 

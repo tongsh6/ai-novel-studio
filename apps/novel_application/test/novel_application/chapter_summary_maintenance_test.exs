@@ -81,6 +81,8 @@ defmodule NovelApplication.ChapterSummaryMaintenanceTest do
     assert row.status == "ACCEPTED"
     assert row.chapter_id == "c"
     assert row.source_ref == "turn-1"
+    assert summary.material_scope == "fragment"
+    assert row.material_scope == "fragment"
   end
 
   test "同章再次采纳→旧 ACCEPTED 置 SUPERSEDED，只剩一条 ACCEPTED", %{agent: agent, repo: repo} do
@@ -178,7 +180,8 @@ defmodule NovelApplication.ChapterSummaryMaintenanceTest do
                  status: "ACCEPTED",
                  summary_text: expected_text,
                  source_ref: "turn-new",
-                 revision_base: "draft:new:2"
+                 revision_base: "draft:new:2",
+                 material_scope: "fragment"
                }
              ]
     end

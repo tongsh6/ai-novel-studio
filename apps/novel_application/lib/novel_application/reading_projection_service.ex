@@ -55,9 +55,67 @@ defmodule NovelApplication.ReadingProjectionService do
         {:error, :chapter_not_found}
 
       {volume, chapter} ->
-        accepted = ChapterSummaryRepo.current_accepted(work_id, chapter.id)
-        summary = if accepted, do: Map.take(accepted, [:id, :status, :source_ref, :summary_text])
+        summary = ChapterSummaryRepo.current_material(work_id, chapter.id)
         {:ok, %{chapter: chapter, volume: volume, accepted_summary: summary}}
+    end
+  end
+
+  @doc "章摘要来源元数据，供预览及实际可见摘要页共同消费。"
+  def chapter_summary_source(summary), do: Map.delete(summary, :summary_text)
+
+  @doc "章正文首页附带的设计材料预览；独立预算与真实来源范围。"
+  def chapter_material_preview(work_id, chapter, volume, chapter_ref) do
+    plan = chapter_plan_preview(chapter, volume)
+    accepted = ChapterSummaryRepo.current_material(work_id, chapter.id)
+    summary = if accepted, do: accepted.summary_text, else: ""
+    source = if accepted, do: chapter_summary_source(accepted)
+    read_query = Jason.encode!(%{facet: "chapters", ref: chapter_ref, offset: 0})
+
+    %{
+      sections: [
+        "【计划】#{clip_section(plan, 500)}",
+        if(accepted,
+          do: "【摘要】#{clip_section(summary, 400)}",
+          else: "【摘要】（尚无章摘要）"
+        )
+      ],
+      refs: if(source, do: [source.ref], else: []),
+      coverage: %{
+        chapter_plan: preview_coverage(plan, 500, chapter_ref, read_query),
+        chapter_summary:
+          if(source,
+            do: Map.merge(source, preview_coverage(summary, 400, source.ref, read_query)),
+            else: %{status: "unavailable", read_query: read_query}
+          )
+      },
+      omissions: ["本页计划与摘要仅为预览；完整设计材料需另行查阅，预览不证明全文已读。"]
+    }
+  end
+
+  @section_ellipsis "…（略）"
+
+  defp preview_coverage(text, limit, ref, query) do
+    total = String.length(text)
+    returned = if total > limit, do: limit - String.length(@section_ellipsis), else: total
+
+    %{
+      status: "partial",
+      representation: "preview",
+      source_ref: ref,
+      offset: 0,
+      returned_graphemes: returned,
+      total_graphemes: total,
+      offset_unit: "unicode_grapheme",
+      read_query: query
+    }
+  end
+
+  # B24 分段预算的段内截断：截断后总长不超过 max（含「…（略）」标记）。
+  defp clip_section(text, max) do
+    if String.length(text) > max do
+      String.slice(text, 0, max - String.length(@section_ellipsis)) <> @section_ellipsis
+    else
+      text
     end
   end
 

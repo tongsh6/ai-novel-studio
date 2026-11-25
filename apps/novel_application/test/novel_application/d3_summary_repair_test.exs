@@ -66,11 +66,11 @@ defmodule NovelApplication.D3SummaryRepairTest do
     on_exit(fn -> Application.put_env(:novel_web, :persistence, prev) end)
 
     {:ok, work} = WorkRepo.create(%{title: "D3 门控作品"})
-    _chapter = seed_chapter_with_prose(work.id, "第01章：门控", "正文若干。")
+    chapter = seed_chapter_with_prose(work.id, "第01章：门控", "正文若干。")
 
     # test 环境 sync=true：读取不触发补做 → 缺失依旧
     reader = NovelApplication.persistence_chapter_summary_reader()
-    assert is_nil(reader.by_title.(work.id, "第01章：门控"))
+    assert is_nil(reader.by_ref.(work.id, "chapter:#{chapter.id}"))
     Process.sleep(50)
     assert [_] = ChapterSummaryRepo.chapters_missing_summary(work.id)
   end

@@ -157,12 +157,9 @@ defmodule NovelApplication.WorkArchiveService do
 
       summary =
         Enum.map(List.wrap(accepted), fn item ->
-          %{
-            ref: "chapter_summary:#{item.id}",
-            status: item.status,
-            content_source_ref: item.source_ref,
-            text: "【章摘要】" <> item.summary_text
-          }
+          item
+          |> ReadingProjectionService.chapter_summary_source()
+          |> Map.put(:text, "【章摘要】" <> item.summary_text)
         end)
 
       sourced_material(work_id, selector, [plan] ++ blueprint ++ summary, %{

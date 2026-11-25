@@ -68,6 +68,26 @@ defmodule NovelPersistence.ChapterSummaryRepo do
     |> Repo.one()
   end
 
+  @doc "当前摘要的统一材料投影；采纳状态与生成材料覆盖正交。"
+  def current_material(work_id, chapter_id) do
+    case current_accepted(work_id, chapter_id) do
+      nil ->
+        nil
+
+      row ->
+        %{
+          ref: "chapter_summary:#{row.id}",
+          chapter_ref: "chapter:#{row.chapter_id}",
+          adoption_status: row.status,
+          content_source_ref: row.source_ref,
+          revision_base: row.revision_base,
+          material_scope: row.material_scope || "unknown",
+          source_type: "derived_summary",
+          summary_text: row.summary_text
+        }
+    end
+  end
+
   @doc """
   D3 断供扫描：有 ACCEPTED 正文但无当前 ACCEPTED 摘要的章（按 seq 升序），
   返回 `[%{chapter_id, chapter_title, prose_text}]`（正文按场序拼接）。

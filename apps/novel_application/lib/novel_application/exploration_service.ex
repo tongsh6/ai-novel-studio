@@ -28,7 +28,6 @@ defmodule NovelApplication.ExplorationService do
   alias NovelDomain.{ProseFormatting, ProseWordCount}
 
   alias NovelPersistence.{
-    ChapterSummaryRepo,
     LocalizedRevision,
     ProseSearchRepo,
     ReadingProjectionRepo,
@@ -86,10 +85,7 @@ defmodule NovelApplication.ExplorationService do
   # B24（I-EXPLORE-READ-2）：观察 v2 分段预算——设计态材料另计上限，正文单页 6000
   # 字符。旧口径把三段拼成一条 1500 clip，设计态材料加料后正文只剩 216/4398 字
   # （2026-10-23 stage 实锤），故计划/摘要不再与正文共享同一条预算。
-  @chapter_plan_max_chars 500
-  @chapter_summary_max_chars 400
   @chapter_page_chars 6000
-  @section_ellipsis "…（略）"
   @adoption_page_size 3
 
   @catalog [
@@ -864,52 +860,16 @@ defmodule NovelApplication.ExplorationService do
   # 【计划】【摘要】只在首页（offset=0）返回；续读页不重复（I-EXPLORE-READ-3 的
   # 省流约定，D4）。
   defp header_sections(work_id, chapter, volume, 0) do
-    plan = ReadingProjectionService.chapter_plan_preview(chapter, volume)
-    accepted = ChapterSummaryRepo.current_accepted(work_id, chapter.id)
-    summary = if accepted, do: accepted.summary_text, else: ""
-    read_query = Jason.encode!(%{facet: "chapters", ref: chapter_ref(chapter), offset: 0})
-    summary_ref = if accepted, do: "chapter_summary:#{accepted.id}"
-
-    %{
-      sections: [
-        "【计划】#{clip_section(plan, @chapter_plan_max_chars)}",
-        if(accepted,
-          do: "【摘要】#{clip_section(summary, @chapter_summary_max_chars)}",
-          else: "【摘要】（尚无章摘要）"
-        )
-      ],
-      refs: if(summary_ref, do: [summary_ref], else: []),
-      coverage: %{
-        chapter_plan:
-          preview_coverage(plan, @chapter_plan_max_chars, chapter_ref(chapter), read_query),
-        chapter_summary:
-          if(accepted,
-            do: preview_coverage(summary, @chapter_summary_max_chars, summary_ref, read_query),
-            else: %{status: "unavailable", read_query: read_query}
-          )
-      },
-      omissions: ["本页计划与摘要仅为预览；完整设计材料需另行查阅，预览不证明全文已读。"]
-    }
+    ReadingProjectionService.chapter_material_preview(
+      work_id,
+      chapter,
+      volume,
+      chapter_ref(chapter)
+    )
   end
 
   defp header_sections(_work_id, _chapter, _volume, _offset),
     do: %{sections: [], refs: [], coverage: %{}, omissions: []}
-
-  defp preview_coverage(text, limit, ref, query) do
-    total = String.length(text)
-    returned = if total > limit, do: limit - String.length(@section_ellipsis), else: total
-
-    %{
-      status: "partial",
-      representation: "preview",
-      source_ref: ref,
-      offset: 0,
-      returned_graphemes: returned,
-      total_graphemes: total,
-      offset_unit: "unicode_grapheme",
-      read_query: query
-    }
-  end
 
   # I-EXPLORE-READ-1：页范围首尾相接、无重叠、无缺口；优先在 ≤ offset+6000 内最靠后
   # 的 "\n\n" 段落边界切页（不把段落劈开），无段落边界按 6000 硬切。
@@ -1291,15 +1251,6 @@ defmodule NovelApplication.ExplorationService do
   defp clip(text, max) do
     if String.length(text) > max do
       String.slice(text, 0, max) <> "…（截断）"
-    else
-      text
-    end
-  end
-
-  # B24 分段预算的段内截断：截断后总长不超过 max（含「…（略）」标记）。
-  defp clip_section(text, max) do
-    if String.length(text) > max do
-      String.slice(text, 0, max - String.length(@section_ellipsis)) <> @section_ellipsis
     else
       text
     end

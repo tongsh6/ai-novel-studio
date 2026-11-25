@@ -63,8 +63,8 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
     with :ok <- validate_anchor(work_id, chapter_id),
          {:ok, task} <- build_task(input),
          {:ok, summary_text} <- generate(generator, Map.put(input, :task, task)),
+         tentative <- build_tentative(input, summary_text, task),
          {:ok, _superseded} <- repo.supersede.(work_id, chapter_id),
-         tentative <- build_tentative(input, summary_text),
          {:ok, persisted} <- repo.insert.(to_attrs(tentative)),
          {:ok, accepted} <- ChapterSummary.accept(tentative),
          {:ok, _updated} <- repo.update_status.(persisted, accepted.status) do
@@ -116,13 +116,20 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
     end
   end
 
-  defp build_tentative(input, summary_text) do
+  defp build_tentative(input, summary_text, task) do
+    material_scope =
+      case task.scope.coverage do
+        :chapter -> "chapter"
+        :single -> "fragment"
+      end
+
     ChapterSummary.new(%{
       work_id: Map.get(input, :work_id),
       chapter_id: Map.get(input, :chapter_id),
       summary_text: summary_text,
       source_ref: Map.get(input, :source_ref),
-      revision_base: Map.get(input, :revision_base)
+      revision_base: Map.get(input, :revision_base),
+      material_scope: material_scope
     })
   end
 
@@ -133,7 +140,8 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
       status: summary.status,
       summary_text: summary.summary_text,
       source_ref: summary.source_ref,
-      revision_base: summary.revision_base
+      revision_base: summary.revision_base,
+      material_scope: summary.material_scope
     }
   end
 

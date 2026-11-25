@@ -1,7 +1,7 @@
 defmodule NovelPersistence.ChapterSummaryReaderTest do
   @moduledoc """
-  VS-00C CP2.2：chapter_summary_reader port 的 title↔chapter_id 解析（toc 索引）。
-  端到端验证 chapter_id 存储/查询口径一致（:string 与 toc id 形态匹配）。
+  VS-00C CP2.2：chapter_summary_reader port 按真实 chapter_ref 和派生材料范围读取。
+  真实 DB 验证同名、改名、未知和跨作品身份。
   """
   use NovelPersistence.DataCase, async: false
 
@@ -47,7 +47,10 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
           work_id: work_id,
           chapter_id: chapter.id,
           status: AdoptionStatus.tentative(),
-          summary_text: "摘要：#{chapter.title}"
+          summary_text: "摘要：#{chapter.title}",
+          material_scope: if(chapter.seq == 1, do: "fragment", else: "chapter"),
+          source_ref: "source-turn-#{chapter.seq}",
+          revision_base: "draft:base:#{chapter.seq}"
         })
 
       {:ok, _} = ChapterSummaryRepo.update_status(row, AdoptionStatus.accepted())
@@ -56,10 +59,27 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
     %{work_id: work_id, chapters: chapters}
   end
 
-  test "by_title 按章标题返回当前 ACCEPTED 摘要文本", %{work_id: work_id} do
+  test "by_ref 只读本作品真实章节的当前摘要材料", %{work_id: work_id, chapters: [first | _]} do
     reader = WorkspaceContext.chapter_summary_reader()
-    assert reader.by_title.(work_id, "第01章：底层灵气账单") == "摘要：第01章：底层灵气账单"
-    assert reader.by_title.(work_id, "不存在的章") == nil
+    ref = "chapter:#{first.id}"
+    row = ChapterSummaryRepo.current_accepted(work_id, first.id)
+
+    assert reader.by_ref.(work_id, ref) == %{
+             ref: "chapter_summary:#{row.id}",
+             chapter_ref: ref,
+             chapter_title: first.title,
+             summary_text: "摘要：第01章：底层灵气账单",
+             source_type: "derived_summary",
+             adoption_status: "ACCEPTED",
+             material_scope: "fragment",
+             content_source_ref: "source-turn-1",
+             revision_base: "draft:base:1"
+           }
+
+    refute Map.has_key?(reader, :by_title)
+    assert reader.by_ref.(work_id, first.title) == nil
+    assert reader.by_ref.(work_id, "chapter:#{ID.uuid()}") == nil
+    assert reader.by_ref.(ID.uuid(), ref) == nil
   end
 
   test "context_fetcher 返回 CP3 结构化章节条目", %{work_id: work_id} do
@@ -115,7 +135,7 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
     chapters: chapters
   } do
     reader = WorkspaceContext.chapter_summary_reader()
-    third = Enum.at(chapters, 2).title
+    third = "chapter:#{Enum.at(chapters, 2).id}"
 
     assert [
              %{chapter_title: "第01章：底层灵气账单", summary_text: "摘要：第01章：底层灵气账单"},
@@ -123,9 +143,31 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
            ] = reader.previous.(work_id, third, 2)
   end
 
+  test "同名改名只改变显示，前序窗口不取首个标题命中或错误尾窗", %{
+    work_id: work_id,
+    chapters: [first, second | _]
+  } do
+    reader = WorkspaceContext.chapter_summary_reader()
+    first_ref = "chapter:#{first.id}"
+    second_ref = "chapter:#{second.id}"
+
+    Repo.get!(NovelPersistence.Schemas.Chapter, second.id)
+    |> Ecto.Changeset.change(title: first.title)
+    |> Repo.update!()
+
+    assert reader.by_ref.(work_id, second_ref).summary_text == "摘要：第02章：旧服务器里的残诀"
+    assert reader.by_ref.(work_id, second_ref).chapter_title == first.title
+    assert [%{chapter_ref: ^first_ref}] = reader.previous.(work_id, second_ref, 4)
+    assert reader.previous.(work_id, first.title, 4) == []
+    assert reader.previous.(work_id, "chapter:#{ID.uuid()}", 4) == []
+    assert reader.previous.(work_id, nil, 4) == []
+    assert reader.previous.(ID.uuid(), second_ref, 4) == []
+    assert length(reader.previous.(work_id, :latest, 2)) == 2
+  end
+
   test "previous 按窗口截断且不包含目标章及后续章", %{work_id: work_id, chapters: chapters} do
     reader = WorkspaceContext.chapter_summary_reader()
-    fourth = Enum.at(chapters, 3).title
+    fourth = "chapter:#{Enum.at(chapters, 3).id}"
 
     summaries = reader.previous.(work_id, fourth, 2)
     titles = Enum.map(summaries, & &1.chapter_title)

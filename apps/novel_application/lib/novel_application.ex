@@ -362,8 +362,8 @@ defmodule NovelApplication do
   end
 
   @doc """
-  返回章摘要 reader port（VS-00C CP2.2）：`%{by_title, previous}`，供续写/首稿组装消费
-  本章摘要兜底（L5）与目标章前序 N 章摘要（L3a）。未启用真实持久化时返回 nil（无摘要消费）。
+  返回章摘要 reader port（VS-00C CP2.2）：`%{by_ref, previous}`，供专业写作按真实章身份
+  读取带来源的本章摘要及前序摘要窗口。未启用真实持久化时返回 nil。
   """
   def persistence_chapter_summary_reader do
     if inject_persistence?() do
@@ -371,13 +371,12 @@ defmodule NovelApplication do
 
       # D3：读取侧惰性补做——组装读摘要时顺带调度一次断供扫描（仅异步模式；同步
       # 测试环境行为逐字节不变）。调度只起后台任务，查询与补生成都在任务内。
-      # 触发点只挂 previous（每次组装恰一次窗口读）——by_title 是逐章定点读，
-      # 双挂会同 turn 重复调度补做（D3 场景实测两条 run.start 竞速）。
+      # 只挂 previous（每次组装恰一次窗口读）；by_ref 定点读不触发后台补做。
       %{
-        by_title: reader.by_title,
-        previous: fn work_id, title, n ->
+        by_ref: reader.by_ref,
+        previous: fn work_id, target, n ->
           maybe_schedule_summary_repair(work_id)
-          reader.previous.(work_id, title, n)
+          reader.previous.(work_id, target, n)
         end
       }
     end
