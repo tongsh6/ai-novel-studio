@@ -201,6 +201,10 @@ Operation、text_operation、JudgmentProtocol 与 AuthoringTranscript 共用现�
 
 **R08 统计事实口径（2026-11-25，实施前裁决）。** N3 真实请求存在作品总有效字数与章正文分页字符数混用的供给缺口。仅对当前模型投影作前向修订：`facts.work.chapter_statistics.total_effective_word_count` 替代该投影原 `total_word_count`，章 `chapter_read` 的 `facts.effective_word_count` 直接取同次真实 `chapter_content.word_count`，二者的 `word_count_basis` 由现 `ProseWordCount.counting_basis/0` 唯一描述计量算法（逐段移除非 Unicode L/N，再求各段 grapheme 数之和）。统计对象为当前已采纳正文，不含候选、历史稿、计划或摘要；`written_chapter_count` 与 `empty_chapter_count` 仍是同 audit 中有效字数正数/零的章数，不声称零有效字数的章没有文本。`prose_chars` 仍是 canonical 拼接正文的原始 grapheme 长度（含标点、空白与分隔符），仅用于正文长度/坐标，不得和有效字数相减。分页各页、成功空正文、已读到末尾和已确认越界均可返回同次读取已知的整章统计；没有读到正文的 ref、不存在对象或读取失败不得供应已确认零。统计完整不等于正文完整，原 source refs、正文页范围、版本/hash、next_offset 与 Base/Observation 信用不变。复用 ProseWordCount、ProseAudit、ReadingProjectionRepo/Service 与原 Scope/Observation 消费链；不新增计数算法、持久化、全章默认投喂、工具或第二套请求构造。UI/API 审计 `total_word_count/word_count` 与分页坐标不变，历史请求不回填。
 
+**R08 摘要来源范围（2026-11-25，实施前裁决）。** `chapter_summary` 是派生压缩物，采纳状态不是正文完整性或推断真实性的证明。复用 `AuxTaskBuilder.for_chapter_summary` 已构造的真实任务范围，将 chapter/fragment 持久化到既有章摘要行；历史缺值保持 unknown，不根据摘要文字、状态或版本猜填。读取投影复用同一摘要来源元数据（真实 ref、adoption_status、content_source_ref、revision_base、material_scope、source_type=derived_summary）；`chapter_read` 首页预览及 `archive_read` chapters 实际可见摘要页分别保留既有读取覆盖，不因摘要全文已读取而升格其正文来源范围，不改变 refs 授信及分页坐标。当前应用事实与文学解释仍由既有语义约束区分，不新增事实分类器或模型审查环。既有专业前文摘要字符串供给与重复协议统一审查，不以本项观察投影替代其验收。
+
+**R08 专业写作摘要消费收敛（作者确认后实施裁决）。** 章摘要生成范围与实际材料对象的 metadata 只由现 `ChapterSummaryRepo.current_material/2` 投影一次（保留 `chapter_ref`、`ref`、`source_type`、`adoption_status`、`content_source_ref`、`revision_base`、`material_scope`、原摘要文本），探索及专业前文读取共同消费；退役 `by_title` 和首个标题命中。前序摘要窗口按当前作品真实 chapter_ref 定位，未知/跨作品/无目标不推断为最近章节；仅扩章规划明确 `:latest` 取既有尾窗。专业请求沿现 `prior_summaries` 材料渲染保留逐摘要来源，目标章摘要只在实际正文裁剪时作为单独派生参考供应，不能混入 `prior_prose` 的已采纳正文，也不冒称精确覆盖被省略的前缀：缺少前缀覆盖证明时 OmissionNote.replacement=nil（即使 material_scope=chapter 也只证明生成时整章范围，不证明当前版本/省略区间）；完整章摘要仍可补充连续性，不删除 G3/G5 的上下文用途。原预算/采纳/工具/权限不变，不另建摘要实体或第二套专业请求。有限原生验收冻结同一源码，N3 已有的实模结论不机械重跑，保留原三轮、T1 与讨论/条件的独立语义裁决，不以过程门禁或模型偶然成功代签。除新发现核心系统不变量缺陷外，不再扩展计划内 R08 产品机制改造。
+
 ### 5.3 事实/意图/观察分界
 
 | 类别 | 谁说/谁证实 | 可进入后续模型请求的方式 |

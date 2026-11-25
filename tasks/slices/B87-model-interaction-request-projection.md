@@ -4477,3 +4477,25 @@ B28 已接入共享维护 owner，capture 保留原始 ledger 行，prepare/veri
 初次全量扫描的模块规模门禁暴露原探索测试文件增长超过 ratchet、初始快照测试超过观察门槛。测试层按职责拆出 `ChapterStatisticsContractTest`，抽取已有章读取种子/观察投影 helper 为两处共同消费的 `TestChapterReadFixtures`，保持旧断言并将新增三 wire 字段断言落在真实 DB 统计契约用例；无生产新增模块、无提高 baseline/豁免/机械压缩。
 
 **语义状态仍为 doing / NOT PASS。** 本 checkpoint 尚无修改后原生 N3 成果，不把旧 N3 失败归因为单一充分原因，也不重签 R08。接续：沿原 `b28-n3-native-03` 冻结输入/判据、有限预算、真实 Tauri 驱动执行一次前向复验；同名目标、讨论/条件/授权、材料覆盖/解释事实信用继续以原件独立归因，保持 B89/B90/B91 的既定边界与 R17–19 前置。
+
+## 31. R08 N3 原生前向复验与摘要来源范围（2026-11-25）
+
+基线 d96f6abf，scope `artifacts/slice-verify/b87-r08-close-20261125/scope.json`。按原 N3 输入、模型、seed、预算冻结一次，实际 Tauri 用户链完成，8 HTTP（4 POST、4 GET）全部完成，无预算拒绝；原生 driver=0、runner=1，48/49 原始报告唯一失败为未执行完整矩阵的 full_matrix，binding failed 原样保留。独立审读 `n3-native-01/independent-review-01/independent-semantic-review.json`（上述 scope 目录内，SHA256 `9642632411ef7b621007fffb03091626dbb8277e643285de5824b600613bf244`，46 份原件索引）核对真实正文与 HTTP/SSE、界面文本及 DB 前后/恢复事实：作品 88、章3有效61/原始70、章1有效27；回复正确区分单位及未读材料，只读、不产候选、不采纳、不写入。N3 这些限定语义成立，非原生完整矩阵 PASS；风源、门闩动机、年龄句等文学解读不升格为客观事实，未签文学质量。保留旧 N3、T1、原三轮失败/partial。T1 两个同名目标与消歧约束已真实供应，未发现首末命中式 APP 强选；旧 B30 编号维护静态缺陷按 §19.51 归属，不扩入 R08。
+
+**摘要材料范围七问及存在性核对（实施前）。** Contract：VS-00C §5.2/VS-00M §5.2.3；Invariant：摘要生成真实范围不丢失，摘要采纳与全文/事实信用分离，历史未知不猜填；Boundary：现 AuxTaskBuilder→ChapterSummaryMaintenance→ChapterSummary/同名 schema/repo→ReadingProjectionService→ExplorationService/WorkArchiveService→RequestIR 观察，不改采纳/账本或新工具；Consumer：两类现役章材料读取；Proof：真实 DB 两种来源、未知旧行、摘要预览与全文、源 ref/版本、实际 observation 请求；Acceptance Driver：复用现章读/档案读入口；Exploration：现 chapter_read 和 archive_read 回流，只有实际供应摘要页含其元数据。查重发现既有任务 material_scope 仅用于生成，不持久化；新增同义范围字段仅在既有实体/表，复用现 owner 与引用，单一前向迁移保留数据，不重建历史或加兼容双轨。无新增独立实体、规则判官、枚举模块。专业前文字符串路径另有边界，不将此项代签 R17。R08 仍 doing / NOT PASS。
+
+### 31.1 实施与验证
+
+既有摘要实体新增 material_scope，真实生成任务 coverage 决定 chapter/fragment，历史 null 透传为 unknown。章读预览和档案读共同使用 ReadingProjectionService 的来源元数据，不改变正文、摘要原文、采纳状态、refs 和分页语义。新增数据迁移只增加可空列；没有执行生产库数据重写。真实 DB/请求观察测试覆盖片段、整章和未知范围；67/67。模块规模检查初次发现 ExplorationService 1310 > 1308 行，将章计划/摘要首页预览构造与分段裁剪完整移交现 ReadingProjectionService，正文页仍由原 owner 处理；未放宽 ratchet。调整前 mix check 全量 3866/3866、架构、ADR 33/33、I-CACHE 通过；调整后 67/67、module-size、diff-check 通过。N3 实模取证是调整前 d96f6abf 源码，不冒充新摘要实现实模通过。尚有专业前文摘要字符串路径及原三轮/T1 残余语义待核，R08 不签 PASS。
+
+### 31.2 当前收口阻塞与接续
+
+当前 scope 的 `task_done.sh` 退出1（UI change requires explicit --slice）；单独 `ai_static_scan.sh --top 10` 为19/21，编译、架构、Credo、module-size、I1/I2/I3/N-NARR/I-CACHE、前端与任务源检查通过，失败为 task completion manifest/UI evidence（pending、blocking）及既有 gitleaks（原处置保留）。8条发现均不在改动文件，6误报、1历史已接受风险、1本轮收口门禁阻塞。按 AGENTS.md 不绕过门禁、不签完成、不提交推送本轮 WIP。后续应以当前源码绑定适用的现原生验收入口，不能复用 d96f6abf 的旧 N3 binding 作为完成证据；不反复刷模型输出。继续核实专业前文摘要路径和原三轮/T1 语义残差，保持 B87 8/12 已签、R08 doing、R17–R19 未开始。
+
+### 32. 作者确认的最后一项计划内机制改造
+
+按会话“方案是什么”及作者“同意”接续原 §31 scope/WIP（HEAD d96f6abf），不重置或重开已证 N3。Contract：VS-00M §5.2.3 最新专业摘要裁决与 VS-00C §5；Invariant：实际章节身份与摘要来源一致、未证 prefix 不写 replacement、正文和派生摘要不混合、未命中目标不取尾窗；Boundary：既有 persistence ChapterSummaryRepo/WorkspaceContext→application ReadingProjectionService/TurnExecutionService→现材料/RequestIR；Consumer：探索和专业 L5/L3a；Proof：同名不同 ref、改名、跨作品、未知、无 ref、显式规划尾窗、片段/整章/未知来源、裁剪时原正文与摘要独立、真实请求；Acceptance Driver：先复用现原生读/写场景，若只验证机制可用确定性 provider 与真实 Tauri，不用 stub 代签语义；Exploration：已有 archive_read/chapter_read 仍可获取真实来源与原文。查重：现 ChapterSummaryRepo 与现 material scope 复用；同源 metadata 投影迁到两个消费者共同可依赖的现仓储读口，不新增对象或工具；retire title-only reader、伪章名 summary ref、未证的更早正文摘要与同名过滤。G3 原连续性补充保留，明确未证前缀替代不成立，不把生成范围等同当前版本范围。完成后冻结源码集中验收、裁决残余风险，R08 不自动 PASS，不扩大 B89/B90/B91。
+
+### 32.1 实施与验收入口
+
+实际已统一 `ChapterSummaryRepo.current_material/2` 的摘要 ref/章 ref/采纳状态/生成范围/来源和原文；探索与专业共用。定点 `by_ref` 与 `previous` 只认真实对象，规划显式 `:latest`；同名不按标题过滤、未知/跨作品不取尾窗。专业 `prior_summaries` 中目标章摘要和前序摘要各自标注真实来源，`prior_prose` 仅供正文及实际裁剪说明；未证明精确前缀覆盖时 replacement=nil。针对性 105/105（真实 DB、同名改名/跨作品、三个摘要范围、实际专业请求），最终 `mix check` 3870/3870、架构、ADR 33/33、I-CACHE 通过；module-size、diff-check 通过。冻结当前源码，复用 B71-first-consumer 原有同名+长章+已有摘要 seed 及确定性 provider 原生读取机制验证，目录 `artifacts/slice-verify/b71-first-consumer-tauri-native-r08-summary-20261125-01`；scope native binding 位于 §31 scope 的 `summary-native-01/execution/binding.json`。只签真实通过的原生机制证据，不以替身代签模型语义，不重复已证 N3。原三轮/T1/条件与授权的最终裁决仍待完成；本节不预签本次原生结果。

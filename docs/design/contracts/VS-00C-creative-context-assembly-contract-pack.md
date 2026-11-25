@@ -401,6 +401,7 @@ chapter_summaries
                        伏笔动作（新埋/推进/回收）/ 情绪基调——`08` §7：一个对象同时喂四本账的最小近似）
   source_ref       : string（从哪次采纳/哪个 turn 提炼，22 §22）
   revision_base    : string（基于该章哪一版正文，正文重写后旧摘要置 SUPERSEDED）
+  material_scope   : chapter | fragment | null（生成任务实际正文材料范围；历史未知为 null）
   inserted/updated_at
 ```
 
