@@ -733,6 +733,8 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["modification_scope"] == "format_only"
     refute Map.has_key?(args, "target_segment_ids")
     assert args["dialogue_goal"] == author_text
+    refute Map.has_key?(args, "pending_artifact_ref")
+    refute Enum.any?(args, fn {_key, value} -> is_nil(value) end)
   end
 
   test "既有章修订 fixture 的范围预设保持，不作为产品语义验收" do

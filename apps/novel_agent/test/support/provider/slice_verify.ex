@@ -1319,7 +1319,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         do: Map.put_new(filtered, "dialogue_goal", "推进当前创作请求"),
         else: Map.delete(filtered, "capability")
 
-    {"judgment_decision", filtered}
+    {"judgment_decision", Map.reject(filtered, fn {_key, value} -> is_nil(value) end)}
   end
 
   # 判断②（ADR-0025 CP3a）：单调用续行——计划耗尽（D6 语义）判 continue
