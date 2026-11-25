@@ -15,7 +15,7 @@
 | R06 作者可见表达 | **原范围 PASS** | C9 实模原 DoD 通过；WR01 真实语义/来源与当前未知类别整卡显示、恢复共同闭合；最终测试源 det06 14/14、同源完整 F0-04 通过。旧实模失败不回签，最终文档身份与交付按 §27.9 收口 | §27.8–§27.9；原失败与裁决见 §17、§24–§27.7 |
 | R07 真实工具与接收闭环 | **原范围 PASS** | 同源五场、真实取消标题与连续拒收终局独审、原 scope 完整工程门禁通过；最终文档身份与交付按 §22.11 收口 | §22.11；原失败及撤回见 §18、§22.1–§22.10 |
 | R08 目标、范围与来源语义 | **doing / NOT PASS；语义验收暂停** | 计划内机制已交付；N3 统计及确定性原生验证成立；§33 九条实模仍有核心失败/超时。保留所有未通过判据，待 R17 交付、B91 CP0 核定实际依赖及必要受影响改造后恢复有限验收；不重复刷样本 | §28–§34；历史证据 §19.45–§19.51、§21.2–§21.3、§23 |
-| R17 旧协议与重复真源清理 | **todo；下一执行点** | R02–R07 已签；R08 相关消费者迁移已交付。按 §34 先审核真实依赖和保护边界，解除等待 R08 全部语义 PASS 的实施前置；R17 自身完整 DoD 保持，不代签 R08 | §4、§20.2、§34 |
+| R17 旧协议与重复真源清理 | **doing；未签收** | 当前角色规则与历史分离已实施，按 §35 核定工程、原生证据和剩余旧接口；不等待 R08 完整语义 PASS，不代签 R08，完整 DoD 保持 | §4、§20.2、§34–§35 |
 | R18 长篇创作全链回归 | **未开始；前置未满足** | 等 R02–R08 与 R17 各自验收完成；负责专业创作质量回归 | §20.2、§34 |
 | R19 最终 A/B 与关闭 | **未开始；前置未满足** | 等 R00–R08、R17/R18 PASS；保留原三轮及最终实模/Tauri 全部必选验收 | §20.2、§34 |
 
@@ -4534,3 +4534,19 @@ B28 已接入共享维护 owner，capture 保留原始 ledger 行，prepare/veri
 | 5 | R19 | R00–R08、R17/R18 各自 PASS 后，完整真实模型/Tauri A/B、原三轮、ref 当前基线专项、三 wire、整体质量与安全终验；未达仍不关闭 B87/Issue #4。 |
 
 R00–R07 维持原签收；R08 doing / NOT PASS 但语义执行暂挂，R17 todo 为下一执行点；8/12 批计数不变。B91 优先于 B90，任务身份/DoD/状态仍只在各自原文；B90 保持后续独立排期，B89 继续 deferred。不重新编号、不新增任务或事实账本，不调整已经确认的产品范围、愿景、权限或验收标准。本次只修改排期和执行前置文档，不实施 R17/B91、不运行模型；文档核对的起点 scope 在 `artifacts/slice-verify/b87-reorder-20261125/scope.json`，按 quality-gates §2.4 与 NEXT 规则验证后交付。R18/R19 原卡前置和 DoD 不改。
+
+## 35. R17 开工：当前角色规则与历史分离（2026-11-25）
+
+按作者“开工”、§34 顺序启动 R17；基线 e3c41370dbb4fabb7637e6a10d6aabcfd919c538 干净、上游一致。scope `artifacts/slice-verify/b87-r17-role-20261125/scope.json` 已在修改前封存。R00–R07 原签收、R08 §33 NOT PASS/暂挂不变。**R17 doing，未签收。**
+
+**七问与存在性核对。** Contract：VS-00L §3.2 当前角色裁决、VS-00M、VS-00I 同角色缓存；Invariant：每次真实请求只含当前角色规则与输出契约、共享段唯一，消息/引用/工具回执/授权/版本不变，恢复不重拼。Boundary：现 common RequestIR.Operation/SystemEnvelope→application JudgmentProtocol/AuthoringTranscript/Plan/Mission，agent Real/Reviewer 复用同一 Operation；Consumer：真实专业操作和续行角色切换；Proof：前后实际 IR 与三 wire、同角色稳定、跨角色替换、checkpoint 往返、非法工具负例；Acceptance Driver：现 Tauri authoring 场景，实模适用范围独立取证；Exploration：已有真实 Scope/Observation/refs 不改变。现役 grep 显示 Operation.prepare 在首调用建 system、继承把整份 rules 追加 notice；JudgmentProtocol 对既有 transcript 不重置角色；AuthoringTaskPolicy.rules 由判断、续行、专业计划共用且包含判断 execute/reply 指令。真实应用/agent 依赖方向决定复用 AuthoringSemantics.shared_rules 和 author_narrative_rules；不新建实体/表/框架。`system_role` 可选覆盖仅定义无调用者，退役；`rules/0` 组合入口全部消费者迁移后删除。保留真实 validation_result、工具历史及现有 Gate，不能全局删除 application_notice 或按文本筛历史。当前 `system` 只保留有效角色，实际旧请求原件保留，不用 R08 新模型输出作为本批改造成功标准。此为首个可独立验证 checkpoint，尚需其余旧接口审计和适用原生验证。
+
+**CP1 当前角色规则。** 现 Operation 在首调用/后续专业调用统一构造当次 system；判断与续行切换时替换有效 system，不追加规则 notice。判断定义留在判断 system；计划、使命、续行按职责使用共同规则与作者说明规则。`AuthoringTaskPolicy.rules/0` 和未用的 `system_role` 覆盖入口退役，版本升为 b27-task-v7；不删除真实反馈及历史。旧契约断言迁移至实际请求位置，并新增判断→专业→JSON checkpoint→续行→再判断的三 wire 不变性回归。初轮全量暴露 5 个旧消息断言及 I-CACHE 续行角色旧标记，已迁移；受影响 29 项回归、10 组实际前缀检查通过。第二次完整 `mix check` 见同 scope `full-mix-check-02.log`；原生确定性续写链路与源码绑定、工程门禁结果以该 scope 后续原件为准，不能预签 PASS。历史已持久化的旧规则 notice 与 Base 目录、其余旧协议/无消费者入口和适用实模证据仍待 R17 后续审计，不删作者数据或改写旧证据。
+
+**CP1 验证与阻塞（本轮实际结果）。** `mix check` 第二轮退出 0（3871 tests / 0 failures，I-CACHE 10 组、架构/ADR 检查通过）；`task_done.sh --scope` 退出 0，工程绑定见 `artifacts/slice-verify/task-completion-20261125T115422Z-11253/manifest.json`（记录当时源码和文档，未签任务 DoD）。静态扫描 20/21，7 条历史处置、触及文件 0 条。原生 `b71-authoring-transcript` 确定性超时恢复场景失败，driver/runner 均退出 1，等待 recovered_candidate 120 秒超时，无通过 summary/绑定。实际 8 个 canonical 请求依次 judgment/plan/mission/writer/continuation/writer/continuation/writer，当前工具与角色对应且无 application_notice 角色规则；首次 writer timeout 为预设故障，作者选第一场 500 字后 goal version=2、steer source 已供应续行，但替身仍固定给泛化 guidance，最后 writer scope 未命中预设恢复条件，再次 timeout。替身/驱动对 e3c41370 未改，尚未做同基线复验，不能判为既有缺陷或本批回归，也不能归咎实模。原件 `artifacts/slice-verify/b87-r17-role-20261125/native-role-01/run.log` 与 `artifacts/slice-verify/b71-authoring-transcript-tauri-native-r17-role-20261125-01/llm-calls/2026-11-25.jsonl` 保留。CP1 暂未签收，不提交推送；下一步先区分真实恢复范围传播与替身判据，再完成原生验证；不刷 R08、不提前进入 B91。
+
+### 35.1 CP1 原生恢复失败归因与替身修复
+
+实际失败请求 `pcall_mww2fskq_23` 与 `pcall_mww2fsl6_2i`：续行 goal version=2，source_input_ref 为 `message_3a0716da-3d21-4533-a47a-5251172d20d1:steer:2`；Writer 最新 `authoring_task.author_goal.source_input_ref` 同一 ref，两个独立作者消息均在实际请求中，当前原话明确第一场/500字/停止等确认。Writer 的 operation.creative_brief 则由固定泛化 continuation guidance 派生，不含原话字面。旧替身 `writer_timeout_scope` 仅检查 operation JSON 字面，既拒绝实际已有授权的恢复，又可误把派生简报内同样措辞当作者授权。旧代码与 e3c41370 一致、历史 ee6025d9 已改用当前 scope；未做完整原生旧基线复演，不武断声明所有历史场景均失败。复用 `TestProviderPrompt.author_text/2` 从当前任务显式 ref 获取唯一真实原话，保留既有测试故障开关、当前活动工具/正文类型与原超时/恢复措辞判据，不读 latest 或历史全文、不复制原话到生产 brief。仅 test/support 修改；将既有 SliceVerifyWriterFaultScopeTest 移到独立文件，保留其它场景测试。新判据在未改替身上 5 项中 2 失败（正例误拒、派生反例误放），修复后相关 106/106、module-size、diff-check PASS。未因替身修复声称模型理解范围已证，原生前向验收另行绑定当前源码；不改变产品运行预算、授权、写入边界或 R08 失败结论。
+
+**CP1 机制限定通过。** 同一原生 `b71-authoring-transcript` 场景一次前向复验 `native-role-02` driver/runner/binding 均退出0，真实 Tauri 21/21；9 次请求（7成功/2预设超时），同一 run 经作者真实 steer 后 Writer 成功并质量复核，作品范围 DB 计数前后相等，无采纳回执。独审 `artifacts/slice-verify/b87-r17-role-20261125/cp1-native-independent-review-02.json`（SHA256 `7dd1e2cfff43fa3c7026a13ac41c3e34861bdc44c79f8d508f6714cbe7c0e646`，16份原件）逐次确认角色、唯一共同段、无追加规则 notice、活动工具和恢复 source ref。额外独审精确篇幅判据失败：候选664字符、593个有效字（此汉字样本的 Unicode L/N 计算），超过作者500字限制；原21项没有覆盖精确篇幅，故不签此语义、不重跑替身刷分、不据此增加生产特例。真实模型语义仍未签。最终 `full-mix-check-03.log` 退出0，3871/3871，架构、ADR33/33、I-CACHE10/10。CP1 可按限定机制与工程门禁分组交付，R17 整体 doing/NOT PASS。后续存在性核对已确认 `RequestIR.append_application_notice/2` 与 `AuthoringTranscript.append_application_notice/2` 的生产调用归零，仍有测试历史/反馈消费者，不能直接把 application_notice 结构整体删除；下一 checkpoint 核这些旧构造入口、规则 hash/实际消费者、旧持久化规则历史归属及 R17 适用实模证据，保护真实回执与作者内容。
