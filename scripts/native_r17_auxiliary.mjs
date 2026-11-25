@@ -7,15 +7,22 @@ import { NativeScenarioHarness } from "./lib/native_ui/scenario_driver.mjs";
 import { textOf } from "./lib/native_ui/driver.mjs";
 import { all, withDb, read, write, seedFields, productionFingerprint,
   checkProductionFingerprint, assertCommonEvidence, assertProviderAndWire,
-  requestIdentity, requestReplies, frameBody, logs, writeNativeSummary, evidenceBoundary
+  requestIdentity, requestReplies, frameBody, logs, writeNativeSummary, evidenceBoundary,
+  checkedScenarioPreregistration, readProviderObservation
 } from "./lib/native_ui/scenario_evidence.mjs";
-import { scopeRowValues, chapterSummaryMaterial } from "./lib/native_ui/chapter_summary_maintenance_evidence.mjs";
+import { scopeRowValues, chapterSummaryMaterial, observedProviderResponses } from "./lib/native_ui/chapter_summary_maintenance_evidence.mjs";
+import { assertRuntimeFacts, RUNTIME_PROFILE_ID } from "./lib/native_ui/request_cost_runtime_recipe.mjs";
 import { runScopeScenario } from "./native_b28_scope_drive.mjs";
 import { SCENARIOS, B28_BUDGET } from "./native_b28_scope_evidence.mjs";
 
 const INVENTORY = "r17-auxiliary-inventory";
 const SUMMARY = "r17-auxiliary-summary";
 const P1 = SCENARIOS.find(s => s.id === "P1");
+export const INVENTORY_SCENARIO = Object.freeze({ id: "inventory", kind: "explicit_inventory", input: "发起设定盘点", action_type: "start_fact_inventory" });
+export const INVENTORY_BUDGET = Object.freeze({ max_author_inputs: 1, max_harness_retries: 0, turn_timeout_ms: 120000, ack_timeout_ms: 30000, input_timeout_ms: 30000 });
+const APP_BASE = "【应用数据 · application_base · 非作者原话】\n";
+const SHARED_ANCHOR = "结合本轮作者原话、目标、对象身份与真实材料推进";
+const INVENTORY_ROLE = "本次你承担小说设定盘点助手的角色。";
 const RECORD = "native-r17-auxiliary.json";
 const RULE = "作者是唯一裁决者";
 const stamp = () => new Date().toISOString();
@@ -37,11 +44,23 @@ function config(dir, sliceId) {
   assert([INVENTORY, SUMMARY].includes(sliceId));
   const ready = read(dir, "native-driver-ready.json"), seed = seedFields(dir);
   assert.equal(ready.slice_id, sliceId);
-  assert.equal(ready.provider, "slice_verify");
+  let live = null;
+  if (ready.provider === "splash") {
+    assert.equal(sliceId, INVENTORY, "live summary must use the registered B28 driver");
+    const runtime = read(dir, "runtime-facts.json");
+    assertRuntimeFacts(runtime, RUNTIME_PROFILE_ID);
+    assert.equal(Number(runtime.pid), ready.backend_owner.backend_pid);
+    const preregistration = checkedScenarioPreregistration(process.env.R17_AUXILIARY_LIVE_PREREGISTRATION,
+      dir, { provider: "splash", model: runtime.provider.model, endpoint: runtime.provider.endpoint,
+        scenarios: [INVENTORY_SCENARIO], budget: INVENTORY_BUDGET });
+    live = { endpoint: runtime.provider.endpoint, preregistration };
+  } else {
+    assert.equal(ready.provider, "slice_verify");
+  }
   const workId = seed("work_id");
   const work = withDb(dir, db => all(db, "SELECT id,title FROM works WHERE id=?", [workId])[0]);
   assert(nonBlank(workId) && nonBlank(work?.title), "seed work missing");
-  return { sliceId, target: { work_id: workId, work_title: work.title,
+  return { sliceId, provider: ready.provider, live, target: { work_id: workId, work_title: work.title,
     session_id: seed("session_id"), chapter_id: seed("target_chapter_id"),
     control_chapter_id: seed("control_chapter_id") },
     budget: { ...B28_BUDGET, max_author_inputs: 1 } };
@@ -78,7 +97,7 @@ async function inventory(harness, c, dir) {
       const replies = requestReplies(wire, identity, sent.at);
       assert(replies.length <= 1, "inventory ack ambiguous");
       return replies[0] ?? null;
-    }, 30000, "inventory_ack"));
+    }, INVENTORY_BUDGET.ack_timeout_ms, "inventory_ack"));
   const response = frameBody(ack)?.response;
   assert(frameBody(ack)?.status === "ok" && response?.action_status === "running" && nonBlank(response.run_id));
   const result = await harness.runStep("turn", "inventory_result", () =>
@@ -88,7 +107,7 @@ async function inventory(harness, c, dir) {
         b?.agent_run?.run_id === response.run_id && b.agent_run.profile_ref === "fact_inventory_v1" &&
         b.tool_result?.tool_name === "fact_inventory" && b.tool_result.status === "succeeded" &&
         list(b.adoption_state?.pending).length > 0;
-    }) ?? null, 120000, "inventory_result"));
+    }) ?? null, INVENTORY_BUDGET.turn_timeout_ms, "inventory_result"));
   const pending = frameBody(result).adoption_state.pending;
   const title = pending.find(p => p.artifact_type === "world_rule_seed")?.payload?.items?.[0]?.title;
   assert(nonBlank(title), "inventory rule candidate missing");
@@ -121,7 +140,7 @@ async function drive(dir, sliceId) {
       assert(result.adoption?.maintenance, "summary maintenance not reached");
       write(dir, "final-db.json", snapshot(dir));
     }
-    harness.writeDriverLog(RECORD, { slice_id: sliceId, target: c.target, result });
+    harness.writeDriverLog(RECORD, { slice_id: sliceId, provider: c.provider, target: c.target, result });
     harness.writeUiComplete(sliceId);
   } catch (error) {
     await harness.fail(error);
@@ -151,6 +170,39 @@ export function auxiliaryRequest(record, role) {
   return { ir, rules, material };
 }
 
+// Real Splash evidence must use observed wire originals, not manufacture canonical
+// IR from HTTP. Identity/run fields not visible on this wire remain covered by CP2.
+export function liveInventoryRequest(records, observation) {
+  assert(records.length >= 1 && records.length <= 2, "unexpected independent inventory calls");
+  let base = null, rules = null;
+  for (const [index, record] of records.entries()) {
+    const raw = observation.responses.get(record), body = record.request?.body;
+    assert(raw && !raw.failed && raw.finish === "stop" && !raw.hasTools, "inventory response incomplete");
+    assert(body && (body.tools == null || body.tools.length === 0), "inventory exposed tools");
+    const messages = body.messages;
+    assert.equal(messages?.length, index + 2, "unexpected independent request history");
+    assert.equal(messages[0].role, "system");
+    assert.equal(messages[1].role, "user");
+    const system = messages[0].content;
+    assert(nonBlank(system) && system.split(INVENTORY_ROLE).length === 2 &&
+      system.split(SHARED_ANCHOR).length === 2 &&
+      !system.includes("单个创作产物用 judgment_decision.execute"), "wrong current role or repeated shared block");
+    assert(!system.includes("## 对象与范围") && !system.includes("材料清单："), "dynamic facts in system");
+    const material = messages[1].content;
+    assert(nonBlank(material) && material.startsWith(APP_BASE) &&
+      !material.includes(SHARED_ANCHOR), "material/provenance mismatch");
+    if (index === 0) { base = material; rules = system; }
+    else {
+      assert.equal(material, base);
+      assert.equal(system, rules);
+      assert.equal(messages[2].role, "user");
+      assert(messages[2].content.startsWith("【应用数据 · scope_update · 后续范围更新优先；版本号不跨运行排序】") &&
+        messages[2].content.includes("inventory_json_invalid"), "retry is not bound correction");
+    }
+  }
+  return { rules, material: base.slice(APP_BASE.length), raw: observation.responses.get(records.at(-1)) };
+}
+
 function own(rows, workId) { return rows.filter(r => r.work_id === workId); }
 function chapterDrafts(db, chapterId) {
   const scenes = new Set(db.scenes.filter(s => s.chapter_id === chapterId).map(s => s.id));
@@ -161,19 +213,31 @@ function sameRows(a,b) { assert.deepEqual(a,b); return true; }
 function verify(dir, sliceId) {
   const { ready, ui } = assertCommonEvidence(dir, { sliceId, minScreenshots: 2, minimumWaits: 4,
     requiredKinds: ["input","ack","turn","maintenance"] });
+  const c = config(dir, sliceId);
   const { wire, llmRecords, appRecords } = assertProviderAndWire(dir,
-    { minUserMessages: sliceId === INVENTORY ? 0 : 1 });
-  const driver = read(dir, RECORD), c = config(dir, sliceId);
+    { minUserMessages: sliceId === INVENTORY ? 0 : 1, expectProviders: [c.provider] });
+  const driver = read(dir, RECORD);
   assert.equal(driver.slice_id, sliceId);
   assert.deepEqual(driver.target,c.target);
   assert(checkProductionFingerprint(dir).unchanged);
   const a = read(dir, "start-db.json"), b = read(dir, "final-db.json"), workId = c.target.work_id;
   const role = sliceId === INVENTORY ? "fact_inventory" : "chapter_summary";
-  const calls = llmRecords.filter(r => r.request_body?.system?.run_role === role);
-  assert.equal(calls.length, 1, "auxiliary operation count changed");
-  const call = calls[0], { ir, rules, material } = auxiliaryRequest(call, role);
-  const checks = { real_tauri_and_provider: ready.provider === "slice_verify" && ui.scope === sliceId,
-    unique_effective_role: true, actual_material_separated: true, no_invented_author_or_run: true,
+  let calls, evidence, observation;
+  if (c.live) {
+    observation = observedProviderResponses(c.live, readProviderObservation(c.live.preregistration.proxy_dir), llmRecords);
+    // Explicit single-work inventory has no other model operations; an unexpected
+    // auxiliary call is a failed scoped proof, not a hidden extra sample.
+    calls = llmRecords;
+    evidence = liveInventoryRequest(calls, observation);
+  } else {
+    calls = llmRecords.filter(r => r.request_body?.system?.run_role === role);
+    assert.equal(calls.length, 1, "auxiliary operation count changed");
+    evidence = auxiliaryRequest(calls[0], role);
+  }
+  const call = calls.at(-1), { ir, rules, material, raw } = evidence;
+  const checks = { real_tauri_and_provider: ready.provider === c.provider && ui.scope === sliceId,
+    unique_effective_role: true, actual_material_separated: true,
+    ...(c.live ? { raw_sse_bound: true, no_fabricated_author_wire: true } : { no_invented_author_or_run: true }),
     production_unchanged_during_capture: true };
   if (sliceId === INVENTORY) {
     const sends = frames(wire,"sent","author_action");
@@ -185,6 +249,19 @@ function verify(dir, sliceId) {
     assert(result?.agent_run?.profile_ref === "fact_inventory_v1");
     const types = new Set(list(result.adoption_state?.pending).map(p => p.artifact_type));
     for (const type of ["character_seed","world_rule_seed","foreshadowing_seed"]) assert(types.has(type), type);
+    if (c.live) {
+      assert.equal(frames(wire,"sent","user_message").length,0);
+      const proposals = JSON.parse(raw.text.trim());
+      assert(Array.isArray(proposals) && proposals.length > 0);
+      for (const artifact of list(result.adoption_state?.pending)) {
+        for (const item of list(artifact.payload?.items)) {
+          assert(proposals.some(p => p.artifact_type === artifact.artifact_type &&
+            p.item_id === item.item_id && p.title === item.title && p.body === item.body),
+            "pending item not backed by raw response");
+        }
+      }
+      checks.candidate_items_bound_to_raw_response = true;
+    }
     for (const draft of own(a.drafts,workId).filter(d => d.status === "ACCEPTED")) {
       assert(nonBlank(draft.content) && material.includes(draft.content), "accepted seed material absent");
       assert(!rules.includes(draft.content), "prose in system");
@@ -231,8 +308,10 @@ function verify(dir, sliceId) {
       accepted_summary_bound_to_response: true, control_chapter_unchanged: true });
   }
   return writeNativeSummary(dir,{sliceId,checks,measured:{work_id:workId,auxiliary_calls:calls.length,
-    provider_call_ref:call.provider_call_ref,provider_run_ref:call.provider_run_ref},
-    extra:{evidence_boundary:evidenceBoundary(),known_limits:["CP2定向机制；不代签原综合场景、R08或实模语义"]}});
+    provider_call_ref:call.provider_call_ref,provider_run_ref:call.provider_run_ref,
+    ...(observation ? { http: observation.measured } : {})}, provider:c.provider,
+    extra:{evidence_boundary:c.live ? "真实 Tauri / 作者操作 / Splash 原始 HTTP/SSE / 应用记录与 DB。只签 R17 定向机制，不代签 R08。":evidenceBoundary(),
+      known_limits:[c.live ? "独立调用 wire 不公开 canonical run envelope；该内部边界由 CP2 原生及三 wire 测试验证。" : "CP2定向机制；不代签原综合场景、R08或实模语义"]}});
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [mode,dir,sliceId]=process.argv.slice(2);

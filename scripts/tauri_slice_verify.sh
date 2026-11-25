@@ -521,9 +521,14 @@ if [[ "$SLICE_ID" != "b47-canon-freshness" && "$SLICE_ID" != "su01-provider-heal
 fi
 fi
 fi
-if is_r17_auxiliary_slice "$SLICE_ID" && [[ "$NATIVE_SYSTEM_DRIVER" != "1" || "$SLICE_VERIFY_PROVIDER" != "slice_verify" ]]; then
-  echo "R17 auxiliary scoped mechanism acceptance requires native UI and slice_verify" >&2
-  exit 64
+if is_r17_auxiliary_slice "$SLICE_ID"; then
+  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then exit 64; fi
+  if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" ]]; then
+    if [[ "$SLICE_ID" != "r17-auxiliary-inventory" || "$SLICE_VERIFY_PROVIDER" != "splash" || ! -f "${R17_AUXILIARY_LIVE_PREREGISTRATION:-}" ]]; then
+      echo "R17 auxiliary live inventory requires frozen Splash preregistration" >&2
+      exit 64
+    fi
+  fi
 fi
 ARTIFACT_SUFFIX="-tauri"
 case "$SLICE_VERIFY_PROVIDER" in
@@ -2798,7 +2803,7 @@ restart_owned_backend() {
 
 RUNTIME_FACTS_PATH=""
 if [[ "$SLICE_ID" == "b87-r01-request-cost" || "${B29_NATIVE_MODE:-}" == "r03-candidate" ]] ||
-   [[ ( "$SLICE_ID" == "b33-authoring-intent-judgment-reliability" || "$SLICE_ID" == "b28-scope-authorization" ) && "$SLICE_VERIFY_PROVIDER" == "splash" ]] ||
+   [[ ( "$SLICE_ID" == "b33-authoring-intent-judgment-reliability" || "$SLICE_ID" == "b28-scope-authorization" || "$SLICE_ID" == "r17-auxiliary-inventory" ) && "$SLICE_VERIFY_PROVIDER" == "splash" ]] ||
    { [[ "$SLICE_VERIFY_PROVIDER" == "splash" ]] && is_b71_family_slice "$SLICE_ID"; }; then
   RUNTIME_FACTS_PATH="$ARTIFACT_DIR/runtime-facts.json"
 fi
