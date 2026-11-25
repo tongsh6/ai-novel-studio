@@ -1,16 +1,16 @@
 defmodule NovelApplication.AuthoringTaskPolicy do
   @moduledoc """
-  B27：判断/计划专业调用共用的创作任务规则。
+  B27/R17：判断角色的意图与操作规则、固定能力定义。
 
   共享段落（作者主权/事实边界/来源/材料完整性/完成声明/输出契约/重试纪律）唯一真源为
-  `NovelCommon.AuthoringSemantics.shared_rules/0`；本模块只组合判断/计划专属段与能力目录，
-  不再各写一份等价文本。事实由调用者按来源投影（不在此虚构作者意图/对象/范围）。
+  `NovelCommon.AuthoringSemantics.shared_rules/0`；计划/续行与专业角色不继承判断输出规则。
+  事实由调用者按来源投影（不在此虚构作者意图/对象/范围）。
   """
 
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Display
 
-  @version "b27-task-v6"
+  @version "b27-task-v7"
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
@@ -77,13 +77,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     """
   end
 
-  @doc "判断/计划提示词使用的规则文本：共享段落（单一真源）+ 判断计划专属段。"
-  def rules do
-    [AuthoringSemantics.shared_rules(), judgment_rules()]
-    |> Enum.join("\n")
-    |> String.trim()
-  end
-
   @doc "能力缺口说明的共同边界；判断规则与缺口工具直接消费。"
   @spec capability_gap_guidance() :: String.t()
   def capability_gap_guidance do
@@ -94,7 +87,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> String.trim()
   end
 
-  @doc "判断/计划专属规则（对话协作/取证/必要提问/能力缺口/自然表达）；不含作者主权等共享段。"
+  @doc "仅判断角色专属规则；共同规则由 AuthoringSemantics 独立提供。"
   def judgment_rules do
     """
     结合作者原话、对话历史和实际结果推进当前创作目标，作者无需使用工具名或固定句式。
@@ -143,7 +136,7 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> String.trim()
   end
 
-  @doc "仅 :judgment 输出的操作路由规则；不进入 continuation/agentic_plan 的共用 rules()。"
+  @doc "仅判断角色的操作路由规则，不用于续行、计划或专业调用。"
   def judgment_operation_rules do
     """
     固定能力与探索目录只说明定义，不授予执行权限；当前 Scope 的允许集、目标、权限和预算才是本轮边界。
@@ -190,7 +183,15 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   @doc "规则内容 hash：共享段、判断段或判断操作段变更必须改变它（供 prompt 捕获/漂移测试）。"
   def content_hash do
     @version
-    |> then(&[&1, AuthoringSemantics.content_hash(), rules(), judgment_operation_rules()])
+    |> then(
+      &[
+        &1,
+        AuthoringSemantics.content_hash(),
+        judgment_rules(),
+        judgment_operation_rules(),
+        judgment_scope_rules()
+      ]
+    )
     |> Enum.join("\n---\n")
     |> then(&(:sha256 |> :crypto.hash(&1) |> Base.encode16(case: :lower)))
   end

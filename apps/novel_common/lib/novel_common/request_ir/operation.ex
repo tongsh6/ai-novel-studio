@@ -2,7 +2,7 @@ defmodule NovelCommon.RequestIR.Operation do
   @moduledoc """
   B71 专业阶段与独立文本操作的纯请求构造边界。
 
-  首阶段建立规则 Base 与独立作者消息；后续阶段只追加完整角色规则和当前范围，
+  首阶段建立规则 Base 与独立作者消息；每次操作设置唯一当前角色 system，后续只追加当前范围，
   不改写既有历史，不把应用目标冒充新作者消息。权限、预算、执行和业务结果仍由应用负责。
   source_refs 只声明 Scope 来源；base_refs 由实际材料 owner 显式提供，不由来源推定。
   """
@@ -22,8 +22,7 @@ defmodule NovelCommon.RequestIR.Operation do
           optional(:author_text) => String.t() | nil,
           optional(:source_input_ref) => String.t() | nil,
           optional(:projection) => map(),
-          optional(:system_versions) => map(),
-          optional(:system_role) => String.t() | nil
+          optional(:system_versions) => map()
         }
 
   @doc """
@@ -87,7 +86,7 @@ defmodule NovelCommon.RequestIR.Operation do
              Map.get(spec, :source_input_ref)
            ),
          {:ok, ir} <- initial_ir(previous, run, spec, author_messages) do
-      ir = append_operation(ir, spec, not is_nil(previous))
+      ir = append_operation(ir, spec)
       with :ok <- RequestIR.validate(ir), do: {:ok, ir}
     end
   end
@@ -107,30 +106,13 @@ defmodule NovelCommon.RequestIR.Operation do
   end
 
   defp valid_spec_optionals?(spec) do
-    system_role = Map.get(spec, :system_role)
-
     Enum.all?([:source_refs, :base_refs], &is_list(Map.get(spec, &1, []))) and
-      Enum.all?([:versions, :projection, :system_versions], &is_map(Map.get(spec, &1, %{}))) and
-      optional_text?(system_role)
+      Enum.all?([:versions, :projection, :system_versions], &is_map(Map.get(spec, &1, %{})))
   end
-
-  defp optional_text?(value), do: is_nil(value) or is_binary(value)
 
   defp initial_ir(nil, run, spec, author_messages) do
     run = RequestIR.run_envelope(run)
     base_refs = Map.get(spec, :base_refs, [])
-    versions = Map.get(spec, :system_versions, %{})
-
-    # VS-00L §3.2/§19.1（2026-11-06 裁决 A）：角色规则与输出协议进入稳定 system 前缀；
-    # application_base 只声明应用数据职责与来源边界。
-    system =
-      RequestIR.system_envelope(
-        instructions: spec.instructions,
-        run_role: Map.get(spec, :system_role) || spec.role,
-        constitution_version: system_version(versions, :constitution_version),
-        output_protocol_version: system_version(versions, :output_protocol_version),
-        output_schema_ref: system_version(versions, :output_schema_ref)
-      )
 
     base =
       RequestIR.message(
@@ -143,7 +125,7 @@ defmodule NovelCommon.RequestIR.Operation do
     ir =
       RequestIR.new(%{
         run: run,
-        system: system,
+        system: operation_system(spec),
         messages: [base | author_messages],
         tools: [],
         projection: Map.merge(default_projection(), Map.get(spec, :projection, %{})),
@@ -160,6 +142,7 @@ defmodule NovelCommon.RequestIR.Operation do
        %{
          previous
          | run: envelope,
+           system: operation_system(spec),
            projection: Map.merge(previous.projection, Map.get(spec, :projection, %{}))
        }}
     end
@@ -191,7 +174,7 @@ defmodule NovelCommon.RequestIR.Operation do
     not is_nil(old) and not is_nil(new) and old != new
   end
 
-  defp append_operation(ir, spec, continued?) do
+  defp append_operation(ir, spec) do
     refs = Map.get(spec, :source_refs, [])
     base_refs = Map.get(spec, :base_refs, [])
 
@@ -204,7 +187,6 @@ defmodule NovelCommon.RequestIR.Operation do
         "change_reason" => spec.role
       })
 
-    ir = if continued?, do: RequestIR.append_application_notice(ir, spec.instructions), else: ir
     scope = RequestIR.json_value(spec.scope)
 
     scope =
@@ -216,6 +198,19 @@ defmodule NovelCommon.RequestIR.Operation do
     ir
     |> RequestIR.add_tools([spec.tool])
     |> RequestIR.append_scope_update(scope, versions, refs, base_refs)
+  end
+
+  # VS-00L §3.2 R17：system 是本次操作的有效规则，不是首角色的历史消息。
+  defp operation_system(spec) do
+    versions = Map.get(spec, :system_versions, %{})
+
+    RequestIR.system_envelope(
+      instructions: spec.instructions,
+      run_role: spec.role,
+      constitution_version: system_version(versions, :constitution_version),
+      output_protocol_version: system_version(versions, :output_protocol_version),
+      output_schema_ref: system_version(versions, :output_schema_ref)
+    )
   end
 
   defp system_version(versions, key) when is_map(versions) do

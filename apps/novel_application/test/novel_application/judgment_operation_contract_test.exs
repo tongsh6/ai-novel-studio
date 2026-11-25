@@ -467,15 +467,18 @@ defmodule NovelApplication.JudgmentOperationContractTest do
     assert scope.content["operation"]["available_operations"] == [allowed]
     base = Enum.find(first_request.messages, &(&1.role == "application_base"))
     assert [%{type: "text", text: base_text}] = base.blocks
+    assert base_text == NovelCommon.RequestIR.application_base_text()
+    assert first_request.system.run_role == "judgment"
 
-    [_, definitions_json] =
+    [_, definitions_and_output] =
       String.split(
-        base_text,
+        first_request.system.instructions,
         "判断角色固定定义（不是当前许可；当前允许集、目标、权限和预算以最新 Scope 为准）：\n",
         parts: 2
       )
 
-    definitions = Jason.decode!(definitions_json)
+    definitions =
+      definitions_and_output |> String.split("\n", parts: 2) |> hd() |> Jason.decode!()
 
     assert Enum.any?(definitions["capabilities"], fn entry ->
              entry["name"] == "plot_outline" and entry["display_name"] == "大纲规划"

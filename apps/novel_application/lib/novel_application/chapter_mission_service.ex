@@ -18,6 +18,7 @@ defmodule NovelApplication.ChapterMissionService do
   alias NovelApplication.AgentRunFlows.AuthoringSession
   alias NovelApplication.AuthoringOperation
   alias NovelApplication.AuthoringReadMaterials
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelCommon.RequestIR.Compaction
@@ -141,6 +142,9 @@ defmodule NovelApplication.ChapterMissionService do
   defp instructions(kind) do
     """
     #{intro_line(kind)}
+
+    #{AuthoringSemantics.shared_rules()}
+    #{AuthoringSemantics.author_narrative_rules()}
 
     要求：
     #{requirement_lines(kind)}

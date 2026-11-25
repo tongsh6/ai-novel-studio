@@ -55,7 +55,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     previous =
       RequestIR.new(%{
         run: run,
-        system: RequestIR.system_envelope(),
+        system: RequestIR.system_envelope(run_role: "writer", instructions: "只返回正文候选。"),
         projection: %{},
         refs: %{base_refs: [], observation_refs: [], used_refs: []},
         messages: [
@@ -68,16 +68,14 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
 
     assert {:ok, evaluator} = ProseQualityEvaluator.request_ir(%{request | request_ir: previous})
     assert Enum.take(evaluator.messages, length(previous.messages)) == previous.messages
-    assert evaluator.system == previous.system
+    assert evaluator.system == initial.system
+    assert evaluator.system.run_role == "quality_evaluation"
+    rules = evaluator.system.instructions
+    refute rules =~ "只返回正文候选。"
+    assert length(String.split(rules, AuthoringSemantics.shared_rules())) == 2
 
-    assert [
-             %{
-               role: "application_notice",
-               provenance: "application",
-               blocks: [%{type: "text", text: rules}]
-             },
-             %{role: "scope_update", provenance: "application"}
-           ] = Enum.drop(evaluator.messages, length(previous.messages))
+    assert [%{role: "scope_update", provenance: "application"}] =
+             Enum.drop(evaluator.messages, length(previous.messages))
 
     for ir <- [initial, evaluator] do
       assert ir.refs.base_refs == material_refs

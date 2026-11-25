@@ -2,9 +2,9 @@ defmodule NovelCommon.RequestIR.SystemEnvelope do
   @moduledoc """
   canonical request IR 的 system 事实边界（VS-00L §3.2/§4、§19.1）。
 
-  产品身份只认 `SystemIdentity` 真值；run 角色规则/输出协议与版本引用由调用方提供，
-  由本模块的 `system_text/1` 形成稳定 system 前缀（2026-11-06 作者裁决 A）。wire
-  投影属于 Provider 执行边界，只消费该稳定前缀。
+  产品身份只认 `SystemIdentity` 真值；当前操作角色规则/输出协议与版本引用由调用方提供，
+  `system_text/1` 形成同角色稳定 system 前缀；跨角色替换有效信封，不拼入历史消息。
+  wire 投影属于 Provider 执行边界，只消费本次有效 system。
   """
 
   alias NovelCommon.SystemIdentity

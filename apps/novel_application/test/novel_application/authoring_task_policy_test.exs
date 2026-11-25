@@ -5,19 +5,17 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Display
 
-  test "shared rules come from the single common source (no duplicate copy)" do
-    rules = AuthoringTaskPolicy.rules()
-
-    assert String.contains?(rules, AuthoringSemantics.shared_rules())
-    # 共享段只出现一次（单一真源，不得在判断段再抄一份）
-    assert length(String.split(rules, "作者是唯一裁决者")) == 2
-    assert String.contains?(rules, AuthoringTaskPolicy.judgment_rules())
-    assert String.contains?(rules, AuthoringSemantics.author_narrative_rules())
+  test "判断专属规则不复制共同规则" do
+    rules = AuthoringTaskPolicy.judgment_rules()
+    refute rules =~ AuthoringSemantics.shared_rules()
+    refute rules =~ "作者是唯一裁决者"
+    assert rules =~ AuthoringSemantics.author_narrative_rules()
     assert length(String.split(rules, "以实际作品和材料名称指明对象")) == 2
+    refute function_exported?(AuthoringTaskPolicy, :rules, 0)
   end
 
   test "judgment rules describe implemented revision guards without promising successful output" do
-    rules = AuthoringTaskPolicy.rules()
+    rules = AuthoringTaskPolicy.judgment_rules()
 
     refute rules =~ "首稿、续写、重写、修订、仅排版互斥"
     assert rules =~ "所有非换行字节保持不变"
@@ -37,7 +35,10 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
       "未知的人工操作或界面能力，不能说成可用，也不能断言不存在"
     ]
 
-    for text <- [AuthoringTaskPolicy.judgment_rules(), AuthoringTaskPolicy.rules()],
+    for text <- [
+          AuthoringTaskPolicy.judgment_rules(),
+          AuthoringTaskPolicy.capability_gap_guidance()
+        ],
         clause <- clauses do
       assert text =~ clause
       assert length(String.split(text, clause)) == 2
@@ -88,7 +89,7 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
   end
 
   test "version and content hash are stable and detect rule text changes" do
-    assert AuthoringTaskPolicy.version() == "b27-task-v6"
+    assert AuthoringTaskPolicy.version() == "b27-task-v7"
     assert AuthoringTaskPolicy.content_hash() == AuthoringTaskPolicy.content_hash()
     assert String.length(AuthoringTaskPolicy.content_hash()) == 64
     # hash 组合了共享真源 hash；共享真源变化必然改变策略 hash
@@ -96,7 +97,7 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
   end
 
   test "B33 CP2：判断规则包含动作意图必须 execute 或具体澄清、不得 reply/creative/await 终局" do
-    rules = AuthoringTaskPolicy.rules()
+    rules = AuthoringTaskPolicy.judgment_rules()
 
     assert rules =~ "写/续写/重写某章正文时"
     assert rules =~ "直接 execute prose_writing"
@@ -106,7 +107,7 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
   end
 
   test "负向取证允许诚实收束，排版规则与ADR-0029计划契约一致" do
-    rules = NovelApplication.AuthoringTaskPolicy.rules()
+    rules = AuthoringTaskPolicy.judgment_rules()
     assert rules =~ "目标不存在或没有已采纳原文"
     assert rules =~ "核查已经完成"
     assert rules =~ "必要材料齐备后必须回到execute"

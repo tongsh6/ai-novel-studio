@@ -70,7 +70,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert [ref | _] = observation.refs
     assert ref =~ "chapter:"
 
-    # 当前 Scope 只给允许名称；固定工具定义在初始 Base 中保持一次。
+    # 当前 Scope 只给允许名称；固定定义只属于当前判断角色的 system。
     [first_prompt_map, corrected_prompt] = drain_prompt_maps([])
     corrected_blocks = Enum.flat_map(corrected_prompt.messages, & &1.blocks)
     assert [failed] = Enum.filter(corrected_blocks, &(&1.type == "validation_result"))
@@ -90,8 +90,9 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     refute Map.has_key?(first_exploration, "catalog")
     base = Enum.find(first_prompt_map.messages, &(&1.role == "application_base"))
     base_text = NovelApplication.TestAgenticLoopFixtures.message_text(base)
-    assert base_text =~ ~s("tool":"prose_search")
-    assert base_text =~ "全文检索已采纳正文"
+    assert base_text == RequestIR.application_base_text()
+    assert first_prompt_map.system.instructions =~ ~s("tool":"prose_search")
+    assert first_prompt_map.system.instructions =~ "全文检索已采纳正文"
 
     # exploration_observed 阶段事件已发
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}

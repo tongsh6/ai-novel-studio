@@ -66,7 +66,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     previous =
       RequestIR.new(%{
         run: run,
-        system: RequestIR.system_envelope(),
+        system: RequestIR.system_envelope(run_role: "planner", instructions: "只返回计划工具调用。"),
         projection: %{},
         refs: %{base_refs: [], observation_refs: [], used_refs: []},
         messages: [
@@ -79,16 +79,14 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert {:ok, writer} = Real.request_ir(%{request | request_ir: previous})
     assert Enum.take(writer.messages, length(previous.messages)) == previous.messages
-    assert writer.system == previous.system
+    assert writer.system == initial.system
+    assert writer.system.run_role == "creative_execution"
+    rules = writer.system.instructions
+    refute rules =~ "只返回计划工具调用。"
+    assert length(String.split(rules, AuthoringSemantics.shared_rules())) == 2
 
-    assert [
-             %{
-               role: "application_notice",
-               provenance: "application",
-               blocks: [%{type: "text", text: rules}]
-             },
-             %{role: "scope_update", provenance: "application"}
-           ] = Enum.drop(writer.messages, length(previous.messages))
+    assert [%{role: "scope_update", provenance: "application"}] =
+             Enum.drop(writer.messages, length(previous.messages))
 
     for ir <- [initial, writer] do
       assert ir.refs.base_refs == material_refs

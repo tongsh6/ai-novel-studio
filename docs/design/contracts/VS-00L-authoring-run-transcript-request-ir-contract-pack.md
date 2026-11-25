@@ -76,6 +76,8 @@ trace_ref, created_at
 
 **system 落地（2026-11-06 作者裁决 A）**：`identity_ref` 由 `SystemIdentity` 唯一真源派生；`instructions` 承载本次 run 的角色规则与输出协议（判断/使命/计划/创作/评审与三个文本消费者均写入）；`constitution_version` 取 `AuthoringTaskPolicy.version()`、`output_protocol_version` 取工具契约/共同语义版本（`JudgmentToolContract.version()` 或 `AuthoringSemantics.version()`）。`output_schema_ref` 暂无统一真源，字段保留但当前不写入。`application_base` 只声明应用数据职责与来源边界（`RequestIR.application_base_text/0`），不承载角色规则；投影 system 前缀 = 身份原文 + 版本行 + 规则。
 
+**R17 当前角色裁决（2026-11-25，实施前）。** `system` 是本次 Provider 请求的有效角色与输出规则，不是全 run 首角色永久指令。首次与继承的专业操作均由现 `RequestIR.Operation.prepare/3` 设置完整当前 system；判断/续行由现 JudgmentProtocol 设置各自当前角色。共享规则仍由 AuthoringSemantics 唯一持有，每次角色规则只组合一次；计划/续行不得混入 Judgment 的 execute/reply 契约。判断固定能力定义随当前判断角色供给，不写入历史 application_base。`application_notice` 只承载实际应用反馈，不追加整份角色规则。跨角色允许 system 前缀改变，同角色连续请求保持静态 system 字节一致；I-CACHE-1 仍按同角色实际请求前缀测量，不为缓存保留错误角色。历史作者/模型消息、Scope、工具定义/调用/真实结果及版本原样保留；实际 Provider 请求日志记录各调用当时规则，checkpoint/restore 保留当前 system 字节，不重建或再拼共享规则。已有历史原件不重写、不以字符串判重/隐藏伪造 clean；历史运行记录与当前执行控制的迁移需据真实消费者核定。无新角色实体、表或第二套 IR，实际可执行工具仍由现 prepare_request/gate 裁决。
+
 ### 3.3 Tool call 与 observation 绑定
 
 - 每个 `assistant.tool_calls[i]` 有 `call_id`、`name`、`arguments`、`schema_version`、`dispatch_ref`（Orchestrator 决定记录）。

@@ -1456,7 +1456,10 @@ defmodule NovelApplication.JudgmentProtocolTest do
     content = Projection.system_text(request.system)
     [policy, output] = String.split(content, "## 决策与输出契约", parts: 2)
 
-    assert policy =~ AuthoringTaskPolicy.rules()
+    assert policy =~ AuthoringTaskPolicy.judgment_rules()
+    assert policy =~ NovelCommon.AuthoringSemantics.shared_rules()
+    assert length(String.split(content, NovelCommon.AuthoringSemantics.shared_rules())) == 2
+    assert request.system.run_role == "judgment"
     assert policy =~ AuthoringTaskPolicy.judgment_operation_rules()
     assert policy =~ "作者正文必须给出可直接阅读的结论"
     assert policy =~ "作者仅要求收下资料且不展开时，只简短确认收到"

@@ -394,7 +394,7 @@ defmodule NovelApplication.AuthoringTranscript do
   end
 
   # 产品身份（SystemIdentity 真源）是运行时常量，不随 transcript/checkpoint 持久化；
-  # 持久化与恢复只保留 run 级角色规则与版本引用（VS-00L §3.2/§4）。
+  # 持久化与恢复保留当前操作的角色规则和版本原字节，不重新组合共享规则。
   @system_run_fields [
     :instructions,
     :run_role,
@@ -403,7 +403,7 @@ defmodule NovelApplication.AuthoringTranscript do
     :output_schema_ref
   ]
 
-  @doc "只保留 run 级 system 规则（checkpoint 编码用；不含动态 system 文本）。"
+  @doc "只保留当前操作 system 规则（checkpoint 编码用；不含动态 system 文本）。"
   def system_run_rules(system) when is_map(system) do
     Map.take(system, @system_run_fields)
   end

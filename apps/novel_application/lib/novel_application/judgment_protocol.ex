@@ -3,6 +3,7 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.InferenceParams
   alias NovelApplication.AgentRunFlows.AuthoringSession
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.RequestIR
 
@@ -672,13 +673,8 @@ defmodule NovelApplication.JudgmentProtocol do
 
         transcript =
           AuthoringTranscript.new(envelope,
-            base_text: application_base_text(profile),
-            system:
-              RequestIR.system_envelope(
-                instructions: ir_base_text(input, profile),
-                constitution_version: AuthoringTaskPolicy.version(),
-                output_protocol_version: JudgmentToolContract.version()
-              ),
+            base_text: RequestIR.application_base_text(),
+            system: profile_system(profile),
             author_text: author_text(input, profile),
             allow_authorless: profile != :judgment,
             author_turn_ref: Map.get(input, :source_input_ref),
@@ -701,17 +697,19 @@ defmodule NovelApplication.JudgmentProtocol do
         end
 
       transcript ->
-        # 既有 transcript 只走追加规则；initial_scope 仅用于首轮最终构造。
-        {:ok, transcript}
+        # 角色切换只替换有效 system；历史消息、来源和回执不变。
+        {:ok, %{transcript | system: profile_system(profile)}}
     end
   end
 
-  defp application_base_text(:judgment) do
-    RequestIR.application_base_text() <>
-      AuthoringTaskPolicy.judgment_definitions(ExplorationService.catalog())
+  defp profile_system(profile) do
+    RequestIR.system_envelope(
+      run_role: Atom.to_string(profile),
+      instructions: profile_instructions(profile),
+      constitution_version: AuthoringTaskPolicy.version(),
+      output_protocol_version: JudgmentToolContract.version()
+    )
   end
-
-  defp application_base_text(:continuation), do: RequestIR.application_base_text()
 
   defp put_scope_work_id(envelope, scope) do
     case field(scope, :work_id) do
@@ -723,17 +721,19 @@ defmodule NovelApplication.JudgmentProtocol do
   defp author_text(input, _profile), do: Map.get(input, :author_text)
 
   # 稳定协议与运行事实分层；动态事实只能通过 scope_update 追加。
-  defp ir_base_text(_input, :judgment), do: judgment_base_text() <> judgment_output_text()
-  defp ir_base_text(_input, :continuation), do: continuation_base_text()
+  defp profile_instructions(:judgment), do: judgment_base_text() <> judgment_output_text()
+  defp profile_instructions(:continuation), do: continuation_base_text()
 
   defp judgment_base_text do
     """
     本次你直接与作者讨论作品，依据已知材料回应创作目标并选择下一步。
-    #{AuthoringTaskPolicy.rules()}
+    #{AuthoringSemantics.shared_rules()}
+    #{AuthoringTaskPolicy.judgment_rules()}
     #{AuthoringTaskPolicy.judgment_operation_rules()}
     #{AuthorContentRegistration.author_registration_rules()}
     #{TurnInteractionService.context_rules()}
     #{AuthoringTaskPolicy.judgment_scope_rules()}
+    #{AuthoringTaskPolicy.judgment_definitions(ExplorationService.catalog())}
     """
   end
 
@@ -781,7 +781,9 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp continuation_base_text do
     """
-    #{AuthoringTaskPolicy.rules()}
+    #{AuthoringSemantics.shared_rules()}
+    #{AuthoringSemantics.author_narrative_rules()}
+    #{AuthoringTaskPolicy.capability_gap_guidance()}
     本次根据真实产出与偏离判断是否继续当前任务，不再重复初始判断。
     可以按已有事实修正时用 continuation_decision，action=continue 并给具体 guidance。
     只有需要作者决定时用 ask_author；真正缺少能力效果用 report_capability_gap。

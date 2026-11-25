@@ -149,7 +149,7 @@ defmodule NovelCommon.RequestIR.OperationTest do
              Operation.prepare(nil, run, Map.delete(spec, :source_input_ref))
   end
 
-  test "续操作补齐新角色完整规则，保留原历史和观察，只合并新增来源与工具" do
+  test "续操作只设置当前角色 system，保留原历史和观察，只合并新增来源与工具" do
     first =
       specification("planner", "计划规则", %{operation: %{material: "计划范围"}}, "agent_plan_draft")
 
@@ -196,14 +196,20 @@ defmodule NovelCommon.RequestIR.OperationTest do
     assert {:ok, ir} = Operation.prepare(previous, nil, next)
     assert Enum.take(ir.messages, length(previous.messages)) == previous.messages
 
-    assert Enum.at(ir.messages, -2) ==
-             RequestIR.message(:application_notice, :application, [RequestIR.text_block("完整创作规则")])
+    assert [%{role: "scope_update"}] = Enum.drop(ir.messages, length(previous.messages))
 
     assert List.last(ir.messages).blocks == [
              RequestIR.scope_block(%{work_id: @run.work_id, operation: %{material: "  当前材料\n"}})
            ]
 
-    assert ir.system == previous.system
+    assert ir.system.run_role == "writer"
+    assert ir.system.instructions == "完整创作规则"
+    assert previous.system.run_role == "planner"
+    refute Projection.system_text(ir.system) =~ "计划规则"
+    assert {:ok, repeated} = Operation.prepare(ir, nil, next)
+    assert repeated.system == ir.system
+    assert Enum.take(repeated.messages, length(ir.messages)) == ir.messages
+    assert [%{role: "scope_update"}] = Enum.drop(repeated.messages, length(ir.messages))
 
     assert List.last(ir.messages).versions == %{
              "goal" => 2,

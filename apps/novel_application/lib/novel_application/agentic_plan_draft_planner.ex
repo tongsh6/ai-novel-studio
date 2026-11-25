@@ -13,6 +13,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   alias NovelAgent.Provider.{Execution, NativeToolExchange}
   alias NovelApplication.{AgentNarrativeSource, AuthoringOperation}
   alias NovelApplication.ProviderActivityProjector
+  alias NovelCommon.AuthoringSemantics
   alias NovelCommon.AuthorVisible.Text
   alias NovelCommon.Contracts.ToolArgumentSchema
   alias NovelDomain.{AgentPlan, AgentRun}
@@ -712,8 +713,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
     """
     本次你承担 #{role}的角色，只提出计划，不批准执行。
-    共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
-    #{NovelApplication.AuthoringTaskPolicy.rules()}
+    #{AuthoringSemantics.shared_rules()}
+    #{AuthoringSemantics.author_narrative_rules()}
 
     ## 可用能力说明
     #{step_catalog(run.profile_ref)}

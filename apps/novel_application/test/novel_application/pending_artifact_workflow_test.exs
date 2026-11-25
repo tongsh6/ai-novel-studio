@@ -874,9 +874,8 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     refute_received {:r08_revision_rules, _}
     assert result.tool_call_count == 1
     assert result.provider_call_count == 1
-    notice = Enum.find(Enum.reverse(prompt.messages), &(&1.role == "application_notice"))
-    assert notice.provenance == "application"
-    rules = canonical_message_text(notice)
+    assert prompt.system.run_role == "creative_execution"
+    rules = prompt.system.instructions
     shared_revision = NovelCommon.AuthoringSemantics.operation_rules(:revision)
     assert length(String.split(rules, shared_revision)) == 2
 
@@ -1143,10 +1142,9 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
     new_messages = Enum.drop(failed_transcript.messages, length(transcript.messages))
 
-    # 专业规则 notice 和修订 Scope 都必须保留；其后只追加真实 assistant/tool，
-    # 不得混入新的作者 user 纠错。
+    # 专业规则由当前 system 承载；历史只追加修订 Scope 和真实 assistant/tool，
+    # 不得混入新的作者 user 纠错或重复角色规则。
     assert Enum.map(new_messages, & &1.role) == [
-             "application_notice",
              "scope_update",
              "assistant",
              "tool"
@@ -1282,7 +1280,6 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     new_messages = Enum.drop(failed_transcript.messages, length(transcript.messages))
 
     assert Enum.map(new_messages, & &1.role) == [
-             "application_notice",
              "scope_update",
              "assistant",
              "tool",
@@ -1725,12 +1722,12 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert %{content: %{"operation" => operation}} =
              AuthoringTranscript.current_scope(transcript)
 
-    notice = Enum.find(Enum.reverse(canonical_messages), &(&1.role == "application_notice"))
-    assert notice.provenance == "application"
-    assert canonical_message_text(notice) =~ "本轮为修订"
+    assert canonical_ir.system == last_prompt.system
+    assert canonical_ir.system.run_role == "creative_execution"
+    assert canonical_ir.system.instructions =~ "本轮为修订"
 
     assert operation["revision"] == nil
-    assert canonical_message_text(notice) =~ "本任务实际目标范围的完整替换内容"
+    assert canonical_ir.system.instructions =~ "本任务实际目标范围的完整替换内容"
     assert operation["creative_brief"] == goal
     assert TestProviderPrompt.author_text(canonical_ir) == goal
 

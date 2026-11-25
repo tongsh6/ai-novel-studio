@@ -136,7 +136,7 @@ defmodule ICachePrefixDriver do
         options: [plan_run: %{run | goal: %{text: "写第二章", version: 2}}]
     }
 
-    shared = "所有动作均须经系统门禁放行。"
+    shared = "一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。"
 
     row =
       shared_prefix_row(

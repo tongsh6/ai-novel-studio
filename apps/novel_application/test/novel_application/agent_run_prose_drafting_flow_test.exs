@@ -314,18 +314,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              &(&1.name == "report_quality_findings")
            )
 
-    quality_message =
-      evaluator_prompt.messages
-      |> Enum.filter(
-        &String.contains?(
-          NovelApplication.TestAgenticLoopFixtures.message_text(&1),
-          "本次你承担小说正文质量评审助手的角色"
-        )
-      )
-      |> List.last()
+    assert evaluator_prompt.system.run_role == "quality_evaluation"
+    assert evaluator_prompt.system.instructions =~ "本次你承担小说正文质量评审助手的角色"
+    refute evaluator_prompt.system.instructions =~ "本次你承担小说正文写作助手的角色"
+    refute evaluator_prompt.system.instructions =~ "AgentRun 计划起草器"
 
-    assert quality_message
-    assert quality_message.role == "application_notice"
+    refute Enum.any?(evaluator_prompt.messages, fn message ->
+             message.role == "application_notice" and
+               Enum.any?(message.blocks, &(&1.type == "text"))
+           end)
+
+    assert length(
+             String.split(
+               TestAgenticLoopFixtures.prompt_text(evaluator_prompt),
+               NovelCommon.AuthoringSemantics.shared_rules()
+             )
+           ) == 2
+
     quality_scope = TestProviderPrompt.scope_content(evaluator_prompt)
     assert quality_scope["authoring_task"]["kind"] == "quality_evaluation"
     assert quality_scope["authoring_task"]["scope"]["coverage"] == "single"
