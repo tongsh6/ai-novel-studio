@@ -161,6 +161,17 @@ defmodule NovelCommon.RequestIR.MessageCoverage do
   def author_input_present?(messages),
     do: Enum.any?(messages, &(&1.role == "user" or &1.provenance == "author"))
 
+  @doc "当前可执行历史仅接受结构化拒收；旧自由文字仍可原样审计。"
+  def validate_execution_history(messages) do
+    valid? =
+      Enum.all?(messages, fn
+        %{role: "application_notice"} = notice -> valid_response_notice?(notice)
+        _ -> true
+      end)
+
+    if valid?, do: :ok, else: {:error, :retired_application_notice}
+  end
+
   @doc "RequestIR 与原文回查共用结构回执校验，不从自由文字推断接收状态。"
   def validate_response_validations(messages, run) do
     messages

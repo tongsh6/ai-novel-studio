@@ -19,20 +19,41 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
     ]
   end
 
-  test "prompt 渲染共享语义唯一真源（在 task 在场时）" do
-    {:ok, task} =
-      NovelApplication.AuxTaskBuilder.for_fact_inventory(%{
-        work_id: "w",
-        materials: materials()
-      })
+  defp capture_request(mats \\ materials(), opts \\ []) do
+    parent = self()
 
-    prompt = Inventory.inventory_prompt("正文", 2, [], [], [], task: task, materials: materials())
-    assert prompt =~ AuthoringSemantics.shared_rules()
-    assert length(String.split(prompt, AuthoringSemantics.shared_rules())) == 2
+    provider = %Execution{
+      result_fn: fn request ->
+        send(parent, {:inventory_request, request})
+        {:error, %{type: :capture_only, retryable: false}}
+      end
+    }
+
+    assert {:error, %{type: :capture_only}} = Inventory.inventory(mats, provider, opts)
+    assert_receive {:inventory_request, request}
+    request
+  end
+
+  defp capture_text(opts \\ []),
+    do: materials() |> capture_request(opts) |> NovelTest.TestProviderPrompt.text()
+
+  test "共享语义只在 system，材料和条件词表不改变固定角色" do
+    request = capture_request()
+    changed = capture_request([%{seq: 9, title: "不同章", prose: "新正文"}], known_characters: ["甲"])
+    assert request.system == changed.system
+    assert request.system.run_role == "fact_inventory"
+
+    assert length(String.split(request.system.instructions, AuthoringSemantics.shared_rules())) ==
+             2
+
+    refute request.system.instructions =~ "沈砚发现灵气被公司暗抽"
+    assert [%{role: "application_base", blocks: [%{text: base}]}] = request.messages
+    assert base =~ "沈砚发现灵气被公司暗抽"
+    refute base =~ AuthoringSemantics.shared_rules()
   end
 
   test "narrative_role 枚举由 NovelFoundation.Enums.NarrativeRole 单一真源插值（5 值，无 4/5 漂移）" do
-    prompt = Inventory.inventory_prompt("正文", 2)
+    prompt = capture_text()
     role_values = Enum.join(NarrativeRole.values(), " / ")
 
     assert prompt =~ role_values
@@ -44,9 +65,12 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
 
   test "artifact_type 词表来自 service 单一真源，含条件展开类型" do
     prompt =
-      Inventory.inventory_prompt("正文", 2, ["target_length"], [], [
-        %{ref: "foreshadow_m1", label: "矿区旧账"}
-      ])
+      capture_text(
+        missing_skeleton_fields: ["target_length"],
+        unresolved_foreshadows: [
+          %{ref: "foreshadow_m1", label: "矿区旧账"}
+        ]
+      )
 
     for type <-
           Inventory.inventory_artifact_types(
@@ -57,7 +81,7 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
     end
 
     # 无缺位/无未回收伏笔时不含条件类型
-    plain = Inventory.inventory_prompt("正文", 2)
+    plain = capture_text()
     refute plain =~ "work_skeleton_suggestion"
     refute plain =~ "foreshadowing_resolution"
 
@@ -72,7 +96,7 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
     assert text =~ "第1章 底层灵气账单｜章摘要（非正文全文）"
     assert text =~ "第3章 旧服务器里的残诀｜正文摘录｜摘录已截断"
 
-    prompt = Inventory.inventory_prompt(text, 2, [], [], [], materials: materials())
+    prompt = capture_text()
     assert prompt =~ "## 材料覆盖说明"
     assert prompt =~ "本轮材料覆盖 seq：1, 3"
     assert prompt =~ "缺材料/未列出的章 seq：2"
@@ -106,21 +130,21 @@ defmodule NovelApplication.CP3cInventoryTaskTest do
     prompts =
       for _ <- 1..2 do
         receive do
-          # 生产入口已改为 canonical RequestIR；文本断言读与 provider 同源的投影文本视图。
-          {:prompt, prompt} -> NovelTest.TestProviderPrompt.text(prompt)
+          {:prompt, prompt} -> prompt
         after
           0 -> flunk("expected two prompts")
         end
       end
 
     [first, corrected] = prompts
-    assert corrected =~ "保持原任务、材料范围"
+    assert corrected.system == first.system
+    assert Enum.take(corrected.messages, length(first.messages)) == first.messages
 
-    # 纠错请求 = 原任务 Base 文本 + 纠错说明前缀；断言原任务/材料范围逐字重放。
-    [original_task] =
-      first |> String.split("application_base】\n", parts: 2) |> Enum.drop(1)
+    assert [%{role: "scope_update", blocks: [%{type: "scope", content: content}]}] =
+             Enum.drop(corrected.messages, length(first.messages))
 
-    assert corrected =~ original_task
-    assert corrected =~ "not json"
+    assert content["context"]["prior_result"]["output_excerpt"] == "not json"
+    assert content["context"]["prior_result"]["correction"] =~ "保持原任务、材料范围"
+    assert :ok = NovelCommon.RequestIR.validate(corrected)
   end
 end

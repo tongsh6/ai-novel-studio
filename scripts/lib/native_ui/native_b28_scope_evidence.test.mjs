@@ -13,8 +13,14 @@ import { toolResultContent } from "./fixtures/authoring_request_ir.mjs";
 import { joinNativeCallEvidence } from "./authoring_call_evidence.mjs";
 import { sseBase } from "./fixtures/authoring_call_fixture.mjs";
 import { buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { chapterSummaryMaterial } from "./chapter_summary_maintenance_evidence.mjs";
 import { canonTables } from "./fixtures/native_b71_revision_facts.mjs";
 
+test("summary material separates actual fragment metadata from role rules", () => {
+  assert.equal(chapterSummaryMaterial({chapterId:"c",revisionBase:"draft:d:4",materialScope:"fragment",text:"原文。"}),
+    "## 对象与范围\n- 目标对象 refs：chapter:c\n- 对象类型：chapter\n- 覆盖范围：单对象/单段\n- 目标章 ref：chapter:c\n\n## 材料与覆盖\n- chapter_prose：chapter:c（版本 draft:d:4；不完整；省略说明：本次材料为单次采纳片段，不是整章已采纳正文）\n\n\n## 本次材料正文\n已采纳正文：\n原文。");
+  assert.throws(() => chapterSummaryMaterial({chapterId:"c",text:"原文。"}), /scope/);
+});
 const ORIGINAL_INPUTS = [
   ["P3", "把第03章里的「二十五岁」改成「三十岁」，其余逐字不变。"],
   ["N1", "不要整章重写，只改第03章第一段。"],
@@ -805,7 +811,7 @@ function maintainedAdoptionProof(options = { whole: true }) {
   const source = p.wire[2].frame[4].turn_id, chapterId = "chapter-target";
   const summaryMaterial = options.formatOnly ? p.expectedText : p.artifact.payload.items.map(item => item.body).join("\n\n");
   p.after.scope_rows.chapter_summaries.push({ id: "summary-adopted", work_id: scope.work_id, chapter_id: chapterId,
-    source_ref: source, revision_base: "draft:draft-new:4", status: "ACCEPTED", summary_text: MAINTENANCE_TEXT,
+    source_ref: source, revision_base: "draft:draft-new:4", material_scope: options.formatOnly ? "chapter" : "fragment", status: "ACCEPTED", summary_text: MAINTENANCE_TEXT,
     inserted_at: "2026-11-23T01:00:02.100Z", updated_at: "2026-11-23T01:00:02.100Z" });
   p.after.scope_rows.ledger_entries.push({ id: "ledger-emotion", work_id: scope.work_id, ledger: "emotion_curve",
     subject_ref: chapterId, subject_kind: "chapter", subject_label: "第03章", design_ref: null, status: "active",
@@ -820,7 +826,7 @@ function maintainedAdoptionProof(options = { whole: true }) {
       refs: { base_refs: [source, "chapter:" + chapterId], observation_refs: [], used_refs: [] },
       body: { model: MODEL, reasoning_effort: "high", max_tokens: 32000, stream: true,
         messages: [{ role: "system", content: "章节摘要使用四栏纯文本。" },
-          { role: "user", content: "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + summaryMaterial }] } },
+          { role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({chapterId,revisionBase:"draft:draft-new:4",materialScope:options.formatOnly?"chapter":"fragment",text:summaryMaterial}) }] } },
     response: { status: 200, body: { source: "sse_decoder", tool_calls: [] } },
   };
   const provider = bindProviderProof(base);
@@ -939,7 +945,7 @@ for (const [name, options, material] of [
 test("B28 local summary rejects substituting the full chapter for the actual accepted fragment", () => {
   const p = maintainedAdoptionProof({});
   p.provider.llmRecords[1].request.body.messages[1].content =
-    "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + p.expectedText;
+    "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({chapterId:"chapter-target",revisionBase:"draft:draft-new:4",materialScope:"fragment",text:p.expectedText});
   maintainedTransport(p);
   assert.equal(evidence.providerEvidenceChecks(p.provider).provider_auxiliary_bound, false);
 });

@@ -16,6 +16,23 @@ defmodule NovelApplication.FactInventoryServiceTest do
     ]
   end
 
+  defp capture_inventory(opts \\ []) do
+    parent = self()
+
+    assert {:ok, _} =
+             Inventory.inventory(
+               materials(),
+               provider(fn request ->
+                 send(parent, {:inventory_request, request})
+                 {:ok, %{content: valid_proposal_json()}}
+               end),
+               opts
+             )
+
+    assert_receive {:inventory_request, request}
+    NovelTest.TestProviderPrompt.text(request)
+  end
+
   defp valid_proposal_json do
     Jason.encode!([
       %{
@@ -105,18 +122,20 @@ defmodule NovelApplication.FactInventoryServiceTest do
 
   test "未回收伏笔核对段注入账面引用；无未回收时无该段" do
     prompt =
-      Inventory.inventory_prompt("正文", 2, [], [], [
-        %{ref: "foreshadow_m1", label: "伏笔：矿区旧账"}
-      ])
+      capture_inventory(
+        unresolved_foreshadows: [
+          %{ref: "foreshadow_m1", label: "伏笔：矿区旧账"}
+        ]
+      )
 
     assert prompt =~ "## 未回收伏笔核对"
     assert prompt =~ "[foreshadow_m1] 伏笔：矿区旧账"
     assert prompt =~ "foreshadowing_resolution"
-    refute Inventory.inventory_prompt("正文", 2) =~ "未回收伏笔核对"
+    refute capture_inventory() =~ "未回收伏笔核对"
   end
 
   test "提炼 prompt 含材料正文与结构化输出契约" do
-    prompt = Inventory.inventory_prompt(Inventory.build_material_text(materials()), 2)
+    prompt = capture_inventory()
     assert prompt =~ "设定盘点助手"
     assert prompt =~ "第1章 底层灵气账单"
     assert prompt =~ "残诀《碎影》"
@@ -266,7 +285,7 @@ defmodule NovelApplication.FactInventoryServiceTest do
   # 同名角色（M4 实锤）：盘点材料只有正文时，模型看不到档案已有谁，每次都把
   # 已在档角色当新发现重提，采纳后堆重复行。已在档名单进 prompt 消除该重复源。
   test "已在档角色进 prompt 并明示不要重复提案" do
-    prompt = Inventory.inventory_prompt("正文", 2, [], ["沈洛", "云栖"])
+    prompt = capture_inventory(known_characters: ["沈洛", "云栖"])
 
     assert prompt =~ "已登记的角色"
     assert prompt =~ "沈洛、云栖"
@@ -274,7 +293,7 @@ defmodule NovelApplication.FactInventoryServiceTest do
   end
 
   test "无已在档角色时 prompt 不出现该段（空档案首盘不加噪声）" do
-    prompt = Inventory.inventory_prompt("正文", 2, [], [])
+    prompt = capture_inventory()
     refute prompt =~ "已登记的角色"
   end
 
@@ -298,14 +317,14 @@ defmodule NovelApplication.FactInventoryServiceTest do
 
   test "CP4d：缺位字段时 prompt 才含全书规划指令段，且只列缺位字段" do
     prompt_with =
-      Inventory.inventory_prompt("正文", 2, ["target_length", "serial_form"])
+      capture_inventory(missing_skeleton_fields: ["target_length", "serial_form"])
 
     assert prompt_with =~ "work_skeleton_suggestion"
     assert prompt_with =~ "target_length"
     assert prompt_with =~ "serial_form"
     refute prompt_with =~ "planned_volumes：预计卷数"
 
-    prompt_without = Inventory.inventory_prompt("正文", 2, [])
+    prompt_without = capture_inventory()
     refute prompt_without =~ "work_skeleton_suggestion"
   end
 

@@ -227,20 +227,17 @@ defmodule NovelCommon.RequestIR.ToolResultProjectionTest do
     end
 
     @tag :r08_response_rejection
-    test "普通 text notice 保持逐字投影，即使正文引用未通过接收也不生成状态" do
+    test "旧自由 notice 原件仍可核对，但不再具有当前执行资格" do
       request = response_rejection_request()
       text = "  职责续行：原文中的「未通过接收」只是讨论材料。\r\n"
       notice = RequestIR.message(:application_notice, :application, [RequestIR.text_block(text)])
       request = %{request | messages: List.replace_at(request.messages, -1, notice)}
       assert :ok = RequestIR.validate(request)
+      assert List.last(request.messages).blocks == [RequestIR.text_block(text)]
+      assert {:error, :retired_application_notice} = RequestIR.prepare_request(request)
 
       for target <- ~w(chat_completions responses_api anthropic_messages) do
-        assert {:ok, body} = Projection.project(request, target)
-
-        assert List.last(response_wire_units(body, target)) ==
-                 {"user", "【应用数据 · application_notice · 非作者原话】\n" <> text}
-
-        refute Jason.encode!(body) =~ "\"validation_result\""
+        assert {:error, :retired_application_notice} = Projection.project(request, target)
       end
     end
 

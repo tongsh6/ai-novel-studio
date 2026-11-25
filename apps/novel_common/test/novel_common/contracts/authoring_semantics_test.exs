@@ -32,10 +32,8 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     )
   end
 
-  test "version and content hash are stable for identical canonical text" do
+  test "shared semantics keeps its explicit contract version" do
     assert AuthoringSemantics.version() == "b27-semantics-v7"
-    assert AuthoringSemantics.content_hash() == AuthoringSemantics.content_hash()
-    assert String.length(AuthoringSemantics.content_hash()) == 64
   end
 
   test "shared rule wiring and version boundaries do not upgrade historical tasks" do
@@ -131,10 +129,13 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     refute empty =~ "对象与范围"
   end
 
-  test "full render contains shared rules exactly once" do
-    rendered = AuthoringSemantics.render(task())
-    assert String.contains?(rendered, AuthoringSemantics.shared_rules())
-    assert length(String.split(rendered, "作者是唯一裁决者")) == 2
+  test "static and dynamic blocks own distinct facts; full mixed renderer retired" do
+    static = AuthoringSemantics.static_block(task())
+    dynamic = AuthoringSemantics.dynamic_block(task())
+    assert String.contains?(static, AuthoringSemantics.shared_rules())
+    assert length(String.split(static, "作者是唯一裁决者")) == 2
+    refute dynamic =~ AuthoringSemantics.shared_rules()
+    refute function_exported?(AuthoringSemantics, :render, 1)
   end
 
   test "validate accepts well-formed tasks (first draft and button-driven revision)" do

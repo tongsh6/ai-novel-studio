@@ -10,6 +10,7 @@ import {
 } from "../../native_b33_evidence.mjs";
 import { observeExternalModelService } from "../../native_b33_drive.mjs";
 import { buildAuthoringCanonSnapshot } from "./authoring_canon_evidence.mjs";
+import { chapterSummaryMaterial } from "./chapter_summary_maintenance_evidence.mjs";
 import { canonTables } from "./fixtures/native_b71_revision_facts.mjs";
 
 function fixture() {
@@ -456,9 +457,8 @@ function summaryProviderProof() {
         observation_refs: [], used_refs: [] },
       body: { model: proof.config.model, reasoning_effort: "high", max_tokens: 32000, stream: true,
         messages: [
-          { role: "system", content: "本轮任务：章节摘要。目标章 ref：chapter:" + SUMMARY_CHAPTER +
-            "\n严格按【情节推进】【人物状态与弧光】【伏笔动作】【情绪基调】四栏纯文本输出。" },
-          { role: "user", content: "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + SUMMARY_SOURCE },
+          { role: "system", content: "本轮任务：章节摘要。\n严格按【情节推进】【人物状态与弧光】【伏笔动作】【情绪基调】四栏纯文本输出。" },
+          { role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({chapterId:SUMMARY_CHAPTER,revisionBase:null,materialScope:"chapter",text:SUMMARY_SOURCE}) },
         ] } },
     response: { status: 200, body: { source: "sse_decoder", tool_calls: [] } },
   });
@@ -481,7 +481,7 @@ function summaryProviderProof() {
   final.at = "2026-11-23T01:00:04.000Z";
   final.scope_rows.chapter_summaries.push({ id: "summary-new", work_id: "work-current",
     chapter_id: SUMMARY_CHAPTER, source_ref: "summary_repair:" + SUMMARY_CHAPTER,
-    status: "ACCEPTED", summary_text: SUMMARY_TEXT, revision_base: null,
+    status: "ACCEPTED", summary_text: SUMMARY_TEXT, revision_base: null, material_scope: "chapter",
     inserted_at: "2026-11-23T01:00:03.000000Z", updated_at: "2026-11-23T01:00:03.000000Z" });
   proof.snapshots = { start: initial, final };
   summaryTransport(proof);
@@ -769,7 +769,7 @@ function adoptionSummaryProviderProof({ auxiliaryBeforeAck = false } = {}) {
   afterTables.memory_items.push(memory);
   afterTables.author_action_receipts.push(storedReceipt);
   const summary = { id: "summary-s4", work_id: scope.workId, chapter_id: SUMMARY_CHAPTER,
-    source_ref: S4_SOURCE_TURN, revision_base: S4_REVISION, status: "ACCEPTED", summary_text: SUMMARY_TEXT,
+    source_ref: S4_SOURCE_TURN, revision_base: S4_REVISION, material_scope: "fragment", status: "ACCEPTED", summary_text: SUMMARY_TEXT,
     inserted_at: "2026-11-23T01:00:03.000000Z", updated_at: "2026-11-23T01:00:03.000000Z" };
   const after = snapshot(afterTables, "2026-11-23T01:00:04.000Z", [sourceRow, actionRow], [mutation], [summary]);
   const final = snapshot(afterTables, "2026-11-23T01:00:04.100Z", [sourceRow, actionRow], [mutation], [summary]);
@@ -780,13 +780,8 @@ function adoptionSummaryProviderProof({ auxiliaryBeforeAck = false } = {}) {
   proof.llmRecords[1].ts = "2026-11-23T01:00:02.800Z";
   proof.llmRecords[1].request.refs.base_refs = [S4_SOURCE_TURN, "chapter:" + SUMMARY_CHAPTER];
   proof.llmRecords[1].request.body.messages = [
-    { role: "system", content: "本次你承担连续性维护助手的角色。\n本轮任务：章节摘要。\n" +
-      "## 对象与范围\n- 目标对象 refs：chapter:" + SUMMARY_CHAPTER + "\n- 对象类型：chapter\n" +
-      "- 覆盖范围：单对象/单段\n- 目标章 ref：chapter:" + SUMMARY_CHAPTER +
-      "\n## 材料与覆盖\n- chapter_prose：chapter:" + SUMMARY_CHAPTER + "（版本 " + S4_REVISION +
-      "；不完整；省略说明：本次材料为单次采纳片段，不是整章已采纳正文）\n" +
-      "严格按【情节推进】【人物状态与弧光】【伏笔动作】【情绪基调】四栏纯文本输出。" },
-    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + S4_PROSE },
+    { role: "system", content: "本次你承担连续性维护助手的角色。\n本轮任务：章节摘要。\n严格按【情节推进】【人物状态与弧光】【伏笔动作】【情绪基调】四栏纯文本输出。" },
+    { role: "user", content: "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({chapterId:SUMMARY_CHAPTER,revisionBase:S4_REVISION,materialScope:"fragment",text:S4_PROSE}) },
   ];
   proof.appRecords.push({ event: "ledger.update.done", outcome: "ok", timestamp: "2026-11-23T01:00:03.100Z",
     work_id: scope.workId, chapter_id: SUMMARY_CHAPTER });
@@ -809,7 +804,7 @@ for (const auxiliaryBeforeAck of [false, true]) {
     assert.equal(Object.hasOwn(proof.llmRecords[1], "agent_run_id"), false);
     assert.equal(proof.snapshots.S4.scope_rows.chapter_summaries[0].revision_base, S4_REVISION);
     assert.equal(proof.llmRecords[1].request.body.messages[1].content,
-      "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + S4_PROSE);
+      "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({chapterId:SUMMARY_CHAPTER,revisionBase:S4_REVISION,materialScope:"fragment",text:S4_PROSE}));
     if (auxiliaryBeforeAck) {
       const requested = proof.providerStream.events.find((event) =>
         event.request_id === "request-2" && event.event === "request_registered");

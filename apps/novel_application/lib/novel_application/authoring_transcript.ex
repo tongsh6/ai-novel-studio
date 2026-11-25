@@ -325,13 +325,6 @@ defmodule NovelApplication.AuthoringTranscript do
     end
   end
 
-  @doc "追加无工具调用时的应用协议反馈；它不是作者的新指令。"
-  @spec append_application_notice(t(), String.t()) :: t()
-  def append_application_notice(transcript, text) when is_binary(text) do
-    message = RequestIR.message(:application_notice, :application, [RequestIR.text_block(text)])
-    %{transcript | messages: transcript.messages ++ [message]}
-  end
-
   @doc "追加作者出口（机器消息链结束；不投影为 provider 消息）。"
   @spec append_author_exit(t(), String.t(), map()) :: t()
   def append_author_exit(transcript, kind, refs \\ %{}) do

@@ -736,9 +736,9 @@ function missionRepairFixture({ maintenance = true, chapterMission = false } = {
       body: { model, stream: true, reasoning_effort: "high", max_tokens: 32000,
         messages: [
           { role: "system", content: chapter
-            ? "本轮任务：章节摘要。目标章 ref：chapter:" + chapter : "请依据已供应材料回应作者。" },
+            ? "本轮任务：章节摘要。" : "请依据已供应材料回应作者。" },
           { role: "user", content: chapter
-            ? "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + text
+            ? "【应用数据 · application_base · 非作者原话】\n" + summaryEvidence.chapterSummaryMaterial({chapterId:chapter,revisionBase:null,materialScope:"chapter",text})
             : "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。" },
         ],
       },
@@ -788,7 +788,7 @@ function missionRepairFixture({ maintenance = true, chapterMission = false } = {
       { id: "summary-b", chapter_id: b, summary_text: summaryB, at: "07.000" },
     ].map(({ at, ...row }) => ({
       ...row, work_id: work, source_ref: "summary_repair:" + row.chapter_id,
-      revision_base: null, status: "ACCEPTED", inserted_at: repairTime(at), updated_at: repairTime(at),
+      revision_base: null, material_scope: "chapter", status: "ACCEPTED", inserted_at: repairTime(at), updated_at: repairTime(at),
     }));
     final.scope_rows.ledger_entries.push(
       ledger("arc-both", {

@@ -115,14 +115,32 @@ defmodule NovelApplication.SessionMessageReadResponseValidationTest do
         context
         |> transcript(run_id, "这一轮作者原话。")
         |> AuthoringTranscript.append_assistant("旧助手原文，没有结构接收回执。", [])
-        |> AuthoringTranscript.append_application_notice("旧纠错文字：未通过接收，但没有绑定的结构事实。")
+        |> then(
+          &%{
+            &1
+            | messages:
+                &1.messages ++
+                  [
+                    NovelTest.TestRequestIR.notice("旧纠错文字：未通过接收，但没有绑定的结构事实。")
+                  ]
+          }
+        )
         |> AuthoringTranscript.append_provider_result(%{
           content: "当前正常回复原文。",
           tool_calls: [],
           provider_call_ref: "pcall-" <> run_id,
           provider_run_ref: "prun-" <> run_id
         })
-        |> AuthoringTranscript.append_application_notice("普通职责续行，不对已有回复补标失败。")
+        |> then(
+          &%{
+            &1
+            | messages:
+                &1.messages ++
+                  [
+                    NovelTest.TestRequestIR.notice("普通职责续行，不对已有回复补标失败。")
+                  ]
+          }
+        )
 
       :ok = TestAgenticLoopFixtures.append_segment!(source, status: status)
 

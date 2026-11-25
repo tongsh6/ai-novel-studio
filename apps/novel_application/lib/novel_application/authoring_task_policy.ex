@@ -180,22 +180,6 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     |> String.trim()
   end
 
-  @doc "规则内容 hash：共享段、判断段或判断操作段变更必须改变它（供 prompt 捕获/漂移测试）。"
-  def content_hash do
-    @version
-    |> then(
-      &[
-        &1,
-        AuthoringSemantics.content_hash(),
-        judgment_rules(),
-        judgment_operation_rules(),
-        judgment_scope_rules()
-      ]
-    )
-    |> Enum.join("\n---\n")
-    |> then(&(:sha256 |> :crypto.hash(&1) |> Base.encode16(case: :lower)))
-  end
-
   @doc "当前真实能力目录的结构投影；机器名与效果仍来自 registry，作者称谓只取 Display 已登记的 capability。"
   def operation_data(options) do
     Enum.map(Keyword.get(options, :capabilities, []), fn name ->

@@ -223,7 +223,7 @@ function adoptedSummarySource(context, sourceRef, chapterId) {
   // 普通修订的维护材料是本次候选片段；排版计划才读取已采纳新整章。
   const text = formatOnly ? draft.content : items.map(item => item.body).join("\n\n");
   return { before, after, since: click.at, revisionBase: projection.source_revision_ref,
-    text: text.trim(), maintenance };
+    materialScope: formatOnly ? "chapter" : "fragment", text: text.trim(), maintenance };
 }
 
 // 身份关联归现 bindNativeCalls；这里只核本批 runtime、原生请求、完整 canonical 请求和覆盖分母。

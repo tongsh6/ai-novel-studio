@@ -812,13 +812,6 @@ defmodule NovelCommon.RequestIR do
     end
   end
 
-  @doc "追加无工具响应的应用协议反馈，不冒充作者输入。"
-  @spec append_application_notice(t(), String.t()) :: t()
-  def append_application_notice(%__MODULE__{} = ir, text) do
-    message = message(:application_notice, :application, [text_block(text)])
-    %{ir | messages: ir.messages ++ [message]}
-  end
-
   @doc "扩展当前工具目录；既有工具定义不被替换。"
   @spec add_tools(t(), [map()]) :: t()
   def add_tools(%__MODULE__{} = ir, tools) do
@@ -899,6 +892,7 @@ defmodule NovelCommon.RequestIR do
 
   def prepare_request(%__MODULE__{} = ir, opts) do
     with :ok <- validate(ir),
+         :ok <- MessageCoverage.validate_execution_history(ir.messages),
          :ok <- validate_request_ready(ir.messages),
          {:ok, tools} <- Tools.select(ir, Keyword.get(opts, :tool_names)) do
       tool_choice =

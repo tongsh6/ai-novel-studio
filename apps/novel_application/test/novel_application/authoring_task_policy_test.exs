@@ -88,12 +88,8 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
              AuthoringTaskPolicy.validate_judgment_options([capabilities: ["大纲规划"]], [])
   end
 
-  test "version and content hash are stable and detect rule text changes" do
+  test "judgment role keeps its explicit policy version" do
     assert AuthoringTaskPolicy.version() == "b27-task-v7"
-    assert AuthoringTaskPolicy.content_hash() == AuthoringTaskPolicy.content_hash()
-    assert String.length(AuthoringTaskPolicy.content_hash()) == 64
-    # hash 组合了共享真源 hash；共享真源变化必然改变策略 hash
-    assert AuthoringTaskPolicy.content_hash() =~ ~r/^[0-9a-f]{64}$/
   end
 
   test "B33 CP2：判断规则包含动作意图必须 execute 或具体澄清、不得 reply/creative/await 终局" do

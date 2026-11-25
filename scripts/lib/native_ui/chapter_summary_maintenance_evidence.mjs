@@ -251,12 +251,29 @@ function summaryPriorRowsPreserved(before, after, since, until) {
   });
 }
 
-function summaryStoredResult(row, status, sourceRef, revisionBase, raw, since, until) {
+function summaryStoredResult(row, status, sourceRef, revisionBase, materialScope, raw, since, until) {
   assert(row.status === status && row.source_ref === sourceRef && row.revision_base === revisionBase &&
+    row.material_scope === materialScope &&
     !raw.failed && raw.finish === "stop" && !raw.hasTools, "B33 summary row contradicts its source or provider result");
   assert.equal(row.summary_text, renderedSummary(raw.text), "B33 summary result does not match original response");
   const inserted = Date.parse(row.inserted_at), updated = Date.parse(row.updated_at);
   assert(inserted >= since && updated >= inserted && updated <= until, "B33 summary row is outside the actual call window");
+}
+
+// Independent wire expectation: scope comes from the actual adopted/repair source,
+// not from the summary response or from a reconstructed production prompt.
+export function chapterSummaryMaterial({chapterId, revisionBase, materialScope, text}) {
+  assert(nonEmpty(chapterId) && nonEmpty(text), "summary source missing");
+  assert(["chapter", "fragment"].includes(materialScope), "unknown summary material scope");
+  const ref = "chapter:" + chapterId;
+  const fragment = materialScope === "fragment";
+  const detail = [ ...(revisionBase ? ["版本 " + revisionBase] : []),
+    fragment ? "不完整" : "完整",
+    ...(fragment ? ["省略说明：本次材料为单次采纳片段，不是整章已采纳正文"] : []) ].join("；");
+  return ["## 对象与范围", "- 目标对象 refs：" + ref, "- 对象类型：chapter",
+    "- 覆盖范围：" + (fragment ? "单对象/单段" : "整章"), "- 目标章 ref：" + ref,
+    "", "## 材料与覆盖", "- chapter_prose：" + ref + "（" + detail + "）",
+    "", "", "## 本次材料正文", "已采纳正文：", text].join("\n");
 }
 
 export function summaryAuxiliaryFact(record, context) {
@@ -285,17 +302,19 @@ export function summaryAuxiliaryFact(record, context) {
       const afterSource = acceptedSummarySource(snapshots?.final, workId, chapterId);
       assert.deepEqual(afterSource.source, beforeSource.source, "B33 summary accepted source changed during batch");
       source = { before: snapshots.start, after: snapshots.final, since: snapshots.start.at,
-        text: afterSource.text, revisionBase: null, source_rows: beforeSource.source };
+        text: afterSource.text, revisionBase: null, materialScope: "chapter", source_rows: beforeSource.source };
     } else {
       assert(typeof context.adoptedSummarySource === "function", "unknown summary adoption owner");
       source = context.adoptedSummarySource(context, sourceRef, chapterId);
     }
     assert(nonEmpty(source.text), "B33 summary source is empty");
-    const material = "【应用数据 · application_base · 非作者原话】\n## 本次材料正文\n已采纳正文：\n" + source.text;
+    const material = "【应用数据 · application_base · 非作者原话】\n" + chapterSummaryMaterial({
+      chapterId, revisionBase: source.revisionBase, materialScope: source.materialScope, text: source.text });
     const messages = record.request.body.messages;
     assert(record.request.body.tools == null || (Array.isArray(record.request.body.tools) &&
       record.request.body.tools.length === 0), "B33 auxiliary request unexpectedly has tools");
     assert(messages.length === 2 && messages[0].role === "system" && messages[1].role === "user" &&
+      !messages[0].content.includes("## 对象与范围") && !messages[0].content.includes("## 材料与覆盖") &&
       messages[1].content === material, "B33 summary request is not the actual accepted material");
     const outcomes = source.maintenance ? [source.maintenance.summary] : appRecords.filter((row) =>
       ["chapter_summary_maintenance.run.done", "chapter_summary_maintenance.run.error"].includes(row.event) &&
@@ -314,7 +333,7 @@ export function summaryAuxiliaryFact(record, context) {
     assert(added.length <= 1 && summaryPriorRowsPreserved(before, after, times[1], times[2]),
       "B33 summary changed or removed an existing row beyond lawful supersede");
     Object.assign(fact, { source_ref: sourceRef, chapter_id: chapterId, work_id: workId,
-      revision_base: source.revisionBase, request_id: raw.request_id, response_status: raw.response_status,
+      revision_base: source.revisionBase, material_scope: source.materialScope, request_id: raw.request_id, response_status: raw.response_status,
       requested_at: raw.requested_at, completed_at: raw.completed_at, result_at: result.timestamp,
       ...(source.source_rows ? { source_rows: source.source_rows } : {}) });
     if (source.maintenance) fact.maintenance = source.maintenance;
@@ -322,7 +341,7 @@ export function summaryAuxiliaryFact(record, context) {
       assert(result.outcome === "ok" && result.status === "ACCEPTED" && result.four_column === true &&
         added.length === 1 && after.filter((row) => row.status === "ACCEPTED").length === 1,
         "B33 summary completion is not one new accepted result");
-      summaryStoredResult(added[0], "ACCEPTED", sourceRef, source.revisionBase, raw, times[1], times[2]);
+      summaryStoredResult(added[0], "ACCEPTED", sourceRef, source.revisionBase, source.materialScope, raw, times[1], times[2]);
       Object.assign(fact, { result: "accepted", summary_id: added[0].id });
     } else {
       assert(result.outcome === "error" && ["generation_failed", "persistence_failed"].includes(result.reason_code) &&
@@ -334,7 +353,7 @@ export function summaryAuxiliaryFact(record, context) {
           assert(!raw.failed && raw.finish === "stop" && !raw.hasTools, "B33 failed generation cannot change summaries");
           renderedSummary(raw.text);
         }
-        for (const row of added) summaryStoredResult(row, "TENTATIVE", sourceRef, source.revisionBase, raw, times[1], times[2]);
+        for (const row of added) summaryStoredResult(row, "TENTATIVE", sourceRef, source.revisionBase, source.materialScope, raw, times[1], times[2]);
       }
       Object.assign(fact, { result: raw.failed ? "provider_failed" : "degraded", reason_code: result.reason_code,
         tentative_summary_ids: added.map((row) => row.id) });

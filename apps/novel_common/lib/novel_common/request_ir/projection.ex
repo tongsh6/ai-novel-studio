@@ -11,6 +11,7 @@ defmodule NovelCommon.RequestIR.Projection do
 
   alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.DiscussionSummary
+  alias NovelCommon.RequestIR.MessageCoverage
   alias NovelCommon.RequestIR.SystemEnvelope
 
   @targets %{
@@ -29,9 +30,11 @@ defmodule NovelCommon.RequestIR.Projection do
   def project(%RequestIR{} = ir, target, opts) do
     module = Map.fetch!(@targets, target)
 
-    case module.project(ir, opts) do
-      {:error, _reason} = error -> error
-      body when is_map(body) -> {:ok, body}
+    with :ok <- MessageCoverage.validate_execution_history(ir.messages) do
+      case module.project(ir, opts) do
+        {:error, _reason} = error -> error
+        body when is_map(body) -> {:ok, body}
+      end
     end
   end
 

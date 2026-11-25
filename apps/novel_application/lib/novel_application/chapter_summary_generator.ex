@@ -99,7 +99,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
       """
       本次你承担连续性维护助手的角色。
 
-      #{AuthoringSemantics.render(task)}
+      #{AuthoringSemantics.static_block(task)}
 
       ## 角色输出格式
       严格按以下四栏输出，每栏一行，保留方括号标签；摘要不是全文，不要输出正文原句、
@@ -110,6 +110,9 @@ defmodule NovelApplication.ChapterSummaryGenerator do
 
     material =
       """
+      #{AuthoringSemantics.dynamic_block(task)}
+
+
       ## 本次材料正文
       已采纳正文：
       #{prose}

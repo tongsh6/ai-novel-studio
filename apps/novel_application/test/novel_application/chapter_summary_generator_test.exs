@@ -91,6 +91,43 @@ defmodule NovelApplication.ChapterSummaryGeneratorTest do
     refute prompt =~ "这一章的已采纳正文"
   end
 
+  test "不同章材料与来源版本不改变摘要角色 system" do
+    provider = capture_provider(self(), @four_column)
+
+    requests =
+      for {id, version, prose} <- [
+            {"chapter-1", "draft:a:1", "甲正文"},
+            {"chapter-2", "draft:b:2", "乙正文"}
+          ] do
+        assert {:ok, _} =
+                 ChapterSummaryGenerator.generate(
+                   %{
+                     task: task(%{chapter_id: id, revision_base: version, prose_text: prose}),
+                     prose_text: prose
+                   },
+                   provider
+                 )
+
+        assert_receive {:summary_prompt, request}
+        assert [%{role: "application_base", blocks: [%{text: material}]}] = request.messages
+        assert material =~ prose
+        assert material =~ version
+        refute request.system.instructions =~ version
+        refute request.system.instructions =~ prose
+        refute material =~ AuthoringSemantics.shared_rules()
+        request
+      end
+
+    [a, b] = requests
+    assert a.system == b.system
+
+    for request <- requests do
+      for target <- ~w(chat_completions anthropic_messages responses_api) do
+        assert {:ok, _} = RequestIR.Projection.project(request, target)
+      end
+    end
+  end
+
   test "整章补做路径标注 complete?：省略注记消失" do
     whole = task(%{material_scope: :chapter})
     material = hd(whole.materials)

@@ -206,7 +206,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         author_text: "  作者原话\n"
       )
 
-    latest = AuthoringTranscript.append_application_notice(planned, "实际步骤已完成。")
+    latest =
+      AuthoringTranscript.append_scope_update(
+        planned,
+        %{work_id: planned.run.work_id, context: %{progress: "实际步骤已完成。"}},
+        %{"scope_revision" => 1, "change_reason" => "step_completed"},
+        [],
+        []
+      )
 
     step = fn run, sequence, snapshot ->
       send(parent, {:execution_transcript, snapshot.stage_state[:judgment_transcript]})

@@ -248,13 +248,6 @@ defmodule NovelCommon.AuthoringSemantics do
     |> Enum.join("\n\n")
   end
 
-  @doc "完整渲染（静态段 + 动态段）；L4 决策约束仍由调用点按 VS-00I 置尾。"
-  def render(%AuthoringTask{} = task) do
-    [static_block(task), dynamic_block(task)]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
-  end
-
   # 按任务类型要求至少一种真实材料（防止「合法空材料」让范围声明失去依据）。
   @required_material_kinds %{
     quality_evaluation: [:prose, :chapter_prose],
@@ -282,25 +275,6 @@ defmodule NovelCommon.AuthoringSemantics do
   end
 
   def validate(_other), do: {:error, {:authoring_task_invalid, :not_a_task}}
-
-  @doc "静态语义内容 hash：同一版本+规则=同一 hash；规则文本变更必须改变它。"
-  def content_hash do
-    payload =
-      [
-        @version,
-        shared_rules(),
-        author_narrative_rules(),
-        kind_effects()
-        |> Enum.sort()
-        |> Enum.map_join("\n", fn {kind, effects} -> "#{kind}=#{Enum.join(effects, ",")}" end),
-        @operation_rules
-        |> Enum.sort()
-        |> Enum.map_join("\n\n", fn {kind, rules} -> "#{kind}:\n#{String.trim(rules)}" end)
-      ]
-      |> Enum.join("\n---\n")
-
-    :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
-  end
 
   # ── sections ───────────────────────────────────────────────
 

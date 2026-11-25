@@ -156,14 +156,20 @@ defmodule NovelAgent.Provider.NativeToolExchangeResponseValidationTest do
   end
 
   @tag :r08_response_rejection
-  test "R08 无工具拒收：普通职责通知即使提到拒收也不把已有回复标成失败" do
+  test "R08 无工具拒收：当前 Scope 引用拒收字样不把已有回复标成失败" do
     initial = response_rejection_ir()
 
     {initial, _} =
       RequestIR.append_assistant_result(initial, response_result("先前的正常讨论。", "r08-prior"))
 
-    instruction = "职责续行：材料中的「未通过接收」只是引用，接下来按当前计划工具输出。"
-    initial = RequestIR.append_application_notice(initial, instruction)
+    quotation = "材料中的「未通过接收」只是引用。"
+
+    initial =
+      RequestIR.append_scope_update(initial, %{
+        work_id: initial.run.work_id,
+        context: %{quoted_material: quotation}
+      })
+
     good = Map.merge(native_result("r08-success", %{plan: "合法计划"}), response_refs("r08-success"))
     {provider, calls} = scripted_provider([{:ok, good}])
 
@@ -171,10 +177,12 @@ defmodule NovelAgent.Provider.NativeToolExchangeResponseValidationTest do
     assert session.provider_call_count == 1
     assert length(calls.()) == 1
     assert response_rejection_receipts(session.request_ir) == []
-    assert [notice] = Enum.filter(session.request_ir.messages, &(&1.role == "application_notice"))
-    assert notice.blocks == [RequestIR.text_block(instruction)]
-    refute Map.has_key?(notice, :provider_call_ref)
-    refute Map.has_key?(notice, :provider_run_ref)
+    assert [] = Enum.filter(session.request_ir.messages, &(&1.role == "application_notice"))
+
+    assert Enum.any?(session.request_ir.messages, fn message ->
+             message.role == "scope_update" and
+               Enum.any?(message.blocks, &(&1.content["context"]["quoted_material"] == quotation))
+           end)
   end
 
   @tag :r08_response_rejection

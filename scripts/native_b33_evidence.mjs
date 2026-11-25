@@ -618,7 +618,7 @@ function adoptedSummarySource({ config, wire, scenarioScopes, driverLog, snapsho
   });
   assert(maintenance, "B33 adopted summary background work has no complete terminal pair");
   return { before, after, since: sent.at, revisionBase: projection.source_revision_ref, maintenance,
-    text: selection.artifact.payload.items.map((item) => item.body).join("\n\n").trim() };
+    materialScope: "fragment", text: selection.artifact.payload.items.map((item) => item.body).join("\n\n").trim() };
 }
 
 

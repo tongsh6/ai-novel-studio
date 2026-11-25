@@ -78,6 +78,8 @@ trace_ref, created_at
 
 **R17 当前角色裁决（2026-11-25，实施前）。** `system` 是本次 Provider 请求的有效角色与输出规则，不是全 run 首角色永久指令。首次与继承的专业操作均由现 `RequestIR.Operation.prepare/3` 设置完整当前 system；判断/续行由现 JudgmentProtocol 设置各自当前角色。共享规则仍由 AuthoringSemantics 唯一持有，每次角色规则只组合一次；计划/续行不得混入 Judgment 的 execute/reply 契约。判断固定能力定义随当前判断角色供给，不写入历史 application_base。`application_notice` 只承载实际应用反馈，不追加整份角色规则。跨角色允许 system 前缀改变，同角色连续请求保持静态 system 字节一致；I-CACHE-1 仍按同角色实际请求前缀测量，不为缓存保留错误角色。历史作者/模型消息、Scope、工具定义/调用/真实结果及版本原样保留；实际 Provider 请求日志记录各调用当时规则，checkpoint/restore 保留当前 system 字节，不重建或再拼共享规则。已有历史原件不重写、不以字符串判重/隐藏伪造 clean；历史运行记录与当前执行控制的迁移需据真实消费者核定。无新角色实体、表或第二套 IR，实际可执行工具仍由现 prepare_request/gate 裁决。
 
+**R17 CP2 专业文本操作与历史边界（2026-11-25，作者确认后实施）。** 章摘要/设定盘点复用独立 `Operation.text_operation/1`，现共同 `static_block` 与角色固定输出纪律归 system，现 `dynamic_block`、实际材料、条件词表/缺位/在档事实归 Base；退役完整 render 与盘点旧 prompt builder，不另建渲染器。盘点坏 JSON 的既定一次重试保留同一 system、同一 Base 和实际任务，以版本化 Scope 的 prior_result/纠错事实供给本次真实失败片段及原因，不伪造独立文本调用没有的 AgentRun、工具回执或作者原话。当前执行的 application_notice 只允许现有结构化响应拒收，旧纯文字 notice 不再有生产构造入口；真实旧日志/会话原件可供原文审计但不作为当前有效执行控制，发现不满足当前执行形状的历史显式拒收而非静默过滤、猜测或删数据。实际 dev DB canonical 记录数为 0、按 Tauri 代码约定定位的默认/已见 profile 未发现作品 DB；没有实际旧行可据以迁移，不建假想数据迁移/兼容双轨，也不宣称全机器无历史。若后来发现存量，须单独核原始来源及安全迁移，不能改作者资产或伪造回执。
+
 ### 3.3 Tool call 与 observation 绑定
 
 - 每个 `assistant.tool_calls[i]` 有 `call_id`、`name`、`arguments`、`schema_version`、`dispatch_ref`（Orchestrator 决定记录）。

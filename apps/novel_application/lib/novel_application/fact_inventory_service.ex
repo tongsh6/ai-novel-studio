@@ -20,6 +20,7 @@ defmodule NovelApplication.FactInventoryService do
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
+  alias NovelCommon.RequestIR
   alias NovelCommon.RequestIR.Operation
   alias NovelDomain.TentativeArtifactSet
   alias NovelFoundation.Enums.NarrativeRole
@@ -134,19 +135,18 @@ defmodule NovelApplication.FactInventoryService do
       normalize_unresolved_foreshadows(Keyword.get(opts, :unresolved_foreshadows, []))
 
     with {:ok, task} <- inventory_task(materials, opts) do
-      prompt =
-        inventory_prompt(
-          build_material_text(materials),
-          length(materials),
+      request =
+        inventory_request(
+          materials,
+          task,
           missing_fields,
           known_characters,
-          unresolved_foreshadows,
-          Keyword.merge(opts, task: task, materials: materials)
+          unresolved_foreshadows
         )
 
       case Execution.result_fn(provider_execution) do
         result_fn when is_function(result_fn, 1) ->
-          do_extract(prompt, result_fn, _retry? = true, _attempt = 1)
+          do_extract(request, result_fn, _retry? = true, _attempt = 1)
 
         _ ->
           {:error, :provider_execution_missing}
@@ -230,14 +230,14 @@ defmodule NovelApplication.FactInventoryService do
 
   # 携带失败片段重试一次，再失败才报错（real.ex 坏 JSON 同模式）。
   defp do_extract(prompt, result_fn, retry?, attempt) do
-    case invoke(prompt, result_fn) do
+    case result_fn.(prompt) do
       {:ok, %{content: content} = result} ->
         case parse_proposal(content, provider_call_ref(result)) do
           {:ok, proposal} ->
             {:ok, proposal, %{provider_call_count: attempt}}
 
           {:error, _} when retry? ->
-            do_extract(correction_prompt(prompt, content), result_fn, false, attempt + 1)
+            do_extract(correction_request(prompt, content), result_fn, false, attempt + 1)
 
           {:error, reason} ->
             {:error, reason}
@@ -258,18 +258,6 @@ defmodule NovelApplication.FactInventoryService do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  # 独立文本操作没有 AgentRun：以真实操作 profile 构造 canonical IR，材料作为
-  # application_base 进入统一投影；不伪造 run/session 或作者消息。
-  defp invoke(text, result_fn) do
-    result_fn.(
-      Operation.text_operation(%{
-        profile_ref: "fact_inventory",
-        text: text,
-        system: [run_role: "fact_inventory"]
-      })
-    )
   end
 
   @doc """
@@ -356,61 +344,42 @@ defmodule NovelApplication.FactInventoryService do
   defp material_kind_label(:chapter_summary), do: "章摘要（非正文全文）"
   defp material_kind_label(_kind), do: "正文摘录"
 
-  @doc false
-  @spec inventory_prompt(
-          String.t(),
-          non_neg_integer(),
-          [String.t()],
-          [String.t()],
-          [map()],
-          keyword()
-        ) ::
-          String.t()
-  def inventory_prompt(
-        material_text,
-        chapter_count,
-        missing_skeleton_fields \\ [],
-        known_characters \\ [],
-        unresolved_foreshadows \\ [],
-        opts \\ []
-      ) do
-    task = Keyword.get(opts, :task)
-    materials = Keyword.get(opts, :materials, [])
+  # 唯一生产请求构造：固定角色/输出纪律与实际材料、当前允许类型各归其位。
+  defp inventory_request(
+         materials,
+         task,
+         missing_fields,
+         known_characters,
+         unresolved_foreshadows
+       ) do
     role_values = NarrativeRole.values() |> Enum.join(" / ")
 
     artifact_types =
       inventory_artifact_types(
-        missing_skeleton_fields: missing_skeleton_fields,
+        missing_skeleton_fields: missing_fields,
         unresolved_foreshadows: unresolved_foreshadows
       )
 
-    semantics =
-      case task do
-        %AuthoringTask{} = task -> AuthoringSemantics.render(task)
-        _ -> ""
-      end
-
-    """
-    本次你承担小说设定盘点助手的角色。材料为作品已写章节的正文摘录或章摘要
-    （#{chapter_count} 条，逐章来源/版本/截断见「材料清单」）；请从材料中反向提炼出
+    instructions = """
+    本次你承担小说设定盘点助手的角色。请从实际供应的正文摘录或章摘要中反向提炼
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
-    #{semantics}
-    #{material_coverage_note(materials)}#{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
+
+    #{AuthoringSemantics.static_block(task)}
+
     ## 盘点映射要求
     - 主角：找出材料中的核心视角人物/主角（可多个），narrative_role 取 #{role_values} 之一。
     - 世界规则：材料中反复出现、支撑剧情的世界观规则或设定。
     - 伏笔：材料中埋下但尚未回收的线索。
     - 每项标注依据（出现的章）。
-    #{skeleton_prompt_section(missing_skeleton_fields)}
+
     ## 输出契约
     只返回 JSON 数组，不要附加任何额外文字。每项必须包含：
-    - "artifact_type"：只能是 #{Enum.join(artifact_types, " / ")}
+    - "artifact_type"：只能使用材料中本轮允许的类型。
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：角色名、规则短名或伏笔短名
     - "body"：从材料提炼出的具体设定
     - "rationale"：依据章节；没有则 null
-    - character_seed 另带 "narrative_role"：
-      #{role_values} 之一
+    - character_seed 另带 "narrative_role"：#{role_values} 之一
     - character_seed 可带 "role"：一句话身份描述（用作品语境写）；材料没有依据就省略
     - character_seed 可带 "aliases"：字符串数组，材料中实际出现过的别称/化名/旧名；
       没有就省略，不要编造
@@ -426,12 +395,32 @@ defmodule NovelApplication.FactInventoryService do
       {"artifact_type":"world_rule_seed","item_id":"rule_x","title":"规则短名",
        "body":"规则内容","rationale":"依据第N章"},
       {"artifact_type":"foreshadowing_seed","item_id":"foreshadow_x","title":"伏笔短名",
-       "body":"伏笔内容","rationale":"依据第N章"}#{skeleton_prompt_example(missing_skeleton_fields)}
+       "body":"伏笔内容","rationale":"依据第N章"}
     ]
+    """
+
+    material = """
+    #{AuthoringSemantics.dynamic_block(task)}
+
+    本轮材料 #{length(materials)} 条，逐章来源/版本/截断见「材料清单」。
+    本轮允许的 artifact_type：#{Enum.join(artifact_types, " / ")}
+    #{material_coverage_note(materials)}#{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
+    #{skeleton_prompt_section(missing_fields)}
 
     材料清单：
-    #{material_text}
+    #{build_material_text(materials)}
     """
+
+    Operation.text_operation(%{
+      profile_ref: "fact_inventory",
+      text: String.trim(material),
+      system: [
+        run_role: "fact_inventory",
+        instructions: String.trim(instructions),
+        constitution_version: NovelApplication.AuthoringTaskPolicy.version(),
+        output_protocol_version: AuthoringSemantics.version()
+      ]
+    })
   end
 
   # 材料覆盖说明（B27 CP3c / I1）：只陈述真实材料范围与缺口，不虚构总章数。
@@ -526,29 +515,24 @@ defmodule NovelApplication.FactInventoryService do
     """
   end
 
-  defp skeleton_prompt_example([]), do: ""
-
-  defp skeleton_prompt_example(_missing_fields) do
-    """
-    ,
-      {"artifact_type":"#{@skeleton_suggestion_type}","item_id":"skeleton_target_length",
-       "title":"目标体量","body":"按已写节奏推断全书约 30 万字","rationale":"依据前 N 章体量",
-       "skeleton_field":"target_length","skeleton_value":300000}
-    """
-    |> String.trim_trailing()
-  end
-
-  defp correction_prompt(original_prompt, failed_content) do
-    """
-    你上一次的输出不是合法 JSON 提案。请严格重新输出同一个任务（保持原任务、材料范围
-    与输出契约不变，只修正 JSON 协议格式）：每项都要带
-    artifact_type / item_id / title / body / rationale，不要输出 JSON 以外的任何文字。
-
-    #{original_prompt}
-
-    上次的错误输出（供参考，请修正为合法 JSON）：
-    #{String.slice(failed_content, 0, 500)}
-    """
+  defp correction_request(request, failed_content) do
+    RequestIR.append_scope_update(
+      request,
+      %{
+        context: %{
+          prior_result: %{
+            status: "rejected",
+            reason_code: "inventory_json_invalid",
+            output_excerpt: String.slice(failed_content, 0, 500),
+            correction: "你上一次的输出不是合法 JSON 提案。保持原任务、材料范围与输出契约不变，只修正 JSON 协议格式。"
+          }
+        }
+      },
+      %{
+        scope_revision: RequestIR.next_scope_revision(request),
+        change_reason: "inventory_correction"
+      }
+    )
   end
 
   defp validate_and_group(decoded, provider_call_ref) do
